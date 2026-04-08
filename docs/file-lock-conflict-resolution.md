@@ -70,15 +70,30 @@ agent.steer({
 });
 ```
 
-## Cross-Feature Conflicts
+## Cross-Feature Overlap Protocol
 
-If two different feature branches touch the same file, the file-lock system does **not** suspend one task and reset it to `main`. Those overlaps are allowed to proceed independently until feature integration time.
+Cross-feature overlap is handled more conservatively than same-feature file locks. Detection may come from any of three sources: planner reservations, write-prehook path checks, or actual git overlap. Reservation overlap alone is only a scheduling penalty. Runtime overlap from the write prehook or git state triggers active coordination.
 
-Cross-feature conflict handling:
-1. Each feature finishes work on its own branch.
-2. The completed feature enters `merge_queued` collaboration control.
-3. The merge train rebases the feature branch onto the latest `main`.
-4. If rebase or integration checks fail because of cross-feature overlap, the feature enters `conflict` collaboration control and usually `replanning` work control.
+### Runtime Coordination Algorithm
+
+1. Detect an overlap incident between two features using normalized project-root-relative file paths.
+2. Choose **primary** and **secondary** once per feature pair, not per file, to avoid split-brain ownership. Ranking order:
+   a. explicit dependency predecessor wins
+   b. nearer-to-merge feature wins (`integrating` > `merge_queued` > `verifying` > `executing`)
+   c. older feature request / branch-open time wins
+   d. feature blocking more downstream dependents wins
+   e. larger changed-line count wins
+   f. lexical feature id is the final tie-breaker
+3. Pause only the secondary feature's tasks that touch the overlapped paths.
+4. When a paused task exits execute mode, release its active path locks; reservations remain as planning metadata.
+5. Let the primary feature continue.
+6. If the secondary feature remains blocked on the primary for more than 8 hours, raise a warning.
+7. After the primary feature merges into `main`, rebase the secondary feature branch onto the updated `main`.
+8. If that rebase succeeds, notify the paused secondary tasks, have them rebase their task worktrees onto the updated feature branch, reacquire active path locks lazily on future writes, and resume.
+9. If the feature-branch rebase fails, create an integration repair task on the secondary feature branch and keep affected tasks paused until it lands.
+10. If `ort` merge and the configured verification checks pass, continue normally; otherwise escalate to replanning.
+
+Glob reservations remain available as an escape hatch, but they are intentionally heavy-handed and should be used sparingly.
 
 ## SQLite
 

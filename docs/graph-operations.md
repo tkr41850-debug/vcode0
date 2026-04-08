@@ -8,7 +8,7 @@ See [ARCHITECTURE.md](../ARCHITECTURE.md) for the high-level architecture index.
 
 | Operation | Description |
 |---|---|
-| **createMilestone(name, description)** | Create a new milestone for grouping / priority metadata |
+| **createMilestone(name, description)** | Create a new milestone for grouping / progress tracking metadata |
 | **createFeature(milestoneId, name, deps)** | Create a feature under a milestone with feature→feature dependency edges |
 | **createTask(featureId, description, deps?)** | Add a task to a feature with in-feature task deps only |
 | **addDependency(fromId, toId)** | Add a dependency edge (`feature → feature` or `task → task` within the same feature) |
@@ -22,6 +22,9 @@ See [ARCHITECTURE.md](../ARCHITECTURE.md) for the high-level architecture index.
 | **removeTask(taskId)** | Remove a task (only if pending) |
 | **reorderTasks(featureId, taskIds)** | Reorder tasks within a feature (affects display, not scheduling) |
 | **reweight(taskId, weight)** | Update estimated cost/complexity — affects critical path calculation |
+| **queueMilestone(milestoneId)** | Append a milestone to the scheduler steering queue |
+| **dequeueMilestone(milestoneId)** | Remove a milestone from the scheduler steering queue |
+| **clearQueuedMilestones()** | Clear milestone steering and return to autonomous scheduling |
 | **enqueueFeatureMerge(featureId)** | Add a completed feature branch to the serialized integration queue |
 
 ### Validation
@@ -45,12 +48,16 @@ interface FeatureGraph {
   readyTasks(): Task[];                 // tasks whose in-feature deps are all done
   criticalPath(): Task[];               // longest weighted path through the task DAG
   integrationQueue(): Feature[];        // features waiting to merge into main
+  queuedMilestones(): Milestone[];      // ordered user steering queue
   isComplete(): boolean;                // all milestones done
 
   // Mutations (all validate invariants before applying)
   createFeature(opts: CreateFeatureOpts): Feature;
   splitFeature(id: string, splits: SplitSpec[]): Feature[];
   addDependency(from: string, to: string): void;
+  queueMilestone(id: string): void;
+  dequeueMilestone(id: string): void;
+  clearQueuedMilestones(): void;
   enqueueFeatureMerge(id: string): void;
   // ... etc
 }
@@ -58,19 +65,26 @@ interface FeatureGraph {
 
 ## Load Balancing: Critical-Path-First
 
-The scheduler prioritizes tasks on the longest weighted path through the DAG. This minimizes total wall-clock time by ensuring bottleneck chains start as early as possible.
+The scheduler normally prioritizes tasks on the longest weighted path through the DAG. This minimizes total wall-clock time by ensuring bottleneck chains start as early as possible. If users queue milestones, that becomes an ordered steering override: among ready work, earlier queued milestones sort ahead of later queued milestones, while dependency legality and in-feature task constraints still apply.
+
+Reservation-only cross-feature overlap does not hard-block ready work, but it does apply a heavy scheduling penalty. In practice this means work whose reserved write paths overlap with another active feature should run only when higher-priority non-overlapping ready work is unavailable. Hard runtime overlap detected by the write prehook or actual git state is handled separately by the cross-feature overlap protocol.
 
 ```typescript
 function prioritizeReadyTasks(graph: FeatureGraph): Task[] {
   const ready = graph.readyTasks();
   const criticalWeights = computeCriticalPathWeights(graph);
+  const queuedMilestones = graph.queuedMilestones();
+  const queuePos = new Map(queuedMilestones.map((m, i) => [m.id, i]));
 
-  // Sort by: milestone priority (asc), then critical path weight (desc)
   return ready.sort((a, b) => {
-    const mA = milestonePriority(graph, a);
-    const mB = milestonePriority(graph, b);
-    if (mA !== mB) return mA - mB;
-    return criticalWeights.get(b.id)! - criticalWeights.get(a.id)!;
+    const aQueuePos = queuePos.get(milestoneIdOf(graph, a)) ?? Infinity;
+    const bQueuePos = queuePos.get(milestoneIdOf(graph, b)) ?? Infinity;
+    if (aQueuePos !== bQueuePos) return aQueuePos - bQueuePos;
+
+    const weightDiff = criticalWeights.get(b.id)! - criticalWeights.get(a.id)!;
+    if (weightDiff !== 0) return weightDiff;
+
+    return readySince(a) - readySince(b); // stable fallback
   });
 }
 
@@ -81,7 +95,7 @@ function computeCriticalPathWeights(graph: FeatureGraph): Map<string, number> {
 }
 ```
 
-When workers are scarce, critical-path tasks win. When workers are plentiful, everything ready runs.
+When workers are scarce, earlier queued milestones win first, then critical-path weight inside each queue-position bucket. Work whose milestone is not queued falls into the `∞` bucket, so it still runs when higher-priority queued buckets do not supply enough runnable work. When workers are plentiful, everything ready runs.
 
 Planner note: this works best when prerequisite-shaping tasks (schemas, interfaces, shared contracts, generated sources of truth) are placed near the front of the chain and expressed as explicit dependencies. Front-loading dependency-establishing work makes the critical path more faithful to real downstream constraints.
 
@@ -93,16 +107,17 @@ Completed feature branches do not merge directly to `main`. Instead, they enter 
 interface IntegrationQueueEntry {
   featureId: string;
   branchName: string;
-  milestonePriority: number;
+  queuedMilestonePositions?: number[]; // snapshot of steering context before merge queueing
   enqueuedAt: number;
 }
 ```
 
 Queue rules:
 1. Only features whose feature deps are already merged to `main` may integrate.
-2. Queue order is based on dependency legality first, then milestone priority, then FIFO.
-3. The queue head rebases onto the latest `main`, runs integration checks, and either merges or enters `conflict` collaboration control.
-4. Cross-feature conflicts are surfaced here, not by task-level file resets. The exact classification and escalation behavior remains tentative and likely complex.
+2. User-queued milestones steer scheduler selection before feature work reaches the merge train; they do not bypass dependency legality, and multiple queued milestones are compared by queue position.
+3. Once features enter the integration queue, ordering is serialized and based on dependency legality plus queue policy; milestone steering does not automatically define merge ordering.
+4. The queue head rebases onto the latest `main`, runs integration checks, and either merges or enters `conflict` collaboration control.
+5. Cross-feature conflicts are surfaced here, not by task-level file resets. The exact classification and escalation behavior remains tentative and likely complex.
 
 ## Scheduler Loop
 

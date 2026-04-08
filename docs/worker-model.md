@@ -4,7 +4,7 @@ See [ARCHITECTURE.md](../ARCHITECTURE.md) for the high-level architecture index.
 
 ## Worker Model: Process-per-Task
 
-Each task spawns a dedicated child process. Workers are pi-sdk `Agent` instances running in isolated git worktrees that branch from the owning feature branch. Each worker receives the task's reserved write paths as prompt context, and the write-tool prehook checks attempted target paths against that reservation set before mutation so the orchestrator can coordinate same-feature hotspots before they turn into full conflicts.
+Each task spawns a dedicated child process. Workers are pi-sdk `Agent` instances running in isolated git worktrees that branch from the owning feature branch. Each worker receives the task's reserved write paths as prompt context. Reservations are advisory metadata; active path locks are acquired lazily on the first write prehook for a path and released when the task pauses or exits, so only files being actively edited hold runtime ownership.
 
 ```text
 main
@@ -71,7 +71,7 @@ type OrchestratorMessage =
   | { type: "resume"; taskId: string; reason: string }
 ```
 
-The `suspend` / `resume` messages are a **same-feature collaboration-control** mechanism. They do not resolve cross-feature conflicts; those surface when the feature branch reaches the merge train. If a task rebase cannot be auto-resolved with `ort` merge or similar, the orchestrator keeps the task in `conflict` collaboration control and uses `steer` to inject the exact conflict context instead of resetting files.
+The `suspend` / `resume` messages are a **same-feature collaboration-control** mechanism. Cross-feature overlap uses a separate feature-pair protocol: reservation overlap applies only a scheduling penalty, while runtime overlap pauses the secondary feature's affected tasks, waits for the primary feature to land, then rebases and resumes the secondary side. If a task rebase cannot be auto-resolved with `ort` merge or similar, the orchestrator keeps the task in `conflict` collaboration control and uses `steer` to inject the exact conflict context instead of resetting files.
 
 ### Transport Abstraction
 
