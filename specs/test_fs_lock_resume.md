@@ -17,8 +17,8 @@ Capture same-feature resume behavior after a dominant task lands on the feature 
 - Then the suspended task worktree rebases onto the updated feature branch
 - And not onto `main`
 
-### Resume notifies worker about reset files
+### Rebase conflict steers existing task without destructive reset
 - Given a suspended task had conflicting edits on locked files
-- When those files are reset to the feature branch version
-- Then the worker receives a `resume` IPC message with `filesReset`
-- And the agent is steered to re-check those files before continuing
+- When rebasing onto the updated feature branch cannot auto-resolve cleanly
+- Then the task remains in `conflict` collaboration control in the real conflicted worktree
+- And the existing task agent receives exact conflict steering context instead of a destructive reset

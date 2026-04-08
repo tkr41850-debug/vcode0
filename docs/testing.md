@@ -48,6 +48,7 @@ Integration test targets:
 - Feature branch enters merge train; serialized integration to `main`
 - Merge-train full verification after rebase onto latest `main`
 - Same-feature file-lock suspend/resume IPC flow
+- Same-feature rebase conflict steers the existing task in the real conflicted worktree
 - Cross-feature conflict surfaces at integration time, not task suspension time
 - Planner builds valid DAG via tool calls
 - Scheduler dispatches correct frontier after task completion
@@ -64,7 +65,7 @@ Scenario specs live under `specs/test_*.md` and are intended for later conversio
 - [test_merge_train_ordering](../specs/test_merge_train_ordering.md) — completed feature branches queue and integrate to `main` one at a time, with milestone steering handled separately before queueing.
 - [test_merge_train_conflict_handling](../specs/test_merge_train_conflict_handling.md) — cross-feature overlap becomes an integration conflict.
 - [test_fs_lock_detection](../specs/test_fs_lock_detection.md) — same-feature overlap triggers suspension.
-- [test_fs_lock_resume](../specs/test_fs_lock_resume.md) — suspended tasks resume against the updated feature branch.
+- [test_fs_lock_resume](../specs/test_fs_lock_resume.md) — suspended tasks either resume cleanly or receive exact conflict steering against the updated feature branch.
 - [test_stuck_detection_replan](../specs/test_stuck_detection_replan.md) — work-control stuck state enters replanning.
 - [test_crash_recovery](../specs/test_crash_recovery.md) — restart preserves feature-branch authority and resumes or resets tasks correctly.
 

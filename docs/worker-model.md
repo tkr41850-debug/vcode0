@@ -48,7 +48,7 @@ Each feature owns exactly one long-lived integration branch.
 4. When feature work control reaches `work_complete`, the orchestrator runs feature verification on the feature branch.
 5. Only if feature verification passes does feature collaboration control become `merge_queued`.
 6. The merge train rebases the feature branch onto the latest `main`, runs merge-train verification, and either merges or removes the feature from the queue for repair/retry on the same branch.
-7. Detailed same-feature conflict steering policy is still tentative and likely complex; expect this area to be tuned based on user feedback.
+7. Same-feature task conflicts use a two-stage baseline: fail-closed mechanical rebase first, then task-local agent reconciliation with injected conflict context if git cannot resolve cleanly.
 
 ## IPC: NDJSON over stdio (swappable)
 
@@ -123,7 +123,7 @@ On startup, gsd2 scans for orphaned tasks (status `running` with no live worker 
 
 ### Session Harness Abstraction
 
-Workers are wrapped in a harness that abstracts the underlying session provider. This allows resuming from different session backends.
+Workers are wrapped in a harness that abstracts the underlying session provider. This allows resuming from different session backends. When Claude Code is used as the provider, pi-sdk should launch fresh task/repair Claude Code instances rather than invoking planner-owned subagents; this keeps sandboxing boundaries explicit per worker session.
 
 ```typescript
 interface SessionHarness {
@@ -143,7 +143,7 @@ interface SessionHandle {
 
 // Implementations
 class PiSdkHarness implements SessionHarness { /* default */ }
-class ClaudeCodeHarness implements SessionHarness { /* resumes claude code sessions */ }
+class ClaudeCodeHarness implements SessionHarness { /* starts or resumes isolated Claude Code worker sessions, not planner subagents */ }
 ```
 
 Session IDs are stored in the `tasks` table (`session_id TEXT`). On startup:

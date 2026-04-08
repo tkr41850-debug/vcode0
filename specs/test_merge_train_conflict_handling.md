@@ -18,8 +18,8 @@ Capture how cross-feature conflicts are resolved during feature integration.
 - Then feature collaboration control becomes `conflict`
 - And the feature does not merge to `main`
 
-### Conflict triggers follow-up work or replanning
-- Given a feature is in integration conflict
-- When the orchestrator cannot auto-resolve the issue
-- Then feature work control moves to `replanning`
-- And follow-up work may be scheduled on the feature branch before requeueing
+### Conflict triggers repair work on the same feature branch first
+- Given a feature hits integration rebase or merge-train verification failure
+- When the orchestrator cannot resolve it mechanically
+- Then the feature is removed from the merge queue and repair work is scheduled on the same feature branch
+- And only repeated or structural failure escalates to `replanning`

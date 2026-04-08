@@ -78,9 +78,10 @@ Typical triggers:
 
 Action:
 - preserve conflict state
-- inject exact conflict context to the agent
+- for same-feature task conflicts, steer the existing task agent in the real conflicted worktree
+- for cross-feature integration rebase/check failures, remove the feature from the merge queue and create or steer repair work on the same feature branch
 - monitor for progress
-- escalate to repair task, replanning, or user intervention if the agent does not make progress
+- escalate to replanning or user intervention only if repair does not make meaningful progress or the failure appears structural
 
 ## Checkpoints for Steering
 
