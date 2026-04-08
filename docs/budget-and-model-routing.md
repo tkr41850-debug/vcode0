@@ -4,7 +4,21 @@ See [ARCHITECTURE.md](../ARCHITECTURE.md) for the high-level architecture index.
 
 ## Budget
 
-Configurable per-task and global USD ceilings. Workers report token usage via IPC after each LLM call; orchestrator accumulates and enforces limits.
+Configurable per-task and global USD ceilings. Workers report token usage via IPC after each LLM call; the orchestrator normalizes provider-specific usage into a shared shape, accumulates lifetime totals per task and feature, and enforces limits from real USD spend.
+
+Normalized usage fields:
+- `provider`, `model`
+- `inputTokens`, `outputTokens`
+- `cacheReadTokens`, `cacheWriteTokens`
+- `reasoningTokens` when the provider exposes them separately
+- `audioInputTokens`, `audioOutputTokens` when applicable
+- `totalTokens`, `usd`
+- `rawUsage` for provider-specific passthrough / future fields
+
+Provider notes:
+- Claude exposes input/output/cache usage but does not currently expose separate thinking tokens.
+- OpenAI may expose separate `reasoningTokens` and modality-specific fields.
+- Gemini prompt/candidate/cache usage should be normalized into the same shared fields.
 
 ```jsonc
 // .gvc0/config.json

@@ -31,6 +31,7 @@ CREATE TABLE features (
   feature_branch TEXT NOT NULL,
   merge_train_position INTEGER,
   merge_train_entered_at INTEGER,
+  token_usage TEXT,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
@@ -74,7 +75,9 @@ CREATE TABLE events (
 );
 ```
 
-The `events` table is an append-only audit log for debugging, progress reporting, and warnings. `milestones.display_order` stores UI ordering only, and `milestones.steering_queue_position` stores the optional ordered steering queue; `NULL` means the milestone is not queued and therefore sorts into the effective `∞` bucket. For merge-train ordering, the baseline should prefer simple queue metadata such as nullable manual-position fields and explicit entry/re-entry counters before introducing more complex structures. A linked-list representation in SQLite is a possible future implementation sketch for fully arbitrary persistent queue ordering, but it is premature for the baseline. Warning events include budget pressure, slow verification checks, long feature blocking, and feature-churn signals.
+The `events` table is an append-only audit log for debugging, progress reporting, warnings, and per-call cost audit trails. `milestones.display_order` stores UI ordering only, and `milestones.steering_queue_position` stores the optional ordered steering queue; `NULL` means the milestone is not queued and therefore sorts into the effective `∞` bucket. For merge-train ordering, the baseline should prefer simple queue metadata such as nullable manual-position fields and explicit entry/re-entry counters before introducing more complex structures. A linked-list representation in SQLite is a possible future implementation sketch for fully arbitrary persistent queue ordering, but it is premature for the baseline. Warning events include budget pressure, slow verification checks, long feature blocking, and feature-churn signals.
+
+`tasks.token_usage` and `features.token_usage` should store normalized lifetime aggregates rather than only the latest call. These totals include retries, failed attempts, and resumed sessions because the budget model tracks real spend, not just successful outcomes. The normalized aggregate should include shared fields (`inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheWriteTokens`, optional `reasoningTokens`, optional `audio*`, `totalTokens`, `usd`, `llmCalls`) plus a `byModel` breakdown keyed by provider+model. Provider-specific extras should remain available via raw event payloads or a passthrough field instead of forcing every provider quirk into first-class columns.
 
 ## State Semantics
 
@@ -88,6 +91,13 @@ The `events` table is an append-only audit log for debugging, progress reporting
 - `features.collab_status` stores branch lifecycle and merge-train state (`none`, `branch_open`, `merge_queued`, `integrating`, `merged`, `conflict`).
 - `tasks.collab_status` stores task coordination state (`none`, `branch_open`, `suspended`, `merged`, `conflict`).
 - `suspended_at`, `suspend_reason`, and `suspended_files` hold the raw details behind same-feature file-lock suspension.
+
+### Usage Accounting
+
+- `tasks.token_usage` stores lifetime normalized usage for the task across all worker/model calls.
+- `features.token_usage` stores the lifetime aggregate rolled up from all task usage in the feature.
+- Per-call usage events should preserve the original provider payload for audit/debugging even when the normalized aggregate omits provider-specific fields.
+- Providers that do not expose separate reasoning or modality counters should persist those normalized fields as `0` or omit them in raw payloads.
 
 ## Validation Notes
 

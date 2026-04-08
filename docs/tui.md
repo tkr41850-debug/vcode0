@@ -77,6 +77,10 @@ Output files written to current directory:
 - `.gvc0/config.json` — project config (verification checks, budget, etc.)
 - `.gvc0/worktrees/` — feature and task git worktrees
 
+### Cost Detail
+
+The main DAG tree should stay progress-focused rather than showing token totals inline for every node. Token and cost breakdown belongs in task / feature detail views, where the TUI may show lifetime usage totals (`input`, `output`, `cacheRead`, `cacheWrite`, optional `reasoning` / `audio`, `usd`, `llmCalls`, and per-model rollups).
+
 ### TUI Actions (keyboard-driven overlays)
 
 | Key | Action |

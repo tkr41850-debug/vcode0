@@ -86,6 +86,7 @@ interface Feature {
   collabControl: FeatureCollabControl;
   featureBranch: string;           // e.g. gvc0/feature-auth
   mergeTrainPosition?: number;
+  tokenUsage?: TokenUsageAggregate; // lifetime aggregate across all task/model calls in the feature
 }
 
 interface Task {
@@ -99,6 +100,36 @@ interface Task {
   worktreeBranch?: string;
   result?: TaskResult;
   weight?: number;                 // estimated cost/complexity for critical path
+  tokenUsage?: TokenUsageAggregate; // lifetime aggregate across retries, failures, and resumes
+}
+
+interface TokenUsageAggregate {
+  llmCalls: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  reasoningTokens: number;         // 0 when the provider does not expose this separately
+  audioInputTokens: number;
+  audioOutputTokens: number;
+  totalTokens: number;
+  usd: number;
+  byModel: Record<string, ModelUsageAggregate>; // key: `${provider}:${model}`
+}
+
+interface ModelUsageAggregate {
+  provider: string;
+  model: string;
+  llmCalls: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  reasoningTokens: number;
+  audioInputTokens: number;
+  audioOutputTokens: number;
+  totalTokens: number;
+  usd: number;
 }
 
 type UnitStatus = "pending" | "in_progress" | "done" | "failed" | "cancelled";

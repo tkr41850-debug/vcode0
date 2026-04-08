@@ -61,7 +61,22 @@ type WorkerMessage =
   | { type: "progress"; taskId: string; message: string }
   | { type: "result"; taskId: string; summary: string; filesChanged: string[] }
   | { type: "error"; taskId: string; error: string }
-  | { type: "cost"; taskId: string; tokens: TokenUsage }
+  | { type: "cost"; taskId: string; usage: ProviderUsage }
+
+interface ProviderUsage {
+  provider: string;                // anthropic, openai, google, ...
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  reasoningTokens?: number;        // exposed separately by some providers/models
+  audioInputTokens?: number;
+  audioOutputTokens?: number;
+  totalTokens: number;
+  usd: number;
+  rawUsage?: unknown;              // provider response for audit / future fields
+}
 
 // Orchestrator → Worker
 type OrchestratorMessage =
@@ -72,7 +87,7 @@ type OrchestratorMessage =
   | { type: "resume"; taskId: string; reason: string }
 ```
 
-The `suspend` / `resume` messages are a **same-feature collaboration-control** mechanism. Cross-feature overlap uses a separate feature-pair protocol: reservation overlap applies only a scheduling penalty, while runtime overlap pauses the secondary feature's affected tasks, waits for the primary feature to land, then rebases and resumes the secondary side. If a task rebase cannot be auto-resolved with `ort` merge or similar, the orchestrator keeps the task in `conflict` collaboration control and uses `steer` to inject the exact conflict context instead of resetting files. See [Conflict Steering](./conflict-steering.md) for the recommendation/required-sync/escalation ladder.
+The `suspend` / `resume` messages are a **same-feature collaboration-control** mechanism. Cross-feature overlap uses a separate feature-pair protocol: reservation overlap applies only a scheduling penalty, while runtime overlap pauses the secondary feature's affected tasks, waits for the primary feature to land, then rebases and resumes the secondary side. If a task rebase cannot be auto-resolved with `ort` merge or similar, the orchestrator keeps the task in `conflict` collaboration control and uses `steer` to inject the exact conflict context instead of resetting files. `cost` messages are emitted after each provider call and should be treated as append-only accounting inputs; retries and failed attempts still count toward task and feature lifetime usage. See [Conflict Steering](./conflict-steering.md) for the recommendation/required-sync/escalation ladder.
 
 ### Transport Abstraction
 
