@@ -6,31 +6,53 @@ See [ARCHITECTURE.md](../ARCHITECTURE.md) for the high-level architecture index.
 
 Built on `@mariozechner/pi-tui`. Redraws on state change (not fixed frame rate) using differential rendering.
 
-```
-┌─────────────────────────────────────────────────────┐
-│ gsd2  goal: "implement auth system"   cost: $1.23   │
-├─────────────────────────────────────────────────────┤
-│  M1: Core Infrastructure          [3/5 done]        │
-│  ├── ✓ F-db: Database schema                        │
-│  ├── ✓ F-models: Data models                        │
-│  ├── ⟳ F-auth: Auth middleware     [running 0:42]   │
-│  │   ├── ✓ Task: JWT validation                     │
-│  │   ├── ⟳ Task: Session store     [worker-3]       │
-│  │   └── · Task: Middleware wiring [waiting]        │
-│  ├── · F-api: REST endpoints       [blocked]        │
-│  └── · F-ui: Login page            [blocked]        │
-│  M2: Testing                       [0/2 done]       │
-│  └── · F-tests: Integration tests  [blocked on M1]  │
-├─────────────────────────────────────────────────────┤
-│ workers: 3 running  2 idle   tasks: 4/12 done       │
-└─────────────────────────────────────────────────────┘
+The UI presents two state axes:
+- **Work control** — where work is in the GSD lifecycle
+- **Collaboration control** — where the branch/merge/conflict lifecycle stands
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│ gsd2  goal: "implement auth system"   cost: $1.23            │
+├──────────────────────────────────────────────────────────────┤
+│  M1: Core Infrastructure                   [3/5 done]        │
+│  ├── ✓ F-db: Database schema                                   │
+│  ├── ✓ F-models: Data models                                   │
+│  ├── ⟳ F-auth: Auth middleware      [work: executing]          │
+│  │                                [collab: branch_open]        │
+│  │   ├── ✓ Task: JWT validation                                │
+│  │   ├── ⟳ Task: Session store          [branch_open]          │
+│  │   └── · Task: Middleware wiring     [ready]                 │
+│  ├── · F-api: REST endpoints         [waiting on feature deps] │
+│  └── · F-ui: Login page              [waiting on feature deps] │
+│  M2: Testing                          [0/2 done]               │
+│  └── · F-tests: Integration tests     [waiting on M1 features] │
+├──────────────────────────────────────────────────────────────┤
+│ workers: 3 running  2 idle   tasks: 4/12 done                │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-Icons: `✓` done  `⟳` running  `·` pending  `✗` failed  `⊘` cancelled  `↺` retrying (with delay)
+### Status Conventions
+
+**Work control**
+- `✓` done
+- `⟳` running / executing
+- `·` pending / ready
+- `↺` retrying
+- `!` stuck / replanning needed
+- `✗` failed
+- `⊘` cancelled
+
+**Collaboration control**
+- `branch_open` — active feature/task branch
+- `suspended` — same-feature file-lock pause
+- `merge_queued` — waiting in integration queue
+- `integrating` — merge train is rebasing/verifying
+- `conflict` — collaboration issue blocks integration
+- `merged` — branch landed and cleaned up
 
 ```typescript
 class DagView implements Component {
-  render(width: number): string[] { /* milestone tree with status icons */ }
+  render(width: number): string[] { /* milestone tree with work/collab badges */ }
   invalidate(): void {}
 }
 class StatusBar implements Component {
@@ -64,7 +86,7 @@ Output files written to current directory:
 | `s` | Steer selected worker (in main view: opens worker picker first if none selected) |
 | `r` | Retry failed task |
 | `m` | Toggle Agent Monitor overlay (live worker output + steer) |
-| `p` | Replan — trigger replanner for a blocked/failed feature |
+| `p` | Replan — trigger replanner for a stuck/conflicted feature |
 | `x` | Cancel feature (with cascade prompt) |
 | `e` | Edit feature (name, description, tasks) |
 | `d` | Show feature dependency detail |
@@ -75,7 +97,7 @@ Output files written to current directory:
 
 A TUI overlay (press `m`) showing all running workers with their live output streams. Each worker's pi-sdk `progress` IPC messages are displayed in a scrollable pane. Users can select a worker and steer it in real time.
 
-```
+```text
 ┌─────────────────────────────────────────────────────┐
 │ Agent Monitor          [3 running]          [m] hide │
 ├──────────────┬──────────────────────────────────────┤
@@ -96,11 +118,10 @@ class AgentMonitorOverlay implements Component {
   private selectedWorker: string | null = null;
   private logs: Map<string, string[]> = new Map(); // workerId → recent lines
 
-  // Fed by orchestrator forwarding worker "progress" IPC messages
   onProgress(workerId: string, message: string): void {
     const lines = this.logs.get(workerId) ?? [];
     lines.push(message);
-    if (lines.length > 200) lines.shift(); // rolling buffer
+    if (lines.length > 200) lines.shift();
     this.logs.set(workerId, lines);
     this.invalidate();
   }

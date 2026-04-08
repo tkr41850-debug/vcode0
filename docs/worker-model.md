@@ -4,35 +4,50 @@ See [ARCHITECTURE.md](../ARCHITECTURE.md) for the high-level architecture index.
 
 ## Worker Model: Process-per-Task
 
-Each task spawns a dedicated child process. Workers are pi-sdk `Agent` instances running in isolated git worktrees.
+Each task spawns a dedicated child process. Workers are pi-sdk `Agent` instances running in isolated git worktrees that branch from the owning feature branch. Before a worker mutates files, the harness may emit advisory write-intent metadata so the orchestrator can coordinate same-feature hotspots before they turn into full conflicts.
 
-```
-Orchestrator (main process)
-├── Worker 1 (child process, worktree: .gsd2/worktrees/task-001/)
-│   └── pi-sdk Agent → executes Task 1
-├── Worker 2 (child process, worktree: .gsd2/worktrees/task-002/)
-│   └── pi-sdk Agent → executes Task 2
-└── Worker 3 (child process, worktree: .gsd2/worktrees/task-003/)
-    └── pi-sdk Agent → executes Task 3
+```text
+main
+└── feature/auth
+    ├── Worker 1 (worktree: .gsd2/worktrees/task-jwt/)
+    │   └── pi-sdk Agent → executes JWT validation
+    ├── Worker 2 (worktree: .gsd2/worktrees/task-session/)
+    │   └── pi-sdk Agent → executes session store
+    └── Worker 3 (worktree: .gsd2/worktrees/task-middleware/)
+        └── pi-sdk Agent → executes middleware wiring
 ```
 
 - **Max concurrency**: configurable (default: CPU count or provider rate limit, whichever is lower)
-- **Worktree lifecycle**: created on dispatch, squash-merged to main on success (all task commits collapsed to one), deleted after merge
+- **Worktree lifecycle**: created on dispatch from the feature branch, squash-merged back into the feature branch on success, deleted after merge
 
 ### Git Commit Strategy
 
-Workers make incremental commits inside their worktree as they work (conventional commits: `feat:`, `fix:`, etc.). On task completion, the orchestrator squash-merges the worktree branch to main as a single commit with the task summary as the message. This keeps main history clean — one commit per task, not dozens of intermediate saves.
+Workers make incremental commits inside their worktree as they work (conventional commits: `feat:`, `fix:`, etc.). On task completion, the orchestrator squash-merges the worktree branch into the owning feature branch as a single commit with the task summary as the message. Once feature work is complete, the merge train serializes feature-branch integration into `main`.
 
-```
-worktree branch (task-042):
+```text
+task worktree branch (task-042):
   feat: add JWT types
   feat: implement token signing
   fix: handle expiry edge case
   test: add JWT unit tests
          ↓ squash merge
-main:
+feature/auth:
   feat(auth): implement JWT signing and validation [task-042]
+         ↓ merge train
+main:
+  feat(auth): merge feature/auth
 ```
+
+## Feature Branch Integration
+
+Each feature owns exactly one long-lived integration branch.
+
+1. When feature work control enters `executing`, the orchestrator creates `feature/<feature-id>` from the current `main`.
+2. Task worktrees branch from the current HEAD of `feature/<feature-id>`.
+3. Task completion merges into `feature/<feature-id>`.
+4. When feature work control reaches `work_complete`, feature collaboration control becomes `merge_queued`.
+5. The merge train rebases the feature branch onto the latest `main`, runs integration checks, and either merges or marks the feature `conflict`.
+6. Detailed conflict handling policy is still tentative and likely complex; expect this area to be tuned based on user feedback.
 
 ## IPC: NDJSON over stdio (swappable)
 
@@ -53,8 +68,10 @@ type OrchestratorMessage =
   | { type: "abort"; taskId: string }
   | { type: "steer"; taskId: string; message: string }
   | { type: "suspend"; taskId: string; reason: "file_lock"; files: string[] }
-  | { type: "resume"; taskId: string; filesReset: string[]; reason: string }
+  | { type: "resume"; taskId: string; reason: string }
 ```
+
+The `suspend` / `resume` messages are a **same-feature collaboration-control** mechanism. They do not resolve cross-feature conflicts; those surface when the feature branch reaches the merge train. If a task rebase cannot be auto-resolved with `ort` merge or similar, the orchestrator keeps the task in `conflict` collaboration control and uses `steer` to inject the exact conflict context instead of resetting files.
 
 ### Transport Abstraction
 
@@ -101,7 +118,7 @@ interface DepOutput {
 
 ## Crash Recovery
 
-On startup, gsd2 scans for orphaned tasks (status `running` with no live worker process) and resets them. Worker sessions are persisted so execution can resume from where it left off.
+On startup, gsd2 scans for orphaned tasks (status `running` with no live worker process) and resets or resumes them. Feature branches remain authoritative across restarts; resumed task worktrees rebase onto the current HEAD of the owning feature branch before continuing.
 
 ### Session Harness Abstraction
 
@@ -135,7 +152,7 @@ async function recoverOrphanedTasks(store: Store, pool: WorkerPool) {
   const orphaned = await store.getTasksByStatus("running");
   for (const task of orphaned) {
     if (task.sessionId) {
-      // Resume from saved session
+      // Resume from saved session, rebasing onto current feature branch HEAD first
       pool.dispatch(task, { resume: true, sessionId: task.sessionId });
     } else {
       // No session to resume — reset to pending
@@ -145,4 +162,4 @@ async function recoverOrphanedTasks(store: Store, pool: WorkerPool) {
 }
 ```
 
-SQLite addition: `session_id TEXT` is part of the main `tasks` schema (see [persistence.md](./persistence.md)).
+SQLite addition: `feature_branch`, `worktree_branch`, and collaboration-control fields are part of the persisted schema (see [persistence.md](./persistence.md)).

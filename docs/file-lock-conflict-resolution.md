@@ -2,17 +2,22 @@
 
 See [ARCHITECTURE.md](../ARCHITECTURE.md) for the high-level architecture index.
 
-## File-Lock Conflict Resolution
+## Scope
 
-Workers run in isolated git worktrees but may edit the same files (e.g. shared config, index files). The orchestrator periodically scans all active worktrees for changed files and detects overlaps.
+The file-lock system is a **same-feature collaboration-control** mechanism. It coordinates overlapping writes between task worktrees that belong to the same feature branch. Cross-feature conflicts are not resolved here; they surface when a feature branch enters the merge train.
+
+## Same-Feature File-Lock Resolution
+
+Workers run in isolated git worktrees and may edit the same files inside a feature. The orchestrator periodically scans active worktrees for overlapping writes within each feature branch.
 
 ### Mechanism
 
-```
+```text
 Orchestrator polls every N seconds (default: 30):
-  1. For each active worktree, run: git diff --name-only HEAD
-  2. Build map: file → [worktree1, worktree2, ...]
-  3. For any file touched by 2+ worktrees:
+  1. Group active worktrees by feature branch
+  2. For each worktree in the feature, run: git diff --name-only HEAD
+  3. Build map: file → [task-worktree1, task-worktree2, ...]
+  4. For any file touched by 2+ worktrees in the same feature:
      a. Count changes per worktree (git diff --stat)
      b. Suspend the worktree with FEWER changes (SIGSTOP to child process)
      c. Record the suspension in SQLite with reason + suspended files
@@ -22,36 +27,59 @@ Orchestrator polls every N seconds (default: 30):
 
 ### Resolution
 
-When the larger-change worktree completes its task:
-1. Merge its branch to main
-2. For each suspended worktree that was blocked on those files:
-   a. Rebase worktree branch onto updated main
-   b. If rebase has conflicts on the locked files: reset those files to main's version, record which files were reset
-   c. Send resume IPC message to worker:
-      ```
-      { type: "resume", filesReset: ["src/index.ts"], reason: "file_lock released" }
-      ```
-   d. SIGCONT the child process
-3. Worker agent receives the resume message as a steering injection and continues with awareness of what changed
+When the dominant task completes its work:
+1. Merge its task worktree branch into the feature branch
+2. For each suspended worktree waiting on those files:
+   a. Rebase the worktree branch onto the updated feature branch
+   b. If the rebase auto-resolves cleanly with `ort` merge or similar, send a normal resume message and continue
+   c. If the rebase cannot be auto-resolved, do **not** reset files; keep the task in `conflict` collaboration control and inject the exact conflict context to the agent
+   d. SIGCONT the child process only after the agent has received the steering context
+3. Worker agent resumes with awareness of the merged changes or the explicit conflict it now needs to resolve
+
+> TODO: tentative details (likely complex). The precise conflict-classification and escalation policy in this area is expected to need tuning from user feedback. The current document captures the intended direction, not a finalized algorithm.
 
 ### Worker-side handling
 
-The `submit` tool checks for a pending resume message before running verification. If files were reset, the failure message includes which files need re-examination.
+The `submit` tool checks for pending collaboration-control messages before running verification. A normal resume explains what landed on the feature branch. An unresolved merge conflict is surfaced as a steering injection so the agent can inspect the current file state and resolve it intentionally.
 
-The orchestrator injects the resume notification as a pi-sdk `steer()` call after SIGCONT:
+Normal resume after clean auto-merge:
 
 ```typescript
 agent.steer({
   role: "user",
   content: [{ type: "text", text:
-    `Work was paused due to a file edit lock on: ${filesReset.join(", ")}.\n` +
-    `These files were reset to the merged version from another task. ` +
-    `Please review the current state of these files and continue your work.`
+    `Work was paused due to a file edit lock on: ${files.join(", ")}\.\n` +
+    `Another task has merged its changes into the feature branch. ` +
+    `Your worktree has been rebased successfully; review the current file state and continue.`
   }],
   timestamp: Date.now(),
 });
 ```
 
-### SQLite
+Conflict steering after auto-merge fails:
 
-Suspension fields are part of the main `tasks` schema (see [persistence.md](./persistence.md)).
+```typescript
+agent.steer({
+  role: "user",
+  content: [{ type: "text", text:
+    `Work was paused due to a file edit conflict on: ${files.join(", ")}\.\n` +
+    `An automatic merge could not resolve the overlap. ` +
+    `Please inspect the rebased worktree, resolve the conflict against the current feature branch, and continue.`
+  }],
+  timestamp: Date.now(),
+});
+```
+
+## Cross-Feature Conflicts
+
+If two different feature branches touch the same file, the file-lock system does **not** suspend one task and reset it to `main`. Those overlaps are allowed to proceed independently until feature integration time.
+
+Cross-feature conflict handling:
+1. Each feature finishes work on its own branch.
+2. The completed feature enters `merge_queued` collaboration control.
+3. The merge train rebases the feature branch onto the latest `main`.
+4. If rebase or integration checks fail because of cross-feature overlap, the feature enters `conflict` collaboration control and usually `replanning` work control.
+
+## SQLite
+
+Suspension fields are part of the main `tasks` schema (see [persistence.md](./persistence.md)). They are raw collaboration-control details that back `suspended` / `conflict` task states.

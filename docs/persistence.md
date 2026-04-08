@@ -4,7 +4,7 @@ See [ARCHITECTURE.md](../ARCHITECTURE.md) for the high-level architecture index.
 
 ## Persistence: SQLite
 
-Single database file at `.gsd2/state.db`. All DAG state persisted atomically.
+Single database file at `.gsd2/state.db`. All DAG state, work control, and collaboration control state is persisted atomically.
 
 ### Schema
 
@@ -25,7 +25,11 @@ CREATE TABLE features (
   name TEXT NOT NULL,
   description TEXT,
   status TEXT NOT NULL DEFAULT 'pending',
-  phase TEXT NOT NULL DEFAULT 'discussing',  -- feature lifecycle phase
+  work_phase TEXT NOT NULL DEFAULT 'discussing',
+  collab_status TEXT NOT NULL DEFAULT 'none',
+  feature_branch TEXT NOT NULL,
+  merge_train_position INTEGER,
+  merge_train_entered_at INTEGER,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
@@ -36,25 +40,27 @@ CREATE TABLE tasks (
   description TEXT NOT NULL,
   weight REAL DEFAULT 1.0,
   status TEXT NOT NULL DEFAULT 'pending',
+  collab_status TEXT NOT NULL DEFAULT 'none',
   worker_id TEXT,
+  worktree_branch TEXT,
   result_summary TEXT,
-  files_changed TEXT,             -- JSON array of paths
-  token_usage TEXT,               -- JSON {input, output, cost}
-  session_id TEXT,                -- for crash recovery (SessionHarness)
+  files_changed TEXT,
+  token_usage TEXT,
+  session_id TEXT,
   consecutive_failures INTEGER NOT NULL DEFAULT 0,
-  retry_at INTEGER,               -- epoch ms for next scheduled retry (NULL = not scheduled)
+  retry_at INTEGER,
   retry_attempt INTEGER NOT NULL DEFAULT 0,
   suspended_at INTEGER,
   suspend_reason TEXT,
-  suspended_files TEXT,           -- JSON array
+  suspended_files TEXT,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
 
 CREATE TABLE dependencies (
-  from_id TEXT NOT NULL,           -- feature, milestone, or task id
-  to_id TEXT NOT NULL,             -- depends on this
-  dep_type TEXT NOT NULL,          -- 'feature', 'milestone', or 'task'
+  from_id TEXT NOT NULL,
+  to_id TEXT NOT NULL,
+  dep_type TEXT NOT NULL,          -- 'feature' or 'task'
   PRIMARY KEY (from_id, to_id)
 );
 
@@ -63,8 +69,28 @@ CREATE TABLE events (
   timestamp INTEGER NOT NULL,
   event_type TEXT NOT NULL,
   entity_id TEXT NOT NULL,
-  payload TEXT                     -- JSON
+  payload TEXT
 );
 ```
 
 The `events` table is an append-only audit log for debugging and progress reporting.
+
+## State Semantics
+
+### Work Control
+
+- `features.work_phase` stores the feature's GSD lifecycle state and ends at `work_complete`.
+- `tasks.status` stores the task's execution lifecycle state (`pending`, `ready`, `running`, `retrying`, `stuck`, `done`, etc.).
+
+### Collaboration Control
+
+- `features.collab_status` stores branch lifecycle and merge-train state (`none`, `branch_open`, `merge_queued`, `integrating`, `merged`, `conflict`).
+- `tasks.collab_status` stores task coordination state (`none`, `branch_open`, `suspended`, `merged`, `conflict`).
+- `suspended_at`, `suspend_reason`, and `suspended_files` hold the raw details behind same-feature file-lock suspension.
+
+## Validation Notes
+
+- Milestones do not appear in the `dependencies` table.
+- Feature dependencies are `feature → feature` only.
+- Task dependencies are `task → task` only and must remain within the same feature.
+- `feature_branch` is the authoritative git integration branch for a feature; task worktrees always derive from it.
