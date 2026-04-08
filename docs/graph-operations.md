@@ -116,8 +116,8 @@ Queue rules:
 1. Only features whose feature deps are already merged to `main` may integrate.
 2. User-queued milestones steer scheduler selection before feature work reaches the merge train; they do not bypass dependency legality, and multiple queued milestones are compared by queue position.
 3. Once features enter the integration queue, ordering is serialized and based on dependency legality plus queue policy; milestone steering does not automatically define merge ordering.
-4. The queue head rebases onto the latest `main`, runs integration checks, and either merges or enters `conflict` collaboration control.
-5. Cross-feature conflicts are surfaced here, not by task-level file resets. The exact classification and escalation behavior remains tentative and likely complex.
+4. The queue head rebases onto the latest `main`, runs merge-train verification, and either merges or is removed from the queue for repair work on the same feature branch.
+5. Cross-feature conflicts are surfaced here, not by task-level file resets. Reservation overlap only penalizes scheduling; runtime overlap uses the feature-pair coordination protocol described in [file-lock-conflict-resolution.md](./file-lock-conflict-resolution.md).
 
 ## Scheduler Loop
 

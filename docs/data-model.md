@@ -5,7 +5,7 @@ See [ARCHITECTURE.md](../ARCHITECTURE.md) for the high-level architecture index.
 ## Work Unit Hierarchy: Milestone → Feature → Task
 
 ```
-Milestone (human-facing release / priority group)
+Milestone (organizational / progress unit)
 ├── Feature A
 │   ├── Task 1
 │   ├── Task 2
@@ -17,7 +17,7 @@ Milestone (human-facing release / priority group)
     └── Task 6
 ```
 
-**Milestone** — a human-facing release or priority group. It owns a set of features and contributes ordering / reporting metadata, but it does **not** participate in dependency edges in this version of the model.
+**Milestone** — an organizational / progress unit. It owns a set of features, gives users a human-facing grouping for planning and tracking, and can optionally be queued explicitly as a scheduler steering target. Multiple milestones may be queued. It does **not** participate in dependency edges in this version of the model.
 
 **Feature** — the primary unit in the execution DAG. Features depend only on other features. Each feature belongs to exactly one milestone, owns exactly one feature branch, and exposes two state axes:
 
@@ -51,7 +51,7 @@ none → branch_open → merge_queued → integrating → merged
 ```
 
 - **none** — feature branch not opened yet.
-- **branch_open** — feature branch exists; tasks are merging into it.
+- **branch_open** — feature branch / feature worktree exists as the integration surface; tasks may merge into it.
 - **merge_queued** — feature is waiting in the serialized integration queue.
 - **integrating** — feature branch is rebasing / verifying against the latest `main`.
 - **merged** — feature branch landed on `main` and is cleaned up.
@@ -70,7 +70,8 @@ interface Milestone {
   description: string;
   featureIds: string[];            // features grouped under this milestone
   status: UnitStatus;              // derived aggregate status for reporting
-  order: number;                   // priority / display order only
+  order: number;                   // display order only; not an execution dependency
+  steeringQueuePosition?: number;  // ordered scheduler override; absent = not queued (effective ∞)
 }
 
 interface Feature {
@@ -140,17 +141,21 @@ type TaskCollabControl =
 
 ### Scheduling Levels
 
-The feature graph determines which features can run. Milestones provide grouping and priority only; they do not unblock execution. Within a runnable feature, all tasks with satisfied in-feature deps are dispatched in parallel.
+The feature graph determines which features can run. Milestones are organizational / steering units: they do not unblock execution and they do not create dependency edges. A user may queue multiple milestones to steer scheduler attention. Among ready work, the scheduler first compares the queue position of each task's associated milestone; work whose milestone is not queued gets an effective queue position of infinity. Within the same milestone queue-position bucket, normal critical-path / readiness logic applies. If no milestones are queued, the scheduler runs autonomously from the global ready frontier. Within a runnable feature, all tasks with satisfied in-feature deps are dispatched in parallel.
 
 ```
-Milestone priority: M1 > M2 > M3
-
 Feature graph:
   F-auth ──→ F-api ──→ F-ui
                 ↑
   F-db ────────┘
 
 Ready frontier: [F-auth, F-db]  (no unmet feature deps)
+Queued milestones: [M1, M3]
+Tuple ordering over ready work:
+  1. milestoneQueuePosition(task.milestoneId)   // ∞ if not queued
+  2. -criticalPathWeight(task)
+  3. stable fallback
+No queued milestones: start from the global ready frontier and sort by critical path
 After F-auth + F-db done: [F-api]
 After F-api done: [F-ui]
 
@@ -168,8 +173,8 @@ main
     └── task/middleware-wiring
 ```
 
-- A feature branch is created when a feature enters `executing` work control.
+- A feature branch and feature worktree are created when that branch is requested and collaboration control enters `branch_open`.
 - Task worktrees branch from the current HEAD of the owning feature branch.
 - Task completion squash-merges into the feature branch, not `main`.
-- Once summarizing finishes and feature work control becomes `work_complete`, collaboration control moves to `merge_queued`.
+- Once summarizing finishes and feature work control becomes `work_complete`, run feature verification on the feature branch; only if it passes does collaboration control move to `merge_queued`.
 - The merge train serializes feature-branch integration into `main`.

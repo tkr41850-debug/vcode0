@@ -10,11 +10,13 @@ The UI presents two state axes:
 - **Work control** — where work is in the GSD lifecycle
 - **Collaboration control** — where the branch/merge/conflict lifecycle stands
 
+Milestones are shown as organizational / progress buckets. Users may queue multiple milestones as an ordered steering override; otherwise auto-execution stays in autonomous mode and pulls from the global ready frontier.
+
 ```text
 ┌──────────────────────────────────────────────────────────────┐
 │ gsd2  goal: "implement auth system"   cost: $1.23            │
 ├──────────────────────────────────────────────────────────────┤
-│  M1: Core Infrastructure                   [3/5 done]        │
+│  M1: Core Infrastructure [queue: 1]       [3/5 done]        │
 │  ├── ✓ F-db: Database schema                                   │
 │  ├── ✓ F-models: Data models                                   │
 │  ├── ⟳ F-auth: Auth middleware      [work: executing]          │
@@ -73,7 +75,7 @@ gsd2 --auto       # start auto-execution immediately, TUI shows progress
 Output files written to current directory:
 - `.gsd2/state.db` — SQLite DAG state
 - `.gsd2/config.json` — project config (verification checks, budget, etc.)
-- `.gsd2/worktrees/` — per-task git worktrees
+- `.gsd2/worktrees/` — feature and task git worktrees
 
 ### TUI Actions (keyboard-driven overlays)
 
@@ -81,6 +83,7 @@ Output files written to current directory:
 |-----|--------|
 | `n` | New plan — opens spec editor overlay, runs planner on submit |
 | `a` | Add milestone — opens spec editor, planner adds to existing graph |
+| `g` | Queue / dequeue milestone — edit the ordered milestone steering queue or return to autonomous scheduling |
 | `space` | Start/pause auto-execution |
 | `w` | Worker picker — select a worker to focus in Agent Monitor |
 | `s` | Steer selected worker (in main view: opens worker picker first if none selected) |

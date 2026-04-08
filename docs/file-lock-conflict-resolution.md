@@ -4,7 +4,7 @@ See [ARCHITECTURE.md](../ARCHITECTURE.md) for the high-level architecture index.
 
 ## Scope
 
-The file-lock system is a **same-feature collaboration-control** mechanism. It coordinates overlapping writes between task worktrees that belong to the same feature branch. Cross-feature conflicts are not resolved here; they surface when a feature branch enters the merge train.
+The file-lock system is primarily a **same-feature collaboration-control** mechanism. It coordinates overlapping writes between task worktrees that belong to the same feature branch. Cross-feature overlap has its own feature-pair protocol in this document and is finally reconciled at feature integration time.
 
 ## Same-Feature File-Lock Resolution
 

@@ -18,7 +18,7 @@ main
 ```
 
 - **Max concurrency**: configurable (default: CPU count or provider rate limit, whichever is lower)
-- **Worktree lifecycle**: created on dispatch from the feature branch, squash-merged back into the feature branch on success, deleted after merge
+- **Worktree lifecycle**: created on dispatch from the feature branch, squash-merged back into the feature branch on success, and retained until the owning feature lands on `main` or garbage collection snapshots and removes the stale worktree
 
 ### Git Commit Strategy
 
@@ -42,12 +42,13 @@ main:
 
 Each feature owns exactly one long-lived integration branch.
 
-1. When feature work control enters `executing`, the orchestrator creates `feature/<feature-id>` from the current `main`.
+1. When a feature branch is requested, the orchestrator creates `feature/<feature-id>` from the current `main` and opens its feature worktree.
 2. Task worktrees branch from the current HEAD of `feature/<feature-id>`.
 3. Task completion merges into `feature/<feature-id>`.
-4. When feature work control reaches `work_complete`, feature collaboration control becomes `merge_queued`.
-5. The merge train rebases the feature branch onto the latest `main`, runs integration checks, and either merges or marks the feature `conflict`.
-6. Detailed conflict handling policy is still tentative and likely complex; expect this area to be tuned based on user feedback.
+4. When feature work control reaches `work_complete`, the orchestrator runs feature verification on the feature branch.
+5. Only if feature verification passes does feature collaboration control become `merge_queued`.
+6. The merge train rebases the feature branch onto the latest `main`, runs merge-train verification, and either merges or removes the feature from the queue for repair/retry on the same branch.
+7. Detailed same-feature conflict steering policy is still tentative and likely complex; expect this area to be tuned based on user feedback.
 
 ## IPC: NDJSON over stdio (swappable)
 
