@@ -1,4 +1,4 @@
-# gsd2 Architecture: DAG-First Autonomous Agent
+# Architecture: DAG-First Autonomous Agent
 
 A TypeScript remake of GSD-2 built on pi-sdk (`@mariozechner/pi-agent-core`), replacing GSD-2's sequential-default execution model with a DAG scheduler that maximizes parallelism at every level. Execution is organized around a feature DAG, with task DAGs local to a feature branch and collaboration with `main` handled through a serialized merge train.
 
@@ -9,7 +9,7 @@ GSD-2's execution model defaults to sequential. Parallelism is opt-in via `depen
 ## Component Map
 
 ```
-gsd2/
+gvc0/
 ├── src/
 │   ├── graph/
 │   │   ├── types.ts              -- Milestone, Feature, Task, work/collaboration control types

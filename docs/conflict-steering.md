@@ -1,4 +1,4 @@
-# gsd2 Conflict Steering
+# Conflict Steering
 
 See [ARCHITECTURE.md](../ARCHITECTURE.md) for the high-level architecture index.
 

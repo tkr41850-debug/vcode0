@@ -1,4 +1,4 @@
-# gsd2 Testing
+# Testing
 
 See [ARCHITECTURE.md](../ARCHITECTURE.md) for the high-level architecture index.
 
@@ -77,7 +77,7 @@ Scenario specs live under `specs/test_*.md` and are intended for later conversio
 ### Test Utilities
 
 ```text
-gsd2/
+gvc0/
 ├── test/
 │   ├── utils/
 │   │   ├── faux-stream.ts    -- fauxModel + fauxStreamFn (wraps pi-sdk faux provider)

@@ -1,4 +1,4 @@
-# gsd2 TUI
+# TUI
 
 See [ARCHITECTURE.md](../ARCHITECTURE.md) for the high-level architecture index.
 
@@ -14,7 +14,7 @@ Milestones are shown as organizational / progress buckets. Users may queue multi
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
-│ gsd2  goal: "implement auth system"   cost: $1.23            │
+│ gvc0  goal: "implement auth system"   cost: $1.23            │
 ├──────────────────────────────────────────────────────────────┤
 │  M1: Core Infrastructure [queue: 1]       [3/5 done]        │
 │  ├── ✓ F-db: Database schema                                   │
@@ -68,14 +68,14 @@ class StatusBar implements Component {
 All plan management is done through the TUI (like gsd-2), not CLI subcommands. The TUI has two modes: **interactive** (user drives) and **auto** (orchestrator drives, TUI shows progress).
 
 ```bash
-gsd2              # open TUI in current directory
-gsd2 --auto       # start auto-execution immediately, TUI shows progress
+gvc0              # open TUI in current directory
+gvc0 --auto       # start auto-execution immediately, TUI shows progress
 ```
 
 Output files written to current directory:
-- `.gsd2/state.db` — SQLite DAG state
-- `.gsd2/config.json` — project config (verification checks, budget, etc.)
-- `.gsd2/worktrees/` — feature and task git worktrees
+- `.gvc0/state.db` — SQLite DAG state
+- `.gvc0/config.json` — project config (verification checks, budget, etc.)
+- `.gvc0/worktrees/` — feature and task git worktrees
 
 ### TUI Actions (keyboard-driven overlays)
 
@@ -93,7 +93,7 @@ Output files written to current directory:
 | `x` | Cancel feature (with cascade prompt) |
 | `e` | Edit feature (name, description, tasks) |
 | `d` | Show feature dependency detail |
-| `c` | Regenerate codebase map (`.gsd2/CODEBASE.md`) |
+| `c` | Regenerate codebase map (`.gvc0/CODEBASE.md`) |
 | `q` | Quit |
 
 ## Agent Monitor View

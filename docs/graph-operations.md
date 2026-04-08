@@ -1,4 +1,4 @@
-# gsd2 Graph Operations
+# Graph Operations
 
 See [ARCHITECTURE.md](../ARCHITECTURE.md) for the high-level architecture index.
 

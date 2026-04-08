@@ -1,4 +1,4 @@
-# gsd2 Planner
+# Planner
 
 See [ARCHITECTURE.md](../ARCHITECTURE.md) for the high-level architecture index.
 

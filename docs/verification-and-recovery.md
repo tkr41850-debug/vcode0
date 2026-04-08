@@ -1,4 +1,4 @@
-# gsd2 Verification and Recovery
+# Verification and Recovery
 
 See [ARCHITECTURE.md](../ARCHITECTURE.md) for the high-level architecture index.
 
@@ -66,10 +66,10 @@ const submitTool: AgentTool = {
 
 ### Verification Config
 
-All verification layers are configured as editable command lists in `.gsd2/config.json`. The commands shown below are only examples; actual projects may use different tools and ecosystems (`npm`, `cargo`, `go test`, `pytest`, `mix`, etc.).
+All verification layers are configured as editable command lists in `.gvc0/config.json`. The commands shown below are only examples; actual projects may use different tools and ecosystems (`npm`, `cargo`, `go test`, `pytest`, `mix`, etc.).
 
 ```jsonc
-// .gsd2/config.json
+// .gvc0/config.json
 {
   "verification": {
     "task": {

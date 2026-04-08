@@ -1,4 +1,4 @@
-# gsd2 Worker Model
+# Worker Model
 
 See [ARCHITECTURE.md](../ARCHITECTURE.md) for the high-level architecture index.
 
@@ -9,11 +9,11 @@ Each task spawns a dedicated child process. Workers are pi-sdk `Agent` instances
 ```text
 main
 └── feature/auth
-    ├── Worker 1 (worktree: .gsd2/worktrees/task-jwt/)
+    ├── Worker 1 (worktree: .gvc0/worktrees/task-jwt/)
     │   └── pi-sdk Agent → executes JWT validation
-    ├── Worker 2 (worktree: .gsd2/worktrees/task-session/)
+    ├── Worker 2 (worktree: .gvc0/worktrees/task-session/)
     │   └── pi-sdk Agent → executes session store
-    └── Worker 3 (worktree: .gsd2/worktrees/task-middleware/)
+    └── Worker 3 (worktree: .gvc0/worktrees/task-middleware/)
         └── pi-sdk Agent → executes middleware wiring
 ```
 
@@ -104,9 +104,9 @@ interface WorkerContext {
   strategy: "shared-summary" | "fresh" | "inherit";
   planSummary?: string;            // overall plan description
   dependencyOutputs?: DepOutput[]; // summaries from completed deps
-  codebaseMap?: string;            // contents of .gsd2/CODEBASE.md
-  knowledge?: string;              // contents of .gsd2/KNOWLEDGE.md
-  decisions?: string;              // contents of .gsd2/DECISIONS.md
+  codebaseMap?: string;            // contents of .gvc0/CODEBASE.md
+  knowledge?: string;              // contents of .gvc0/KNOWLEDGE.md
+  decisions?: string;              // contents of .gvc0/DECISIONS.md
 }
 
 interface DepOutput {
@@ -119,7 +119,7 @@ interface DepOutput {
 
 ## Crash Recovery
 
-On startup, gsd2 scans for orphaned tasks (status `running` with no live worker process) and resets or resumes them. Feature branches remain authoritative across restarts; resumed task worktrees rebase onto the current HEAD of the owning feature branch before continuing.
+On startup, gvc0 scans for orphaned tasks (status `running` with no live worker process) and resets or resumes them. Feature branches remain authoritative across restarts; resumed task worktrees rebase onto the current HEAD of the owning feature branch before continuing.
 
 ### Session Harness Abstraction
 

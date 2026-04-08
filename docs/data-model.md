@@ -1,4 +1,4 @@
-# gsd2 Data Model
+# Data Model
 
 See [ARCHITECTURE.md](../ARCHITECTURE.md) for the high-level architecture index.
 
@@ -84,7 +84,7 @@ interface Feature {
   status: UnitStatus;              // derived aggregate reporting status
   workControl: FeatureWorkControl;
   collabControl: FeatureCollabControl;
-  featureBranch: string;           // e.g. gsd2/feature-auth
+  featureBranch: string;           // e.g. gvc0/feature-auth
   mergeTrainPosition?: number;
 }
 

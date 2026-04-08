@@ -1,4 +1,4 @@
-# gsd2 Budget and Model Routing
+# Budget and Model Routing
 
 See [ARCHITECTURE.md](../ARCHITECTURE.md) for the high-level architecture index.
 
@@ -7,7 +7,7 @@ See [ARCHITECTURE.md](../ARCHITECTURE.md) for the high-level architecture index.
 Configurable per-task and global USD ceilings. Workers report token usage via IPC after each LLM call; orchestrator accumulates and enforces limits.
 
 ```jsonc
-// .gsd2/config.json
+// .gvc0/config.json
 {
   "budget": {
     "globalUsd": 50.00,      // halt all workers when exceeded
@@ -48,7 +48,7 @@ function routeModel(tier: RoutingTier, config: ModelRoutingConfig): Model {
 }
 ```
 
-Config in `.gsd2/config.json`:
+Config in `.gvc0/config.json`:
 ```jsonc
 {
   "modelRouting": {

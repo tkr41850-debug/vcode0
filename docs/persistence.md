@@ -1,10 +1,10 @@
-# gsd2 Persistence
+# Persistence
 
 See [ARCHITECTURE.md](../ARCHITECTURE.md) for the high-level architecture index.
 
 ## Persistence: SQLite
 
-Single database file at `.gsd2/state.db`. All DAG state, work control, and collaboration control state is persisted atomically.
+Single database file at `.gvc0/state.db`. All DAG state, work control, and collaboration control state is persisted atomically.
 
 ### Schema
 

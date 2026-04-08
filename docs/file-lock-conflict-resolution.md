@@ -1,4 +1,4 @@
-# gsd2 File-Lock Conflict Resolution
+# File-Lock Conflict Resolution
 
 See [ARCHITECTURE.md](../ARCHITECTURE.md) for the high-level architecture index.
 
