@@ -6,10 +6,11 @@ Capture the expected lifecycle of a feature branch and its task worktrees.
 
 ## Scenarios
 
-### Feature branch opens when work begins
+### Feature branch opens when requested
 - Given a feature whose feature dependencies are satisfied
-- When feature work control enters `executing`
-- Then the orchestrator creates `feature/<feature-id>` from the current `main`
+- When the orchestrator requests a feature branch for that feature
+- Then it creates `feature/<feature-id>` from the current `main`
+- And opens the feature worktree
 - And feature collaboration control becomes `branch_open`
 
 ### Task worktree branches from feature branch
@@ -25,10 +26,22 @@ Capture the expected lifecycle of a feature branch and its task worktrees.
 - And the task is not merged directly to `main`
 - And task collaboration control becomes `merged`
 
-### Feature branch is cleaned up after integration
+### Feature enters merge queue only after feature verification passes
 - Given all tasks in a feature have merged into the feature branch
 - And feature work control has reached `work_complete`
-- And the feature passes integration verification in the merge train
+- When the orchestrator runs feature verification on the feature branch
+- Then the feature enters `merge_queued` only if that verification passes
+
+### Task worktrees are retained until feature merge or GC
+- Given a task has already merged back into its feature branch
+- When the feature has not yet landed on `main`
+- Then the task worktree is retained for replay/recovery
+- Or later removed only through garbage collection / snapshot policy
+
+### Feature branch is cleaned up after integration
+- Given all tasks in a feature have merged into the feature branch
+- And feature verification has already passed
+- And the feature passes merge-train verification
 - When the feature lands on `main`
 - Then the feature branch is deleted
 - And feature collaboration control becomes `merged`

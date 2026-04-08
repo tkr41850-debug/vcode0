@@ -61,11 +61,14 @@ Integration test targets:
 
 Scenario specs live under `specs/test_*.md` and are intended for later conversion into executable tests.
 
-- [test_feature_branch_lifecycle](../specs/test_feature_branch_lifecycle.md) — task worktrees branch from and merge back into feature branches.
+- [test_feature_branch_lifecycle](../specs/test_feature_branch_lifecycle.md) — feature branches/worktrees open on request, task worktrees merge back into them, and retention/cleanup follows the feature lifecycle.
 - [test_merge_train_ordering](../specs/test_merge_train_ordering.md) — completed feature branches queue and integrate to `main` one at a time, with milestone steering handled separately before queueing.
 - [test_merge_train_conflict_handling](../specs/test_merge_train_conflict_handling.md) — cross-feature overlap becomes an integration conflict.
 - [test_fs_lock_detection](../specs/test_fs_lock_detection.md) — same-feature overlap triggers suspension.
 - [test_fs_lock_resume](../specs/test_fs_lock_resume.md) — suspended tasks either resume cleanly or receive exact conflict steering against the updated feature branch.
+- [test_conflict_steering](../specs/test_conflict_steering.md) — upstream updates escalate from awareness to sync recommendation, required sync, and explicit conflict steering.
+- [test_claude_code_harness](../specs/test_claude_code_harness.md) — Claude Code worker sessions are isolated, resumable, and checkpoint-driven.
+- [test_warning_signals](../specs/test_warning_signals.md) — warning thresholds cover slow verification, feature churn, and long blocking.
 - [test_stuck_detection_replan](../specs/test_stuck_detection_replan.md) — work-control stuck state enters replanning.
 - [test_crash_recovery](../specs/test_crash_recovery.md) — restart preserves feature-branch authority and resumes or resets tasks correctly.
 
