@@ -4,7 +4,7 @@ See [ARCHITECTURE.md](../ARCHITECTURE.md) for the high-level architecture index.
 
 ## Worker Model: Process-per-Task
 
-Each task spawns a dedicated child process. Workers are pi-sdk `Agent` instances running in isolated git worktrees that branch from the owning feature branch. Before a worker mutates files, the harness may emit advisory write-intent metadata so the orchestrator can coordinate same-feature hotspots before they turn into full conflicts.
+Each task spawns a dedicated child process. Workers are pi-sdk `Agent` instances running in isolated git worktrees that branch from the owning feature branch. Each worker receives the task's reserved write paths as prompt context, and the write-tool prehook checks attempted target paths against that reservation set before mutation so the orchestrator can coordinate same-feature hotspots before they turn into full conflicts.
 
 ```text
 main
