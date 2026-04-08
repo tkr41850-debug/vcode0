@@ -17,11 +17,18 @@ Capture serialized feature-branch integration into `main`.
 - When both features are otherwise ready to integrate
 - Then feature A must integrate before feature B
 
-### Queue uses priority and FIFO after dependencies
+### Queue stays serialized after dependencies are satisfied
 - Given two independent features are ready to integrate
-- When one belongs to a higher-priority milestone
-- Then the higher-priority feature is selected first
-- And ties fall back to queue order
+- When they both enter the integration queue
+- Then exactly one feature is selected first according to the merge-train queue policy
+- And the other remains queued until the first finishes
+
+### Milestone steering uses ordered queue position before queueing, not merge ordering
+- Given a user queues milestones M1 then M2 while ready work exists in M1, M2, and an unqueued milestone
+- When the scheduler chooses new work before feature verification is complete
+- Then ready work in M1 sorts ahead of ready work in M2
+- And unqueued work falls behind both in the effective `∞` bucket
+- And merge-train ordering remains a separate policy once features are queued
 
 ### Feature finishes integration before next begins
 - Given one feature is at the head of the merge train
