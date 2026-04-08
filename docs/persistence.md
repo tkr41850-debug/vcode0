@@ -13,7 +13,8 @@ CREATE TABLE milestones (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   description TEXT,
-  priority INTEGER NOT NULL DEFAULT 0,
+  display_order INTEGER NOT NULL DEFAULT 0,
+  steering_queue_position INTEGER,
   status TEXT NOT NULL DEFAULT 'pending',
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
@@ -73,7 +74,7 @@ CREATE TABLE events (
 );
 ```
 
-The `events` table is an append-only audit log for debugging and progress reporting.
+The `events` table is an append-only audit log for debugging, progress reporting, and warnings. `milestones.display_order` stores UI ordering only, and `milestones.steering_queue_position` stores the optional ordered steering queue; `NULL` means the milestone is not queued and therefore sorts into the effective `∞` bucket. Warning events include budget pressure, slow verification checks, long feature blocking, and feature-churn signals.
 
 ## State Semantics
 
@@ -91,6 +92,7 @@ The `events` table is an append-only audit log for debugging and progress report
 ## Validation Notes
 
 - Milestones do not appear in the `dependencies` table.
+- Queued milestones are a scheduler steering override only; they are not dependency edges and do not create readiness by themselves.
 - Feature dependencies are `feature → feature` only.
 - Task dependencies are `task → task` only and must remain within the same feature.
 - `feature_branch` is the authoritative git integration branch for a feature; task worktrees always derive from it.

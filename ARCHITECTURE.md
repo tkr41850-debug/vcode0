@@ -4,7 +4,7 @@ A TypeScript remake of GSD-2 built on pi-sdk (`@mariozechner/pi-agent-core`), re
 
 ## Core Thesis
 
-GSD-2's execution model defaults to sequential. Parallelism is opt-in via `depends_on` declarations. This remake inverts that: **the DAG is the only execution model**. Features depend only on features. Tasks depend only on tasks within the same feature. Work progression is tracked through **work control** phases that end at `work_complete`, while branch / merge / conflict coordination is tracked separately through **collaboration control** states. Overall feature `done` is derived only after merge.
+GSD-2's execution model defaults to sequential. Parallelism is opt-in via `depends_on` declarations. This remake inverts that: **the DAG is the only execution model**. Features depend only on features. Tasks depend only on tasks within the same feature. Milestones are organizational / progress units that can be queued by the user as an ordered steering list, but they are not dependency nodes. Work progression is tracked through **work control** phases that end at `work_complete`, while branch / merge / conflict coordination is tracked separately through **collaboration control** states. Overall feature `done` is derived only after merge.
 
 ## Component Map
 
@@ -54,16 +54,17 @@ gsd2/
 ## Documentation Index
 
 - [Data Model](docs/data-model.md) — hierarchy, feature/task dependency constraints, and the work control vs collaboration control state model.
-- [Graph Operations](docs/graph-operations.md) — DAG mutations, validation rules, critical-path scheduling, and merge-train coordination.
+- [Graph Operations](docs/graph-operations.md) — DAG mutations, validation rules, milestone steering overrides, critical-path scheduling, and merge-train coordination.
 - [Worker Model](docs/worker-model.md) — process-per-task execution, feature branches, task worktrees, IPC, and crash recovery.
 - [Persistence](docs/persistence.md) — SQLite schema and persisted work/collaboration control state.
-- [Verification and Recovery](docs/verification-and-recovery.md) — retries, verification, stuck detection, replanning, and integration queue behavior.
+- [Verification and Recovery](docs/verification-and-recovery.md) — retries, configurable task/feature/merge-train verification, stuck detection, replanning, and integration queue behavior.
 - [TUI](docs/tui.md) — progress view, entry points, and how work control / collaboration control are displayed.
 - [Budget and Model Routing](docs/budget-and-model-routing.md) — budget enforcement, routing tiers, and token profiles.
 - [Knowledge Files](docs/knowledge-files.md) — CODEBASE.md, KNOWLEDGE.md, and DECISIONS.md.
 - [Planner](docs/planner.md) — planner tool-call workflow.
 - [File-Lock Conflict Resolution](docs/file-lock-conflict-resolution.md) — same-feature overlap detection, suspension, resume, and cross-feature integration boundaries.
 - [Testing](docs/testing.md) — unit and integration testing strategy, plus references to scenario specs.
+- [Warnings](docs/warnings.md) — warning categories, tracked signals, and staged rollout from simple thresholds to trend detection.
 
 ## Scenario Specs
 

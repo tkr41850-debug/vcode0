@@ -26,7 +26,7 @@ function checkBudget(state: BudgetState, config: BudgetConfig): BudgetAction {
 }
 ```
 
-When global budget is hit: pause all workers, emit `budget_exceeded` event, show in TUI. User can raise the ceiling and resume.
+When global budget is hit: pause all workers, emit `budget_exceeded` event, show in TUI. User can raise the ceiling and resume. Budget pressure warnings are part of the broader warning system described in [Warnings](./warnings.md).
 
 ## Dynamic Model Routing
 

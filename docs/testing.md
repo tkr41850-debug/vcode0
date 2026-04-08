@@ -14,6 +14,7 @@ Key targets:
 - `scheduler/retry.ts` — backoff math, jitter bounds
 - `scheduler/model-router.ts` — tier selection, ceiling enforcement, budget pressure
 - `ipc/ndjson.ts` — message framing, partial line handling
+- ordered milestone steering queue vs autonomous scheduler selection
 - merge-train queue ordering and state transitions
 - work control vs collaboration control type transitions
 
@@ -38,14 +39,21 @@ test("worker calls submit after passing verification", async () => {
 ```
 
 Integration test targets:
-- Worker submit → verification pass/fail loop
+- Worker submit → task-level verification pass/fail loop
 - Task worktree merge into feature branch
+- Feature branch full verification before queueing
+- Earlier queued milestones sort ahead of later queued milestones without bypassing dependencies
+- Non-queued work falls into the effective `∞` bucket and backfills idle workers
+- Clearing the milestone steering queue returns scheduler selection to autonomous critical-path mode
 - Feature branch enters merge train; serialized integration to `main`
+- Merge-train full verification after rebase onto latest `main`
 - Same-feature file-lock suspend/resume IPC flow
 - Cross-feature conflict surfaces at integration time, not task suspension time
 - Planner builds valid DAG via tool calls
 - Scheduler dispatches correct frontier after task completion
 - Crash recovery: orphaned `running` tasks reset or resumed on startup with feature branch preserved
+- Slow verification warnings for task / feature / merge-train checks
+- Feature churn warnings after repeated verification failures, queue ejections, or repair loops
 - Stuck detection and replanning transitions
 
 ## Scenario Specs
@@ -53,7 +61,7 @@ Integration test targets:
 Scenario specs live under `specs/test_*.md` and are intended for later conversion into executable tests.
 
 - [test_feature_branch_lifecycle](../specs/test_feature_branch_lifecycle.md) — task worktrees branch from and merge back into feature branches.
-- [test_merge_train_ordering](../specs/test_merge_train_ordering.md) — completed feature branches queue and integrate to `main` one at a time.
+- [test_merge_train_ordering](../specs/test_merge_train_ordering.md) — completed feature branches queue and integrate to `main` one at a time, with milestone steering handled separately before queueing.
 - [test_merge_train_conflict_handling](../specs/test_merge_train_conflict_handling.md) — cross-feature overlap becomes an integration conflict.
 - [test_fs_lock_detection](../specs/test_fs_lock_detection.md) — same-feature overlap triggers suspension.
 - [test_fs_lock_resume](../specs/test_fs_lock_resume.md) — suspended tasks resume against the updated feature branch.
