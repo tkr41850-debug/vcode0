@@ -99,6 +99,8 @@ When workers are scarce, earlier queued milestones win first, then critical-path
 
 Planner note: this works best when prerequisite-shaping tasks (schemas, interfaces, shared contracts, generated sources of truth) are placed near the front of the chain and expressed as explicit dependencies. Front-loading dependency-establishing work makes the critical path more faithful to real downstream constraints.
 
+Where a contract is a real upstream dependency for multiple later features, that front-loading may justify splitting the plan into a dedicated interface feature plus dependent implementation features. Where the contract is only internal scaffolding for one feature, keep it as early tasks inside the same feature rather than paying extra merge-train and verification overhead for a premature feature split.
+
 ## Collaboration Control: Merge Train
 
 Completed feature branches do not merge directly to `main`. Instead, they enter a serialized integration queue.

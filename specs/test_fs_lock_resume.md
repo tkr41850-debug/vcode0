@@ -22,3 +22,9 @@ Capture same-feature resume behavior after a dominant task lands on the feature 
 - When rebasing onto the updated feature branch cannot auto-resolve cleanly
 - Then the task remains in `conflict` collaboration control in the real conflicted worktree
 - And the existing task agent receives exact conflict steering context instead of a destructive reset
+
+### Resolved same-feature conflict returns to normal task flow
+- Given a task was in same-feature collaboration `conflict`
+- When the task agent resolves the conflict and later passes normal `submit` verification
+- Then task collaboration control clears from `conflict`
+- And the task returns to the normal completion path

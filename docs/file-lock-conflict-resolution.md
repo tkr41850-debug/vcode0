@@ -59,6 +59,15 @@ For same-feature task conflicts, the orchestrator should inject at least:
 
 The injected summary is only orientation. The conflicted worktree remains authoritative, and the agent is expected to inspect and repair the real current file state.
 
+### Same-Feature Outcome Rules
+
+After same-feature conflict steering begins:
+1. If the agent resolves the conflict and later passes normal task `submit` verification, clear task collaboration control from `conflict` and return the task to the normal completion path.
+2. If the agent resolves merge markers but ordinary task verification still fails, treat that as normal task work rather than a continuing collaboration conflict; the task stays in the usual execution / verification loop and may eventually become `stuck` under the normal stuck policy.
+3. If the agent makes no meaningful progress on the conflict, keep task collaboration control at `conflict` and escalate to targeted repair work, replanning, or user intervention.
+
+The first response should remain task-local: steer the existing task agent before escalating to heavier feature-level recovery.
+
 Normal resume after clean auto-merge:
 
 ```typescript

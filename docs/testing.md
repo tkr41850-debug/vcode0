@@ -49,7 +49,9 @@ Integration test targets:
 - Merge-train full verification after rebase onto latest `main`
 - Same-feature file-lock suspend/resume IPC flow
 - Same-feature rebase conflict steers the existing task in the real conflicted worktree
+- Same-feature conflict resolution that succeeds returns the task to the normal completion path
 - Cross-feature conflict surfaces at integration time, not task suspension time
+- Successful integration repair returns the feature to merge-ready state
 - Planner builds valid DAG via tool calls
 - Scheduler dispatches correct frontier after task completion
 - Crash recovery: orphaned `running` tasks reset or resumed on startup with feature branch preserved

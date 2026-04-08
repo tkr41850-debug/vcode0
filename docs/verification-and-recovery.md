@@ -129,6 +129,25 @@ Task completion does not land work on `main` directly. Instead:
 10. Only if feature verification passes again may the feature re-enter the merge train, at the end of the queue.
 11. If rebasing onto the latest `main` or subsequent repair work keeps failing in a way that indicates structural mismatch, escalate to replanning.
 
+## Conflict Outcome Rules
+
+### Same-Feature Task Conflict
+
+When a same-feature task enters collaboration-control `conflict` after auto-rebase fails:
+1. Steer the existing task agent in the real conflicted worktree.
+2. If the agent resolves the conflict and later passes task `submit` verification, clear the task's `conflict` collaboration state and continue the normal task completion path.
+3. If the agent resolves the merge but ordinary task verification fails, treat that as normal task work rather than a continuing collaboration conflict.
+4. If the agent makes no meaningful progress, keep the task in `conflict` and escalate to targeted repair work, replanning, or user intervention.
+
+### Cross-Feature Integration Conflict
+
+When feature integration fails at rebase or merge-train verification:
+1. Set feature collaboration control to `conflict` and remove the feature from the merge queue.
+2. Create repair work on the same feature branch.
+3. Once repair lands, rerun `verification.feature.checks` on that feature branch.
+4. Only if feature verification passes again may the feature return to `work_complete`, clear `conflict`, and re-enter `merge_queued`.
+5. If repair repeatedly fails or indicates structural mismatch, move feature work control to `replanning`. 
+
 ## Stuck Detection
 
 A task is **stuck** when it repeatedly fails verification and resubmits without making progress. This is a work-control condition, not a dependency-waiting or merge-conflict label.

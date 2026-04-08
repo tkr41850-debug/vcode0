@@ -19,7 +19,7 @@ Milestone (organizational / progress unit)
 
 **Milestone** — an organizational / progress unit. It owns a set of features, gives users a human-facing grouping for planning and tracking, and can optionally be queued explicitly as a scheduler steering target. Multiple milestones may be queued. It does **not** participate in dependency edges in this version of the model.
 
-**Feature** — the primary unit in the execution DAG. Features depend only on other features. Each feature belongs to exactly one milestone, owns exactly one feature branch, and exposes two state axes:
+**Feature** — the primary unit in the execution DAG. Features depend only on other features. Each feature belongs to exactly one milestone, owns exactly one feature branch, and exposes two state axes. A feature may represent either a user-visible implementation slice or, where justified, a shared interface/contract prerequisite that later implementation features depend on.
 
 ### Work Control
 
@@ -37,7 +37,7 @@ discussing → researching → planning → executing → verifying → summariz
 - **executing** — tasks dispatch to workers in parallel per the feature-local DAG frontier.
 - **verifying** — all task outputs have landed on the feature branch and feature-level checks run.
 - **summarizing** — a `light`-tier model writes a feature summary for downstream context injection.
-- **replanning** — recovery phase entered after repeated work failures or an unresolved integration conflict.
+- **replanning** — recovery phase entered after repeated work failures, repeated unresolved same-feature conflict handling, or an unresolved integration conflict.
 - **work_complete** — feature implementation is complete on its feature branch. Overall feature `done` is derived only after collaboration control reaches `merged`.
 
 ### Collaboration Control

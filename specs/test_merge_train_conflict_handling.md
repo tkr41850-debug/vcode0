@@ -23,3 +23,9 @@ Capture how cross-feature conflicts are resolved during feature integration.
 - When the orchestrator cannot resolve it mechanically
 - Then the feature is removed from the merge queue and repair work is scheduled on the same feature branch
 - And only repeated or structural failure escalates to `replanning`
+
+### Successful repair returns feature to merge-ready state
+- Given integration repair work lands on the same feature branch
+- When feature verification passes again
+- Then feature collaboration control clears from `conflict`
+- And the feature may return to `work_complete` and re-enter `merge_queued`
