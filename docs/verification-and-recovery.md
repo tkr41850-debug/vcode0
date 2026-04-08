@@ -123,8 +123,11 @@ Task completion does not land work on `main` directly. Instead:
 4. The merge train serializes feature-branch integration into `main`.
 5. The queue head rebases onto the latest `main` and runs the configured `mergeTrain.checks` command list.
 6. If integration rebases and merge-train checks pass, collaboration control becomes `merged`.
-7. If merge-train verification fails, add a task on the same feature branch to fix the reported issues, remove the feature from the queue head, and when it becomes merge-ready again re-enter it at the end of the merge train.
-8. If rebasing onto the latest `main` or subsequent repair work keeps failing in a way that indicates structural mismatch, escalate to replanning.
+7. If merge-train verification fails, remove the feature from the merge train and add a task on the same feature branch to fix the reported issues.
+8. Once that repair task is added, the feature is no longer `work_complete` / merge-ready and returns to normal branch work.
+9. After the repair task lands, rerun `verification.feature.checks` on the feature branch.
+10. Only if feature verification passes again may the feature re-enter the merge train, at the end of the queue.
+11. If rebasing onto the latest `main` or subsequent repair work keeps failing in a way that indicates structural mismatch, escalate to replanning.
 
 ## Stuck Detection
 
