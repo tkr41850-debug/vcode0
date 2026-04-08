@@ -118,8 +118,9 @@ Queue rules:
 1. Only features whose feature deps are already merged to `main` may integrate.
 2. User-queued milestones steer scheduler selection before feature work reaches the merge train; they do not bypass dependency legality, and multiple queued milestones are compared by queue position.
 3. Once features enter the integration queue, ordering is serialized and based on dependency legality plus queue policy; milestone steering does not automatically define merge ordering.
-4. The queue head rebases onto the latest `main`, runs merge-train verification, and either merges or is removed from the queue for repair work on the same feature branch.
-5. Cross-feature conflicts are surfaced here, not by task-level file resets. Reservation overlap only penalizes scheduling; runtime overlap uses the feature-pair coordination protocol described in [file-lock-conflict-resolution.md](./file-lock-conflict-resolution.md).
+4. Baseline manual merge-train steering is intentionally limited to a simple override bucket: explicitly ordered queued features sort first in user order, and the remaining queued features continue to use automatic priority. Fully arbitrary persistent manual ordering is deferred as a feature candidate because it adds persistence/update complexity. See [Feature Candidate: Arbitrary Merge-Train Manual Ordering](./feature-candidates/arbitrary-merge-train-manual-ordering.md).
+5. The queue head rebases onto the latest `main`, runs merge-train verification, and either merges or is removed from the queue for repair work on the same feature branch.
+6. Cross-feature conflicts are surfaced here, not by task-level file resets. Reservation overlap only penalizes scheduling; runtime overlap uses the feature-pair coordination protocol described in [file-lock-conflict-resolution.md](./file-lock-conflict-resolution.md).
 
 ## Scheduler Loop
 

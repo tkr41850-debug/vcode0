@@ -44,7 +44,9 @@ gvc0/
 │   │   └── sqlite.ts             -- SQLite implementation
 │   └── cli.ts                    -- entry point
 ├── docs/
-│   └── *.md                      -- architecture reference by topic
+│   ├── *.md                      -- baseline architecture reference by topic
+│   ├── optimization-candidates/  -- deferred performance / efficiency ideas
+│   └── feature-candidates/       -- deferred product / coordination features outside the baseline
 ├── specs/
 │   └── test_*.md                 -- scenario specs for later conversion into executable tests
 ├── package.json
@@ -66,6 +68,12 @@ gvc0/
 - [Conflict Steering](docs/conflict-steering.md) — sync recommendation ladder, checkpoint timing, and escalation from upstream updates to explicit conflict handling.
 - [Testing](docs/testing.md) — unit and integration testing strategy, plus references to scenario specs.
 - [Warnings](docs/warnings.md) — warning categories, tracked signals, and staged rollout from simple thresholds to trend detection.
+
+## Candidate Notes
+
+- [Feature Candidate: Arbitrary Merge-Train Manual Ordering](docs/feature-candidates/arbitrary-merge-train-manual-ordering.md) — future support for fully persistent arbitrary user queue ordering beyond the baseline manual-override bucket.
+- [Optimization Candidate: Testing Cost Reduction](docs/optimization-candidates/testing.md) — future ideas for reducing verification/testing cost.
+- [Optimization Candidate: Verification Reuse](docs/optimization-candidates/verification-and-recovery.md) — future ideas for reusing or narrowing repeated verification work.
 
 ## Scenario Specs
 

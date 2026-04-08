@@ -74,7 +74,7 @@ CREATE TABLE events (
 );
 ```
 
-The `events` table is an append-only audit log for debugging, progress reporting, and warnings. `milestones.display_order` stores UI ordering only, and `milestones.steering_queue_position` stores the optional ordered steering queue; `NULL` means the milestone is not queued and therefore sorts into the effective `∞` bucket. Warning events include budget pressure, slow verification checks, long feature blocking, and feature-churn signals.
+The `events` table is an append-only audit log for debugging, progress reporting, and warnings. `milestones.display_order` stores UI ordering only, and `milestones.steering_queue_position` stores the optional ordered steering queue; `NULL` means the milestone is not queued and therefore sorts into the effective `∞` bucket. For merge-train ordering, the baseline should prefer simple queue metadata such as nullable manual-position fields and explicit entry/re-entry counters before introducing more complex structures. A linked-list representation in SQLite is a possible future implementation sketch for fully arbitrary persistent queue ordering, but it is premature for the baseline. Warning events include budget pressure, slow verification checks, long feature blocking, and feature-churn signals.
 
 ## State Semantics
 
