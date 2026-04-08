@@ -4,7 +4,7 @@ See [ARCHITECTURE.md](../ARCHITECTURE.md) for the high-level architecture index.
 
 ## Scope
 
-The file-lock system is primarily a **same-feature collaboration-control** mechanism. It coordinates overlapping writes between task worktrees that belong to the same feature branch. Cross-feature overlap has its own feature-pair protocol in this document and is finally reconciled at feature integration time.
+The file-lock system is primarily a **same-feature collaboration-control** mechanism. It coordinates overlapping writes between task worktrees that belong to the same feature branch. Cross-feature overlap has its own feature-pair protocol in this document and is finally reconciled at feature integration time. The higher-level sync recommendation and conflict escalation ladder lives in [Conflict Steering](./conflict-steering.md).
 
 ## Same-Feature File-Lock Resolution
 
@@ -31,16 +31,33 @@ When the dominant task completes its work:
 1. Merge its task worktree branch into the feature branch
 2. For each suspended worktree waiting on those files:
    a. Rebase the worktree branch onto the updated feature branch
-   b. If the rebase auto-resolves cleanly with `ort` merge or similar, send a normal resume message and continue
-   c. If the rebase cannot be auto-resolved, do **not** reset files; keep the task in `conflict` collaboration control and inject the exact conflict context to the agent
+   b. If the rebase auto-resolves cleanly with `ort` merge or similar, optionally run a cheap sanity check such as `git diff --check`, send a normal resume message, and continue
+   c. If the rebase cannot be auto-resolved, do **not** reset files, do **not** auto-pick `ours` / `theirs`, keep the task in `conflict` collaboration control, and inject the exact conflict context to the agent
    d. SIGCONT the child process only after the agent has received the steering context
 3. Worker agent resumes with awareness of the merged changes or the explicit conflict it now needs to resolve
 
-> TODO: tentative details (likely complex). The precise conflict-classification and escalation policy in this area is expected to need tuning from user feedback. The current document captures the intended direction, not a finalized algorithm.
+This baseline is intentionally fail-closed:
+- Stage 1 is mechanical only and accepts only clean git resolution.
+- Stage 2 is agent reconciliation in the real conflicted worktree.
+- Destructive resets are not part of the baseline policy.
 
 ### Worker-side handling
 
-The `submit` tool checks for pending collaboration-control messages before running verification. A normal resume explains what landed on the feature branch. An unresolved merge conflict is surfaced as a steering injection so the agent can inspect the current file state and resolve it intentionally.
+The `submit` tool checks for pending collaboration-control messages before running verification. A normal resume explains what landed on the feature branch. An unresolved merge conflict is surfaced as a steering injection so the agent can inspect the current file state and resolve it intentionally. Normal task verification still happens later at `submit`; resume itself does not force the full task verification command list.
+
+### Stage-2 Conflict Context
+
+For same-feature task conflicts, the orchestrator should inject at least:
+- conflict type (`same_feature_task_rebase`)
+- task id, feature id, task branch, and rebase target branch / SHA
+- file-lock pause reason and overlapped file paths
+- dominant task summary and changed files
+- conflicted/unmerged file list from the current git state
+- reserved write paths for the task
+- relevant dependency outputs already available to the task
+- last task verification result, if any
+
+The injected summary is only orientation. The conflicted worktree remains authoritative, and the agent is expected to inspect and repair the real current file state.
 
 Normal resume after clean auto-merge:
 

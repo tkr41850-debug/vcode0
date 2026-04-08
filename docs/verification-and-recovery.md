@@ -102,7 +102,7 @@ All verification layers are configured as editable command lists in `.gsd2/confi
 }
 ```
 
-Task checks run in the task's worktree and are intentionally light/local. Feature checks run in the feature branch during the `verifying` phase and are expected to provide full-repo confidence before queueing for integration. Merge-train checks run again after rebasing the feature branch onto the latest `main`, and provide final landing confidence. stdout+stderr is captured and included in the failure message fed back to the agent. Slow-check warnings and feature-churn warnings are described in [Warnings](./warnings.md).
+Task checks run in the task's worktree and are intentionally light/local. Feature checks run in the feature branch during the `verifying` phase and are expected to provide full-repo confidence before queueing for integration. Merge-train checks run again after rebasing the feature branch onto the latest `main`, and provide final landing confidence. stdout+stderr is captured and included in the failure message fed back to the agent. Slow-check warnings and feature-churn warnings are described in [Warnings](./warnings.md). Upstream sync recommendation and conflict escalation behavior are described in [Conflict Steering](./conflict-steering.md).
 
 ### Feature Verification Outcome
 

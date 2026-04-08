@@ -63,6 +63,7 @@ gsd2/
 - [Knowledge Files](docs/knowledge-files.md) — CODEBASE.md, KNOWLEDGE.md, and DECISIONS.md.
 - [Planner](docs/planner.md) — planner tool-call workflow.
 - [File-Lock Conflict Resolution](docs/file-lock-conflict-resolution.md) — same-feature overlap detection, suspension, resume, and cross-feature integration boundaries.
+- [Conflict Steering](docs/conflict-steering.md) — sync recommendation ladder, checkpoint timing, and escalation from upstream updates to explicit conflict handling.
 - [Testing](docs/testing.md) — unit and integration testing strategy, plus references to scenario specs.
 - [Warnings](docs/warnings.md) — warning categories, tracked signals, and staged rollout from simple thresholds to trend detection.
 
