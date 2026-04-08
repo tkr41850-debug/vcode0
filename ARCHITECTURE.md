@@ -27,7 +27,7 @@ gvc0/
 │   │   ├── entry.ts              -- child process entry point
 │   │   ├── worker.ts             -- pi-sdk Agent wrapper
 │   │   ├── submit.ts             -- submit tool + verification runner
-│   │   ├── harness.ts            -- SessionHarness interface + PiSdkHarness + ClaudeCodeHarness
+│   │   ├── harness.ts            -- SessionHarness interface + PiSdkHarness (default)
 │   │   └── tools/                -- standard tools + append_knowledge + record_decision
 │   ├── ipc/
 │   │   ├── types.ts              -- WorkerMessage, OrchestratorMessage
@@ -72,6 +72,7 @@ gvc0/
 ## Candidate Notes
 
 - [Feature Candidate: Arbitrary Merge-Train Manual Ordering](docs/feature-candidates/arbitrary-merge-train-manual-ordering.md) — future support for fully persistent arbitrary user queue ordering beyond the baseline manual-override bucket.
+- [Feature Candidate: Claude Code Harness](docs/feature-candidates/claude-code-harness.md) — future support for wrapping Claude Code sessions as worker backends.
 - [Optimization Candidate: Testing Cost Reduction](docs/optimization-candidates/testing.md) — future ideas for reducing verification/testing cost.
 - [Optimization Candidate: Verification Reuse](docs/optimization-candidates/verification-and-recovery.md) — future ideas for reusing or narrowing repeated verification work.
 

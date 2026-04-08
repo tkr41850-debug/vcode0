@@ -138,7 +138,7 @@ On startup, gvc0 scans for orphaned tasks (status `running` with no live worker 
 
 ### Session Harness Abstraction
 
-Workers are wrapped in a harness that abstracts the underlying session provider. This allows resuming from different session backends. When Claude Code is used as the provider, pi-sdk should launch fresh task/repair Claude Code instances rather than invoking planner-owned subagents; this keeps sandboxing boundaries explicit per worker session.
+Workers are wrapped in a harness that abstracts the underlying session provider. The baseline uses `PiSdkHarness`, which runs pi-sdk `Agent` instances directly — full programmatic control over start, resume, steer, and tool dispatch with no subprocess overhead.
 
 ```typescript
 interface SessionHarness {
@@ -156,10 +156,11 @@ interface SessionHandle {
   abort(): void;
 }
 
-// Implementations
-class PiSdkHarness implements SessionHarness { /* default */ }
-class ClaudeCodeHarness implements SessionHarness { /* starts or resumes isolated Claude Code worker sessions, not planner subagents */ }
+// Baseline implementation
+class PiSdkHarness implements SessionHarness { /* default — native pi-sdk Agent loop */ }
 ```
+
+A `ClaudeCodeHarness` that wraps Claude Code sessions as worker backends is a [feature candidate](./feature-candidates/claude-code-harness.md), not part of the baseline.
 
 Session IDs are stored in the `tasks` table (`session_id TEXT`). On startup:
 
