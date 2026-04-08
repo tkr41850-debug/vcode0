@@ -32,9 +32,9 @@ Retry triggers: provider overload, rate limit, quota exhausted, 5xx, network err
 No retry: verification failures (agent must fix and resubmit).
 Retry state persists in SQLite so retries survive orchestrator restarts.
 
-## Verification: Task Submit vs Feature Verify
+## Verification: Task Submit vs Feature Verify vs Merge Train
 
-Workers complete by calling a `submit` tool — the only way to mark a task done. Submit runs light task-level checks before accepting. Failures are returned as tool result text; the agent loop continues and must fix issues before resubmitting. Full integration verification runs later at the feature level before the feature branch can merge to `main`.
+Workers complete by calling a `submit` tool — the only way to mark a task done. Submit runs light task-level checks before accepting. Failures are returned as tool result text; the agent loop continues and must fix issues before resubmitting. Full integration verification runs later at the feature level before the feature branch can merge to `main`, and then runs again in the merge train after rebasing onto the latest `main`.
 
 ```typescript
 const submitTool: AgentTool = {
@@ -66,6 +66,8 @@ const submitTool: AgentTool = {
 
 ### Verification Config
 
+All verification layers are configured as editable command lists in `.gsd2/config.json`. The commands shown below are only examples; actual projects may use different tools and ecosystems (`npm`, `cargo`, `go test`, `pytest`, `mix`, etc.).
+
 ```jsonc
 // .gsd2/config.json
 {
@@ -86,21 +88,43 @@ const submitTool: AgentTool = {
       ],
       "timeoutSecs": 600,
       "continueOnFail": false
+    },
+    "mergeTrain": {
+      "checks": [
+        { "description": "TypeScript compiles", "command": "tsc --noEmit" },
+        { "description": "Full test suite",      "command": "npm test" },
+        { "description": "Lint clean",           "command": "eslint src/" }
+      ],
+      "timeoutSecs": 600,
+      "continueOnFail": false
     }
   }
 }
 ```
 
-Task checks run in the task's worktree and are intentionally light/local. stdout+stderr is captured and included in the failure message fed back to the agent. Feature checks run in the feature branch during the `verifying` phase and are expected to provide full-repo confidence before merge.
+Task checks run in the task's worktree and are intentionally light/local. Feature checks run in the feature branch during the `verifying` phase and are expected to provide full-repo confidence before queueing for integration. Merge-train checks run again after rebasing the feature branch onto the latest `main`, and provide final landing confidence. stdout+stderr is captured and included in the failure message fed back to the agent.
+
+### Feature Verification Outcome
+
+A feature may enter the merge queue only after its configured `verification.feature.checks` pass on the feature branch.
+
+If feature verification fails before queueing:
+1. Keep the feature on the same feature branch.
+2. Add a task to fix the reported verification issues.
+3. Return the feature to normal execution on that branch.
+4. Rerun `verification.feature.checks` after the fix task lands.
 
 ## Integration Queue
 
 Task completion does not land work on `main` directly. Instead:
 1. The task merges into the feature branch.
-2. When feature work control reaches `work_complete`, feature collaboration control becomes `merge_queued`.
-3. The merge train serializes feature-branch integration into `main`.
-4. If integration rebases and checks pass, collaboration control becomes `merged`.
-5. If integration fails because of a cross-feature conflict, collaboration control becomes `conflict`. Whether work control stays `work_complete` or moves to `replanning` is still a tentative policy detail and depends on the eventual conflict-classification rules.
+2. When feature work control reaches `work_complete`, run `verification.feature.checks` on the feature branch.
+3. If feature verification passes, collaboration control becomes `merge_queued`.
+4. The merge train serializes feature-branch integration into `main`.
+5. The queue head rebases onto the latest `main` and runs the configured `mergeTrain.checks` command list.
+6. If integration rebases and merge-train checks pass, collaboration control becomes `merged`.
+7. If merge-train verification fails, add a task on the same feature branch to fix the reported issues, remove the feature from the queue head, and when it becomes merge-ready again re-enter it at the end of the merge train.
+8. If rebasing onto the latest `main` or subsequent repair work keeps failing in a way that indicates structural mismatch, escalate to replanning.
 
 ## Stuck Detection
 
