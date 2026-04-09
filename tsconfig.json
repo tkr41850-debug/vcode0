@@ -16,14 +16,27 @@
     "skipLibCheck": true,
     "baseUrl": ".",
     "paths": {
-      "@app/*": ["src/app/*"],
-      "@core/*": ["src/core/*"],
-      "@orchestrator/*": ["src/orchestrator/*"],
-      "@agents/*": ["src/agents/*"],
-      "@runtime/*": ["src/runtime/*"],
-      "@git/*": ["src/git/*"],
-      "@persistence/*": ["src/persistence/*"],
-      "@tui/*": ["src/tui/*"]
+      "@root/*": ["src/*.ts", "src/*/index.ts", "src/*"],
+      "@app/*": ["src/app/*.ts", "src/app/*/index.ts", "src/app/*"],
+      "@core/*": ["src/core/*.ts", "src/core/*/index.ts", "src/core/*"],
+      "@orchestrator/*": [
+        "src/orchestrator/*.ts",
+        "src/orchestrator/*/index.ts",
+        "src/orchestrator/*"
+      ],
+      "@agents/*": ["src/agents/*.ts", "src/agents/*/index.ts", "src/agents/*"],
+      "@runtime/*": [
+        "src/runtime/*.ts",
+        "src/runtime/*/index.ts",
+        "src/runtime/*"
+      ],
+      "@git/*": ["src/git/*.ts", "src/git/*/index.ts", "src/git/*"],
+      "@persistence/*": [
+        "src/persistence/*.ts",
+        "src/persistence/*/index.ts",
+        "src/persistence/*"
+      ],
+      "@tui/*": ["src/tui/*.ts", "src/tui/*/index.ts", "src/tui/*"]
     },
     "types": ["node"]
   },
