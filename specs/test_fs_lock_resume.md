@@ -28,3 +28,9 @@ Capture same-feature resume behavior after a dominant task lands on the feature 
 - When the task agent resolves the conflict and later passes normal `submit` verification
 - Then task collaboration control clears from `conflict`
 - And the task returns to the normal completion path
+
+### Conflict markers are resolved but normal verification still fails
+- Given a task was in same-feature collaboration `conflict`
+- When the task agent resolves the merge conflict but later fails ordinary `submit` verification
+- Then the task leaves the collaboration-conflict case
+- And it returns to the ordinary execution / verification loop rather than remaining a conflict-only incident

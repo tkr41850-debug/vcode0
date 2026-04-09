@@ -32,6 +32,18 @@ Capture the sync recommendation ladder and conflict steering behavior before and
 - And it steers the existing task agent with concrete conflict context
 - And it does not destructively reset files
 
+### Cross-feature runtime overlap coordinates execution before repair
+- Given two active features have only reservation-level overlap before either has landed
+- When the orchestrator evaluates scheduler and coordination state
+- Then reservation overlap remains a scheduling penalty only
+- And active coordination waits until runtime overlap is actually detected
+
+### Cross-feature runtime overlap pauses affected secondary work before repair
+- Given two active features overlap on runtime write paths before either has landed
+- When the orchestrator detects a runtime overlap that requires coordination
+- Then it may pause only the affected secondary-side work during execution
+- And later repair still happens on the feature branch if post-primary rebase cannot be resolved cleanly
+
 ### Cross-feature repair removes feature from merge queue
 - Given a feature reaches the merge train and rebase or verification fails after updating from `main`
 - When the orchestrator cannot resolve the failure mechanically
