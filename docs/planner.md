@@ -17,7 +17,7 @@ const plannerTools: AgentTool[] = [
 ];
 ```
 
-The planner receives the spec text as its prompt and calls these tools to build the graph. The orchestrator watches the graph grow in real time and renders it in the TUI as it's constructed.
+The planner receives the spec text as its prompt and calls these tools to build the graph. The orchestrator watches the graph grow in real time and renders it in the TUI as it's constructed. When the planner calls `submit()`, planning for that feature closes, feature work control moves from `planning` to `executing`, tasks with no unmet in-feature dependencies become `ready`, and tasks that still depend on other in-feature work remain `pending` until unblocked.
 
 ## Planning Heuristics
 

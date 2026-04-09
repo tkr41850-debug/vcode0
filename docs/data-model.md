@@ -91,7 +91,7 @@ interface Feature {
   status: UnitStatus;              // derived aggregate reporting status
   workControl: FeatureWorkControl;
   collabControl: FeatureCollabControl;
-  featureBranch: string;              // e.g. feature/auth
+  featureBranch: string;              // e.g. feat-auth
   featureTestPolicy?: TestPolicy;
   mergeTrainManualPosition?: number;  // manual override bucket position when explicitly ordered
   mergeTrainEnteredAt?: number;
@@ -254,14 +254,14 @@ Within F-auth:
 
 ```text
 main
-└── feature/auth
-    ├── task/jwt-validation
-    ├── task/session-store
-    └── task/middleware-wiring
+└── feat-auth
+    ├── feat-auth-task-jwt-validation
+    ├── feat-auth-task-session-store
+    └── feat-auth-task-middleware-wiring
 ```
 
-- A feature branch and feature worktree are created when that branch is requested and collaboration control enters `branch_open`.
-- Task worktrees branch from the current HEAD of the owning feature branch.
+- A feature branch and feature worktree are created when that branch is requested and collaboration control enters `branch_open`; the baseline branch name is `feat-<feature-id>`.
+- Task worktrees branch from the current HEAD of the owning feature branch and use the baseline branch name `feat-<feature-id>-task-<task-id>`.
 - Task completion is a two-step closeout: `submit()` runs light preflight checks and returns concrete failure reasons when they fail; `confirm()` is the final terminate-session + squash-merge into the feature branch.
 - After the last task or repair task lands, the feature enters `feature_ci` on the feature branch; only after that boundary passes does the feature enter agent-level `verifying`.
 - If `verifying` passes, feature work control becomes `awaiting_merge` and collaboration control may move to `merge_queued`.

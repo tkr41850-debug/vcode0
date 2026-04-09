@@ -135,7 +135,7 @@ All verification layers are configured as editable command lists in `.gvc0/confi
 }
 ```
 
-Task checks run in the task's worktree and are intentionally light/local. They may be loose enough to support workflows like red-test-first TDD, but `submit()` must still return concrete failed checks so the agent sees what remains. Feature checks run in the feature branch during `feature_ci` and are the heavy branch-level gate before spec review. `verifying` is an agent-level review that checks whether the feature branch meets the feature spec. Merge-train checks run again after rebasing the feature branch onto the latest `main`, and provide final landing confidence. Verification commands should run through the same Node.js child-process execution layer used elsewhere in the orchestrator, while git rebases/merges continue to use `simple-git`, so stdout+stderr can be captured and included in the failure message fed back to the agent. Slow-check warnings and feature-churn warnings are described in [Warnings](./warnings.md). Upstream sync recommendation and conflict escalation behavior are described in [Conflict Steering](./conflict-steering.md).
+Task checks run in the task's worktree and are intentionally light/local. They may be loose enough to support workflows like red-test-first TDD, but `submit()` must still return concrete failed checks so the agent sees what remains. Feature checks run in the feature branch during `feature_ci` and are the heavy branch-level gate before spec review. `verifying` is an agent-level review that checks whether the feature branch meets the feature spec. Merge-train checks run again after rebasing the feature branch onto the latest `main`, and provide final landing confidence. Verification commands should run through the same Node.js child-process execution layer used elsewhere in the orchestrator, while git rebases/merges continue to use `simple-git`, so stdout+stderr can be captured and included in the failure message fed back to the agent. Timeouts are configurable per verification layer; the 60s / 600s values shown above are only baseline examples for local-machine workflows. Support for substantially longer-running verification windows is deferred. See [Feature Candidate: Long Verification Timeouts](./feature-candidates/long-verification-timeouts.md). Slow-check warnings and feature-churn warnings are described in [Warnings](./warnings.md). Upstream sync recommendation and conflict escalation behavior are described in [Conflict Steering](./conflict-steering.md).
 
 ### Feature CI and Spec-Review Outcome
 
@@ -144,13 +144,13 @@ A feature reaches `feature_ci` after the last task or repair task lands on the f
 If `feature_ci` fails:
 1. Keep the feature on the same feature branch.
 2. Move feature work control to `executing_repair`.
-3. Add a repair task to fix the reported branch-level issues.
+3. The orchestrator adds a repair task to fix the reported branch-level issues.
 4. Return to `feature_ci` after the repair task lands.
 
 If `verifying` finds that the code does not satisfy the feature spec:
 1. Keep the feature on the same feature branch.
 2. Move feature work control to `executing_repair`.
-3. Add a repair task to fix the reported spec gaps.
+3. The orchestrator adds a repair task to fix the reported spec gaps.
 4. Return to `feature_ci` after the repair task lands.
 
 ## Integration Queue
@@ -165,7 +165,7 @@ Task completion does not land work on `main` directly. Instead:
 7. The queue head rebases onto the latest `main` and runs the configured `mergeTrain.checks` command list.
 8. If integration rebases and merge-train checks pass, collaboration control becomes `merged`.
 9. Once collaboration control reaches `merged`, the feature enters blocking `summarizing` and only then reaches `work_complete`.
-10. If merge-train verification fails, remove the feature from the merge train, set collaboration control to `conflict`, and add repair work on the same feature branch.
+10. If merge-train verification fails, remove the feature from the merge train, set collaboration control to `conflict`, and have the orchestrator add repair work on the same feature branch.
 11. Once that repair task is added, feature work control moves to `executing_repair` and later returns through `feature_ci` and `verifying` again.
 12. Only if that path passes again may the feature return to `awaiting_merge`, clear `conflict`, and re-enter `merge_queued` under the normal automatic queue policy (or explicit manual override bucket, if one is set).
 13. If rebasing onto the latest `main` or subsequent repair work keeps failing in a way that indicates structural mismatch, escalate to `replanning`.
@@ -185,7 +185,7 @@ When a same-feature task enters collaboration-control `conflict` after auto-reba
 When feature integration fails at rebase or merge-train verification:
 1. Set feature collaboration control to `conflict` and remove the feature from the merge queue.
 2. Suspend all non-repair task runs for that feature while the feature remains in `conflict`.
-3. Create repair work on the same feature branch and move feature work control to `executing_repair`.
+3. The orchestrator creates repair work on the same feature branch and moves feature work control to `executing_repair`.
 4. Once repair lands, rerun the normal `feature_ci -> verifying` path on that feature branch.
 5. Only if that path passes again may the feature return to `awaiting_merge`, clear `conflict`, and re-enter `merge_queued`.
 6. If repair repeatedly fails or indicates structural mismatch, move feature work control to `replanning`.

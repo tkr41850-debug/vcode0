@@ -4,11 +4,11 @@ See [ARCHITECTURE.md](../ARCHITECTURE.md) for the high-level architecture index.
 
 ## Worker Model: Process-per-Task
 
-Each task spawns a dedicated child process using the Node.js process APIs; workers are wrapped behind the `SessionHarness` interface, whose baseline implementation is `PiSdkHarness`. Workers are pi-sdk `Agent` instances running in isolated git worktrees that branch from the owning feature branch. Each worker receives the task's reserved write paths as prompt context. Reservations are advisory metadata; active path locks are acquired lazily on the first write prehook for a path and released when the task pauses or exits, so only files being actively edited hold runtime ownership.
+Each task spawns a dedicated child process using the Node.js process APIs; workers are wrapped behind the `SessionHarness` interface, whose baseline implementation is `PiSdkHarness`. Workers are pi-sdk `Agent` instances running in isolated git worktrees that branch from the owning feature branch. Each worker receives the task's reserved write paths as prompt context. Reservations are advisory metadata; on the first write attempt for a path, the write prehook tries to claim an active path lock through the orchestrator. If the claim succeeds, the write proceeds. If the path is already locked, the orchestrator routes the incident into the normal coordination flow (same-feature overlap handling for the same feature, cross-feature overlap handling for another feature). Active path locks are released when the task pauses or exits, so only files being actively edited hold runtime ownership.
 
 ```text
 main
-└── feature/auth
+└── feat-auth
     ├── Worker 1 (worktree: .gvc0/worktrees/task-jwt/)
     │   └── pi-sdk Agent → executes JWT validation
     ├── Worker 2 (worktree: .gvc0/worktrees/task-session/)
@@ -25,26 +25,26 @@ main
 Workers make incremental commits inside their worktree as they work (conventional commits: `feat:`, `fix:`, etc.). On task completion, the orchestrator squash-merges the worktree branch into the owning feature branch as a single commit with the task summary as the message. Once feature work is complete, the merge train serializes feature-branch integration into `main`.
 
 ```text
-task worktree branch (task-042):
+task worktree branch (feat-auth-task-042):
   feat: add JWT types
   feat: implement token signing
   fix: handle expiry edge case
   test: add JWT unit tests
          ↓ squash merge
-feature/auth:
+feat-auth:
   feat(auth): implement JWT signing and validation [task-042]
          ↓ merge train
 main:
-  feat(auth): merge feature/auth
+  feat(auth): merge feat-auth
 ```
 
 ## Feature Branch Integration
 
 Each feature owns exactly one long-lived integration branch.
 
-1. When a feature branch is requested, the orchestrator creates `feature/<feature-id>` from the current `main` and opens its feature worktree.
-2. Task worktrees branch from the current HEAD of `feature/<feature-id>`.
-3. Task completion is finalized by `confirm()`, which merges into `feature/<feature-id>` after `submit()` preflight has passed.
+1. When a feature branch is requested, the orchestrator creates `feat-<feature-id>` from the current `main` and opens its feature worktree.
+2. Task worktrees use branch names `feat-<feature-id>-task-<task-id>` and branch from the current HEAD of `feat-<feature-id>`.
+3. Task completion is finalized by `confirm()`, which merges into `feat-<feature-id>` after `submit()` preflight has passed.
 4. After the last task or repair task lands, the feature runs `feature_ci` on the feature branch, then agent-level `verifying`.
 5. If that path passes, feature work control becomes `awaiting_merge` and feature collaboration control may become `merge_queued`.
 6. The merge train rebases the feature branch onto the latest `main`, runs merge-train verification, and either merges or removes the feature from the queue for same-branch repair.
@@ -53,7 +53,7 @@ Each feature owns exactly one long-lived integration branch.
 
 ## IPC: NDJSON over stdio (swappable)
 
-Workers communicate with the orchestrator via newline-delimited JSON on stdin/stdout.
+Workers communicate with the orchestrator via newline-delimited JSON on stdin/stdout. For the baseline local-machine architecture, plain stdio IPC is sufficient; stronger delivery guarantees, acknowledgments, and explicit backpressure handling are deferred. See [Feature Candidate: Advanced IPC Guarantees](./feature-candidates/advanced-ipc-guarantees.md).
 
 ```typescript
 // Worker → Orchestrator
@@ -196,7 +196,7 @@ interface DepOutput {
 
 ## Crash Recovery
 
-On startup, gvc0 scans for orphaned agent runs (task execution runs or feature-phase runs with `run_status = "running"` but no live worker process) and resets or resumes them. Feature branches remain authoritative across restarts; resumed task worktrees rebase onto the current HEAD of the owning feature branch before continuing. The baseline uses `PiSdkHarness` only; `session_id` is an orchestrator-owned opaque reference passed back to the harness, and a future external session service may interpret/map those IDs without changing the main task schema.
+On startup, gvc0 scans the persisted feature/task/run tables for orphaned work (task execution runs or feature-phase runs with `run_status = "running"` but no live worker process) and resets or resumes them. Feature branches remain authoritative across restarts; resumed task worktrees rebase onto the current HEAD of the owning feature branch before continuing. The baseline uses `PiSdkHarness` only; `session_id` is an orchestrator-owned opaque reference passed back to the harness, and a future external session service may interpret/map those IDs without changing the main task schema. On shutdown, the orchestrator stops accepting new scheduler work, halts the scheduler loop, and attempts to stop all active tasks cleanly before exit.
 
 ### Session Harness Abstraction
 

@@ -72,7 +72,9 @@ gvc0/
 ## Candidate Notes
 
 - [Feature Candidate: Arbitrary Merge-Train Manual Ordering](docs/feature-candidates/arbitrary-merge-train-manual-ordering.md) — future support for fully persistent arbitrary user queue ordering beyond the baseline manual-override bucket.
+- [Feature Candidate: Advanced IPC Guarantees](docs/feature-candidates/advanced-ipc-guarantees.md) — future support for explicit acknowledgments, backpressure, and stronger delivery semantics beyond local stdio IPC.
 - [Feature Candidate: Claude Code Harness](docs/feature-candidates/claude-code-harness.md) — future support for wrapping Claude Code sessions as worker backends.
+- [Feature Candidate: Long Verification Timeouts](docs/feature-candidates/long-verification-timeouts.md) — future support for workflows that need longer-running verification than the local baseline.
 - [Optimization Candidate: Testing Cost Reduction](docs/optimization-candidates/testing.md) — future ideas for reducing verification/testing cost.
 - [Optimization Candidate: Verification Reuse](docs/optimization-candidates/verification-and-recovery.md) — future ideas for reusing or narrowing repeated verification work.
 
