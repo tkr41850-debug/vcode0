@@ -1,6 +1,7 @@
 node_modules/
 coverage/
 dist/
+.eslintcache
 .vitest/
 *.tsbuildinfo
 .gvc0/
