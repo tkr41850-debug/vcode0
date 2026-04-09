@@ -17,8 +17,42 @@ Capture restart behavior when work is in flight.
 - Given the orchestrator restarts while a task is `running`
 - And the task has no stored `session_id`
 - When recovery runs
-- Then the task resets to `pending`
-- And may be dispatched again later
+- Then the run resets to `ready`
+- And `owner` becomes `system`
+- And automatic system ownership may dispatch it again later
+
+### Retry wait survives restart
+- Given the orchestrator restarts while a task execution run is `retry_await`
+- And its `retry_at` is persisted
+- When recovery runs
+- Then the run remains in `retry_await`
+- And the original backoff window is preserved
+
+### Await-response survives restart
+- Given the orchestrator restarts while a run is `await_response`
+- And its unanswered human-help payload is persisted
+- When recovery runs
+- Then the run remains `await_response`
+- And it does not resume automatic execution on its own
+
+### Await-approval survives restart
+- Given the orchestrator restarts while a run is `await_approval`
+- And its proposal payload is persisted
+- When recovery runs
+- Then the run remains `await_approval`
+- And it stays blocked pending approval
+
+### Feature-phase run resumes from agent run session id
+- Given the orchestrator restarts while a resumable feature-phase run was `running`
+- And `agent_runs.session_id` is present
+- When recovery runs
+- Then the orchestrator resumes that feature-phase run from `agent_runs.session_id`
+
+### Agent run session id is the authoritative recovery pointer
+- Given both `agent_runs.session_id` and `tasks.session_id` exist for task execution state
+- When recovery runs
+- Then `agent_runs.session_id` is treated as authoritative
+- And `tasks.session_id` remains only a compatibility/task-facing field
 
 ### Feature branch remains authoritative across restart
 - Given a feature branch already contains merged task work

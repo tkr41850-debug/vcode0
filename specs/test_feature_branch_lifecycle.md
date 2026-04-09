@@ -19,6 +19,27 @@ Capture the expected lifecycle of a feature branch and its task worktrees.
 - Then its worktree branch `feat-<feature-id>-task-<task-id>` is created from the current HEAD of the feature branch
 - And task collaboration control becomes `branch_open`
 
+### Task dispatch creates an execution run
+- Given a ready task is about to be dispatched
+- When the scheduler assigns it to a worker
+- Then the orchestrator creates or reuses its execution run
+- And that run moves to `running` under system ownership
+
+### Transient task failure updates the execution run first
+- Given a dispatched task hits a transient failure
+- When the orchestrator handles that failure
+- Then `tasks.status` returns to `ready`
+- And the execution run moves to `retry_await`
+- And retry timing is stored on the run rather than on the task enum
+- And readiness/blocking while waiting is covered separately by `test_agent_run_wait_states`
+
+### Retry restart increments restart count on actual redispatch
+- Given a task execution run is `retry_await`
+- And its backoff window has expired
+- When the scheduler dispatches that retry
+- Then `restart_count` increments at retry start
+- And the run returns to `running`
+
 ### Task merges back into feature branch
 - Given a task passes `submit()` preflight successfully
 - When the task is finalized with `confirm()`
@@ -45,5 +66,5 @@ Capture the expected lifecycle of a feature branch and its task worktrees.
 - And the feature passes merge-train verification
 - When the feature lands on `main`
 - Then feature collaboration control becomes `merged`
+- And feature-branch cleanup happens as part of that integration outcome
 - And the feature later either runs blocking `summarizing` and writes summary text or skips summarizing and reaches `work_complete` with no summary text
-- And the feature branch is deleted

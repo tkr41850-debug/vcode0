@@ -81,10 +81,12 @@ Scenario specs live under `specs/test_*.md` and are intended for later conversio
 - [test_fs_lock_detection](../specs/test_fs_lock_detection.md) — same-feature overlap triggers suspension.
 - [test_fs_lock_resume](../specs/test_fs_lock_resume.md) — suspended tasks either resume cleanly or receive exact conflict steering against the updated feature branch.
 - [test_conflict_steering](../specs/test_conflict_steering.md) — upstream updates escalate from awareness to sync recommendation, required sync, explicit same-feature conflict steering, and cross-feature runtime coordination after runtime overlap is detected.
+- [test_agent_run_wait_states](../specs/test_agent_run_wait_states.md) — run-owned retry/help/approval waits control dispatchability, derived blocked state, and scheduler release behavior.
+- [test_feature_summary_lifecycle](../specs/test_feature_summary_lifecycle.md) — post-merge summarizing writes summary text in the normal path while budget mode skips summary creation and relies on derived availability.
 - [test_claude_code_harness](../specs/test_claude_code_harness.md) — (feature candidate) Claude Code worker sessions are isolated, resumable, and checkpoint-driven.
 - [test_warning_signals](../specs/test_warning_signals.md) — warning thresholds cover slow verification, feature churn, and long blocking.
-- [test_stuck_detection_replan](../specs/test_stuck_detection_replan.md) — work-control stuck state enters replanning.
-- [test_crash_recovery](../specs/test_crash_recovery.md) — restart preserves feature-branch authority and resumes or resets tasks correctly.
+- [test_stuck_detection_replan](../specs/test_stuck_detection_replan.md) — work-control stuck state enters replanning, supports manual takeover, and waits for approval on replanner proposals.
+- [test_crash_recovery](../specs/test_crash_recovery.md) — restart preserves feature-branch authority, run wait states, and authoritative session recovery behavior.
 
 ### Test Utilities
 
