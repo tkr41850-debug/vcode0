@@ -1,6 +1,6 @@
 # Worker Model
 
-See [ARCHITECTURE.md](../ARCHITECTURE.md) for the high-level architecture index.
+See [ARCHITECTURE.md](../ARCHITECTURE.md) for the high-level architecture overview.
 
 ## Worker Model: Process-per-Task
 
@@ -161,7 +161,7 @@ lifetime usage.
 This transport does not carry extra task enums for retry/help/approval;
 those remain execution-run concerns on `agent_runs`, while task status
 stays coarse and `blocked` remains derived in the UI.
-See [Conflict Steering](./conflict-steering.md)
+See [Conflict Coordination](./operations/conflict-coordination.md)
 for the recommendation/required-sync/escalation ladder.
 
 ### Transport Abstraction
@@ -348,4 +348,4 @@ async function recoverOrphanedTasks(store: Store, pool: WorkerPool) {
 }
 ```
 
-SQLite addition: `feature_branch`, `worktree_branch`, and collaboration-control fields are part of the persisted schema (see [persistence.md](./persistence.md)).
+SQLite addition: `feature_branch`, `worktree_branch`, and collaboration-control fields are part of the persisted schema (see [Architecture / Persistence](./architecture/persistence.md)).

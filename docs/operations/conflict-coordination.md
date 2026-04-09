@@ -1,0 +1,194 @@
+# Conflict Coordination
+
+See [ARCHITECTURE.md](../../ARCHITECTURE.md) for the high-level architecture overview.
+
+Conflict coordination covers three related questions:
+
+1. when the orchestrator should steer an agent to sync
+2. how same-feature overlapping writes pause, resume, or escalate
+3. how cross-feature runtime overlap chooses a primary feature and blocks the secondary side
+
+Reservation overlap is advisory. Runtime overlap and failed rebases are the points where active coordination begins.
+
+## Steering Ladder
+
+Surface upstream updates early enough that agents can sync before stale assumptions turn into expensive conflicts, without constantly interrupting productive work.
+
+1. **update available** — awareness only; no persisted state change
+2. **sync recommended** — steer at the next stable checkpoint; still no persisted state change
+3. **sync required** — pause or redirect into sync work before normal execution continues
+4. **conflict steer** — inject exact conflict context after automatic reconciliation fails
+5. **halted / no progress** — if repair stalls, escalate to targeted repair work, replanning, or user intervention
+
+### Update Available
+
+Use for low-risk awareness only:
+
+- another task has landed on the same feature branch
+- no relevant runtime overlap is known
+- the task is not at an immediate verification or merge boundary
+
+Action:
+
+- record an event or lightweight UI signal
+- do not interrupt the agent yet
+
+### Sync Recommended
+
+Use when syncing soon is likely beneficial, but continuing briefly is still acceptable.
+
+Typical triggers:
+
+- upstream changes intersect reserved write paths
+- the task is behind feature HEAD for a meaningful amount of time
+- the task is approaching a checkpoint such as end-of-turn, verification, or `submit()`
+
+Action:
+
+- inject a steering message at the next stable checkpoint
+- let the agent choose to sync now rather than forcing an immediate stop
+
+### Sync Required
+
+Use when continuing without syncing is likely to waste work or invalidate upcoming verification.
+
+Typical triggers:
+
+- upstream changes intersect paths the task has already edited
+- an active path lock collides with landed upstream work
+- the task is about to submit, merge back, or run verification against stale branch state
+- a write prehook detects runtime overlap that must be coordinated
+
+Action:
+
+- pause or redirect the task into sync work before it continues normal execution
+- if auto-rebase succeeds, resume with the updated branch state
+- if auto-rebase fails, escalate into explicit conflict steering
+- do not move the run to `await_response` unless a human is actually needed; agent-directed sync remains part of normal execution flow
+
+### Conflict Steer
+
+Use when automatic sync or merge cannot safely finish the reconciliation.
+
+Typical triggers:
+
+- `ort` merge or similar auto-rebase fails
+- feature-branch repair work is required after integration-time overlap
+- repeated attempts show no meaningful progress
+
+Action:
+
+- preserve real collaboration conflict state
+- for same-feature task conflicts, steer the existing task agent in the real conflicted worktree
+- for cross-feature integration failures, remove the feature from the merge queue and create or steer repair work on the same feature branch
+- keep `await_response` reserved for actual human-help/manual-takeover cases rather than normal agent-directed repair
+
+## Coordination Protocols
+
+### Same-Feature File Locks
+
+The file-lock system is primarily a same-feature collaboration-control mechanism. It coordinates overlapping writes between task worktrees that belong to the same feature branch.
+
+Detection sources:
+
+- planner reservations — predictive only
+- write-prehook path checks — active runtime ownership
+- actual git overlap between task worktrees — ground truth
+
+Before runtime overlap handling kicks in, the planner reserves expected edit paths per task and the write-tool prehook tries to claim an active path lock on first write. If the path is already locked by another task in the same feature, treat that as same-feature overlap input.
+
+#### Mechanical Handling
+
+1. Group active worktrees by feature branch.
+2. Detect overlapping edited paths.
+3. Suspend the lower-priority task in that feature.
+4. Persist the suspension reason and affected files.
+5. Notify the suspended worker before stopping it.
+
+#### Resolution
+
+When the dominant task completes its work:
+
+1. Merge its task worktree branch into the feature branch.
+2. Rebase each suspended worktree branch onto the updated feature branch.
+3. If rebase resolves cleanly, optionally run a cheap sanity check such as `git diff --check`, then resume.
+4. If rebase does not resolve cleanly, do not reset files and do not auto-pick `ours` / `theirs`; keep task collaboration control at `conflict` and inject exact conflict context.
+5. Only resume the child process after the agent has the updated or conflicted context.
+
+The baseline is intentionally fail-closed:
+
+- Stage 1 is mechanical only and accepts only clean git resolution.
+- Stage 2 is agent reconciliation in the real conflicted worktree.
+- Destructive resets are not part of the baseline policy.
+
+#### Conflict Context
+
+For same-feature task conflicts, the steering payload should include at least:
+
+- conflict type (`same_feature_task_rebase`)
+- task id, feature id, task branch, and rebase target branch or SHA
+- overlapped file paths and pause reason
+- dominant task summary and changed files
+- conflicted or unmerged file list from current git state
+- reserved write paths for the task
+- relevant dependency outputs already available
+- last task verification result, if any
+
+The injected summary is orientation only. The conflicted worktree remains authoritative.
+
+#### Outcome Rules
+
+After same-feature conflict steering begins:
+
+1. If the agent resolves the conflict and later passes normal task `submit()` verification, clear task collaboration control from `conflict` and continue the normal completion path.
+2. If the agent resolves merge markers but ordinary task verification still fails, treat that as normal task work rather than a continuing collaboration conflict.
+3. If the agent makes no meaningful progress, keep task collaboration control at `conflict` and escalate to targeted repair work, replanning, or user intervention.
+
+### Cross-Feature Overlap
+
+Cross-feature overlap is handled more conservatively than same-feature file locks.
+
+- reservation overlap only applies a scheduling penalty
+- runtime overlap from write-prehook checks or git state triggers active coordination
+
+#### Runtime Coordination Algorithm
+
+1. Detect an overlap incident between two features using normalized project-root-relative file paths.
+2. Choose one **primary** and one **secondary** feature for that pair.
+3. Pause only the secondary feature's tasks that touch the overlapped paths.
+4. Persist `collab_status = "suspended"`, `suspend_reason = "cross_feature_overlap"`, `suspended_files = [...]`, and `blocked_by_feature_id = <primary feature id>` on each paused task.
+5. Release active path locks when a paused task exits execute mode; reservations remain as planning metadata.
+6. Let the primary feature continue.
+7. If the secondary feature stays blocked for too long, raise a warning.
+8. After the primary feature merges into `main`, rebase the secondary feature branch onto updated `main`.
+9. If that succeeds, notify paused secondary tasks, clear `blocked_by_feature_id`, and resume.
+10. If the feature-branch rebase fails, create integration repair work on the secondary feature branch and keep affected tasks paused until it lands.
+11. If rebase plus verification succeeds, continue normally; otherwise escalate to replanning.
+
+## Cross-Feature Priority Policy
+
+Choose primary and secondary once per feature pair, not per file, to avoid split-brain ownership.
+
+Ranking order:
+
+1. explicit dependency predecessor wins
+2. higher derived merge-proximity tuple wins: compare `collabRank(feature.collabControl)` first, then `workRank(feature.workControl)`
+3. older feature request or branch-open time wins
+4. feature blocking more downstream dependents wins
+5. larger changed-line count wins
+6. lexical feature id is the final tie-breaker
+
+Baseline derived ranks:
+
+- `collabRank`: `integrating=3`, `merge_queued=2`, `branch_open=1`, `none=0`, `conflict=-1`
+- `workRank`: `awaiting_merge=5`, `verifying=4`, `feature_ci=3`, `executing_repair=2`, `executing=1`, `planning|researching|discussing=0`, `replanning=-1`, `summarizing|work_complete=-1`
+
+## Persistence Notes
+
+Suspension fields live on task rows and back `suspended` / `conflict` collaboration state. For cross-feature blocking, `blocked_by_feature_id` makes the current primary-secondary relationship reconstructable from task rows. The event log remains a debugging and audit surface, not the primary source of current coordination truth.
+
+## Related
+
+- [Worker Model](../worker-model.md)
+- [Verification and Recovery](./verification-and-recovery.md)
+- [Warnings](./warnings.md)

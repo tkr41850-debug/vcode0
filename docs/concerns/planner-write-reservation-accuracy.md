@@ -21,5 +21,5 @@ This is acceptable for the baseline because reservations are advisory and runtim
 
 ## Related
 
-- [Planner](../planner.md)
-- [File-Lock Conflict Resolution](../file-lock-conflict-resolution.md)
+- [Architecture / Planner](../architecture/planner.md)
+- [Operations / Conflict Coordination](../operations/conflict-coordination.md)

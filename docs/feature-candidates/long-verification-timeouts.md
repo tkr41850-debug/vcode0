@@ -22,4 +22,4 @@ This is deferred because the baseline architecture is optimized for local-machin
 
 ## Related
 
-- [Verification and Recovery](../verification-and-recovery.md) — configurable verification command lists and timeout settings
+- [Operations / Verification and Recovery](../operations/verification-and-recovery.md) — configurable verification command lists and timeout settings

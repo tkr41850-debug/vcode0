@@ -72,23 +72,22 @@ This is a single root TypeScript package (not a monorepo) with architectural bou
 
 ## Documentation
 
-The `docs/` directory contains comprehensive architecture documentation:
+Use the docs landing pages rather than treating one root file as the full catalog:
 
-- **ARCHITECTURE.md** - High-level overview and documentation index
-- **data-model.md** - Feature/task hierarchy, dependency constraints, state model
-- **graph-operations.md** - DAG mutations, validation, scheduling, merge train
-- **worker-model.md** - Process-per-task execution, IPC, crash recovery
-- **persistence.md** - SQLite schema and state persistence
-- **verification-and-recovery.md** - Retries, verification, stuck detection, replanning
-- **testing.md** - Unit and integration testing strategy
-- **conflict-steering.md** - Sync recommendations and conflict handling
-- **file-lock-conflict-resolution.md** - Same-feature overlap detection and resolution
-- **cross-feature-overlap-priority.md** - Cross-feature runtime overlap policy
+- **ARCHITECTURE.md** - High-level overview and component map
+- **docs/README.md** - Main documentation landing page
+- **docs/architecture/README.md** - Canonical architecture topics
+- **docs/operations/README.md** - Verification, recovery, conflict coordination, warnings
+- **docs/reference/README.md** - TUI, knowledge files, and codebase pointers
+- **docs/worker-model.md** - Process-per-task execution, IPC, and crash recovery
+- **docs/testing.md** - Testing strategy
+- **specs/README.md** - Grouped scenario-spec inventory
 
-Additional directories:
+Deferred-note directories:
 - `docs/concerns/` - Implementation risks to watch
 - `docs/optimization-candidates/` - Deferred performance ideas
 - `docs/feature-candidates/` - Deferred product features
+- `docs/compare/` - External comparisons and notes
 
 ## Testing
 
@@ -132,7 +131,7 @@ High-level test scenarios live in `specs/test_*.md` as markdown specs before con
 ## Development Notes
 
 - Read `ARCHITECTURE.md` first for the big picture
-- Consult relevant `docs/*.md` files for subsystem details
+- Start with `docs/README.md`, then consult the relevant section README or topic page for subsystem details
 - Follow the existing TS path alias patterns when adding new modules
 - Keep architectural boundaries clean (core should not depend on runtime/persistence/git/tui)
 - Use the faux provider pattern for integration tests
