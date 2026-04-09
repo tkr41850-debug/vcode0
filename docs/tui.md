@@ -4,7 +4,9 @@ See [ARCHITECTURE.md](../ARCHITECTURE.md) for the high-level architecture index.
 
 ## Progress TUI
 
-Built on `@mariozechner/pi-tui`. Redraws on state change (not fixed frame rate) using differential rendering.
+Built on `@mariozechner/pi-tui`. The only baseline capability we rely on from pi-tui is component-based terminal rendering with efficient differential redraws; higher-level view-model, event-routing, and orchestration-state decisions belong to gvc0 rather than being assumed to come from the library.
+
+The TUI should be event-driven: orchestrator/store/runtime services emit state changes, a small UI-facing controller recomputes derived display state, affected components call `invalidate()`, and pi-tui handles efficient redraw. The TUI should not poll for repaint on a fixed frame rate and should not treat warnings as authoritative state.
 
 The UI presents two state axes:
 - **Work control** — where work is in the GSD lifecycle
@@ -63,6 +65,17 @@ class StatusBar implements Component {
 }
 ```
 
+### Update Flow
+
+Baseline flow:
+1. scheduler / worker pool / warning manager emits a state-change event
+2. store persists authoritative changes where applicable
+3. a UI-facing controller derives display state (counts, badges, queue labels, blocked summaries)
+4. affected components call `invalidate()`
+5. pi-tui performs the differential redraw
+
+User actions should flow the other direction through orchestrator commands (`queue milestone`, `retry`, `replan`, `regenerate CODEBASE`, etc.) rather than mutating view state directly inside components.
+
 ## TUI Entry Points
 
 All plan management is done through the TUI (like gsd-2), not CLI subcommands. The TUI has two modes: **interactive** (user drives) and **auto** (orchestrator drives, TUI shows progress).
@@ -102,7 +115,7 @@ The main DAG tree should stay progress-focused rather than showing token totals 
 
 ## Agent Monitor View
 
-A TUI overlay (press `m`) showing all running workers with their live output streams. Each worker's pi-sdk `progress` IPC messages are displayed in a scrollable pane. Users can select a worker and steer it in real time.
+A TUI overlay (press `m`) showing all running workers with their live output streams. Each worker's pi-sdk `progress` IPC messages are displayed in a scrollable pane. Users can select a worker and steer it in real time. These log lines are runtime-only UI state and do not need to round-trip through SQLite.
 
 ```text
 ┌─────────────────────────────────────────────────────┐
