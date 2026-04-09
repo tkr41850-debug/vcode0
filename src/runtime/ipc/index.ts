@@ -1,4 +1,9 @@
-import type { Task } from '@core/types/index';
+import type {
+  ConflictSteeringContext,
+  Task,
+  TaskResumeReason,
+  TaskSuspendReason,
+} from '@core/types/index';
 import type { WorkerContext } from '@runtime/context/index';
 
 export interface ProviderUsage {
@@ -30,9 +35,14 @@ export type WorkerMessage =
 export type OrchestratorMessage =
   | { type: 'run'; task: Task; context: WorkerContext }
   | { type: 'abort'; taskId: string }
-  | { type: 'steer'; taskId: string; message: string }
-  | { type: 'suspend'; taskId: string; reason: 'file_lock'; files: string[] }
-  | { type: 'resume'; taskId: string; reason: string };
+  | { type: 'steer'; taskId: string; context: ConflictSteeringContext }
+  | {
+      type: 'suspend';
+      taskId: string;
+      reason: TaskSuspendReason;
+      files: string[];
+    }
+  | { type: 'resume'; taskId: string; reason: TaskResumeReason };
 
 export interface IpcTransport {
   send(message: OrchestratorMessage): void;

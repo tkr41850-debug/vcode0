@@ -38,7 +38,8 @@ export class WorkerContextBuilder {
     const stageOverride = this.config.context?.stages?.[stage];
 
     return {
-      strategy: defaults?.strategy ?? 'shared-summary',
+      strategy:
+        stageOverride?.strategy ?? defaults?.strategy ?? 'shared-summary',
       includeKnowledge:
         stageOverride?.includeKnowledge ?? defaults?.includeKnowledge ?? true,
       includeDecisions:

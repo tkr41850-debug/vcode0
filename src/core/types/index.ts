@@ -44,6 +44,28 @@ export type TaskCollabControl =
 
 export type TestPolicy = 'loose' | 'strict';
 
+export type TaskSuspendReason =
+  | 'same_feature_overlap'
+  | 'cross_feature_overlap';
+
+export type TaskResumeReason =
+  | 'same_feature_rebase'
+  | 'cross_feature_rebase'
+  | 'manual';
+
+export type ConflictSteeringKind =
+  | 'same_feature_task_rebase'
+  | 'cross_feature_feature_rebase';
+
+export interface ConflictSteeringContext {
+  kind: ConflictSteeringKind;
+  featureId: string;
+  files: string[];
+  taskId?: string;
+  blockedByFeatureId?: string;
+  targetBranch?: string;
+}
+
 export type AgentRunPhase =
   | 'execute'
   | 'discuss'
@@ -218,7 +240,7 @@ export interface ContextDefaultsConfig {
   maxDependencyOutputs: number;
 }
 
-export type ContextStageName = FeatureWorkControl | AgentRunPhase;
+export type ContextStageName = FeatureWorkControl;
 
 export interface ContextConfig {
   defaults: ContextDefaultsConfig;

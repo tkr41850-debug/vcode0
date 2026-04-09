@@ -1,6 +1,7 @@
 import type { GraphSnapshot } from '@core/graph/index';
 import type {
   AgentRun,
+  ConflictSteeringContext,
   EventRecord,
   Feature,
   GvcConfig,
@@ -8,6 +9,8 @@ import type {
   Milestone,
   Task,
   TaskResult,
+  TaskResumeReason,
+  TaskSuspendReason,
 } from '@core/types/index';
 
 export interface RuntimeDispatchOptions {
@@ -19,12 +22,15 @@ export interface GitOperationResult {
   ok: boolean;
   summary: string;
   conflicts?: string[];
+  conflictContext?: ConflictSteeringContext;
 }
 
 export interface OverlapIncident {
   featureId: string;
   taskIds: string[];
   files: string[];
+  blockedByFeatureId?: string;
+  suspendReason: TaskSuspendReason;
 }
 
 export interface Store {
@@ -50,8 +56,12 @@ export interface GitPort {
 
 export interface RuntimePort {
   dispatchTask(task: Task, options?: RuntimeDispatchOptions): Promise<void>;
-  suspendTask(taskId: string, reason: string, files?: string[]): Promise<void>;
-  resumeTask(taskId: string, reason: string): Promise<void>;
+  suspendTask(
+    taskId: string,
+    reason: TaskSuspendReason,
+    files?: string[],
+  ): Promise<void>;
+  resumeTask(taskId: string, reason: TaskResumeReason): Promise<void>;
   abortTask(taskId: string): Promise<void>;
   stopAll(): Promise<void>;
 }

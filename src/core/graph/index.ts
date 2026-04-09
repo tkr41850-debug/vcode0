@@ -64,7 +64,7 @@ export interface FeatureGraph {
   readyFeatures(): Feature[];
   readyTasks(): Task[];
   criticalPath(): Task[];
-  integrationQueue(): Feature[];
+  integrationQueue(): IntegrationQueueEntry[];
   queuedMilestones(): Milestone[];
   isComplete(): boolean;
   snapshot(): GraphSnapshot;
@@ -106,7 +106,7 @@ export class InMemoryFeatureGraph implements FeatureGraph {
     return [];
   }
 
-  integrationQueue(): Feature[] {
+  integrationQueue(): IntegrationQueueEntry[] {
     return [];
   }
 

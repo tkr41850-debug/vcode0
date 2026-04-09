@@ -1,10 +1,32 @@
-import type { Feature, Milestone, Task } from '@core/types/index';
+import type {
+  SummaryAvailability,
+  TaskPresentationStatus,
+} from '@core/state/index';
+import type {
+  Feature,
+  FeatureCollabControl,
+  FeatureWorkControl,
+  Milestone,
+  Task,
+  TaskCollabControl,
+} from '@core/types/index';
+
+export type DagNodeWorkStatus =
+  | FeatureWorkControl
+  | TaskPresentationStatus
+  | 'milestone';
+
+export type DagNodeCollabStatus =
+  | FeatureCollabControl
+  | TaskCollabControl
+  | 'none';
 
 export interface DagNodeViewModel {
   id: string;
   label: string;
-  workStatus: string;
-  collabStatus: string;
+  workStatus: DagNodeWorkStatus;
+  collabStatus: DagNodeCollabStatus;
+  summaryAvailability?: SummaryAvailability;
   children: DagNodeViewModel[];
 }
 

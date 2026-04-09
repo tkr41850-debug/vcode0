@@ -1,4 +1,8 @@
-import type { Task } from '@core/types/index';
+import type {
+  Task,
+  TaskResumeReason,
+  TaskSuspendReason,
+} from '@core/types/index';
 import type {
   RuntimeDispatchOptions,
   RuntimePort,
@@ -20,14 +24,14 @@ export class LocalWorkerPool implements RuntimePort {
 
   suspendTask(
     _taskId: string,
-    _reason: string,
+    _reason: TaskSuspendReason,
     _files?: string[],
   ): Promise<void> {
     void this.harness;
     return Promise.resolve();
   }
 
-  resumeTask(_taskId: string, _reason: string): Promise<void> {
+  resumeTask(_taskId: string, _reason: TaskResumeReason): Promise<void> {
     void this.harness;
     return Promise.resolve();
   }
