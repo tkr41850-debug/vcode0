@@ -85,6 +85,22 @@ For cross-feature coordination, current blocked state should be reconstructable 
 
 `reserved_write_paths`, `files_changed`, `suspended_files`, and token-usage aggregates are JSON-serialized payloads stored in TEXT columns. The schema should evolve via explicit SQLite migrations rather than in-place reinterpretation of existing payloads.
 
+Use structured SQL columns for authoritative live orchestration state that the scheduler/TUI/filtering logic depends on directly (`status`, `collab_status`, `retry_at`, `restart_count`, `blocked_by_feature_id`, merge-train ordering fields, foreign keys, timestamps). Use JSON-in-TEXT only for nested per-row support data that is naturally array/object shaped and usually read/written as one value.
+
+Baseline JSON-in-TEXT examples:
+- `reserved_write_paths` — JSON array of normalized project-root-relative paths owned by one task
+- `files_changed` — JSON array of changed paths for a task result/reporting context
+- `suspended_files` — JSON array of overlap paths involved in a suspension incident
+- `token_usage` — JSON object for lifetime task/feature aggregates, including nested `byModel` rollups
+- `events.payload` — JSON object whose exact shape depends on the event type
+
+These JSON blobs are justified when they belong to one owning row, are naturally nested/list-shaped, and are not primary scheduler truth. If a field becomes query-critical for ordering, readiness, joining, or active coordination, it should graduate from JSON into first-class SQL columns rather than hiding inside a blob.
+
+Outside the database:
+- use filesystem `.json` files for whole-document config or generated snapshots that are edited/replaced as a unit (for example `.gvc0/config.json`)
+- use filesystem `.ndjson` files only for append-only streams, exported traces, or debug logs where one record per line is useful
+- do not use `.ndjson` inside SQLite TEXT cells; a DB row already provides the record boundary
+
 `tasks.token_usage` and `features.token_usage` should store normalized lifetime aggregates rather than only the latest call. These totals include retries, failed attempts, and resumed sessions because the budget model tracks real spend, not just successful outcomes. The normalized aggregate should include shared fields (`inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheWriteTokens`, optional `reasoningTokens`, optional `audio*`, `totalTokens`, `usd`, `llmCalls`) plus a `byModel` breakdown keyed by provider+model. Provider-specific extras should remain available via raw event payloads or a passthrough field instead of forcing every provider quirk into first-class columns.
 
 ## State Semantics
