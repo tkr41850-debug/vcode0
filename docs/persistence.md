@@ -29,6 +29,7 @@ CREATE TABLE features (
   work_phase TEXT NOT NULL DEFAULT 'discussing',
   collab_status TEXT NOT NULL DEFAULT 'none',
   feature_branch TEXT NOT NULL,
+  feature_test_policy TEXT,
   merge_train_manual_position INTEGER,
   merge_train_entered_at INTEGER,
   merge_train_entry_seq INTEGER,
@@ -52,6 +53,7 @@ CREATE TABLE tasks (
   result_summary TEXT,
   files_changed TEXT,
   token_usage TEXT,
+  task_test_policy TEXT,
   session_id TEXT,
   consecutive_failures INTEGER NOT NULL DEFAULT 0,
   retry_at INTEGER,
@@ -59,6 +61,23 @@ CREATE TABLE tasks (
   suspended_at INTEGER,
   suspend_reason TEXT,
   suspended_files TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE agent_runs (
+  id TEXT PRIMARY KEY,
+  scope_type TEXT NOT NULL,
+  scope_id TEXT NOT NULL,
+  phase TEXT NOT NULL,
+  run_status TEXT NOT NULL DEFAULT 'ready',
+  owner TEXT NOT NULL DEFAULT 'system',
+  attention TEXT NOT NULL DEFAULT 'none',
+  session_id TEXT,
+  payload_json TEXT,
+  max_retries INTEGER NOT NULL DEFAULT 0,
+  restart_count INTEGER NOT NULL DEFAULT 0,
+  retry_at INTEGER,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
@@ -79,11 +98,11 @@ CREATE TABLE events (
 );
 ```
 
-The `events` table is an append-only audit log for debugging, progress reporting, warnings, and per-call cost audit trails. `milestones.display_order` stores UI ordering only, and `milestones.steering_queue_position` stores the optional ordered steering queue; `NULL` means the milestone is not queued and therefore sorts into the effective `∞` bucket. For merge-train ordering, the baseline uses nullable `merge_train_manual_position` for the manual override block, plus `merge_train_entered_at`, `merge_train_entry_seq`, and `merge_train_reentry_count` for automatic ordering among the remaining queued features. A linked-list representation in SQLite is a possible future implementation sketch for fully arbitrary persistent queue ordering, but it is premature for the baseline. Warning events include budget pressure, slow verification checks, long feature blocking, and feature-churn signals.
+The `events` table is an append-only audit log for debugging, progress reporting, warnings, and per-call cost audit trails. `milestones.display_order` stores UI ordering only, and `milestones.steering_queue_position` stores the optional ordered steering queue; `NULL` means the milestone is not queued and therefore sorts into the effective `∞` bucket. For merge-train ordering, the baseline uses nullable `merge_train_manual_position` for the manual override block, plus `merge_train_entered_at`, `merge_train_entry_seq`, and `merge_train_reentry_count` for automatic ordering among the remaining queued features. `agent_runs` is the shared run/session table for both task execution runs and feature-phase runs, so help/approval/manual ownership/retry logic does not need to be duplicated across features and tasks. A linked-list representation in SQLite is a possible future implementation sketch for fully arbitrary persistent queue ordering, but it is premature for the baseline. Warning events include budget pressure, slow verification checks, long feature blocking, and feature-churn signals.
 
 For cross-feature coordination, current blocked state should be reconstructable directly from task rows rather than replaying the event log. `blocked_by_feature_id` identifies the current primary feature for a secondary task blocked by cross-feature overlap. Events remain primarily a logging/debugging/audit surface, not the primary source of current coordination truth.
 
-`reserved_write_paths`, `files_changed`, `suspended_files`, and token-usage aggregates are JSON-serialized payloads stored in TEXT columns. The schema should evolve via explicit SQLite migrations rather than in-place reinterpretation of existing payloads.
+`reserved_write_paths`, `files_changed`, `suspended_files`, `payload_json`, and token-usage aggregates are JSON-serialized payloads stored in TEXT columns. The schema should evolve via explicit SQLite migrations rather than in-place reinterpretation of existing payloads.
 
 Use structured SQL columns for authoritative live orchestration state that the scheduler/TUI/filtering logic depends on directly (`status`, `collab_status`, `retry_at`, `restart_count`, `blocked_by_feature_id`, merge-train ordering fields, foreign keys, timestamps). Use JSON-in-TEXT only for nested per-row support data that is naturally array/object shaped and usually read/written as one value.
 
@@ -91,6 +110,7 @@ Baseline JSON-in-TEXT examples:
 - `reserved_write_paths` — JSON array of normalized project-root-relative paths owned by one task
 - `files_changed` — JSON array of changed paths for a task result/reporting context
 - `suspended_files` — JSON array of overlap paths involved in a suspension incident
+- `payload_json` — JSON object storing `request_help()` queries, replanning proposals awaiting approval, or other run-local structured context
 - `token_usage` — JSON object for lifetime task/feature aggregates, including nested `byModel` rollups
 - `events.payload` — JSON object whose exact shape depends on the event type
 
@@ -101,21 +121,26 @@ Outside the database:
 - use filesystem `.ndjson` files only for append-only streams, exported traces, or debug logs where one record per line is useful
 - do not use `.ndjson` inside SQLite TEXT cells; a DB row already provides the record boundary
 
+`agent_runs.session_id` is the authoritative resumable session pointer for both task execution runs and feature-phase runs. `tasks.session_id` remains the task-facing compatibility field for execution runs, but the shared run table is the long-term source of truth for pause/resume/manual ownership behavior.
+
 `tasks.token_usage` and `features.token_usage` should store normalized lifetime aggregates rather than only the latest call. These totals include retries, failed attempts, and resumed sessions because the budget model tracks real spend, not just successful outcomes. The normalized aggregate should include shared fields (`inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheWriteTokens`, optional `reasoningTokens`, optional `audio*`, `totalTokens`, `usd`, `llmCalls`) plus a `byModel` breakdown keyed by provider+model. Provider-specific extras should remain available via raw event payloads or a passthrough field instead of forcing every provider quirk into first-class columns.
 
 ## State Semantics
 
 ### Work Control
 
-- `features.work_phase` stores the feature's GSD lifecycle state and ends at `work_complete`.
+- `features.work_phase` stores the feature's GSD lifecycle state (`discussing`, `researching`, `planning`, `executing`, `feature_ci`, `verifying`, `awaiting_merge`, `summarizing`, `executing_repair`, `replanning`, `work_complete`).
 - `tasks.status` stores the task's execution lifecycle state (`pending`, `ready`, `running`, `retry_await`, `stuck`, `done`, etc.). `failed` means no more progress under baseline automatic behavior; `retry_await` means waiting for the retry window to open.
-- `restart_count` counts actual restarted runs after a failure, not mere retry scheduling. A task may sit in `retry_await` with `restart_count = 0` until the first retry actually begins.
+- `agent_runs.run_status` stores shared run/session state for both task execution runs and feature-phase runs (`ready`, `running`, `retry_await`, `await_response`, `await_approval`, etc.).
+- `agent_runs.owner` distinguishes system-owned automatic execution from direct user passthrough (`system` vs `manual`).
+- `agent_runs.attention` surfaces side conditions like `await_response`, `await_approval`, and `crashloop_backoff` without overloading the main work-state enums.
+- `restart_count` counts actual restarted runs after a failure, not mere retry scheduling. A run may sit in `retry_await` with `restart_count = 0` until the first retry actually begins.
 
 ### Collaboration Control
 
 - `features.collab_status` stores branch lifecycle and merge-train state (`none`, `branch_open`, `merge_queued`, `integrating`, `merged`, `conflict`).
 - `tasks.collab_status` stores task coordination state (`none`, `branch_open`, `suspended`, `merged`, `conflict`).
-- `suspended_at`, `suspend_reason`, and `suspended_files` hold the raw details behind same-feature file-lock suspension and cross-feature task blocking.
+- `suspended_at`, `suspend_reason`, and `suspended_files` hold the raw details behind same-feature file-lock suspension, cross-feature task blocking, and feature-level conflict suspension.
 - `blocked_by_feature_id` is set only when a task is currently suspended due to cross-feature overlap; it identifies the current primary feature blocking that task.
 - Active runtime locks are intentionally memory-only and should be reconstructed from currently running tasks after restart rather than persisted as authoritative DB rows. The database stores reservation metadata and suspension/conflict outcomes, not a stale-prone live lock table.
 - Feature-level "blocked by another feature" views should be derived from suspended task rows rather than persisted separately.

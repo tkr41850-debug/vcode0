@@ -49,8 +49,8 @@ Each task type is assigned a complexity tier. The router selects the best-fit mo
 | Tier | Task Types | Default Model |
 |---|---|---|
 | **heavy** | planning, replanning, roadmap reassessment | Opus-class |
-| **standard** | task execution, research | Sonnet-class |
-| **light** | verification, completion summaries, codebase map generation | Haiku-class |
+| **standard** | task execution, research, feature CI | Sonnet-class |
+| **light** | spec verification, completion summaries, codebase map generation | Haiku-class |
 
 ```typescript
 type RoutingTier = "heavy" | "standard" | "light";

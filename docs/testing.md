@@ -28,11 +28,12 @@ Integration tests use pi-sdk's `fauxModel` + scripted `FauxResponse` sequences a
 import { Agent } from "@mariozechner/pi-agent-core";
 import { fauxStreamFn, fauxModel } from "../test/utils/faux-stream.js";
 
-test("worker calls submit after passing verification", async () => {
+test("worker calls submit then confirm after passing preflight", async () => {
   const agent = new Agent({
     initialState: { model: fauxModel, tools: workerTools },
     streamFn: fauxStreamFn([
       { toolCalls: [{ name: "submit", args: { summary: "done", filesChanged: [] } }] },
+      { toolCalls: [{ name: "confirm", args: { summary: "done", filesChanged: [] } }] },
       { text: "Task complete." },
     ]),
   });
@@ -41,10 +42,10 @@ test("worker calls submit after passing verification", async () => {
 ```
 
 Integration test targets:
-- Worker submit → task-level verification pass/fail loop
-- Task worktree merge into feature branch
-- Feature branch full verification before queueing
-- Feature-verification failure creates same-branch repair work before queue entry and keeps the feature off `merge_queued`
+- Worker `submit()` → task-level preflight pass/fail loop with concrete failure reasons
+- Worker `confirm()` finalizes session closeout and merges the task worktree into the feature branch
+- Feature branch heavy `feature_ci` before queueing
+- `feature_ci` or agent-level `verifying` failure creates same-branch repair work before queue entry and keeps the feature off `merge_queued`
 - Earlier queued milestones sort ahead of later queued milestones without bypassing dependencies
 - Non-queued work falls into the effective `∞` bucket and backfills idle workers
 - Clearing the milestone steering queue returns scheduler selection to autonomous critical-path mode
@@ -53,13 +54,13 @@ Integration test targets:
 - Reservation-only overlap applies a scheduling penalty rather than a hard block
 - Feature branch enters merge train; serialized integration to `main`
 - Merge-train full verification after rebase onto latest `main`
-- Merge-train failure ejects a feature until repair plus feature verification succeed again under the normal queue policy
+- Merge-train failure ejects a feature until repair plus the normal `feature_ci -> verifying` path succeed again under the normal queue policy
 - Same-feature file-lock suspend/resume IPC flow
 - Same-feature rebase conflict steers the existing task in the real conflicted worktree
 - Same-feature conflict resolution that succeeds returns the task to the normal completion path
 - Same-feature post-conflict verification failure returns to the ordinary execution / verification loop
 - Cross-feature runtime overlap pauses only affected secondary tasks and later resumes them after rebase
-- Successful integration repair returns the feature to merge-ready state under the normal queue policy
+- Successful integration repair returns the feature to `awaiting_merge` and merge-ready state under the normal queue policy
 - Planner builds valid DAG via tool calls
 - Crash recovery: orphaned `running` tasks reset or resumed on startup with feature branch preserved
 - Slow verification warnings for task / feature / merge-train checks
@@ -73,7 +74,7 @@ Scenario specs live under `specs/test_*.md` and are intended for later conversio
 - [test_feature_branch_lifecycle](../specs/test_feature_branch_lifecycle.md) — feature branches/worktrees open on request, task worktrees merge back into them, and retention/cleanup follows the feature lifecycle.
 - [test_graph_invariants](../specs/test_graph_invariants.md) — core DAG mutation rules reject cycles, cross-feature task edges, dangling refs, and milestone dependency misuse.
 - [test_scheduler_frontier_priority](../specs/test_scheduler_frontier_priority.md) — ready-frontier recomputation, milestone steering, critical-path ordering, and reservation-overlap penalties.
-- [test_feature_verification_repair_loop](../specs/test_feature_verification_repair_loop.md) — failed feature verification stays off the merge queue until same-branch repair plus rerun succeeds.
+- [test_feature_verification_repair_loop](../specs/test_feature_verification_repair_loop.md) — failed `feature_ci` or agent-level `verifying` stays off the merge queue until same-branch repair plus rerun succeeds.
 - [test_merge_train_ordering](../specs/test_merge_train_ordering.md) — completed feature branches queue and integrate to `main` one at a time, with milestone steering handled separately before queueing.
 - [test_merge_train_conflict_handling](../specs/test_merge_train_conflict_handling.md) — rebase or merge-train verification failure ejects a feature for same-branch repair and re-entry under the normal queue policy.
 - [test_cross_feature_overlap_runtime](../specs/test_cross_feature_overlap_runtime.md) — runtime cross-feature overlap selects primary/secondary ownership, pauses affected secondary work, and resumes after rebase.

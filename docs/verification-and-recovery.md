@@ -5,14 +5,14 @@ See [ARCHITECTURE.md](../ARCHITECTURE.md) for the high-level architecture index.
 ## Work Control vs Collaboration Control
 
 This document uses two state axes:
-- **Work control** — planning and execution progress (`executing`, `verifying`, `replanning`, `work_complete`)
-- **Collaboration control** — branch / merge / suspension / conflict coordination (`branch_open`, `merge_queued`, `integrating`, `conflict`, `merged`)
+- **Work control** — planning and execution progress (`discussing`, `researching`, `planning`, `executing`, `feature_ci`, `verifying`, `awaiting_merge`, `summarizing`, `executing_repair`, `replanning`, `work_complete`)
+- **Collaboration control** — branch / merge / suspension / conflict coordination (`none`, `branch_open`, `merge_queued`, `integrating`, `merged`, task-level `suspended`, feature/task `conflict`)
 
-A task becoming **stuck** is a work-control problem. A task or feature entering **conflict** is a collaboration-control problem.
+A task becoming **stuck** is a work-control problem. A task or feature entering **conflict** is a collaboration-control problem. Merge progress stays in collaboration control; work control waits in `awaiting_merge` until collaboration control reaches `merged`.
 
 ## Retry: Exponential Backoff up to 1 Week
 
-Task-level retry is handled by the orchestrator. When a task hits a transient failure, it enters `retry_await` and receives a `retry_at` timestamp. The scheduler treats that task as retry-eligible only once the stored timestamp is in the past. If the stored `retry_at` would land beyond the 1-week ceiling, the task becomes `failed` instead (`failed` means no more progress under the baseline automatic policy).
+Run-level retry is handled by the orchestrator for transient failures only. Task execution runs and feature-phase runs both use the same backoff model when a session crashes or the provider fails transiently. Deterministic verification failures do not use retry backoff; they create repair work or return the run to normal execution flow instead.
 
 ```typescript
 interface RetryPolicy {
@@ -33,22 +33,25 @@ Retry triggers: provider overload, rate limit, quota exhausted, 5xx, network err
 No retry: verification failures (agent must fix and resubmit).
 
 Baseline state rules:
-- on transient failure: set `status = "retry_await"` and write `retry_at`
+- on transient failure: set the affected run's `run_status = "retry_await"` and write `retry_at`
 - while waiting: `restart_count` does not change yet
 - when the scheduler actually starts the retry run: increment `restart_count` and transition to `running`
-- if `retry_at` is beyond the 1-week ceiling: set `status = "failed"`
+- if the retry ceiling is exhausted: set the affected run's `run_status = "failed"`
+- if repeated transient failures indicate an unproductive crash loop, set `attention = "crashloop_backoff"` in addition to the backoff timer so the TUI can surface that state distinctly
 
 Retry state persists in SQLite so retries survive orchestrator restarts.
 
-## Verification: Task Submit vs Feature Verify vs Merge Train
+## Verification: Task Submit vs Feature CI vs Feature Verify vs Merge Train
 
-Workers complete by calling a `submit` tool — the only way to mark a task done. Submit runs light task-level checks before accepting. Failures are returned as tool result text; the agent loop continues and must fix issues before resubmitting. Full integration verification runs later at the feature level before the feature branch can merge to `main`, and then runs again in the merge train after rebasing onto the latest `main`.
+Task completion is a two-step closeout. Workers first call `submit()` to run light task-local preflight checks and receive structured failure feedback when those checks do not pass. If `submit()` reaches an acceptable result for the task's policy, the worker performs a quick final review and then calls `confirm()` to terminate the session and merge the task branch into the feature branch. Feature-level heavy CI runs later on the feature branch in `feature_ci`, followed by agent-level spec review in `verifying`, and finally merge-train verification after rebasing onto the latest `main`.
+
+Task-level policy precedence is: `task policy > feature policy > strict`. Feature-level heavy CI uses `feature policy > strict`. Merge-train checks use `mergeTrain` config > strict.
 
 ```typescript
 const submitTool: AgentTool = {
   name: "submit",
-  label: "Submit task",
-  description: "Mark this task complete. Runs light task checks first.",
+  label: "Run task preflight",
+  description: "Run task-local preflight checks and report failures.",
   schema: Type.Object({
     summary: Type.String(),
     filesChanged: Type.Array(Type.String()),
@@ -58,15 +61,37 @@ const submitTool: AgentTool = {
     if (checks.failed.length > 0) {
       return {
         content: [{ type: "text", text:
-          `Task verification failed. Fix these issues before submitting:\n\n${formatFailures(checks.failed)}`
+          `Task preflight failed. Fix these issues before confirming:\n\n${formatFailures(checks.failed)}`
         }],
-        details: { verified: false, failures: checks.failed },
+        details: { readyToConfirm: false, failures: checks.failed },
       };
     }
-    ipc.send({ type: "result", taskId, summary, filesChanged });
     return {
-      content: [{ type: "text", text: "Task submitted successfully." }],
-      details: { verified: true },
+      content: [{ type: "text", text: "Checks passed. Run a quick review and use confirm() if no changes are needed." }],
+      details: { readyToConfirm: true },
+    };
+  },
+};
+
+const confirmTool: AgentTool = {
+  name: "confirm",
+  label: "Finalize task",
+  description: "Terminate the task session and merge the task branch into the feature branch after submit() has passed.",
+  schema: Type.Object({
+    summary: Type.String(),
+    filesChanged: Type.Array(Type.String()),
+  }),
+  execute: async (_toolCallId, args, _signal) => {
+    if (!taskRunIsReadyToConfirm(taskId)) {
+      return {
+        content: [{ type: "text", text: "confirm() is not available yet. Run submit() first and resolve any reported failures." }],
+        details: { confirmed: false },
+      };
+    }
+    ipc.send({ type: "result", taskId, summary: args.summary, filesChanged: args.filesChanged });
+    return {
+      content: [{ type: "text", text: "Task confirmed successfully." }],
+      details: { confirmed: true },
     };
   },
 };
@@ -110,32 +135,40 @@ All verification layers are configured as editable command lists in `.gvc0/confi
 }
 ```
 
-Task checks run in the task's worktree and are intentionally light/local. Feature checks run in the feature branch during the `verifying` phase and are expected to provide full-repo confidence before queueing for integration. Merge-train checks run again after rebasing the feature branch onto the latest `main`, and provide final landing confidence. Verification commands should run through the same Node.js child-process execution layer used elsewhere in the orchestrator, while git rebases/merges continue to use `simple-git`, so stdout+stderr can be captured and included in the failure message fed back to the agent. Slow-check warnings and feature-churn warnings are described in [Warnings](./warnings.md). Upstream sync recommendation and conflict escalation behavior are described in [Conflict Steering](./conflict-steering.md).
+Task checks run in the task's worktree and are intentionally light/local. They may be loose enough to support workflows like red-test-first TDD, but `submit()` must still return concrete failed checks so the agent sees what remains. Feature checks run in the feature branch during `feature_ci` and are the heavy branch-level gate before spec review. `verifying` is an agent-level review that checks whether the feature branch meets the feature spec. Merge-train checks run again after rebasing the feature branch onto the latest `main`, and provide final landing confidence. Verification commands should run through the same Node.js child-process execution layer used elsewhere in the orchestrator, while git rebases/merges continue to use `simple-git`, so stdout+stderr can be captured and included in the failure message fed back to the agent. Slow-check warnings and feature-churn warnings are described in [Warnings](./warnings.md). Upstream sync recommendation and conflict escalation behavior are described in [Conflict Steering](./conflict-steering.md).
 
-### Feature Verification Outcome
+### Feature CI and Spec-Review Outcome
 
-A feature may enter the merge queue only after its configured `verification.feature.checks` pass on the feature branch.
+A feature reaches `feature_ci` after the last task or repair task lands on the feature branch. By default the branch should be green before the feature may leave `feature_ci` and enter `verifying`, though a loose feature policy may relax that boundary.
 
-If feature verification fails before queueing:
+If `feature_ci` fails:
 1. Keep the feature on the same feature branch.
-2. Add a task to fix the reported verification issues.
-3. Return the feature to normal execution on that branch.
-4. Rerun `verification.feature.checks` after the fix task lands.
+2. Move feature work control to `executing_repair`.
+3. Add a repair task to fix the reported branch-level issues.
+4. Return to `feature_ci` after the repair task lands.
+
+If `verifying` finds that the code does not satisfy the feature spec:
+1. Keep the feature on the same feature branch.
+2. Move feature work control to `executing_repair`.
+3. Add a repair task to fix the reported spec gaps.
+4. Return to `feature_ci` after the repair task lands.
 
 ## Integration Queue
 
 Task completion does not land work on `main` directly. Instead:
-1. The task merges into the feature branch.
-2. When feature work control reaches `work_complete`, run `verification.feature.checks` on the feature branch.
-3. If feature verification passes, collaboration control becomes `merge_queued`.
-4. The merge train serializes feature-branch integration into `main`.
-5. The queue head rebases onto the latest `main` and runs the configured `mergeTrain.checks` command list.
-6. If integration rebases and merge-train checks pass, collaboration control becomes `merged`.
-7. If merge-train verification fails, remove the feature from the merge train and add a task on the same feature branch to fix the reported issues.
-8. Once that repair task is added, the feature is no longer `work_complete` / merge-ready and returns to normal branch work.
-9. After the repair task lands, rerun `verification.feature.checks` on the feature branch.
-10. Only if feature verification passes again may the feature re-enter the merge train under the normal automatic queue policy (or explicit manual override bucket, if one is set).
-11. If rebasing onto the latest `main` or subsequent repair work keeps failing in a way that indicates structural mismatch, escalate to replanning.
+1. The task calls `confirm()` and merges into the feature branch.
+2. After the last task or repair task lands, the feature runs heavy branch checks in `feature_ci`.
+3. If `feature_ci` passes, the feature runs agent-level spec review in `verifying`.
+4. If `verifying` passes, feature work control becomes `awaiting_merge`.
+5. Only then may collaboration control become `merge_queued`.
+6. The merge train serializes feature-branch integration into `main`.
+7. The queue head rebases onto the latest `main` and runs the configured `mergeTrain.checks` command list.
+8. If integration rebases and merge-train checks pass, collaboration control becomes `merged`.
+9. Once collaboration control reaches `merged`, the feature enters blocking `summarizing` and only then reaches `work_complete`.
+10. If merge-train verification fails, remove the feature from the merge train, set collaboration control to `conflict`, and add repair work on the same feature branch.
+11. Once that repair task is added, feature work control moves to `executing_repair` and later returns through `feature_ci` and `verifying` again.
+12. Only if that path passes again may the feature return to `awaiting_merge`, clear `conflict`, and re-enter `merge_queued` under the normal automatic queue policy (or explicit manual override bucket, if one is set).
+13. If rebasing onto the latest `main` or subsequent repair work keeps failing in a way that indicates structural mismatch, escalate to `replanning`.
 
 ## Conflict Outcome Rules
 
@@ -151,10 +184,11 @@ When a same-feature task enters collaboration-control `conflict` after auto-reba
 
 When feature integration fails at rebase or merge-train verification:
 1. Set feature collaboration control to `conflict` and remove the feature from the merge queue.
-2. Create repair work on the same feature branch.
-3. Once repair lands, rerun `verification.feature.checks` on that feature branch.
-4. Only if feature verification passes again may the feature return to `work_complete`, clear `conflict`, and re-enter `merge_queued`.
-5. If repair repeatedly fails or indicates structural mismatch, move feature work control to `replanning`. 
+2. Suspend all non-repair task runs for that feature while the feature remains in `conflict`.
+3. Create repair work on the same feature branch and move feature work control to `executing_repair`.
+4. Once repair lands, rerun the normal `feature_ci -> verifying` path on that feature branch.
+5. Only if that path passes again may the feature return to `awaiting_merge`, clear `conflict`, and re-enter `merge_queued`.
+6. If repair repeatedly fails or indicates structural mismatch, move feature work control to `replanning`.
 
 ## Stuck Detection
 
@@ -167,15 +201,19 @@ interface StuckPolicy {
 ```
 
 When `maxConsecutiveFailures` is reached:
-1. Worker is suspended from further execution attempts
+1. Task execution stops under automatic system ownership
 2. Task enters `stuck` status
-3. Feature work control enters `replanning`
-4. TUI highlights the task with the last verification failure and indicates that intervention is needed
-5. User can: **steer** (inject a message and resume), **skip** (cancel the task), or **replan** (trigger replanning for the feature)
+3. TUI highlights the task with the last verification failure and indicates that intervention is needed
+4. User may attach directly, moving the run to `running` with `owner = "manual"`
+5. If the user exits without finishing, the run becomes `await_response` with `owner = "manual"`
+6. The user may call `release_to_scheduler`; if there is no unanswered `request_help()`, the run returns to `ready` with `owner = "system"`, otherwise it remains `await_response` / manual because it still needs a human answer
+7. Alternatively, the user may trigger feature `replanning`; the replanner proposal enters `await_approval`, and if approved the original stuck task returns to `ready`
 
-## Replanning
+## Help / Approval / Replanning
 
-Triggered manually (user presses `p` on a stuck/conflicted feature) or automatically when a feature fails after exhausting retries or cannot integrate cleanly.
+Task execution runs and feature-phase runs may call `request_help(query)` when they hit a semantic blocker that is not a transient provider failure. `request_help()` pauses the run immediately, stores the query in `payload_json`, and moves the run to `await_response` with manual ownership. The TUI may either answer the request directly or attach to the live session and continue it in `running/manual` mode.
+
+Replanning is triggered manually (user presses `p` on a stuck/conflicted feature) or automatically when a feature cannot integrate cleanly after repair attempts.
 
 The replanner is a pi-sdk `Agent` with the same feature-graph tools as the planner, plus read access to the current graph state and the failure context. It can:
 - Split the failed feature into smaller subfeatures
@@ -183,7 +221,7 @@ The replanner is a pi-sdk `Agent` with the same feature-graph tools as the plann
 - Edit task descriptions
 - Cancel the feature and add an alternative
 
-Running workers are not interrupted during replanning. The replanner only mutates pending/failed nodes.
+A replanning proposal is stored in `payload_json` and surfaced as `await_approval`. If the user approves it, the graph mutation is applied and the original stuck task returns to `ready` unless the approved plan explicitly replaces or cancels that task.
 
 ```typescript
 // Replanner prompt includes:
@@ -192,4 +230,4 @@ Running workers are not interrupted during replanning. The replanner only mutate
 // - Instruction: "Restructure this feature to make it achievable"
 ```
 
-After replanning, the scheduler re-evaluates the frontier and dispatches newly ready tasks.
+After replanning approval, the scheduler re-evaluates the frontier and dispatches newly ready tasks.

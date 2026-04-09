@@ -39,8 +39,8 @@ Milestones are shown as organizational / progress buckets. Users may queue multi
 
 **Work control**
 - `✓` done
-- `⟳` running / executing
-- `·` pending / ready
+- `⟳` running / executing (`executing`, `feature_ci`, `verifying`, `summarizing`, `executing_repair`)
+- `·` pending / ready (`pending`, `ready`, `awaiting_merge`)
 - `↺` retry_await / waiting for retry window
 - `!` stuck / replanning needed
 - `✗` failed (no more progress)
@@ -48,11 +48,17 @@ Milestones are shown as organizational / progress buckets. Users may queue multi
 
 **Collaboration control**
 - `branch_open` — active feature/task branch
-- `suspended` — same-feature file-lock pause
+- `suspended` — task-level same-feature file-lock pause, cross-feature pause, or feature-conflict-derived task suspension
 - `merge_queued` — waiting in integration queue
-- `integrating` — merge train is rebasing/verifying
+- `integrating` — merge train is rebasing and running merge-train checks
 - `conflict` — collaboration issue blocks integration
 - `merged` — branch landed and cleaned up
+
+**Run attention / ownership overlays**
+- `await_response` — paused until a human answers or resumes manually
+- `await_approval` — paused until a human approves a structured proposal
+- `crashloop_backoff` — transient retries continue, but the run is visibly churny
+- `manual` — user is attached or currently owns the run
 
 ```typescript
 class DagView implements Component {
@@ -105,8 +111,10 @@ The main DAG tree should stay progress-focused rather than showing token totals 
 | `w` | Worker picker — select a worker to focus in Agent Monitor |
 | `s` | Steer selected worker (in main view: opens worker picker first if none selected) |
 | `r` | Retry failed task |
+| `h` | Help inbox — answer `await_response` runs or approve `await_approval` proposals |
 | `m` | Toggle Agent Monitor overlay (live worker output + steer) |
 | `p` | Replan — trigger replanner for a stuck/conflicted feature |
+| `u` | Release selected manual run back to the scheduler (`release_to_scheduler`) |
 | `x` | Cancel feature (with cascade prompt) |
 | `e` | Edit feature (name, description, tasks) |
 | `d` | Show feature dependency detail |

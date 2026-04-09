@@ -25,20 +25,27 @@ Milestone (organizational / progress unit)
 
 Work control tracks where the feature is in the GSD planning / execution flow.
 
-```
-discussing → researching → planning → executing → verifying → summarizing → work_complete
-                                         ↓ (if work stalls or integration fails)
-                                     replanning
+```text
+discussing → researching → planning → executing → feature_ci → verifying → awaiting_merge
+                                                   ↘                ↘
+                                                    executing_repair ─→ feature_ci
+
+awaiting_merge --(after collaboration control reaches `merged`)--> summarizing → work_complete
+
+structural or repeated failure → replanning
 ```
 
 - **discussing** — blocking modal in the TUI. The orchestrator launches a discuss-phase agent and waits for user answers. Skipped in `budget` token profile.
 - **researching** — scouts the codebase and relevant docs to inform planning. Skipped in `budget` token profile.
 - **planning** — decomposes the feature into tasks, assigns weights, and declares inter-task deps.
-- **executing** — tasks dispatch to workers in parallel per the feature-local DAG frontier.
-- **verifying** — all task outputs have landed on the feature branch and feature-level checks run.
-- **summarizing** — a `light`-tier model writes a feature summary for downstream context injection.
-- **replanning** — recovery phase entered after repeated work failures, repeated unresolved same-feature conflict handling, or an unresolved integration conflict.
-- **work_complete** — feature implementation is complete on its feature branch. Overall feature `done` is derived only after collaboration control reaches `merged`.
+- **executing** — tasks dispatch to workers in parallel per the feature-local DAG frontier. The feature branch may be red during `executing`.
+- **feature_ci** — heavy branch-level verification after the last task or repair task lands. By default the feature branch should be green before leaving `feature_ci` and entering `verifying`, though a loose feature-level policy may relax that boundary.
+- **verifying** — agent-level review that checks whether the feature branch actually satisfies the feature spec, not just whether CI passes.
+- **awaiting_merge** — local implementation and spec review are complete; the feature is waiting for collaboration control to carry it through the merge queue and integration into `main`.
+- **summarizing** — after collaboration control reaches `merged`, a `light`-tier model writes a feature summary for downstream context injection. This is blocking by design because downstream planning may depend on the summary.
+- **executing_repair** — repair tasks appended on the same feature branch after `feature_ci`, `verifying`, or integration repair finds issues. This is still part of execution, and the branch may remain red here.
+- **replanning** — recovery phase entered after repeated work failures, repeated unresolved same-feature conflict handling, or a structural integration mismatch.
+- **work_complete** — feature implementation has merged and its blocking summary has been captured. Overall feature `done` is derived only after collaboration control reaches `merged`.
 
 ### Collaboration Control
 
@@ -53,9 +60,9 @@ none → branch_open → merge_queued → integrating → merged
 - **none** — feature branch not opened yet.
 - **branch_open** — feature branch / feature worktree exists as the integration surface; tasks may merge into it.
 - **merge_queued** — feature is waiting in the serialized integration queue.
-- **integrating** — feature branch is rebasing / verifying against the latest `main`.
+- **integrating** — feature branch is rebasing / running merge-train verification against the latest `main`.
 - **merged** — feature branch landed on `main` and is cleaned up.
-- **conflict** — same-feature file-lock resolution or feature-branch integration surfaced a conflict that needs collaboration before work can continue.
+- **conflict** — feature-level collaboration issue blocks normal progress. While a feature is in `conflict`, suspend all non-repair task runs for that feature until the conflict is cleared.
 
 A feature's aggregate `status` is derived for reporting. It becomes `done` only when `workControl = "work_complete"` and `collabControl = "merged"`.
 
@@ -84,7 +91,8 @@ interface Feature {
   status: UnitStatus;              // derived aggregate reporting status
   workControl: FeatureWorkControl;
   collabControl: FeatureCollabControl;
-  featureBranch: string;              // e.g. gvc0/feature-auth
+  featureBranch: string;              // e.g. feature/auth
+  featureTestPolicy?: TestPolicy;
   mergeTrainManualPosition?: number;  // manual override bucket position when explicitly ordered
   mergeTrainEnteredAt?: number;
   mergeTrainEntrySeq?: number;        // stable ordering tie-breaker for current queue entry
@@ -101,9 +109,25 @@ interface Task {
   collabControl: TaskCollabControl;
   workerId?: string;
   worktreeBranch?: string;
+  taskTestPolicy?: TestPolicy;
   result?: TaskResult;
   weight?: number;                 // estimated cost/complexity for critical path
   tokenUsage?: TokenUsageAggregate; // lifetime aggregate across retries, failures, and resumes
+}
+
+interface AgentRun {
+  id: string;
+  scopeType: "task" | "feature_phase";
+  scopeId: string;
+  phase: AgentRunPhase;
+  runStatus: AgentRunStatus;
+  owner: RunOwner;
+  attention: RunAttention;
+  sessionId?: string;
+  payloadJson?: string;
+  restartCount: number;
+  maxRetries: number;
+  retryAt?: number;
 }
 
 interface TokenUsageAggregate {
@@ -142,8 +166,11 @@ type FeatureWorkControl =
   | "researching"
   | "planning"
   | "executing"
+  | "feature_ci"
   | "verifying"
+  | "awaiting_merge"
   | "summarizing"
+  | "executing_repair"
   | "replanning"
   | "work_complete";
 
@@ -171,6 +198,32 @@ type TaskCollabControl =
   | "suspended"
   | "merged"
   | "conflict";
+
+type TestPolicy = "loose" | "strict";
+
+type AgentRunPhase =
+  | "execute"
+  | "discuss"
+  | "research"
+  | "plan"
+  | "feature_ci"
+  | "verify"
+  | "summarize"
+  | "replan";
+
+type AgentRunStatus =
+  | "ready"
+  | "running"
+  | "retry_await"
+  | "await_response"
+  | "await_approval"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+type RunOwner = "system" | "manual";
+
+type RunAttention = "none" | "await_response" | "await_approval" | "crashloop_backoff";
 ```
 
 ### Scheduling Levels
@@ -209,6 +262,8 @@ main
 
 - A feature branch and feature worktree are created when that branch is requested and collaboration control enters `branch_open`.
 - Task worktrees branch from the current HEAD of the owning feature branch.
-- Task completion squash-merges into the feature branch, not `main`.
-- Once summarizing finishes and feature work control becomes `work_complete`, run feature verification on the feature branch; only if it passes does collaboration control move to `merge_queued`.
+- Task completion is a two-step closeout: `submit()` runs light preflight checks and returns concrete failure reasons when they fail; `confirm()` is the final terminate-session + squash-merge into the feature branch.
+- After the last task or repair task lands, the feature enters `feature_ci` on the feature branch; only after that boundary passes does the feature enter agent-level `verifying`.
+- If `verifying` passes, feature work control becomes `awaiting_merge` and collaboration control may move to `merge_queued`.
+- After collaboration control reaches `merged`, the feature enters blocking `summarizing`, then `work_complete`.
 - The merge train serializes feature-branch integration into `main`.

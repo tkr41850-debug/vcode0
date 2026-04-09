@@ -20,17 +20,18 @@ Capture the expected lifecycle of a feature branch and its task worktrees.
 - And task collaboration control becomes `branch_open`
 
 ### Task merges back into feature branch
-- Given a task completes verification successfully
-- When the task is submitted
+- Given a task passes `submit()` preflight successfully
+- When the task is finalized with `confirm()`
 - Then the task worktree is squash-merged into the feature branch
 - And the task is not merged directly to `main`
 - And task collaboration control becomes `merged`
 
-### Feature enters merge queue only after feature verification passes
+### Feature enters merge queue only after feature CI and spec verification pass
 - Given all tasks in a feature have merged into the feature branch
-- And feature work control has reached `work_complete`
-- When the orchestrator runs feature verification on the feature branch
-- Then the feature enters `merge_queued` only if that verification passes
+- And feature work control has reached `feature_ci`
+- When heavy feature CI passes and agent-level `verifying` also passes
+- Then feature work control becomes `awaiting_merge`
+- And the feature enters `merge_queued` only after that
 
 ### Task worktrees are retained until feature merge or GC
 - Given a task has already merged back into its feature branch
@@ -40,8 +41,9 @@ Capture the expected lifecycle of a feature branch and its task worktrees.
 
 ### Feature branch is cleaned up after integration
 - Given all tasks in a feature have merged into the feature branch
-- And feature verification has already passed
+- And feature work control is `awaiting_merge`
 - And the feature passes merge-train verification
 - When the feature lands on `main`
-- Then the feature branch is deleted
-- And feature collaboration control becomes `merged`
+- Then feature collaboration control becomes `merged`
+- And the feature later runs blocking `summarizing` before reaching `work_complete`
+- And the feature branch is deleted

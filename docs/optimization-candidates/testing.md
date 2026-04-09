@@ -8,7 +8,7 @@ Future optimization candidate. Do not treat this as part of the baseline archite
 
 The baseline testing/verification model intentionally duplicates confidence checks:
 - light/local checks at task submit
-- full checks at feature verification
+- full checks at `feature_ci`
 - full checks again in the merge train after rebasing onto latest `main`
 
 This prioritizes correctness and predictable semantics over speed.

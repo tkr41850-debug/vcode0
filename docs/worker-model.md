@@ -44,11 +44,12 @@ Each feature owns exactly one long-lived integration branch.
 
 1. When a feature branch is requested, the orchestrator creates `feature/<feature-id>` from the current `main` and opens its feature worktree.
 2. Task worktrees branch from the current HEAD of `feature/<feature-id>`.
-3. Task completion merges into `feature/<feature-id>`.
-4. When feature work control reaches `work_complete`, the orchestrator runs feature verification on the feature branch.
-5. Only if feature verification passes does feature collaboration control become `merge_queued`.
-6. The merge train rebases the feature branch onto the latest `main`, runs merge-train verification, and either merges or removes the feature from the queue for repair/retry on the same branch.
-7. Same-feature task conflicts use a two-stage baseline: fail-closed mechanical rebase first, then task-local agent reconciliation with injected conflict context if git cannot resolve cleanly.
+3. Task completion is finalized by `confirm()`, which merges into `feature/<feature-id>` after `submit()` preflight has passed.
+4. After the last task or repair task lands, the feature runs `feature_ci` on the feature branch, then agent-level `verifying`.
+5. If that path passes, feature work control becomes `awaiting_merge` and feature collaboration control may become `merge_queued`.
+6. The merge train rebases the feature branch onto the latest `main`, runs merge-train verification, and either merges or removes the feature from the queue for same-branch repair.
+7. After collaboration control reaches `merged`, the feature runs blocking `summarizing` and then reaches `work_complete`.
+8. Same-feature task conflicts use a two-stage baseline: fail-closed mechanical rebase first, then task-local agent reconciliation with injected conflict context if git cannot resolve cleanly.
 
 ## IPC: NDJSON over stdio (swappable)
 
@@ -137,6 +138,22 @@ Each worker receives context about the overall plan and completed dependency out
       "executing": {
         "strategy": "shared-summary"
       },
+      "feature_ci": {
+        "strategy": "shared-summary",
+        "includeCodebaseMap": true
+      },
+      "verifying": {
+        "strategy": "shared-summary",
+        "includeKnowledge": true,
+        "includeDecisions": true,
+        "includeCodebaseMap": true
+      },
+      "executing_repair": {
+        "strategy": "inherit",
+        "includeKnowledge": true,
+        "includeDecisions": true,
+        "includeCodebaseMap": true
+      },
       "replanning": {
         "strategy": "inherit",
         "includeKnowledge": true,
@@ -179,7 +196,7 @@ interface DepOutput {
 
 ## Crash Recovery
 
-On startup, gvc0 scans for orphaned tasks (status `running` with no live worker process) and resets or resumes them. Feature branches remain authoritative across restarts; resumed task worktrees rebase onto the current HEAD of the owning feature branch before continuing. The baseline uses `PiSdkHarness` only; `session_id` is an orchestrator-owned opaque reference passed back to the harness, and a future external session service may interpret/map those IDs without changing the main task schema.
+On startup, gvc0 scans for orphaned agent runs (task execution runs or feature-phase runs with `run_status = "running"` but no live worker process) and resets or resumes them. Feature branches remain authoritative across restarts; resumed task worktrees rebase onto the current HEAD of the owning feature branch before continuing. The baseline uses `PiSdkHarness` only; `session_id` is an orchestrator-owned opaque reference passed back to the harness, and a future external session service may interpret/map those IDs without changing the main task schema.
 
 ### Session Harness Abstraction
 
@@ -207,18 +224,18 @@ class PiSdkHarness implements SessionHarness { /* default — native pi-sdk Agen
 
 A `ClaudeCodeHarness` that wraps Claude Code sessions as worker backends is a [feature candidate](./feature-candidates/claude-code-harness.md), not part of the baseline.
 
-Session IDs are stored in the `tasks` table (`session_id TEXT`) as orchestrator-owned opaque references. If a separate session service is ever introduced, it may map those IDs onto provider-specific underlying sessions without changing the main task schema. On startup:
+Session IDs are stored as orchestrator-owned opaque references. `agent_runs.session_id` is the authoritative resumable pointer for both task execution runs and feature-phase runs; `tasks.session_id` remains the task-facing compatibility field for execution runs. If a separate session service is ever introduced, it may map those IDs onto provider-specific underlying sessions without changing the main task schema. On startup:
 
 ```typescript
 async function recoverOrphanedTasks(store: Store, pool: WorkerPool) {
-  const orphaned = await store.getTasksByStatus("running");
-  for (const task of orphaned) {
-    if (task.sessionId) {
+  const orphaned = await store.getTaskRunsByStatus("running");
+  for (const run of orphaned) {
+    if (run.sessionId) {
       // Resume from saved session, rebasing onto current feature branch HEAD first
-      pool.dispatch(task, { resume: true, sessionId: task.sessionId });
+      pool.dispatch(run.scopeId, { resume: true, sessionId: run.sessionId });
     } else {
-      // No resumable session — reset to pending for a fresh run
-      await store.updateTask(task.id, { status: "pending", workerId: null });
+      // No resumable session — reset to ready for a fresh run
+      await store.updateAgentRun(run.id, { runStatus: "ready", owner: "system" });
     }
   }
 }

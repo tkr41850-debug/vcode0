@@ -82,7 +82,7 @@ This supports both immediate slow-check warnings and later trend analysis.
 ### Per Feature Churn Counters
 
 For each feature, track at least:
-- feature verification failure count
+- pre-queue verification failure count (`feature_ci` or agent-level `verifying`)
 - merge-train verification failure count
 - merge-train ejection count
 - integration repair task count

@@ -13,7 +13,7 @@ Capture the baseline warning system behavior for verification timing, feature ch
 - And the task or feature is not failed solely because of the warning
 
 ### Feature churn accumulates repeated recovery-loop signals
-- Given the same feature repeatedly fails feature verification or merge-train verification
+- Given the same feature repeatedly fails pre-queue verification (`feature_ci` or `verifying`) or merge-train verification
 - When repair tasks and queue ejections accumulate
 - Then the orchestrator increments feature churn counters
 - And may emit a churn warning after the configured threshold is crossed

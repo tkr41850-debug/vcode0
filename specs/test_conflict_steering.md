@@ -49,4 +49,4 @@ Capture the sync recommendation ladder and conflict steering behavior before and
 - When the orchestrator cannot resolve the failure mechanically
 - Then it removes the feature from the merge queue
 - And creates or steers repair work on the same feature branch
-- And only re-adds the feature after repair plus feature verification succeeds again
+- And only re-adds the feature after repair plus the normal `feature_ci -> verifying` path succeeds again

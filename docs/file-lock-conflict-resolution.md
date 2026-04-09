@@ -22,7 +22,7 @@ Orchestrator polls every N seconds (default: 30):
      b. Suspend the worktree with FEWER changes (SIGSTOP to child process)
      c. Record the suspension in SQLite with reason + suspended files
      d. Notify suspended worker via IPC before SIGSTOP:
-        { type: "suspend", reason: "file_lock", files: ["src/index.ts"] }
+        { type: "suspend", taskId: "task-session", reason: "file_lock", files: ["src/index.ts"] }
 ```
 
 ### Resolution
@@ -105,7 +105,7 @@ Cross-feature overlap is handled more conservatively than same-feature file lock
 1. Detect an overlap incident between two features using normalized project-root-relative file paths.
 2. Choose **primary** and **secondary** once per feature pair, not per file, to avoid split-brain ownership. Ranking order:
    a. explicit dependency predecessor wins
-   b. nearer-to-merge feature wins (`integrating` > `merge_queued` > `verifying` > `executing`)
+   b. nearer-to-merge feature wins (`integrating` > `merge_queued` > `awaiting_merge` > `verifying` > `feature_ci` > `executing`)
    c. older feature request / branch-open time wins
    d. feature blocking more downstream dependents wins
    e. larger changed-line count wins
