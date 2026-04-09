@@ -89,8 +89,8 @@ Each feature owns exactly one long-lived integration branch.
 7. After collaboration control reaches `merged`,
    the feature normally runs blocking `summarizing`
    and then reaches `work_complete`;
-   in budget mode it may instead record
-   `summaryStatus = "skipped_summary"`
+   in budget mode it may instead skip summarizing,
+   leave summary text empty,
    and move directly to `work_complete`.
 8. Same-feature task conflicts use a two-stage baseline:
    fail-closed mechanical rebase first,

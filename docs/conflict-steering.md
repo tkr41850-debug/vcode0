@@ -18,7 +18,7 @@ The steering policy uses a ladder:
 
 ### 1. Upstream Update Available
 
-Use for low-risk awareness only.
+Use for low-risk awareness only. This is informational and should not change persisted run or collaboration state.
 
 Typical conditions:
 - another task has landed on the same feature branch
@@ -31,7 +31,7 @@ Action:
 
 ### 2. Sync Recommended
 
-Use when upstream changes are relevant and syncing earlier is likely beneficial, but continuing briefly is still acceptable.
+Use when upstream changes are relevant and syncing earlier is likely beneficial, but continuing briefly is still acceptable. This is advisory only and should not change persisted run or collaboration state.
 
 Typical triggers:
 - upstream changes intersect the task's reserved write paths
@@ -66,6 +66,7 @@ Action:
 - pause or redirect the task into sync work before it continues normal execution
 - if auto-rebase succeeds, resume with the updated branch state
 - if auto-rebase fails, escalate into explicit conflict steering
+- do not move the run to `await_response` unless a human is actually needed; agent-directed sync remains part of normal execution flow
 
 ### 4. Conflict Resolution / Escalation
 
@@ -81,6 +82,7 @@ Action:
 - for same-feature task conflicts, steer the existing task agent in the real conflicted worktree
 - for cross-feature integration rebase/check failures, remove the feature from the merge queue and create or steer repair work on the same feature branch
 - monitor for progress
+- keep `await_response` reserved for explicit human-help/manual-takeover cases rather than normal agent-directed conflict repair
 - escalate to replanning or user intervention only if repair does not make meaningful progress or the failure appears structural
 
 ## Checkpoints for Steering
@@ -126,10 +128,10 @@ Conflict payloads should additionally include:
 ## Escalation Guidance
 
 The baseline escalation sequence is:
-1. **update available** — awareness only
-2. **sync recommended** — nudge at next checkpoint
-3. **sync required** — pause/redirect into sync before continuing
-4. **conflict steer** — inject exact conflict context after auto-sync failure
+1. **update available** — awareness only; no state change
+2. **sync recommended** — nudge at next checkpoint; no state change
+3. **sync required** — pause/redirect into sync before continuing, using execution/collaboration control only as needed for the sync itself
+4. **conflict steer** — inject exact conflict context after auto-sync failure while preserving real collaboration conflict state
 5. **halted / no progress** — if there is no meaningful activity after steering
 6. **repair task / replanning / user intervention** — depending on failure scope
 

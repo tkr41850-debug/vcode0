@@ -31,7 +31,7 @@ discussing → researching → planning → executing → feature_ci → verifyi
                                                     executing_repair ─→ feature_ci
 
 awaiting_merge --(after collaboration control reaches `merged`)--> summarizing ─→ work_complete
-                                                         \--(budget mode)--> skipped_summary ─→ work_complete
+                                                         \--(budget mode)--> work_complete
 
 structural or repeated failure → replanning
 ```
@@ -43,10 +43,10 @@ structural or repeated failure → replanning
 - **feature_ci** — heavy branch-level verification after the last task or repair task lands. By default the feature branch should be green before leaving `feature_ci` and entering `verifying`, though a loose feature-level policy may relax that boundary.
 - **verifying** — agent-level review that checks whether the feature branch actually satisfies the feature spec, not just whether CI passes.
 - **awaiting_merge** — local implementation and spec review are complete; the feature is waiting for collaboration control to carry it through the merge queue and integration into `main`.
-- **summarizing** — after collaboration control reaches `merged`, a `light`-tier model writes a feature summary for downstream context injection. In budget mode this phase may be skipped entirely, with `summaryStatus = "skipped_summary"` recorded instead.
+- **summarizing** — after collaboration control reaches `merged`, a `light`-tier model writes a feature summary for downstream context injection. While this phase is active and the feature has no summary text yet, summary availability is treated as waiting.
 - **executing_repair** — repair tasks appended on the same feature branch after `feature_ci`, `verifying`, or integration repair finds issues. This is still part of execution, and the branch may remain red here.
 - **replanning** — recovery phase entered after repeated work failures, repeated unresolved same-feature conflict handling, or a structural integration mismatch.
-- **work_complete** — feature implementation has merged and its summary outcome has been recorded (`completed` or `skipped_summary`). Overall feature `done` is derived only after collaboration control reaches `merged`.
+- **work_complete** — feature implementation has merged and summarization outcome is derived from current state: if summary text exists it is available, and if no summary text exists the summary was skipped. Overall feature `done` is derived only after collaboration control reaches `merged`.
 
 ### Collaboration Control
 
@@ -98,7 +98,7 @@ interface Feature {
   mergeTrainEnteredAt?: number;
   mergeTrainEntrySeq?: number;        // stable ordering tie-breaker for current queue entry
   mergeTrainReentryCount?: number;
-  summaryStatus?: FeatureSummaryStatus;
+  summary?: string;
   tokenUsage?: TokenUsageAggregate;   // lifetime aggregate across all task/model calls in the feature
 }
 
@@ -202,8 +202,6 @@ type TaskCollabControl =
 
 type TestPolicy = "loose" | "strict";
 
-type FeatureSummaryStatus = "pending" | "completed" | "skipped_summary";
-
 type AgentRunPhase =
   | "execute"
   | "discuss"
@@ -274,5 +272,5 @@ main
 - Task completion is a two-step closeout: `submit()` runs light preflight checks and returns concrete failure reasons when they fail; `confirm()` is the final terminate-session + squash-merge into the feature branch.
 - After the last task or repair task lands, the feature enters `feature_ci` on the feature branch; only after that boundary passes does the feature enter agent-level `verifying`.
 - If `verifying` passes, feature work control becomes `awaiting_merge` and collaboration control may move to `merge_queued`.
-- After collaboration control reaches `merged`, the feature either enters blocking `summarizing` or, in budget mode, records `summaryStatus = "skipped_summary"` and moves directly to `work_complete`.
+- After collaboration control reaches `merged`, the feature either enters blocking `summarizing` or, in budget mode, moves directly to `work_complete` without writing summary text.
 - The merge train serializes feature-branch integration into `main`.

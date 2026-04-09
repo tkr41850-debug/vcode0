@@ -6,27 +6,36 @@ See [ARCHITECTURE.md](../ARCHITECTURE.md) for the high-level architecture index.
 
 This document defines how post-merge feature summarization is recorded, including the budget-mode case where the summary phase is intentionally skipped.
 
-## Baseline States
+## Baseline Storage
+
+Feature summaries are stored directly on the feature as nullable text:
 
 ```ts
-type FeatureSummaryStatus = "pending" | "completed" | "skipped_summary";
+interface Feature {
+  // ...
+  summary?: string;
+}
 ```
 
-- `pending` — feature has not yet reached its summary outcome
-- `completed` — a post-merge summary was written successfully
-- `skipped_summary` — budget-mode flow intentionally skipped generating the post-merge summary
+## Derived Availability
+
+Summary availability is derived from `workControl` plus presence/absence of summary text:
+
+- `workControl = "summarizing"` and no summary text yet → waiting for summary
+- `workControl = "work_complete"` and no summary text → summary skipped
+- summary text exists → summary available
 
 ## Baseline Rule
 
 After collaboration control reaches `merged`:
-- normal flow enters `summarizing`, then moves to `work_complete` with `summaryStatus = "completed"`
-- budget-mode flow may skip the summarization phase and move directly to `work_complete` with `summaryStatus = "skipped_summary"`
+- normal flow enters `summarizing`, writes summary text, then moves to `work_complete`
+- budget-mode flow may skip the summarization phase and move directly to `work_complete` without writing summary text
 
-This preserves one consistent completion rule: merged features still reach `work_complete`, but the system records whether a real summary was written.
+This keeps one consistent completion rule: merged features still reach `work_complete`, while summary availability is derived from the lifecycle plus whether summary text exists.
 
 ## Why This Exists
 
-`work_complete` should mean the feature is done from the orchestrator's perspective. Without a separate summary outcome, skipping summarization in budget mode creates a semantic conflict with the normal blocking-summary path.
+`work_complete` should mean the feature is done from the orchestrator's perspective. Deriving summary availability from lifecycle + summary presence avoids duplicating the same fact in a separate summary-status enum.
 
 ## Related
 

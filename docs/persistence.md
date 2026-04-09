@@ -38,6 +38,7 @@ CREATE TABLE features (
   merge_train_entered_at INTEGER,
   merge_train_entry_seq INTEGER,
   merge_train_reentry_count INTEGER NOT NULL DEFAULT 0,
+  summary TEXT,
   token_usage TEXT,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
@@ -132,14 +133,16 @@ not the primary source of current coordination truth.
 `reserved_write_paths`, `files_changed`, `suspended_files`,
 `payload_json`, and token-usage aggregates are JSON-serialized
 payloads stored in TEXT columns.
+Feature summaries are stored directly in `features.summary`
+as nullable text rather than behind a separate summary-status enum.
 The schema should evolve via explicit SQLite migrations rather
 than in-place reinterpretation of existing payloads.
 
 Use structured SQL columns for authoritative live orchestration
 state that the scheduler/TUI/filtering logic depends on directly
 (`status`, `collab_status`, `blocked_by_feature_id`,
-merge-train ordering fields, foreign keys, timestamps,
-and run-level retry fields on `agent_runs`).
+merge-train ordering fields, `summary`, foreign keys,
+timestamps, and run-level retry fields on `agent_runs`).
 Use JSON-in-TEXT only for nested per-row support data that is
 naturally array/object shaped and usually read/written as one
 value.
@@ -153,6 +156,11 @@ Baseline JSON-in-TEXT examples:
   or other run-local structured context
 - `token_usage` — JSON object for lifetime task/feature aggregates, including nested `byModel` rollups
 - `events.payload` — JSON object whose exact shape depends on the event type
+
+Summary availability is derived rather than stored as a second enum:
+- `work_phase = "summarizing"` and `summary IS NULL` → waiting for summary
+- `work_phase = "work_complete"` and `summary IS NULL` → summary intentionally skipped
+- `summary IS NOT NULL` → summary available
 
 These JSON blobs are justified when they belong to one owning
 row, are naturally nested/list-shaped,
