@@ -215,17 +215,18 @@ provider quirk into first-class columns.
   `await_approval`, etc.). Retry/backoff is run-owned,
   not task-owned.
 - `agent_runs.owner` distinguishes system-owned automatic execution from direct user passthrough (`system` vs `manual`).
-- `agent_runs.attention` surfaces side conditions like
-  `await_response`, `await_approval`, and `crashloop_backoff`
-  without overloading the main work-state enums.
+- `agent_runs.attention` is a secondary UI/reporting overlay
+  for side conditions like `crashloop_backoff`; help/approval
+  waits stay on `run_status` rather than being duplicated here.
 - `restart_count` counts actual restarted runs after a failure,
   not mere retry scheduling. A run may sit in `retry_await`
   with `restart_count = 0` until the first retry actually begins.
 - `blocked` should be treated as a derived UI/reporting state
   rather than a persisted task enum. A task appears blocked
-  when its execution run is waiting (`retry_await`,
-  `await_response`, `await_approval`) or its collaboration
-  control is paused/conflicted (`suspended`, `conflict`).
+  when its execution run is waiting (`await_response`,
+  `await_approval`, or `retry_await` with `retry_at` still in
+  the future) or its collaboration control is paused/conflicted
+  (`suspended`, `conflict`).
 
 ### Collaboration Control
 

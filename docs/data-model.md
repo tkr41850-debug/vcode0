@@ -226,11 +226,12 @@ type AgentRunStatus =
 // - tasks.status is coarse DAG/work progress only
 // - tasks.collabControl is coordination only
 // - agent_runs owns retry/help/approval/manual execution detail
-// - blocked is derived for UI/reporting, not persisted as a task enum
+// - blocked is derived for UI/reporting from run status + retry timing + collaboration state,
+//   not persisted as a task enum
 
 type RunOwner = "system" | "manual";
 
-type RunAttention = "none" | "await_response" | "await_approval" | "crashloop_backoff";
+type RunAttention = "none" | "crashloop_backoff";
 ```
 
 ### Scheduling Levels

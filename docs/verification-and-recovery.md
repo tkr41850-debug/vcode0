@@ -39,6 +39,7 @@ Baseline state rules:
 - when the scheduler actually starts the retry run: increment `restart_count` and transition to `running`
 - if the retry ceiling is exhausted: set the affected run's `run_status = "failed"`
 - if repeated transient failures indicate an unproductive crash loop, set `attention = "crashloop_backoff"` in addition to the backoff timer so the TUI can surface that state distinctly
+- `await_response` and `await_approval` remain `run_status` values for human-waiting cases; they are not duplicated in `attention`
 
 Retry state persists in SQLite so retries survive orchestrator restarts.
 

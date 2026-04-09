@@ -54,18 +54,21 @@ Milestones are shown as organizational / progress buckets. Users may queue multi
 - `conflict` — collaboration issue blocks integration
 - `merged` — branch landed and cleaned up
 
-**Run attention / ownership overlays**
+**Run state / attention / ownership overlays**
 - `retry_await` — execution run is backing off after a transient failure
 - `await_response` — paused until a human answers or resumes manually
 - `await_approval` — paused until a human approves a structured proposal
-- `crashloop_backoff` — transient retries continue, but the run is visibly churny
-- `manual` — user is attached or currently owns the run
+- `crashloop_backoff` — attention overlay for a visibly churny retry loop
+- `manual` — ownership overlay when the user is attached or currently owns the run
 
 A task should render as derived `blocked`
-when its execution run is in `retry_await`,
-`await_response`, or `await_approval`,
-or when task collaboration control is
-`suspended` / `conflict`.
+when its execution run is in `await_response`
+or `await_approval`, or in `retry_await`
+with a future `retryAt`, or when task
+collaboration control is `suspended` /
+`conflict`.
+Once a `retry_await` run's `retryAt` window expires,
+it becomes dispatchable again.
 This is a presentation overlay, not a persisted task enum.
 
 ```typescript

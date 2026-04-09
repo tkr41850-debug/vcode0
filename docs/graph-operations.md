@@ -143,9 +143,11 @@ Work whose milestone is not queued falls into the `∞` bucket,
 so it still runs when higher-priority queued buckets do not
 supply enough runnable work.
 When workers are plentiful, everything ready runs.
-Tasks whose execution run is currently `retry_await`,
-`await_response`, or `await_approval` are not dispatchable and
-should surface as derived `blocked` UI state instead.
+Tasks whose execution run is currently `await_response`
+or `await_approval` are not dispatchable and should surface as
+derived `blocked` UI state instead.
+A run in `retry_await` is not dispatchable before `retryAt`,
+but becomes eligible again once that backoff window expires.
 This is intentional state splitting: scheduler readiness stays tied
 to coarse task lifecycle plus run eligibility, while waiting/
 manual/approval details stay on the execution run rather than on
