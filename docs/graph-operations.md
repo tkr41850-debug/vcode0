@@ -65,17 +65,43 @@ interface FeatureGraph {
 
 ## Load Balancing: Critical-Path-First
 
-The scheduler normally prioritizes tasks on the longest weighted path through the DAG. This minimizes total wall-clock time by ensuring bottleneck chains start as early as possible. If users queue milestones, that becomes an ordered steering override: among ready work, earlier queued milestones sort ahead of later queued milestones, while dependency legality and in-feature task constraints still apply.
+The scheduler normally prioritizes tasks on the longest
+weighted path through the DAG.
+This minimizes total wall-clock time by ensuring bottleneck
+chains start as early as possible.
+If users queue milestones, that becomes an ordered steering
+override: among ready work, earlier queued milestones sort
+ahead of later queued milestones,
+while dependency legality and in-feature task constraints
+still apply.
 
-Reservation-only cross-feature overlap does not hard-block ready work, but it does apply a heavy scheduling penalty. In practice this means work whose reserved write paths overlap with another active feature should run only when higher-priority non-overlapping ready work is unavailable. Hard runtime overlap detected by the write prehook or actual git state is handled separately by the cross-feature overlap protocol.
+Reservation-only cross-feature overlap does not hard-block
+ready work, but it does apply a heavy scheduling penalty.
+In practice this means work whose reserved write paths overlap
+with another active feature should run only when higher-priority
+non-overlapping ready work is unavailable.
+Hard runtime overlap detected by the write prehook or actual git
+state is handled separately by the cross-feature overlap protocol.
 
 ```typescript
-function prioritizeReadyTasks(graph: FeatureGraph): Task[] {
-  const ready = graph.readyTasks();
+function prioritizeReadyTasks(
+  graph: FeatureGraph,
+  runs: AgentRunStore,
+  now: number,
+): Task[] {
+  const ready = graph.readyTasks().filter((task) => {
+    const run = runs.getExecutionRun(task.id);
+    return (
+      run === undefined ||
+      run.runStatus === "ready" ||
+      (run.runStatus === "retry_await" &&
+        run.retryAt !== undefined &&
+        run.retryAt <= now)
+    );
+  });
   const criticalWeights = computeCriticalPathWeights(graph);
   const queuedMilestones = graph.queuedMilestones();
   const queuePos = new Map(queuedMilestones.map((m, i) => [m.id, i]));
-  const now = Date.now();
 
   return ready.sort((a, b) => {
     const aQueuePos = queuePos.get(milestoneIdOf(graph, a)) ?? Infinity;
@@ -85,8 +111,16 @@ function prioritizeReadyTasks(graph: FeatureGraph): Task[] {
     const weightDiff = criticalWeights.get(b.id)! - criticalWeights.get(a.id)!;
     if (weightDiff !== 0) return weightDiff;
 
-    const aRetryEligible = a.status === "retry_await" && a.retryAt !== undefined && a.retryAt <= now;
-    const bRetryEligible = b.status === "retry_await" && b.retryAt !== undefined && b.retryAt <= now;
+    const aRun = runs.getExecutionRun(a.id);
+    const bRun = runs.getExecutionRun(b.id);
+    const aRetryEligible =
+      aRun?.runStatus === "retry_await" &&
+      aRun.retryAt !== undefined &&
+      aRun.retryAt <= now;
+    const bRetryEligible =
+      bRun?.runStatus === "retry_await" &&
+      bRun.retryAt !== undefined &&
+      bRun.retryAt <= now;
     if (aRetryEligible !== bRetryEligible) return aRetryEligible ? -1 : 1;
 
     return readySince(a) - readySince(b); // stable fallback
@@ -100,11 +134,38 @@ function computeCriticalPathWeights(graph: FeatureGraph): Map<string, number> {
 }
 ```
 
-When workers are scarce, earlier queued milestones win first, then critical-path weight inside each queue-position bucket. If those dimensions tie, retry-eligible `retry_await` tasks whose `retry_at` has passed sort ahead of fresh ready work before the final age/stable fallback. Work whose milestone is not queued falls into the `∞` bucket, so it still runs when higher-priority queued buckets do not supply enough runnable work. When workers are plentiful, everything ready runs.
+When workers are scarce, earlier queued milestones win first,
+then critical-path weight inside each queue-position bucket.
+If those dimensions tie, execution runs that are re-entering
+readiness after a backoff window has passed sort ahead of fresh
+ready work before the final age/stable fallback.
+Work whose milestone is not queued falls into the `∞` bucket,
+so it still runs when higher-priority queued buckets do not
+supply enough runnable work.
+When workers are plentiful, everything ready runs.
+Tasks whose execution run is currently `retry_await`,
+`await_response`, or `await_approval` are not dispatchable and
+should surface as derived `blocked` UI state instead.
+This is intentional state splitting: scheduler readiness stays tied
+to coarse task lifecycle plus run eligibility, while waiting/
+manual/approval details stay on the execution run rather than on
+`tasks.status`.
 
-Planner note: this works best when prerequisite-shaping tasks (schemas, interfaces, shared contracts, generated sources of truth) are placed near the front of the chain and expressed as explicit dependencies. Front-loading dependency-establishing work makes the critical path more faithful to real downstream constraints.
+Planner note: this works best when prerequisite-shaping tasks
+(schemas, interfaces, shared contracts,
+generated sources of truth) are placed near the front of the
+chain and expressed as explicit dependencies.
+Front-loading dependency-establishing work makes the critical
+path more faithful to real downstream constraints.
 
-Where a contract is a real upstream dependency for multiple later features, that front-loading may justify splitting the plan into a dedicated interface feature plus dependent implementation features. Where the contract is only internal scaffolding for one feature, keep it as early tasks inside the same feature rather than paying extra merge-train and verification overhead for a premature feature split.
+Where a contract is a real upstream dependency for multiple
+later features, that front-loading may justify splitting the
+plan into a dedicated interface feature plus dependent
+implementation features.
+Where the contract is only internal scaffolding for one feature,
+keep it as early tasks inside the same feature rather than
+paying extra merge-train and verification overhead for a
+premature feature split.
 
 ## Collaboration Control: Merge Train
 
@@ -124,18 +185,39 @@ interface IntegrationQueueEntry {
 
 Queue rules:
 1. Only features whose feature deps are already merged to `main` may integrate.
-2. User-queued milestones steer scheduler selection before feature work reaches the merge train; they do not bypass dependency legality, and multiple queued milestones are compared by queue position.
-3. Once features enter the integration queue, ordering is serialized and based on dependency legality plus queue policy; milestone steering does not automatically define merge ordering.
-4. Baseline manual merge-train steering is intentionally limited to a simple override bucket: explicitly ordered queued features sort first by `manualPosition`, and the remaining queued features use automatic priority (`reentryCount` desc, then current queue entry order via `enteredAt` / `entrySeq`). Fully arbitrary persistent manual ordering is deferred as a feature candidate because it adds persistence/update complexity. See [Feature Candidate: Arbitrary Merge-Train Manual Ordering](./feature-candidates/arbitrary-merge-train-manual-ordering.md).
-5. The queue head rebases onto the latest `main`, runs merge-train verification, and either merges or is removed from the queue for repair work on the same feature branch.
-6. Cross-feature conflicts are surfaced here, not by task-level file resets. Reservation overlap only penalizes scheduling; runtime overlap uses the feature-pair coordination protocol described in [file-lock-conflict-resolution.md](./file-lock-conflict-resolution.md).
+2. User-queued milestones steer scheduler selection before
+   feature work reaches the merge train; they do not bypass
+   dependency legality, and multiple queued milestones are
+   compared by queue position.
+3. Once features enter the integration queue, ordering is
+   serialized and based on dependency legality plus queue policy;
+   milestone steering does not automatically define merge
+   ordering.
+4. Baseline manual merge-train steering is intentionally limited
+   to a simple override bucket: explicitly ordered queued features
+   sort first by `manualPosition`, and the remaining queued features
+   use automatic priority (`reentryCount` desc, then current queue
+   entry order via `enteredAt` / `entrySeq`). Fully arbitrary
+   persistent manual ordering is deferred as a feature candidate
+   because it adds persistence/update complexity. See
+   [Feature Candidate: Arbitrary Merge-Train Manual Ordering](./feature-candidates/arbitrary-merge-train-manual-ordering.md).
+5. The queue head rebases onto the latest `main`,
+   runs merge-train verification, and either merges or is
+   removed from the queue for repair work on the same
+   feature branch.
+6. Cross-feature conflicts are surfaced here,
+   not by task-level file resets.
+   Reservation overlap only penalizes scheduling;
+   runtime overlap uses the feature-pair coordination protocol
+   described in [file-lock-conflict-resolution.md](./file-lock-conflict-resolution.md).
 
 ## Scheduler Loop
 
 ```typescript
 async function schedulerLoop(graph: FeatureGraph, pool: WorkerPool, store: Store) {
   while (!graph.isComplete()) {
-    const ready = prioritizeReadyTasks(graph);
+    const now = Date.now();
+    const ready = prioritizeReadyTasks(graph, store, now);
     const idle = pool.idleWorkers();
 
     const toDispatch = ready.slice(0, idle.length);
@@ -144,21 +226,32 @@ async function schedulerLoop(graph: FeatureGraph, pool: WorkerPool, store: Store
     for (let i = 0; i < toDispatch.length; i++) {
       const task = toDispatch[i];
       const worker = idle[i];
+      const run = store.getOrCreateExecutionRun(task.id);
       graph.markRunning(task.id);
       store.updateTask(task.id, { status: "running", workerId: worker.id });
+      store.updateAgentRun(run.id, { runStatus: "running", owner: "system" });
 
       dispatched.push(
         worker.run(task, buildWorkerContext(graph, task)).then(
           (result) => {
             graph.markDone(task.id, result);
             store.updateTask(task.id, { status: "done", result });
+            store.updateAgentRun(run.id, { runStatus: "completed" });
             propagateFeatureStatus(graph, task.featureId, store);
           },
           (err) => {
-            graph.markFailed(task.id, err);
-            store.updateTask(task.id, { status: "failed", error: err.message });
-            // Orchestrator schedules retry via retry.ts
-            // or marks the task stuck and the feature replanning
+            if (isTransient(err)) {
+              store.updateTask(task.id, { status: "ready", workerId: null });
+              store.updateAgentRun(run.id, {
+                runStatus: "retry_await",
+                retryAt: nextRetryAt(now, run.restartCount, retryPolicy),
+              });
+            } else {
+              graph.markFailed(task.id, err);
+              store.updateTask(task.id, { status: "failed", error: err.message });
+              store.updateAgentRun(run.id, { runStatus: "failed" });
+              // Orchestrator may instead mark the task stuck and move the feature into replanning
+            }
           }
         )
       );

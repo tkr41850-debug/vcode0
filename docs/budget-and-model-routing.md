@@ -85,7 +85,7 @@ A single config knob that coordinates model selection, context compression, and 
 
 | Profile | Models | Context | Phases | Savings |
 |---|---|---|---|---|
-| **budget** | Sonnet/Haiku | minimal | skip `discussing` + `researching` + `summarizing` | 40-60% |
+| **budget** | Sonnet/Haiku | minimal | skip `discussing` + `researching`; after merge, record `summaryStatus = "skipped_summary"` instead of running `summarizing` | 40-60% |
 | **balanced** (default) | user default | standard | skip `discussing` + `researching` | ~20% |
 | **quality** | user default | full | all phases run | 0% |
 

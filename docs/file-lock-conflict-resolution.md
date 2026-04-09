@@ -103,25 +103,21 @@ Cross-feature overlap is handled more conservatively than same-feature file lock
 ### Runtime Coordination Algorithm
 
 1. Detect an overlap incident between two features using normalized project-root-relative file paths.
-2. Choose **primary** and **secondary** once per feature pair, not per file, to avoid split-brain ownership. The decision is derived from the existing work-control and collaboration-control axes rather than from a third persisted state machine. Ranking order:
-   a. explicit dependency predecessor wins
-   b. higher derived merge-proximity tuple wins: compare `collabRank(feature.collabControl)` first, then `workRank(feature.workControl)`
-   c. older feature request / branch-open time wins
-   d. feature blocking more downstream dependents wins
-   e. larger changed-line count wins
-   f. lexical feature id is the final tie-breaker
-3. Use the baseline derived ranks below:
-   - `collabRank`: `integrating=3`, `merge_queued=2`, `branch_open=1`, `none=0`, `conflict=-1`
-   - `workRank`: `awaiting_merge=5`, `verifying=4`, `feature_ci=3`, `executing_repair=2`, `executing=1`, `planning|researching|discussing=0`, `replanning=-1`, `summarizing|work_complete=-1`
-4. Pause only the secondary feature's tasks that touch the overlapped paths.
-5. Persist current blocked state on each paused secondary task: `collab_status = "suspended"`, `suspend_reason = "cross_feature_overlap"`, `suspended_files = [...]`, and `blocked_by_feature_id = <primary feature id>`.
-6. When a paused task exits execute mode, release its active path locks; reservations remain as planning metadata.
-7. Let the primary feature continue.
-8. If the secondary feature remains blocked on the primary for more than 8 hours, raise a warning.
-9. After the primary feature merges into `main`, rebase the secondary feature branch onto the updated `main`.
-10. If that rebase succeeds, notify the paused secondary tasks, have them rebase their task worktrees onto the updated feature branch, clear `blocked_by_feature_id`, reacquire active path locks lazily on future writes, and resume.
-11. If the feature-branch rebase fails, create an integration repair task on the secondary feature branch and keep affected tasks paused until it lands.
-12. If `ort` merge and the configured verification checks pass, continue normally; otherwise escalate to replanning.
+2. Choose **primary** and **secondary** once per feature pair, not per file, to avoid split-brain ownership. The decision is derived from the existing work-control and collaboration-control axes rather than from a third persisted state machine. See [Cross-Feature Overlap Priority](./cross-feature-overlap-priority.md) for the baseline ranking policy.
+3. Pause only the secondary feature's tasks that touch the overlapped paths.
+4. Persist the current suspension fields on each paused
+   secondary task: `collab_status = "suspended"`,
+   `suspend_reason = "cross_feature_overlap"`,
+   `suspended_files = [...]`, and
+   `blocked_by_feature_id = <primary feature id>`.
+   The user-facing `blocked` state remains derived.
+5. When a paused task exits execute mode, release its active path locks; reservations remain as planning metadata.
+6. Let the primary feature continue.
+7. If the secondary feature remains blocked on the primary for more than 8 hours, raise a warning.
+8. After the primary feature merges into `main`, rebase the secondary feature branch onto the updated `main`.
+9. If that rebase succeeds, notify the paused secondary tasks, have them rebase their task worktrees onto the updated feature branch, clear `blocked_by_feature_id`, reacquire active path locks lazily on future writes, and resume.
+10. If the feature-branch rebase fails, create an integration repair task on the secondary feature branch and keep affected tasks paused until it lands.
+11. If `ort` merge and the configured verification checks pass, continue normally; otherwise escalate to replanning.
 
 Glob reservations remain available as an escape hatch, but they are intentionally heavy-handed and should be used sparingly.
 

@@ -4,11 +4,12 @@ See [ARCHITECTURE.md](../ARCHITECTURE.md) for the high-level architecture index.
 
 ## Work Control vs Collaboration Control
 
-This document uses two state axes:
+This document uses two main state axes plus a run/session overlay:
 - **Work control** — planning and execution progress (`discussing`, `researching`, `planning`, `executing`, `feature_ci`, `verifying`, `awaiting_merge`, `summarizing`, `executing_repair`, `replanning`, `work_complete`)
 - **Collaboration control** — branch / merge / suspension / conflict coordination (`none`, `branch_open`, `merge_queued`, `integrating`, `merged`, task-level `suspended`, feature/task `conflict`)
+- **Run/session state** — retry windows, help/approval waits, and manual ownership on `agent_runs`
 
-A task becoming **stuck** is a work-control problem. A task or feature entering **conflict** is a collaboration-control problem. Merge progress stays in collaboration control; work control waits in `awaiting_merge` until collaboration control reaches `merged`.
+A task becoming **stuck** is a work-control problem. A task or feature entering **conflict** is a collaboration-control problem. Merge progress stays in collaboration control; work control waits in `awaiting_merge` until collaboration control reaches `merged`. Retry/backoff, help waits, approval waits, and manual takeover do not add new task enums; they live on the execution run and surface as derived blocked/reporting state when relevant.
 
 ## Retry: Exponential Backoff up to 1 Week
 
@@ -164,7 +165,7 @@ Task completion does not land work on `main` directly. Instead:
 6. The merge train serializes feature-branch integration into `main`.
 7. The queue head rebases onto the latest `main` and runs the configured `mergeTrain.checks` command list.
 8. If integration rebases and merge-train checks pass, collaboration control becomes `merged`.
-9. Once collaboration control reaches `merged`, the feature enters blocking `summarizing` and only then reaches `work_complete`.
+9. Once collaboration control reaches `merged`, the feature normally enters blocking `summarizing` and only then reaches `work_complete`; in budget mode it may instead record `summaryStatus = "skipped_summary"` and move directly to `work_complete`.
 10. If merge-train verification fails, remove the feature from the merge train, set collaboration control to `conflict`, and have the orchestrator add repair work on the same feature branch.
 11. Once that repair task is added, feature work control moves to `executing_repair` and later returns through `feature_ci` and `verifying` again.
 12. Only if that path passes again may the feature return to `awaiting_merge`, clear `conflict`, and re-enter `merge_queued` under the normal automatic queue policy (or explicit manual override bucket, if one is set).

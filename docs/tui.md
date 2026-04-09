@@ -41,7 +41,7 @@ Milestones are shown as organizational / progress buckets. Users may queue multi
 - `✓` done
 - `⟳` running / executing (`executing`, `feature_ci`, `verifying`, `summarizing`, `executing_repair`)
 - `·` pending / ready (`pending`, `ready`, `awaiting_merge`)
-- `↺` retry_await / waiting for retry window
+- `⏸` blocked (derived UI state: waiting on retry/help/approval or collaboration pause)
 - `!` stuck / replanning needed
 - `✗` failed (no more progress)
 - `⊘` cancelled
@@ -55,10 +55,18 @@ Milestones are shown as organizational / progress buckets. Users may queue multi
 - `merged` — branch landed and cleaned up
 
 **Run attention / ownership overlays**
+- `retry_await` — execution run is backing off after a transient failure
 - `await_response` — paused until a human answers or resumes manually
 - `await_approval` — paused until a human approves a structured proposal
 - `crashloop_backoff` — transient retries continue, but the run is visibly churny
 - `manual` — user is attached or currently owns the run
+
+A task should render as derived `blocked`
+when its execution run is in `retry_await`,
+`await_response`, or `await_approval`,
+or when task collaboration control is
+`suspended` / `conflict`.
+This is a presentation overlay, not a persisted task enum.
 
 ```typescript
 class DagView implements Component {

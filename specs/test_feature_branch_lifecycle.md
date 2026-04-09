@@ -45,5 +45,5 @@ Capture the expected lifecycle of a feature branch and its task worktrees.
 - And the feature passes merge-train verification
 - When the feature lands on `main`
 - Then feature collaboration control becomes `merged`
-- And the feature later runs blocking `summarizing` before reaching `work_complete`
+- And the feature later either runs blocking `summarizing` or records `summaryStatus = "skipped_summary"` before reaching `work_complete`
 - And the feature branch is deleted
