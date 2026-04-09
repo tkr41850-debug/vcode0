@@ -33,41 +33,51 @@ Overall feature `done` is derived only after merge.
 ```
 gvc0/
 ├── src/
-│   ├── graph/
-│   │   ├── types.ts              -- Milestone, Feature, Task, work/collaboration control types
-│   │   ├── feature-graph.ts      -- FeatureGraph: DAG + all mutations + validation
-│   │   └── critical-path.ts      -- critical path weight computation
-│   ├── scheduler/
-│   │   ├── scheduler.ts          -- main loop: frontier → dispatch → collect
-│   │   ├── worker-pool.ts        -- child process lifecycle, max concurrency
-│   │   ├── retry.ts              -- exponential backoff retry scheduling
-│   │   ├── feature-branches.ts   -- feature branch creation + task worktree branching
-│   │   ├── merge-train.ts        -- serialized integration queue for feature branches → main
-│   │   ├── context.ts            -- build WorkerContext per task
-│   │   │                           (injects CODEBASE.md, KNOWLEDGE.md,
-│   │   │                           DECISIONS.md; regenerates
-│   │   │                           CODEBASE.md on demand)
-│   │   └── model-router.ts       -- dynamic model routing (tier → model selection)
-│   ├── worker/
-│   │   ├── entry.ts              -- child process entry point
-│   │   ├── worker.ts             -- pi-sdk Agent wrapper
-│   │   ├── submit.ts             -- submit tool + verification runner
-│   │   ├── harness.ts            -- SessionHarness interface + PiSdkHarness (default)
-│   │   └── tools/                -- standard tools + append_knowledge + record_decision
-│   ├── ipc/
-│   │   ├── types.ts              -- WorkerMessage, OrchestratorMessage
-│   │   ├── transport.ts          -- IpcTransport interface
-│   │   └── ndjson.ts             -- NdjsonStdioTransport (default)
-│   ├── tui/
-│   │   ├── dag-view.ts           -- DagView component
-│   │   ├── status-bar.ts         -- StatusBar component
-│   │   └── agent-monitor.ts      -- AgentMonitorOverlay: live worker output + steer
-│   ├── planner/
-│   │   └── planner.ts            -- pi-sdk Agent with graph-mutation tools
+│   ├── main.ts                   -- app entrypoint / CLI bootstrap
+│   ├── config.ts                 -- load .gvc0/config.json
+│   ├── compose.ts                -- wire concrete packages together
+│   └── app/                      -- top-level app lifecycle / startup
+├── packages/
+│   ├── core/
+│   │   ├── graph/                -- Feature/Task/Milestone model + validation
+│   │   ├── state/                -- work/collab/run state types + derivations
+│   │   ├── scheduling/           -- pure readiness / priority / critical-path logic
+│   │   ├── warnings/             -- warning evaluation rules
+│   │   └── types/                -- shared DTOs and contracts
+│   ├── orchestrator/
+│   │   ├── scheduler/            -- main loop / dispatch / collect
+│   │   ├── features/             -- feature lifecycle coordination
+│   │   ├── conflicts/            -- overlap protocol + steering coordination
+│   │   ├── summaries/            -- summary-status transitions
+│   │   ├── ports/                -- Store, Git, Runtime, Agent, UI interfaces
+│   │   └── services/             -- orchestration helpers / use-case services
+│   ├── agents/
+│   │   ├── planner.ts            -- planner agent
+│   │   ├── replanner.ts          -- replanner agent
+│   │   ├── prompts/              -- agent prompts and templates
+│   │   └── tools/                -- graph mutation tools
+│   ├── runtime/
+│   │   ├── worker-pool.ts        -- child process lifecycle
+│   │   ├── worker/               -- worker entry / submit / runtime loop
+│   │   ├── ipc/                  -- stdio NDJSON transport
+│   │   ├── harness/              -- SessionHarness + PiSdkHarness
+│   │   ├── context/              -- WorkerContext assembly
+│   │   └── routing/              -- model routing
+│   ├── git/
+│   │   ├── feature-branches.ts   -- feature branch creation
+│   │   ├── worktrees.ts          -- task worktree lifecycle
+│   │   ├── merge-train.ts        -- serialized integration queue
+│   │   ├── overlap-scan.ts       -- runtime overlap detection helpers
+│   │   └── rebases.ts            -- rebase/merge helpers
 │   ├── persistence/
-│   │   ├── store.ts              -- Store interface
-│   │   └── sqlite.ts             -- SQLite implementation
-│   └── cli.ts                    -- entry point
+│   │   ├── sqlite.ts             -- better-sqlite3 implementation
+│   │   ├── migrations/           -- schema migrations
+│   │   └── queries/              -- persistence query helpers
+│   └── tui/
+│       ├── app.ts                -- TUI app bootstrap
+│       ├── view-model/           -- derived display state
+│       ├── components/           -- DagView, StatusBar, AgentMonitor, ...
+│       └── commands/             -- queue milestone / retry / replan / etc.
 ├── docs/
 │   ├── *.md                      -- baseline architecture reference by topic
 │   ├── concerns/                 -- implementation risks or watch-items to revisit later
