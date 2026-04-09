@@ -4,7 +4,7 @@ See [ARCHITECTURE.md](../ARCHITECTURE.md) for the high-level architecture index.
 
 ## Worker Model: Process-per-Task
 
-Each task spawns a dedicated child process. Workers are pi-sdk `Agent` instances running in isolated git worktrees that branch from the owning feature branch. Each worker receives the task's reserved write paths as prompt context. Reservations are advisory metadata; active path locks are acquired lazily on the first write prehook for a path and released when the task pauses or exits, so only files being actively edited hold runtime ownership.
+Each task spawns a dedicated child process using the Node.js process APIs; workers are wrapped behind the `SessionHarness` interface, whose baseline implementation is `PiSdkHarness`. Workers are pi-sdk `Agent` instances running in isolated git worktrees that branch from the owning feature branch. Each worker receives the task's reserved write paths as prompt context. Reservations are advisory metadata; active path locks are acquired lazily on the first write prehook for a path and released when the task pauses or exits, so only files being actively edited hold runtime ownership.
 
 ```text
 main
@@ -138,7 +138,7 @@ On startup, gvc0 scans for orphaned tasks (status `running` with no live worker 
 
 ### Session Harness Abstraction
 
-Workers are wrapped in a harness that abstracts the underlying session provider. The baseline uses `PiSdkHarness`, which runs pi-sdk `Agent` instances directly — full programmatic control over start, resume, steer, and tool dispatch with no subprocess overhead.
+Workers are wrapped in a harness that abstracts the underlying session provider. The baseline uses `PiSdkHarness`, which runs pi-sdk `Agent` instances directly and is the contract the rest of the orchestrator should target so future backends (for example `ClaudeCodeHarness`) can slot in without changing scheduler logic. The orchestrator should depend only on this harness interface plus pi-sdk's tool/model contracts, not on provider-specific session details.
 
 ```typescript
 interface SessionHarness {

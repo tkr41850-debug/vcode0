@@ -84,9 +84,12 @@ interface Feature {
   status: UnitStatus;              // derived aggregate reporting status
   workControl: FeatureWorkControl;
   collabControl: FeatureCollabControl;
-  featureBranch: string;           // e.g. gvc0/feature-auth
-  mergeTrainPosition?: number;
-  tokenUsage?: TokenUsageAggregate; // lifetime aggregate across all task/model calls in the feature
+  featureBranch: string;              // e.g. gvc0/feature-auth
+  mergeTrainManualPosition?: number;  // manual override bucket position when explicitly ordered
+  mergeTrainEnteredAt?: number;
+  mergeTrainEntrySeq?: number;        // stable ordering tie-breaker for current queue entry
+  mergeTrainReentryCount?: number;
+  tokenUsage?: TokenUsageAggregate;   // lifetime aggregate across all task/model calls in the feature
 }
 
 interface Task {

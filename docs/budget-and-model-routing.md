@@ -4,7 +4,7 @@ See [ARCHITECTURE.md](../ARCHITECTURE.md) for the high-level architecture index.
 
 ## Budget
 
-Configurable per-task and global USD ceilings. Workers report token usage via IPC after each LLM call; the orchestrator normalizes provider-specific usage into a shared shape, accumulates lifetime totals per task and feature, and enforces limits from real USD spend.
+Configurable per-task and global USD ceilings. Workers report token usage via IPC after each LLM call; the orchestrator normalizes provider-specific usage into a shared shape, accumulates lifetime totals per task and feature, and enforces limits from real USD spend. Production provider calls should stay behind pi-sdk's model/stream interface, and gvc0 should consume pi-sdk's cost/usage reporting rather than inventing a second accounting path.
 
 Normalized usage fields:
 - `provider`, `model`

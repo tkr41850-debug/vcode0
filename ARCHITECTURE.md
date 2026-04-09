@@ -57,8 +57,8 @@ gvc0/
 
 - [Data Model](docs/data-model.md) — hierarchy, feature/task dependency constraints, and the work control vs collaboration control state model.
 - [Graph Operations](docs/graph-operations.md) — DAG mutations, validation rules, milestone steering overrides, critical-path scheduling, and merge-train coordination.
-- [Worker Model](docs/worker-model.md) — process-per-task execution, feature branches, task worktrees, IPC, and crash recovery.
-- [Persistence](docs/persistence.md) — SQLite schema and persisted work/collaboration control state.
+- [Worker Model](docs/worker-model.md) — process-per-task execution, pi-sdk session harnessing, feature branches, task worktrees, IPC, and crash recovery.
+- [Persistence](docs/persistence.md) — `better-sqlite3` schema and persisted work/collaboration control state.
 - [Verification and Recovery](docs/verification-and-recovery.md) — retries, configurable task/feature/merge-train verification, stuck detection, replanning, and integration queue behavior.
 - [TUI](docs/tui.md) — progress view, entry points, and how work control / collaboration control are displayed.
 - [Budget and Model Routing](docs/budget-and-model-routing.md) — budget enforcement, routing tiers, and token profiles.

@@ -4,7 +4,7 @@ See [ARCHITECTURE.md](../ARCHITECTURE.md) for the high-level architecture index.
 
 ## Persistence: SQLite
 
-Single database file at `.gvc0/state.db`. All DAG state, work control, and collaboration control state is persisted atomically.
+Single database file at `.gvc0/state.db`. The baseline uses `better-sqlite3` for synchronous local persistence from the main orchestrator process. All DAG state, work control, and collaboration control state is persisted atomically.
 
 ### Schema
 
@@ -29,8 +29,10 @@ CREATE TABLE features (
   work_phase TEXT NOT NULL DEFAULT 'discussing',
   collab_status TEXT NOT NULL DEFAULT 'none',
   feature_branch TEXT NOT NULL,
-  merge_train_position INTEGER,
+  merge_train_manual_position INTEGER,
   merge_train_entered_at INTEGER,
+  merge_train_entry_seq INTEGER,
+  merge_train_reentry_count INTEGER NOT NULL DEFAULT 0,
   token_usage TEXT,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
@@ -45,6 +47,7 @@ CREATE TABLE tasks (
   collab_status TEXT NOT NULL DEFAULT 'none',
   worker_id TEXT,
   worktree_branch TEXT,
+  reserved_write_paths TEXT,
   result_summary TEXT,
   files_changed TEXT,
   token_usage TEXT,
@@ -75,7 +78,9 @@ CREATE TABLE events (
 );
 ```
 
-The `events` table is an append-only audit log for debugging, progress reporting, warnings, and per-call cost audit trails. `milestones.display_order` stores UI ordering only, and `milestones.steering_queue_position` stores the optional ordered steering queue; `NULL` means the milestone is not queued and therefore sorts into the effective `∞` bucket. For merge-train ordering, the baseline should prefer simple queue metadata such as nullable manual-position fields and explicit entry/re-entry counters before introducing more complex structures. A linked-list representation in SQLite is a possible future implementation sketch for fully arbitrary persistent queue ordering, but it is premature for the baseline. Warning events include budget pressure, slow verification checks, long feature blocking, and feature-churn signals.
+The `events` table is an append-only audit log for debugging, progress reporting, warnings, and per-call cost audit trails. `milestones.display_order` stores UI ordering only, and `milestones.steering_queue_position` stores the optional ordered steering queue; `NULL` means the milestone is not queued and therefore sorts into the effective `∞` bucket. For merge-train ordering, the baseline uses nullable `merge_train_manual_position` for the manual override block, plus `merge_train_entered_at`, `merge_train_entry_seq`, and `merge_train_reentry_count` for automatic ordering among the remaining queued features. A linked-list representation in SQLite is a possible future implementation sketch for fully arbitrary persistent queue ordering, but it is premature for the baseline. Warning events include budget pressure, slow verification checks, long feature blocking, and feature-churn signals.
+
+`reserved_write_paths`, `files_changed`, `suspended_files`, and token-usage aggregates are JSON-serialized payloads stored in TEXT columns. The schema should evolve via explicit SQLite migrations rather than in-place reinterpretation of existing payloads.
 
 `tasks.token_usage` and `features.token_usage` should store normalized lifetime aggregates rather than only the latest call. These totals include retries, failed attempts, and resumed sessions because the budget model tracks real spend, not just successful outcomes. The normalized aggregate should include shared fields (`inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheWriteTokens`, optional `reasoningTokens`, optional `audio*`, `totalTokens`, `usd`, `llmCalls`) plus a `byModel` breakdown keyed by provider+model. Provider-specific extras should remain available via raw event payloads or a passthrough field instead of forcing every provider quirk into first-class columns.
 
@@ -91,6 +96,7 @@ The `events` table is an append-only audit log for debugging, progress reporting
 - `features.collab_status` stores branch lifecycle and merge-train state (`none`, `branch_open`, `merge_queued`, `integrating`, `merged`, `conflict`).
 - `tasks.collab_status` stores task coordination state (`none`, `branch_open`, `suspended`, `merged`, `conflict`).
 - `suspended_at`, `suspend_reason`, and `suspended_files` hold the raw details behind same-feature file-lock suspension.
+- Active runtime locks are intentionally memory-only and should be reconstructed from currently running tasks after restart rather than persisted as authoritative DB rows. The database stores reservation metadata and suspension/conflict outcomes, not a stale-prone live lock table.
 
 ### Usage Accounting
 
@@ -105,4 +111,5 @@ The `events` table is an append-only audit log for debugging, progress reporting
 - Queued milestones are a scheduler steering override only; they are not dependency edges and do not create readiness by themselves.
 - Feature dependencies are `feature → feature` only.
 - Task dependencies are `task → task` only and must remain within the same feature.
+- `reserved_write_paths` must contain normalized project-root-relative paths (exact paths preferred; globs/directories only as an escape hatch).
 - `feature_branch` is the authoritative git integration branch for a feature; task worktrees always derive from it.

@@ -8,7 +8,7 @@ The file-lock system is primarily a **same-feature collaboration-control** mecha
 
 ## Same-Feature File-Lock Resolution
 
-Workers run in isolated git worktrees and may edit the same files inside a feature. Before runtime overlap detection kicks in, the planner reserves expected edit paths per task and the write-tool prehook checks attempted write paths against those reservations. The orchestrator then periodically scans active worktrees for actual overlapping writes within each feature branch.
+Workers run in isolated git worktrees and may edit the same files inside a feature. Git operations in this baseline should use `simple-git`, while worker pause/resume continues to use normal Node.js process signals for local child processes. Before runtime overlap detection kicks in, the planner reserves expected edit paths per task and the write-tool prehook checks attempted write paths against those reservations. The orchestrator then periodically scans active worktrees for actual overlapping writes within each feature branch.
 
 ### Mechanism
 

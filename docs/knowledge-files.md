@@ -25,13 +25,15 @@ Append-only file at `.gvc0/KNOWLEDGE.md`. Workers read it at task start (injecte
 const appendKnowledgeTool: AgentTool = {
   name: "append_knowledge",
   description: "Record a project rule, pattern, or lesson for future tasks.",
-  schema: Type.Object({ entry: Type.String() }),
+  schema: Type.Object({ entry: Type.String() }), // pi-sdk tool schema shape
   execute: async (_, { entry }) => {
     await fs.appendFile(".gvc0/KNOWLEDGE.md", `\n- ${entry}\n`);
     return { content: [{ type: "text", text: "Recorded." }], details: {} };
   },
 };
 ```
+
+The `Type.Object(...)` / `Type.String(...)` examples in this doc intentionally match the schema style expected by pi-sdk's agent tool definitions; gvc0 should follow that same harness/tool-contract style for first-party tools.
 
 ## Decisions Register
 
