@@ -97,7 +97,7 @@ The main DAG tree should stay progress-focused rather than showing token totals 
 | `x` | Cancel feature (with cascade prompt) |
 | `e` | Edit feature (name, description, tasks) |
 | `d` | Show feature dependency detail |
-| `c` | Regenerate codebase map (`.gvc0/CODEBASE.md`) |
+| `c` | Force-regenerate codebase map (`.gvc0/CODEBASE.md`) from the current structural input bundle |
 | `q` | Quit |
 
 ## Agent Monitor View
