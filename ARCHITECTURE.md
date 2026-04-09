@@ -30,14 +30,20 @@ Overall feature `done` is derived only after merge.
 
 ## Component Map
 
+Use a single root TypeScript package rather than workspace-style
+internal packages. Keep architectural boundaries under `src/`
+and use TS path aliases to make those boundaries explicit
+without adding package-manager/workspace overhead.
+The directories shown below are architectural modules inside the
+same root package, not separately versioned internal packages.
+
 ```
 gvc0/
 ├── src/
 │   ├── main.ts                   -- app entrypoint / CLI bootstrap
 │   ├── config.ts                 -- load .gvc0/config.json
-│   ├── compose.ts                -- wire concrete packages together
-│   └── app/                      -- top-level app lifecycle / startup
-├── packages/
+│   ├── compose.ts                -- wire concrete subsystems together
+│   ├── app/                      -- top-level app lifecycle / startup
 │   ├── core/
 │   │   ├── graph/                -- Feature/Task/Milestone model + validation
 │   │   ├── state/                -- work/collab/run state types + derivations
