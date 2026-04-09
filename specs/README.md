@@ -15,7 +15,10 @@ Use this page as the canonical scenario index. For testing strategy and faux-pro
 ## Scheduler / Graph
 
 - [test_graph_invariants](./test_graph_invariants.md) — DAG mutation rules reject cycles, cross-feature task edges, dangling refs, and milestone dependency misuse.
+- [test_graph_contracts](./test_graph_contracts.md) — `FeatureGraph` remains the authoritative mutable DAG surface, derived read model, and queue view.
 - [test_scheduler_frontier_priority](./test_scheduler_frontier_priority.md) — ready-frontier recomputation, milestone steering, critical-path ordering, and reservation-overlap penalties.
+- [test_package_boundary_contracts](./test_package_boundary_contracts.md) — package ownership and dependency-direction rules across app, core, orchestrator, agents, runtime, git, persistence, and TUI.
+- [test_orchestrator_port_contracts](./test_orchestrator_port_contracts.md) — store/git/runtime/agent/UI port boundaries keep side effects behind orchestration seams.
 
 ## Conflict / Overlap
 
@@ -27,6 +30,7 @@ Use this page as the canonical scenario index. For testing strategy and faux-pro
 ## Runtime / Recovery / Waits
 
 - [test_agent_run_wait_states](./test_agent_run_wait_states.md) — run-owned retry/help/approval waits control dispatchability, derived blocked state, and scheduler release behavior.
+- [test_runtime_session_contracts](./test_runtime_session_contracts.md) — session harness, IPC transport, worker messages, and context assembly define the local runtime contract.
 - [test_stuck_detection_replan](./test_stuck_detection_replan.md) — stuck work supports manual takeover, help waits, release-to-scheduler rules, and approval-gated replanning.
 - [test_crash_recovery](./test_crash_recovery.md) — restart preserves feature-branch authority, run wait states, and authoritative session recovery behavior.
 
