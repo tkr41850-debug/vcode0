@@ -127,7 +127,7 @@ High-level test scenarios live in `specs/test_*.md` as markdown specs before con
 - **Use conventional commits**: Follow the conventional commit format (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, etc.)
 - **Commit after each work item**: Make incremental commits as you complete discrete pieces of work
 - **Format often**: Before running verify, run `npm run format` to fix formatting issues.
-- **Verify before committing**: Always run `npm run verify` and ensure it passes before creating a commit
+- **Verify before committing**: Always run `npm run check` and ensure it passes before creating a commit
 
 ## Development Notes
 
