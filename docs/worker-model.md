@@ -134,7 +134,7 @@ interface DepOutput {
 
 ## Crash Recovery
 
-On startup, gvc0 scans for orphaned tasks (status `running` with no live worker process) and resets or resumes them. Feature branches remain authoritative across restarts; resumed task worktrees rebase onto the current HEAD of the owning feature branch before continuing.
+On startup, gvc0 scans for orphaned tasks (status `running` with no live worker process) and resets or resumes them. Feature branches remain authoritative across restarts; resumed task worktrees rebase onto the current HEAD of the owning feature branch before continuing. The baseline uses `PiSdkHarness` only; `session_id` is an orchestrator-owned opaque reference passed back to the harness, and a future external session service may interpret/map those IDs without changing the main task schema.
 
 ### Session Harness Abstraction
 
@@ -162,7 +162,7 @@ class PiSdkHarness implements SessionHarness { /* default — native pi-sdk Agen
 
 A `ClaudeCodeHarness` that wraps Claude Code sessions as worker backends is a [feature candidate](./feature-candidates/claude-code-harness.md), not part of the baseline.
 
-Session IDs are stored in the `tasks` table (`session_id TEXT`). On startup:
+Session IDs are stored in the `tasks` table (`session_id TEXT`) as orchestrator-owned opaque references. If a separate session service is ever introduced, it may map those IDs onto provider-specific underlying sessions without changing the main task schema. On startup:
 
 ```typescript
 async function recoverOrphanedTasks(store: Store, pool: WorkerPool) {
@@ -172,7 +172,7 @@ async function recoverOrphanedTasks(store: Store, pool: WorkerPool) {
       // Resume from saved session, rebasing onto current feature branch HEAD first
       pool.dispatch(task, { resume: true, sessionId: task.sessionId });
     } else {
-      // No session to resume — reset to pending
+      // No resumable session — reset to pending for a fresh run
       await store.updateTask(task.id, { status: "pending", workerId: null });
     }
   }

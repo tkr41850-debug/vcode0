@@ -159,7 +159,7 @@ type TaskStatus =
   | "pending"
   | "ready"
   | "running"
-  | "retrying"
+  | "retry_await"
   | "stuck"
   | "done"
   | "failed"

@@ -55,7 +55,7 @@ CREATE TABLE tasks (
   session_id TEXT,
   consecutive_failures INTEGER NOT NULL DEFAULT 0,
   retry_at INTEGER,
-  retry_attempt INTEGER NOT NULL DEFAULT 0,
+  restart_count INTEGER NOT NULL DEFAULT 0,
   suspended_at INTEGER,
   suspend_reason TEXT,
   suspended_files TEXT,
@@ -92,7 +92,8 @@ For cross-feature coordination, current blocked state should be reconstructable 
 ### Work Control
 
 - `features.work_phase` stores the feature's GSD lifecycle state and ends at `work_complete`.
-- `tasks.status` stores the task's execution lifecycle state (`pending`, `ready`, `running`, `retrying`, `stuck`, `done`, etc.).
+- `tasks.status` stores the task's execution lifecycle state (`pending`, `ready`, `running`, `retry_await`, `stuck`, `done`, etc.). `failed` means no more progress under baseline automatic behavior; `retry_await` means waiting for the retry window to open.
+- `restart_count` counts actual restarted runs after a failure, not mere retry scheduling. A task may sit in `retry_await` with `restart_count = 0` until the first retry actually begins.
 
 ### Collaboration Control
 

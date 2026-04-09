@@ -75,6 +75,7 @@ function prioritizeReadyTasks(graph: FeatureGraph): Task[] {
   const criticalWeights = computeCriticalPathWeights(graph);
   const queuedMilestones = graph.queuedMilestones();
   const queuePos = new Map(queuedMilestones.map((m, i) => [m.id, i]));
+  const now = Date.now();
 
   return ready.sort((a, b) => {
     const aQueuePos = queuePos.get(milestoneIdOf(graph, a)) ?? Infinity;
@@ -83,6 +84,10 @@ function prioritizeReadyTasks(graph: FeatureGraph): Task[] {
 
     const weightDiff = criticalWeights.get(b.id)! - criticalWeights.get(a.id)!;
     if (weightDiff !== 0) return weightDiff;
+
+    const aRetryEligible = a.status === "retry_await" && a.retryAt !== undefined && a.retryAt <= now;
+    const bRetryEligible = b.status === "retry_await" && b.retryAt !== undefined && b.retryAt <= now;
+    if (aRetryEligible !== bRetryEligible) return aRetryEligible ? -1 : 1;
 
     return readySince(a) - readySince(b); // stable fallback
   });
@@ -95,7 +100,7 @@ function computeCriticalPathWeights(graph: FeatureGraph): Map<string, number> {
 }
 ```
 
-When workers are scarce, earlier queued milestones win first, then critical-path weight inside each queue-position bucket. Work whose milestone is not queued falls into the `∞` bucket, so it still runs when higher-priority queued buckets do not supply enough runnable work. When workers are plentiful, everything ready runs.
+When workers are scarce, earlier queued milestones win first, then critical-path weight inside each queue-position bucket. If those dimensions tie, retry-eligible `retry_await` tasks whose `retry_at` has passed sort ahead of fresh ready work before the final age/stable fallback. Work whose milestone is not queued falls into the `∞` bucket, so it still runs when higher-priority queued buckets do not supply enough runnable work. When workers are plentiful, everything ready runs.
 
 Planner note: this works best when prerequisite-shaping tasks (schemas, interfaces, shared contracts, generated sources of truth) are placed near the front of the chain and expressed as explicit dependencies. Front-loading dependency-establishing work makes the critical path more faithful to real downstream constraints.
 

@@ -12,7 +12,7 @@ A task becoming **stuck** is a work-control problem. A task or feature entering 
 
 ## Retry: Exponential Backoff up to 1 Week
 
-Task-level retry is handled by the orchestrator. When a task fails, the orchestrator schedules a retry with exponential backoff. The ceiling is 1 week to handle quota resets.
+Task-level retry is handled by the orchestrator. When a task hits a transient failure, it enters `retry_await` and receives a `retry_at` timestamp. The scheduler treats that task as retry-eligible only once the stored timestamp is in the past. If the stored `retry_at` would land beyond the 1-week ceiling, the task becomes `failed` instead (`failed` means no more progress under the baseline automatic policy).
 
 ```typescript
 interface RetryPolicy {
@@ -21,15 +21,23 @@ interface RetryPolicy {
   jitter: boolean;       // default: true (±10%)
 }
 
-function nextRetryDelay(attempt: number, policy: RetryPolicy): number {
-  const exp = policy.baseDelayMs * 2 ** attempt;
+function nextRetryAt(now: number, restartCount: number, policy: RetryPolicy): number {
+  const exp = policy.baseDelayMs * 2 ** restartCount;
   const capped = Math.min(exp, policy.maxDelayMs);
-  return policy.jitter ? capped * (0.9 + Math.random() * 0.2) : capped;
+  const delay = policy.jitter ? capped * (0.9 + Math.random() * 0.2) : capped;
+  return now + delay;
 }
 ```
 
 Retry triggers: provider overload, rate limit, quota exhausted, 5xx, network errors.
 No retry: verification failures (agent must fix and resubmit).
+
+Baseline state rules:
+- on transient failure: set `status = "retry_await"` and write `retry_at`
+- while waiting: `restart_count` does not change yet
+- when the scheduler actually starts the retry run: increment `restart_count` and transition to `running`
+- if `retry_at` is beyond the 1-week ceiling: set `status = "failed"`
+
 Retry state persists in SQLite so retries survive orchestrator restarts.
 
 ## Verification: Task Submit vs Feature Verify vs Merge Train
@@ -126,7 +134,7 @@ Task completion does not land work on `main` directly. Instead:
 7. If merge-train verification fails, remove the feature from the merge train and add a task on the same feature branch to fix the reported issues.
 8. Once that repair task is added, the feature is no longer `work_complete` / merge-ready and returns to normal branch work.
 9. After the repair task lands, rerun `verification.feature.checks` on the feature branch.
-10. Only if feature verification passes again may the feature re-enter the merge train, at the end of the queue.
+10. Only if feature verification passes again may the feature re-enter the merge train under the normal automatic queue policy (or explicit manual override bucket, if one is set).
 11. If rebasing onto the latest `main` or subsequent repair work keeps failing in a way that indicates structural mismatch, escalate to replanning.
 
 ## Conflict Outcome Rules

@@ -39,9 +39,9 @@ Milestones are shown as organizational / progress buckets. Users may queue multi
 - `✓` done
 - `⟳` running / executing
 - `·` pending / ready
-- `↺` retrying
+- `↺` retry_await / waiting for retry window
 - `!` stuck / replanning needed
-- `✗` failed
+- `✗` failed (no more progress)
 - `⊘` cancelled
 
 **Collaboration control**
