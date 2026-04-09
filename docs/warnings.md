@@ -4,6 +4,8 @@ See [ARCHITECTURE.md](../ARCHITECTURE.md) for the high-level architecture index.
 
 Warnings are **non-failing signals** emitted by the orchestrator to surface cost pressure, verification slowdowns, stalled coordination, and feature churn before they become hard failures. They should be visible in the TUI and emitted into the append-only event log, but they do not by themselves fail a task or feature.
 
+Warnings are a visibility/feedback layer only. They may be useful both for operator awareness and for tool-development feedback, but they are not the source of truth for current scheduler/coordinator state and should not be used for state reconstruction.
+
 ## Two-Stage Warning Model
 
 ### Stage 1: Single-Level Rules

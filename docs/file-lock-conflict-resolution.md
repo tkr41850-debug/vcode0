@@ -111,16 +111,17 @@ Cross-feature overlap is handled more conservatively than same-feature file lock
    e. larger changed-line count wins
    f. lexical feature id is the final tie-breaker
 3. Pause only the secondary feature's tasks that touch the overlapped paths.
-4. When a paused task exits execute mode, release its active path locks; reservations remain as planning metadata.
-5. Let the primary feature continue.
-6. If the secondary feature remains blocked on the primary for more than 8 hours, raise a warning.
-7. After the primary feature merges into `main`, rebase the secondary feature branch onto the updated `main`.
-8. If that rebase succeeds, notify the paused secondary tasks, have them rebase their task worktrees onto the updated feature branch, reacquire active path locks lazily on future writes, and resume.
-9. If the feature-branch rebase fails, create an integration repair task on the secondary feature branch and keep affected tasks paused until it lands.
-10. If `ort` merge and the configured verification checks pass, continue normally; otherwise escalate to replanning.
+4. Persist current blocked state on each paused secondary task: `collab_status = "suspended"`, `suspend_reason = "cross_feature_overlap"`, `suspended_files = [...]`, and `blocked_by_feature_id = <primary feature id>`.
+5. When a paused task exits execute mode, release its active path locks; reservations remain as planning metadata.
+6. Let the primary feature continue.
+7. If the secondary feature remains blocked on the primary for more than 8 hours, raise a warning.
+8. After the primary feature merges into `main`, rebase the secondary feature branch onto the updated `main`.
+9. If that rebase succeeds, notify the paused secondary tasks, have them rebase their task worktrees onto the updated feature branch, clear `blocked_by_feature_id`, reacquire active path locks lazily on future writes, and resume.
+10. If the feature-branch rebase fails, create an integration repair task on the secondary feature branch and keep affected tasks paused until it lands.
+11. If `ort` merge and the configured verification checks pass, continue normally; otherwise escalate to replanning.
 
 Glob reservations remain available as an escape hatch, but they are intentionally heavy-handed and should be used sparingly.
 
 ## SQLite
 
-Suspension fields are part of the main `tasks` schema (see [persistence.md](./persistence.md)). They are raw collaboration-control details that back `suspended` / `conflict` task states.
+Suspension fields are part of the main `tasks` schema (see [persistence.md](./persistence.md)). They are raw collaboration-control details that back `suspended` / `conflict` task states. For cross-feature blocking, `blocked_by_feature_id` makes the current blocking relationship reconstructable from task rows; the event log is primarily for debugging and audit, not authoritative state reconstruction.

@@ -48,6 +48,7 @@ CREATE TABLE tasks (
   worker_id TEXT,
   worktree_branch TEXT,
   reserved_write_paths TEXT,
+  blocked_by_feature_id TEXT REFERENCES features(id),
   result_summary TEXT,
   files_changed TEXT,
   token_usage TEXT,
@@ -80,6 +81,8 @@ CREATE TABLE events (
 
 The `events` table is an append-only audit log for debugging, progress reporting, warnings, and per-call cost audit trails. `milestones.display_order` stores UI ordering only, and `milestones.steering_queue_position` stores the optional ordered steering queue; `NULL` means the milestone is not queued and therefore sorts into the effective `∞` bucket. For merge-train ordering, the baseline uses nullable `merge_train_manual_position` for the manual override block, plus `merge_train_entered_at`, `merge_train_entry_seq`, and `merge_train_reentry_count` for automatic ordering among the remaining queued features. A linked-list representation in SQLite is a possible future implementation sketch for fully arbitrary persistent queue ordering, but it is premature for the baseline. Warning events include budget pressure, slow verification checks, long feature blocking, and feature-churn signals.
 
+For cross-feature coordination, current blocked state should be reconstructable directly from task rows rather than replaying the event log. `blocked_by_feature_id` identifies the current primary feature for a secondary task blocked by cross-feature overlap. Events remain primarily a logging/debugging/audit surface, not the primary source of current coordination truth.
+
 `reserved_write_paths`, `files_changed`, `suspended_files`, and token-usage aggregates are JSON-serialized payloads stored in TEXT columns. The schema should evolve via explicit SQLite migrations rather than in-place reinterpretation of existing payloads.
 
 `tasks.token_usage` and `features.token_usage` should store normalized lifetime aggregates rather than only the latest call. These totals include retries, failed attempts, and resumed sessions because the budget model tracks real spend, not just successful outcomes. The normalized aggregate should include shared fields (`inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheWriteTokens`, optional `reasoningTokens`, optional `audio*`, `totalTokens`, `usd`, `llmCalls`) plus a `byModel` breakdown keyed by provider+model. Provider-specific extras should remain available via raw event payloads or a passthrough field instead of forcing every provider quirk into first-class columns.
@@ -95,8 +98,10 @@ The `events` table is an append-only audit log for debugging, progress reporting
 
 - `features.collab_status` stores branch lifecycle and merge-train state (`none`, `branch_open`, `merge_queued`, `integrating`, `merged`, `conflict`).
 - `tasks.collab_status` stores task coordination state (`none`, `branch_open`, `suspended`, `merged`, `conflict`).
-- `suspended_at`, `suspend_reason`, and `suspended_files` hold the raw details behind same-feature file-lock suspension.
+- `suspended_at`, `suspend_reason`, and `suspended_files` hold the raw details behind same-feature file-lock suspension and cross-feature task blocking.
+- `blocked_by_feature_id` is set only when a task is currently suspended due to cross-feature overlap; it identifies the current primary feature blocking that task.
 - Active runtime locks are intentionally memory-only and should be reconstructed from currently running tasks after restart rather than persisted as authoritative DB rows. The database stores reservation metadata and suspension/conflict outcomes, not a stale-prone live lock table.
+- Feature-level "blocked by another feature" views should be derived from suspended task rows rather than persisted separately.
 
 ### Usage Accounting
 
