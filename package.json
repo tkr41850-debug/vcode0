@@ -24,9 +24,17 @@
     "@biomejs/biome": "^2.4.10",
     "@types/node": "^25.5.2",
     "eslint": "^10.2.0",
+    "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.58.1",
     "vite": "^8.0.8",
     "vitest": "^4.1.4"
+  },
+  "dependencies": {
+    "@mariozechner/pi-agent-core": "^0.66.1",
+    "@mariozechner/pi-tui": "^0.66.1",
+    "@sinclair/typebox": "^0.34.49",
+    "better-sqlite3": "^12.8.0",
+    "simple-git": "^3.35.2"
   }
 }
