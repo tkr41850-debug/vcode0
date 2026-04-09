@@ -97,3 +97,5 @@ Context inline levels per profile:
 - **minimal** — task description + essential prior summaries only
 - **standard** — task plan + prior summaries + slice plan + roadmap excerpt
 - **full** — everything: plans, summaries, decisions register, KNOWLEDGE.md, codebase map
+
+Token profiles set default context posture, but explicit worker-context assembly lives under the `context` section in `.gvc0/config.json` (see [Worker Model](./worker-model.md)). In other words: token profile picks the default compression level, while `context.defaults` and `context.stages[...]` control the actual inclusion/strategy knobs.

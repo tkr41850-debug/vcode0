@@ -106,13 +106,58 @@ Default is `NdjsonStdioTransport`. Can swap to `UnixSocketTransport` if stdio la
 
 ## Context Strategy: Configurable (default: shared read-only summary)
 
-Each worker receives context about the overall plan and completed dependency outputs. The strategy is configurable:
+Each worker receives context about the overall plan and completed dependency outputs. Context assembly is configured in `.gvc0/config.json` with global defaults plus stage-specific overrides.
 
 | Strategy | Description | Config |
 |---|---|---|
-| **shared-summary** (default) | Workers get a read-only summary of the plan + completed dep outputs | `context: "shared-summary"` |
-| **fresh** | Workers get only their task description, no dependency context | `context: "fresh"` |
-| **inherit** | Workers receive the full transcript of their dependency tasks | `context: "inherit"` |
+| **shared-summary** (default) | Workers get a read-only summary of the plan + completed dep outputs | `context.defaults.strategy: "shared-summary"` |
+| **fresh** | Workers get only their task description, no dependency context | `context.defaults.strategy: "fresh"` |
+| **inherit** | Workers receive the full transcript of their dependency tasks | `context.defaults.strategy: "inherit"` |
+
+```jsonc
+{
+  "tokenProfile": "balanced",
+  "context": {
+    "defaults": {
+      "strategy": "shared-summary",
+      "includeKnowledge": true,
+      "includeDecisions": true,
+      "includeCodebaseMap": true,
+      "maxDependencyOutputs": 8
+    },
+    "stages": {
+      "researching": {
+        "strategy": "fresh",
+        "includeDecisions": false
+      },
+      "planning": {
+        "strategy": "shared-summary",
+        "includeCodebaseMap": true
+      },
+      "executing": {
+        "strategy": "shared-summary"
+      },
+      "replanning": {
+        "strategy": "inherit",
+        "includeKnowledge": true,
+        "includeDecisions": true,
+        "includeCodebaseMap": true
+      },
+      "summarizing": {
+        "includeKnowledge": false,
+        "includeDecisions": false,
+        "includeCodebaseMap": false
+      }
+    }
+  }
+}
+```
+
+Precedence:
+1. built-in defaults
+2. token-profile defaults
+3. `context.defaults`
+4. `context.stages[stage]` partial override for the current stage
 
 ```typescript
 interface WorkerContext {

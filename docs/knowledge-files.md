@@ -63,6 +63,6 @@ const recordDecisionTool: AgentTool = {
 };
 ```
 
-Both files are injected into `WorkerContext` under the `standard` and `quality` token profiles. Omitted under `budget`.
+Both files are injected into `WorkerContext` under the `standard` and `quality` token profiles by default. Whether `KNOWLEDGE.md`, `DECISIONS.md`, and `CODEBASE.md` are included for a given stage is ultimately controlled by the `context.defaults` / `context.stages[...]` config described in [Worker Model](./worker-model.md).
 
 `CODEBASE.md` should stay structural/orienting only. It should not attempt to inline full source contents, runtime scheduler state, git history, or the full contents of `KNOWLEDGE.md` / `DECISIONS.md`; those belong to other context layers.
