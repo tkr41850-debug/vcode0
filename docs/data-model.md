@@ -30,7 +30,8 @@ discussing → researching → planning → executing → feature_ci → verifyi
                                                    ↘                ↘
                                                     executing_repair ─→ feature_ci
 
-awaiting_merge --(after collaboration control reaches `merged`)--> summarizing → work_complete
+awaiting_merge --(after collaboration control reaches `merged`)--> summarizing ─→ work_complete
+                                                         \--(budget mode)--> skipped_summary ─→ work_complete
 
 structural or repeated failure → replanning
 ```
