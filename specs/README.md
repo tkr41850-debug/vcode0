@@ -1,8 +1,8 @@
 # Scenario Specs
 
-This directory holds markdown scenario specs that describe expected orchestration behavior before the cases are turned into executable tests.
+This directory holds markdown scenario specs that describe expected orchestration behavior before those cases are turned into executable tests.
 
-For testing strategy and faux-provider guidance, see [docs/testing.md](../docs/testing.md).
+Use this page as the canonical scenario index. For testing strategy and faux-provider guidance, see [docs/testing.md](../docs/testing.md).
 
 ## Lifecycle / Merge Train
 

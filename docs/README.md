@@ -1,16 +1,16 @@
 # Documentation
 
-Start here:
+Use these entry points depending on what you need:
 
 - [Architecture Overview](../ARCHITECTURE.md) — system thesis, lifecycle split, and component map.
-- [Architecture Topics](./architecture/README.md) — data model, graph rules, persistence, planner behavior, and budget/model routing.
+- [Architecture Topics](./architecture/README.md) — canonical model and architecture details.
 - [Operations Topics](./operations/README.md) — verification, recovery, conflict coordination, warnings, and testing strategy.
 - [Reference Topics](./reference/README.md) — TUI behavior, knowledge files, codebase map, and source-area READMEs.
 - [Scenario Specs](../specs/README.md) — grouped markdown scenario inventory for later executable tests.
 
 ## Suggested Reading Paths
 
-### New to the project
+### If you're new to the project
 
 1. [Architecture Overview](../ARCHITECTURE.md)
 2. [Architecture Topics](./architecture/README.md)

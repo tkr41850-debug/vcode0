@@ -1,6 +1,6 @@
 # Architecture Topics
 
-Use [ARCHITECTURE.md](../../ARCHITECTURE.md) for the high-level system map, then use these pages for the canonical architecture details.
+Use [ARCHITECTURE.md](../../ARCHITECTURE.md) for the high-level system map. Use the pages below for the canonical architecture details.
 
 - [Data Model](./data-model.md) — milestones, features, tasks, work control, collaboration control, run state, and derived summary availability.
 - [Graph Operations](./graph-operations.md) — DAG mutations, scheduling rules, milestone steering, and merge-train coordination.

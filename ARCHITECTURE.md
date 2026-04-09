@@ -10,8 +10,8 @@
   - **work control** tracks planning and execution progress
   - **collaboration control** tracks branch, merge, suspension, and conflict coordination
   - **run state** tracks retry windows, help/approval waits, and manual takeover on `agent_runs`
-- **Overall feature completion is merged-aware.** A feature becomes fully done only after collaboration control reaches `merged` and work control reaches `work_complete`.
-- **Summary availability is derived.** Post-merge summary behavior is based on lifecycle state plus whether summary text exists, rather than a second summary-status enum.
+- **Overall feature completion is merge-aware.** A feature is fully done only after collaboration control reaches `merged` and work control reaches `work_complete`.
+- **Summary availability is derived.** Post-merge summary behavior depends on lifecycle state plus the presence of summary text, rather than a second summary-status enum.
 
 ## Lifecycle Snapshot
 
@@ -78,6 +78,8 @@ gvc0/
 - [docs/worker-model.md](./docs/worker-model.md) — process-per-task runtime, worktrees, IPC, and crash recovery.
 - [docs/testing.md](./docs/testing.md) — testing strategy.
 - [specs/README.md](./specs/README.md) — grouped scenario-spec inventory.
+
+This file is the overview. Use the landing pages above for the detailed topic map.
 
 ## Source-Area Maps
 
