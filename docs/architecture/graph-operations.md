@@ -11,7 +11,7 @@ See [ARCHITECTURE.md](../../ARCHITECTURE.md) for the high-level architecture ove
 | **createMilestone(name, description)** | Create a new milestone for grouping / progress tracking metadata |
 | **createFeature(milestoneId, name, deps)** | Create a feature under a milestone with feature→feature dependency edges |
 | **createTask(featureId, description, deps?)** | Add a task to a feature with in-feature task deps only |
-| **addDependency(fromId, toId)** | Add a dependency edge (`feature → feature` or `task → task` within the same feature) |
+| **addDependency(fromId, toId)** | Add a dependency edge (`feature → feature` or `task → task` within the same feature). Edge kind is inferred from typed prefixed ids (`f-*`, `t-*`). |
 | **removeDependency(fromId, toId)** | Remove a dependency edge |
 | **splitFeature(featureId, subfeatures)** | Break a feature into smaller features; redistribute work when replanning |
 | **mergeFeatures(featureIds, name)** | Combine features into one. Union of deps and tasks. Redirect incoming edges |
@@ -33,15 +33,16 @@ Every mutation must preserve DAG invariants:
 - **No cycles** — topological sort must succeed after mutation
 - **Feature deps are feature-only** — milestones do not appear in dependency edges
 - **Task deps are same-feature only** — a task may depend only on tasks with the same `featureId`
+- **Typed ID namespaces** — milestone ids are `m-*`, feature ids are `f-*`, and task ids are `t-*`
 - **One milestone per feature** — milestones group features but do not alter DAG semantics
 - **Referential integrity** — no dangling dependency edges
 - **Status consistency** — can't add tasks to a cancelled/done feature
 
 ```typescript
 interface FeatureGraph {
-  milestones: Map<string, Milestone>;
-  features: Map<string, Feature>;
-  tasks: Map<string, Task>;
+  milestones: Map<MilestoneId, Milestone>;
+  features: Map<FeatureId, Feature>;
+  tasks: Map<TaskId, Task>;
 
   // Core queries
   readyFeatures(): Feature[];           // features whose feature deps are all done
@@ -53,12 +54,12 @@ interface FeatureGraph {
 
   // Mutations (all validate invariants before applying)
   createFeature(opts: CreateFeatureOpts): Feature;
-  splitFeature(id: string, splits: SplitSpec[]): Feature[];
-  addDependency(from: string, to: string): void;
-  queueMilestone(id: string): void;
-  dequeueMilestone(id: string): void;
+  splitFeature(id: FeatureId, splits: SplitSpec[]): Feature[];
+  addDependency(from: FeatureId | TaskId, to: FeatureId | TaskId): void;
+  queueMilestone(id: MilestoneId): void;
+  dequeueMilestone(id: MilestoneId): void;
   clearQueuedMilestones(): void;
-  enqueueFeatureMerge(id: string): void;
+  enqueueFeatureMerge(id: FeatureId): void;
   // ... etc
 }
 ```

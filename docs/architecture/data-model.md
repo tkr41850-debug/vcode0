@@ -70,28 +70,39 @@ branch_open / merge_queued / conflict → cancelled
 
 Feature and milestone `status` fields are derived reporting values, not independent authority. Feature status is derived from collaboration control plus frontier task outcomes; milestone status is derived from child feature statuses. A feature becomes `done` only when `workControl = "work_complete"` and `collabControl = "merged"`. A feature becomes `failed` when all frontier tasks are failed, and `partially_failed` when only some frontier tasks are failed.
 
+The baseline uses typed prefixed IDs to distinguish graph unit classes at compile time:
+- milestones: `m-${string}`
+- features: `f-${string}`
+- tasks: `t-${string}`
+
+This keeps graph references scalar and persistence-friendly while making dependency legality and ownership relations explicit in the type surface.
+
 **Task** — the atomic unit of work. Executed by a single worker process. Tasks may depend only on other tasks within the same feature. Task execution progress is part of work control; branch suspension / merge coordination is part of collaboration control.
 
 ### Data Model
 
 ```typescript
+type MilestoneId = `m-${string}`;
+type FeatureId = `f-${string}`;
+type TaskId = `t-${string}`;
+
 interface Milestone {
-  id: string;
+  id: MilestoneId;
   name: string;
   description: string;
-  featureIds: string[];            // features grouped under this milestone
+  featureIds: FeatureId[];         // derived membership, authoritative order only
   status: UnitStatus;              // derived aggregate status for reporting
   order: number;                   // display order only; not an execution dependency
   steeringQueuePosition?: number;  // ordered scheduler override; absent = not queued (effective ∞)
 }
 
 interface Feature {
-  id: string;
-  milestoneId: string;             // exactly one milestone per feature
+  id: FeatureId;
+  milestoneId: MilestoneId;        // exactly one authoritative milestone per feature
   name: string;
   description: string;
-  dependsOn: string[];             // feature ids only
-  taskIds: string[];
+  dependsOn: FeatureId[];          // feature ids only
+  taskIds: TaskId[];               // derived membership, authoritative order only
   status: UnitStatus;              // derived aggregate reporting status
   workControl: FeatureWorkControl;
   collabControl: FeatureCollabControl;
@@ -106,10 +117,10 @@ interface Feature {
 }
 
 interface Task {
-  id: string;
-  featureId: string;
+  id: TaskId;
+  featureId: FeatureId;            // exactly one authoritative owning feature per task
   description: string;
-  dependsOn: string[];             // task ids within the same feature only
+  dependsOn: TaskId[];             // task ids within the same feature only
   status: TaskStatus;              // work-control execution status
   collabControl: TaskCollabControl;
   workerId?: string;
@@ -123,7 +134,7 @@ interface Task {
 interface AgentRun {
   id: string;
   scopeType: "task" | "feature_phase";
-  scopeId: string;
+  scopeId: TaskId | FeatureId;
   phase: AgentRunPhase;
   runStatus: AgentRunStatus;
   owner: RunOwner;

@@ -103,6 +103,8 @@ CREATE TABLE events (
 
 The `events` table is an append-only audit log for debugging,
 progress reporting, warnings, and per-call cost audit trails.
+
+The baseline keeps IDs persisted as plain `TEXT` columns in SQLite while using typed prefixed aliases in TypeScript (`m-${string}`, `f-${string}`, `t-${string}`). This preserves simple storage and joins without introducing object-shaped reference payloads.
 `milestones.display_order` stores UI ordering only,
 and `milestones.steering_queue_position` stores the optional
 ordered steering queue; `NULL` means the milestone is not
@@ -269,6 +271,8 @@ provider quirk into first-class columns.
 - Queued milestones are a scheduler steering override only; they are not dependency edges and do not create readiness by themselves.
 - Feature dependencies are `feature → feature` only.
 - Task dependencies are `task → task` only and must remain within the same feature.
+- Baseline ID namespaces are structural: milestone ids use `m-*`, feature ids use `f-*`, and task ids use `t-*`.
+- Dependency kind may be inferred from those typed ID namespaces rather than being supplied separately by callers.
 - `reserved_write_paths` must contain normalized
   project-root-relative paths (exact paths preferred;
   globs/directories only as an escape hatch).
