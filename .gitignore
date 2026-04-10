@@ -5,3 +5,6 @@ dist/
 .vitest/
 *.tsbuildinfo
 .gvc0/
+
+.claude/
+
