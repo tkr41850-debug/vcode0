@@ -1,11 +1,13 @@
 import type { Feature } from '@core/types/index';
-import type { GitOperationResult } from '@git/contracts';
+import type { FeatureBranchRebaseResult } from '@git/contracts';
 
 export class RebaseService {
-  rebaseFeatureBranch(_feature: Feature): Promise<GitOperationResult> {
+  rebaseFeatureBranch(feature: Feature): Promise<FeatureBranchRebaseResult> {
     return Promise.resolve({
-      ok: true,
-      summary: '',
+      kind: 'rebased',
+      featureId: feature.id,
+      branchName: feature.featureBranch,
+      worktreePath: `.gvc0/worktrees/${feature.featureBranch}`,
     });
   }
 }

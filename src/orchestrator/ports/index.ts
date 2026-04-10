@@ -1,6 +1,7 @@
 import type { GraphSnapshot } from '@core/graph/index';
 import type {
   AgentRun,
+  ConflictSteeringContext,
   EventRecord,
   Feature,
   GvcConfig,
@@ -30,6 +31,11 @@ export interface Store {
 
 export interface RuntimePort {
   dispatchTask(task: Task, options?: RuntimeDispatchOptions): Promise<void>;
+  steerTask(
+    taskId: string,
+    message: string,
+    context?: ConflictSteeringContext,
+  ): Promise<void>;
   suspendTask(
     taskId: string,
     reason: TaskSuspendReason,

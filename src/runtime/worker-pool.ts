@@ -1,4 +1,5 @@
 import type {
+  ConflictSteeringContext,
   Task,
   TaskResumeReason,
   TaskSuspendReason,
@@ -13,6 +14,15 @@ export class LocalWorkerPool implements RuntimePort {
   constructor(private readonly harness: SessionHarness) {}
 
   dispatchTask(_task: Task, _options?: RuntimeDispatchOptions): Promise<void> {
+    void this.harness;
+    return Promise.resolve();
+  }
+
+  steerTask(
+    _taskId: string,
+    _message: string,
+    _context?: ConflictSteeringContext,
+  ): Promise<void> {
     void this.harness;
     return Promise.resolve();
   }
