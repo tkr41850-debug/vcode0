@@ -4,10 +4,6 @@ export interface Migration {
   up(): Promise<void>;
 }
 
-export interface MigrationState {
-  version: number;
-}
-
 export class MigrationRunner {
   constructor(private readonly migrations: Migration[] = []) {}
 

@@ -1,37 +1,15 @@
-export interface PlannerToolDefinition<TArgs = Record<string, unknown>> {
+import type {
+  CreateFeatureOptions,
+  CreateMilestoneOptions,
+  CreateTaskOptions,
+} from '@core/graph/index';
+
+export type { CreateFeatureOptions, CreateMilestoneOptions, CreateTaskOptions };
+
+export interface PlannerToolDefinition {
   name: string;
   description: string;
-  execute(args: TArgs): Promise<void>;
-}
-
-export interface CreateMilestoneArgs {
-  id: string;
-  name: string;
-  description: string;
-}
-
-export interface CreateFeatureArgs {
-  id: string;
-  milestoneId: string;
-  name: string;
-  description: string;
-  dependsOn?: string[];
-}
-
-export interface CreateTaskArgs {
-  id: string;
-  featureId: string;
-  description: string;
-  dependsOn?: string[];
-}
-
-export interface AddDependencyArgs {
-  fromId: string;
-  toId: string;
-}
-
-export interface SubmitPlanArgs {
-  summary: string;
+  execute(args: Record<string, unknown>): Promise<void>;
 }
 
 export class PlannerToolset {

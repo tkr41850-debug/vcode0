@@ -1,9 +1,5 @@
 import type { GvcApplication } from '@app/index';
 
-export interface ApplicationComposition {
-  app: GvcApplication;
-}
-
-export function composeApplication(): ApplicationComposition {
+export function composeApplication(): GvcApplication {
   throw new Error('Not implemented.');
 }

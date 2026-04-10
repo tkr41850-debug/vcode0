@@ -1,8 +1,8 @@
 import type {
   ContextDefaultsConfig,
-  ContextStageName,
   ContextStrategy,
   DependencyOutputSummary,
+  FeatureWorkControl,
   GvcConfig,
   Task,
 } from '@core/types/index';
@@ -28,7 +28,7 @@ export class WorkerContextBuilder {
   constructor(private readonly config: GvcConfig) {}
 
   build(
-    stage: ContextStageName,
+    stage: FeatureWorkControl,
     _task?: Task,
     inputs: WorkerContextInputs = {},
   ): WorkerContext {
@@ -65,7 +65,7 @@ export class WorkerContextBuilder {
     return context;
   }
 
-  private resolveDefaults(stage: ContextStageName): ContextDefaultsConfig {
+  private resolveDefaults(stage: FeatureWorkControl): ContextDefaultsConfig {
     const defaults = this.config.context?.defaults;
     const stageOverride = this.config.context?.stages?.[stage];
 

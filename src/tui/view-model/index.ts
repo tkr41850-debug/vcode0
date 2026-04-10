@@ -39,14 +39,6 @@ export interface StatusBarViewModel {
   totalUsd: number;
 }
 
-export interface StatusBarInputs {
-  runningWorkers: number;
-  idleWorkers: number;
-  completedTasks: number;
-  totalTasks: number;
-  totalUsd: number;
-}
-
 export class TuiViewModelBuilder {
   buildMilestoneTree(
     _milestones: Milestone[],
@@ -57,13 +49,7 @@ export class TuiViewModelBuilder {
     return [];
   }
 
-  buildStatusBar(inputs: StatusBarInputs): StatusBarViewModel {
-    return {
-      runningWorkers: inputs.runningWorkers,
-      idleWorkers: inputs.idleWorkers,
-      completedTasks: inputs.completedTasks,
-      totalTasks: inputs.totalTasks,
-      totalUsd: inputs.totalUsd,
-    };
+  buildStatusBar(inputs: StatusBarViewModel): StatusBarViewModel {
+    return { ...inputs };
   }
 }

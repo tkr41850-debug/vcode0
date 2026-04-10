@@ -26,6 +26,7 @@ export interface CreateTaskOptions {
   description: string;
   dependsOn?: string[];
   weight?: number;
+  reservedWritePaths?: string[];
 }
 
 export interface SplitSpec {

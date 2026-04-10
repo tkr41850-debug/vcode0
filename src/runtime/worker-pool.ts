@@ -9,11 +9,6 @@ import type {
 } from '@orchestrator/ports/index';
 import type { SessionHarness } from '@runtime/harness/index';
 
-export interface WorkerHandle {
-  taskId: string;
-  sessionId?: string;
-}
-
 export class LocalWorkerPool implements RuntimePort {
   constructor(private readonly harness: SessionHarness) {}
 

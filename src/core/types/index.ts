@@ -53,10 +53,6 @@ export type TaskResumeReason =
   | 'cross_feature_rebase'
   | 'manual';
 
-export type ConflictSteeringKind =
-  | 'same_feature_task_rebase'
-  | 'cross_feature_feature_rebase';
-
 export interface DependencyOutputSummary {
   taskId: string;
   featureName: string;
@@ -277,11 +273,9 @@ export interface ContextDefaultsConfig {
   maxDependencyOutputs: number;
 }
 
-export type ContextStageName = FeatureWorkControl;
-
 export interface ContextConfig {
   defaults: ContextDefaultsConfig;
-  stages?: Partial<Record<ContextStageName, Partial<ContextDefaultsConfig>>>;
+  stages?: Partial<Record<FeatureWorkControl, Partial<ContextDefaultsConfig>>>;
 }
 
 export interface VerificationCheck {

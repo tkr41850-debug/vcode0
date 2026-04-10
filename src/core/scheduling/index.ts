@@ -5,12 +5,6 @@ export interface ExecutionRunReader {
   getExecutionRun(taskId: string): AgentRun | undefined;
 }
 
-export interface SchedulingDecision {
-  taskId: string;
-  priority: number;
-  reason: string;
-}
-
 export class CriticalPathScheduler {
   computeCriticalPathWeights(_graph: FeatureGraph): Map<string, number> {
     return new Map();
