@@ -1,4 +1,5 @@
-import type { Feature, GitOperationResult } from '@core/types/index';
+import type { Feature } from '@core/types/index';
+import type { GitOperationResult } from '@git/contracts';
 
 export class RebaseService {
   rebaseFeatureBranch(_feature: Feature): Promise<GitOperationResult> {

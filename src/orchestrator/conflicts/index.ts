@@ -1,4 +1,5 @@
-import type { Feature, OverlapIncident, Task } from '@core/types/index';
+import type { Feature, Task } from '@core/types/index';
+import type { OverlapIncident } from '@git';
 import type { OrchestratorPorts } from '@orchestrator/ports/index';
 
 export class ConflictCoordinator {

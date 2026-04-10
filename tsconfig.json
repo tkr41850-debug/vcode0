@@ -30,6 +30,7 @@
         "src/runtime/*/index.ts",
         "src/runtime/*"
       ],
+      "@git": ["src/git/index.ts"],
       "@git/*": ["src/git/*.ts", "src/git/*/index.ts", "src/git/*"],
       "@persistence/*": [
         "src/persistence/*.ts",

@@ -3,16 +3,13 @@ import type {
   AgentRun,
   EventRecord,
   Feature,
-  GitOperationResult,
   GvcConfig,
-  IntegrationQueueEntry,
   Milestone,
-  OverlapIncident,
   Task,
-  TaskResult,
   TaskResumeReason,
   TaskSuspendReason,
 } from '@core/types/index';
+import type { GitPort } from '@git';
 
 export interface RuntimeDispatchOptions {
   resume?: boolean;
@@ -29,15 +26,6 @@ export interface Store {
   getTaskRunsByStatus(status: AgentRun['runStatus']): Promise<AgentRun[]>;
   updateAgentRun(runId: string, patch: Partial<AgentRun>): Promise<void>;
   appendEvent(event: EventRecord): Promise<void>;
-}
-
-export interface GitPort {
-  createFeatureBranch(feature: Feature): Promise<string>;
-  createTaskWorktree(task: Task, feature: Feature): Promise<string>;
-  mergeTaskWorktree(task: Task, result: TaskResult): Promise<void>;
-  enqueueFeatureMerge(entry: IntegrationQueueEntry): Promise<void>;
-  rebaseFeatureBranch(feature: Feature): Promise<GitOperationResult>;
-  scanFeatureOverlap(feature: Feature): Promise<OverlapIncident[]>;
 }
 
 export interface RuntimePort {
