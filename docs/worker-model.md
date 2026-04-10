@@ -24,21 +24,22 @@ so only files being actively edited hold runtime ownership.
 
 ```text
 main
-└── feat-auth
-    ├── Worker 1 (worktree: .gvc0/worktrees/task-jwt/)
-    │   └── pi-sdk Agent → executes JWT validation
-    ├── Worker 2 (worktree: .gvc0/worktrees/task-session/)
-    │   └── pi-sdk Agent → executes session store
-    └── Worker 3 (worktree: .gvc0/worktrees/task-middleware/)
-        └── pi-sdk Agent → executes middleware wiring
+└── feat-<feature-id>
+    ├── Worker 1 (worktree: .gvc0/worktrees/feat-<feature-id>-task-<task-id-a>/)
+    │   └── pi-sdk Agent → executes first runnable task
+    ├── Worker 2 (worktree: .gvc0/worktrees/feat-<feature-id>-task-<task-id-b>/)
+    │   └── pi-sdk Agent → executes second runnable task
+    └── Worker 3 (worktree: .gvc0/worktrees/feat-<feature-id>-task-<task-id-c>/)
+        └── pi-sdk Agent → executes third runnable task
 ```
 
 - **Max concurrency**: configurable (default: CPU count or provider rate limit, whichever is lower)
 - **Worktree lifecycle**: created on dispatch from the
-  feature branch, squash-merged back into the feature branch
-  on success, and retained until the owning feature lands on
-  `main` or garbage collection snapshots and removes the stale
-  worktree
+  feature branch, using the same basename as the task branch
+  (`feat-<feature-id>-task-<task-id>`), squash-merged back into
+  the feature branch on success, and retained until the owning
+  feature lands on `main` or garbage collection snapshots and
+  removes the stale worktree
 
 ### Git Commit Strategy
 

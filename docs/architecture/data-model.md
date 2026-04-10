@@ -284,10 +284,10 @@ Within F-auth:
 
 ```text
 main
-└── feat-auth
-    ├── feat-auth-task-jwt-validation
-    ├── feat-auth-task-session-store
-    └── feat-auth-task-middleware-wiring
+└── feat-<feature-id>
+    ├── feat-<feature-id>-task-<task-id-a>
+    ├── feat-<feature-id>-task-<task-id-b>
+    └── feat-<feature-id>-task-<task-id-c>
 ```
 
 - A feature branch and feature worktree are created when that branch is requested and collaboration control enters `branch_open`; the baseline branch name is `feat-<feature-id>`.
