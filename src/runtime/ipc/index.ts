@@ -35,7 +35,12 @@ export type WorkerMessage =
 export type OrchestratorMessage =
   | { type: 'run'; task: Task; context: WorkerContext }
   | { type: 'abort'; taskId: string }
-  | { type: 'steer'; taskId: string; context: ConflictSteeringContext }
+  | {
+      type: 'steer';
+      taskId: string;
+      message: string;
+      context?: ConflictSteeringContext;
+    }
   | {
       type: 'suspend';
       taskId: string;

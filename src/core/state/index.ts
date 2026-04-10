@@ -6,7 +6,11 @@ import type {
   UnitStatus,
 } from '@core/types';
 
-export type SummaryAvailability = 'waiting' | 'skipped' | 'available';
+export type SummaryAvailability =
+  | 'unavailable'
+  | 'waiting'
+  | 'skipped'
+  | 'available';
 
 export type TaskPresentationStatus = TaskStatus | 'blocked';
 
@@ -55,11 +59,15 @@ export function deriveSummaryAvailability(
     return 'available';
   }
 
+  if (feature.workControl === 'summarizing') {
+    return 'waiting';
+  }
+
   if (feature.workControl === 'work_complete') {
     return 'skipped';
   }
 
-  return 'waiting';
+  return 'unavailable';
 }
 
 export function deriveFeatureDone(feature: Feature): boolean {

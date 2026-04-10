@@ -60,6 +60,12 @@ describe('core state contracts', () => {
     ).toBe('skipped');
   });
 
+  it('treats non-summary phases without summary text as unavailable', () => {
+    expect(
+      deriveSummaryAvailability(makeFeature({ workControl: 'planning' })),
+    ).toBe('unavailable');
+  });
+
   it('treats non-empty summary text as available', () => {
     expect(
       deriveSummaryAvailability(makeFeature({ summary: 'done summary' })),

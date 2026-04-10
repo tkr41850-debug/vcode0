@@ -138,9 +138,23 @@ interface ProviderUsage {
 type OrchestratorMessage =
   | { type: "run"; task: Task; context: WorkerContext }
   | { type: "abort"; taskId: string }
-  | { type: "steer"; taskId: string; message: string }
-  | { type: "suspend"; taskId: string; reason: "file_lock"; files: string[] }
-  | { type: "resume"; taskId: string; reason: string }
+  | {
+      type: "steer";
+      taskId: string;
+      message: string;
+      context?: ConflictSteeringContext;
+    }
+  | {
+      type: "suspend";
+      taskId: string;
+      reason: "same_feature_overlap" | "cross_feature_overlap";
+      files: string[];
+    }
+  | {
+      type: "resume";
+      taskId: string;
+      reason: "same_feature_rebase" | "cross_feature_rebase" | "manual";
+    }
 ```
 
 The `suspend` / `resume` messages are a

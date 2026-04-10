@@ -57,14 +57,51 @@ export type ConflictSteeringKind =
   | 'same_feature_task_rebase'
   | 'cross_feature_feature_rebase';
 
-export interface ConflictSteeringContext {
-  kind: ConflictSteeringKind;
+export interface DependencyOutputSummary {
+  taskId: string;
+  featureName: string;
+  summary: string;
+  filesChanged: string[];
+}
+
+export interface VerificationSummary {
+  ok: boolean;
+  summary?: string;
+  failedChecks?: string[];
+}
+
+interface BaseConflictSteeringContext {
   featureId: string;
   files: string[];
-  taskId?: string;
-  blockedByFeatureId?: string;
-  targetBranch?: string;
+  conflictedFiles?: string[];
+  dependencyOutputs?: DependencyOutputSummary[];
+  lastVerification?: VerificationSummary;
 }
+
+export interface SameFeatureTaskRebaseConflictSteeringContext
+  extends BaseConflictSteeringContext {
+  kind: 'same_feature_task_rebase';
+  taskId: string;
+  taskBranch: string;
+  rebaseTarget: string;
+  pauseReason: 'same_feature_overlap';
+  dominantTaskId?: string;
+  dominantTaskSummary?: string;
+  dominantTaskFilesChanged?: string[];
+  reservedWritePaths?: string[];
+}
+
+export interface CrossFeatureFeatureRebaseConflictSteeringContext
+  extends BaseConflictSteeringContext {
+  kind: 'cross_feature_feature_rebase';
+  blockedByFeatureId: string;
+  targetBranch: string;
+  pauseReason: 'cross_feature_overlap';
+}
+
+export type ConflictSteeringContext =
+  | SameFeatureTaskRebaseConflictSteeringContext
+  | CrossFeatureFeatureRebaseConflictSteeringContext;
 
 export type AgentRunPhase =
   | 'execute'
@@ -183,7 +220,7 @@ export interface Task {
   sessionId?: string;
   consecutiveFailures?: number;
   suspendedAt?: number;
-  suspendReason?: string;
+  suspendReason?: TaskSuspendReason;
   suspendedFiles?: string[];
 }
 

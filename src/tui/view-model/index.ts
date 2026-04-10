@@ -3,6 +3,7 @@ import type {
   TaskPresentationStatus,
 } from '@core/state/index';
 import type {
+  AgentRun,
   Feature,
   FeatureCollabControl,
   FeatureWorkControl,
@@ -51,7 +52,7 @@ export class TuiViewModelBuilder {
     _milestones: Milestone[],
     _features: Feature[],
     _tasks: Task[],
-    _runs: unknown[] = [],
+    _runs: AgentRun[] = [],
   ): DagNodeViewModel[] {
     return [];
   }

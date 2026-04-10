@@ -8,13 +8,53 @@ import type {
 
 export interface ModelDescriptor {
   model: string;
+  tier: RoutingTier;
+}
+
+export interface RouteModelOptions {
+  failures?: number;
+  budgetWarned?: boolean;
 }
 
 export class ModelRouter {
-  routeModel(tier: RoutingTier, config: ModelRoutingConfig): ModelDescriptor {
+  routeModel(
+    tier: RoutingTier,
+    config: ModelRoutingConfig,
+    options: RouteModelOptions = {},
+  ): ModelDescriptor {
+    if (!config.enabled) {
+      return {
+        model: config.ceiling,
+        tier,
+      };
+    }
+
+    const effectiveTier = this.resolveTier(tier, config, options);
+
     return {
-      model: config.tiers[tier] ?? config.ceiling,
+      model: config.tiers[effectiveTier] ?? config.ceiling,
+      tier: effectiveTier,
     };
+  }
+
+  private resolveTier(
+    tier: RoutingTier,
+    config: ModelRoutingConfig,
+    options: RouteModelOptions,
+  ): RoutingTier {
+    if (config.budgetPressure && options.budgetWarned) {
+      return 'light';
+    }
+
+    if (config.escalateOnFailure && (options.failures ?? 0) > 0) {
+      if (tier === 'light') {
+        return 'standard';
+      }
+
+      return 'heavy';
+    }
+
+    return tier;
   }
 
   checkBudget(state: BudgetState, config: BudgetConfig): BudgetAction {

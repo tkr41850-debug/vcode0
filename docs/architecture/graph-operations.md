@@ -47,7 +47,7 @@ interface FeatureGraph {
   readyFeatures(): Feature[];           // features whose feature deps are all done
   readyTasks(): Task[];                 // tasks whose in-feature deps are all done
   criticalPath(): Task[];               // longest weighted path through the task DAG
-  integrationQueue(): Feature[];        // features waiting to merge into main
+  integrationQueue(): IntegrationQueueEntry[]; // queued feature-merge entries
   queuedMilestones(): Milestone[];      // ordered user steering queue
   isComplete(): boolean;                // all milestones done
 
