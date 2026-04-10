@@ -3,6 +3,7 @@ import {
   deriveFeatureUnitStatus,
   deriveMilestoneUnitStatus,
   deriveSummaryAvailability,
+  deriveTaskBlocked,
   deriveTaskPresentationStatus,
 } from '@core/state';
 import type { AgentRun, Feature, Task } from '@core/types';
@@ -72,6 +73,71 @@ describe('core state contracts', () => {
     expect(
       deriveSummaryAvailability(makeFeature({ summary: 'done summary' })),
     ).toBe('available');
+  });
+
+  it('treats suspended tasks as blocked', () => {
+    expect(deriveTaskBlocked(makeTask({ collabControl: 'suspended' }))).toBe(
+      true,
+    );
+  });
+
+  it('treats conflicted tasks as blocked', () => {
+    expect(deriveTaskBlocked(makeTask({ collabControl: 'conflict' }))).toBe(
+      true,
+    );
+  });
+
+  it('treats await_approval runs as blocked', () => {
+    expect(
+      deriveTaskBlocked(
+        makeTask({ status: 'running' }),
+        makeRun({ runStatus: 'await_approval' }),
+      ),
+    ).toBe(true);
+  });
+
+  it('treats retry_await before retryAt as blocked', () => {
+    expect(
+      deriveTaskBlocked(
+        makeTask({ status: 'ready' }),
+        makeRun({ runStatus: 'retry_await', retryAt: 200 }),
+        100,
+      ),
+    ).toBe(true);
+  });
+
+  it('treats retry_await without retryAt as blocked', () => {
+    expect(
+      deriveTaskBlocked(
+        makeTask({ status: 'ready' }),
+        makeRun({ runStatus: 'retry_await' }),
+        100,
+      ),
+    ).toBe(true);
+  });
+
+  it('treats retry_await at retryAt as unblocked', () => {
+    expect(
+      deriveTaskBlocked(
+        makeTask({ status: 'ready' }),
+        makeRun({ runStatus: 'retry_await', retryAt: 100 }),
+        100,
+      ),
+    ).toBe(false);
+  });
+
+  it('treats retry_await after retryAt as unblocked', () => {
+    expect(
+      deriveTaskBlocked(
+        makeTask({ status: 'ready' }),
+        makeRun({ runStatus: 'retry_await', retryAt: 100 }),
+        101,
+      ),
+    ).toBe(false);
+  });
+
+  it('treats tasks without waits or coordination blocks as unblocked', () => {
+    expect(deriveTaskBlocked(makeTask({ status: 'ready' }))).toBe(false);
   });
 
   it('derives blocked task presentation status from run waits', () => {
