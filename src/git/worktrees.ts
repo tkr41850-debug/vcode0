@@ -9,7 +9,8 @@ export class TaskWorktreeManager {
     task: Task,
     feature: Feature,
   ): Promise<TaskWorktreeHandle> {
-    const branchName = task.worktreeBranch ?? `${feature.featureBranch}-task-${task.id}`;
+    const branchName =
+      task.worktreeBranch ?? `${feature.featureBranch}-task-${task.id}`;
 
     return Promise.resolve({
       taskId: task.id,
@@ -28,7 +29,8 @@ export class TaskWorktreeManager {
     task: Task,
     feature: Feature,
   ): Promise<TaskWorktreeRebaseResult> {
-    const branchName = task.worktreeBranch ?? `${feature.featureBranch}-task-${task.id}`;
+    const branchName =
+      task.worktreeBranch ?? `${feature.featureBranch}-task-${task.id}`;
 
     return Promise.resolve({
       kind: 'rebased',

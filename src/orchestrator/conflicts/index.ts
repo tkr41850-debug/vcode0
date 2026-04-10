@@ -21,7 +21,10 @@ export class ConflictCoordinator {
         continue;
       }
 
-      const rebaseResult = await this.ports.git.rebaseTaskWorktree(task, feature);
+      const rebaseResult = await this.ports.git.rebaseTaskWorktree(
+        task,
+        feature,
+      );
 
       await this.handleTaskWorktreeRebaseResult(rebaseResult);
     }
