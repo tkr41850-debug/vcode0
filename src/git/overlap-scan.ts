@@ -1,5 +1,4 @@
-import type { Feature } from '@core/types/index';
-import type { OverlapIncident } from '@orchestrator/ports/index';
+import type { Feature, OverlapIncident } from '@core/types/index';
 
 export class OverlapScanner {
   scanFeatureOverlap(_feature: Feature): Promise<OverlapIncident[]> {

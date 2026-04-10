@@ -101,6 +101,21 @@ export type ConflictSteeringContext =
   | SameFeatureTaskRebaseConflictSteeringContext
   | CrossFeatureFeatureRebaseConflictSteeringContext;
 
+export interface GitOperationResult {
+  ok: boolean;
+  summary: string;
+  conflicts?: string[];
+  conflictContext?: ConflictSteeringContext;
+}
+
+export interface OverlapIncident {
+  featureId: string;
+  taskIds: string[];
+  files: string[];
+  blockedByFeatureId?: string;
+  suspendReason: TaskSuspendReason;
+}
+
 export type AgentRunPhase =
   | 'execute'
   | 'discuss'

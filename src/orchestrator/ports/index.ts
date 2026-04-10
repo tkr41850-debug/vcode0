@@ -1,12 +1,13 @@
 import type { GraphSnapshot } from '@core/graph/index';
 import type {
   AgentRun,
-  ConflictSteeringContext,
   EventRecord,
   Feature,
+  GitOperationResult,
   GvcConfig,
   IntegrationQueueEntry,
   Milestone,
+  OverlapIncident,
   Task,
   TaskResult,
   TaskResumeReason,
@@ -16,21 +17,6 @@ import type {
 export interface RuntimeDispatchOptions {
   resume?: boolean;
   sessionId?: string;
-}
-
-export interface GitOperationResult {
-  ok: boolean;
-  summary: string;
-  conflicts?: string[];
-  conflictContext?: ConflictSteeringContext;
-}
-
-export interface OverlapIncident {
-  featureId: string;
-  taskIds: string[];
-  files: string[];
-  blockedByFeatureId?: string;
-  suspendReason: TaskSuspendReason;
 }
 
 export interface Store {

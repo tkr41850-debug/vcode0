@@ -1,8 +1,5 @@
-import type { Feature, Task } from '@core/types/index';
-import type {
-  OrchestratorPorts,
-  OverlapIncident,
-} from '@orchestrator/ports/index';
+import type { Feature, OverlapIncident, Task } from '@core/types/index';
+import type { OrchestratorPorts } from '@orchestrator/ports/index';
 
 export class ConflictCoordinator {
   constructor(private readonly ports: OrchestratorPorts) {}
