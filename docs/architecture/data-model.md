@@ -56,6 +56,8 @@ Collaboration control tracks how the feature coordinates with branches, the merg
 none → branch_open → merge_queued → integrating → merged
                              ↓
                           conflict
+
+branch_open / merge_queued / conflict → cancelled
 ```
 
 - **none** — feature branch not opened yet.
@@ -64,8 +66,9 @@ none → branch_open → merge_queued → integrating → merged
 - **integrating** — feature branch is rebasing / running merge-train verification against the latest `main`.
 - **merged** — feature branch landed on `main` and is cleaned up.
 - **conflict** — feature-level collaboration issue blocks normal progress. While a feature is in `conflict`, suspend all non-repair task runs for that feature until the conflict is cleared.
+- **cancelled** — feature participation in the branch / merge lifecycle has been explicitly stopped. Cancellation kills all in-flight tasks immediately, freezes the current work phase, and keeps the feature out of normal scheduling until it is explicitly restored.
 
-A feature's aggregate `status` is derived for reporting. It becomes `done` only when `workControl = "work_complete"` and `collabControl = "merged"`.
+Feature and milestone `status` fields are derived reporting values, not independent authority. Feature status is derived from collaboration control plus frontier task outcomes; milestone status is derived from child feature statuses. A feature becomes `done` only when `workControl = "work_complete"` and `collabControl = "merged"`. A feature becomes `failed` when all frontier tasks are failed, and `partially_failed` when only some frontier tasks are failed.
 
 **Task** — the atomic unit of work. Executed by a single worker process. Tasks may depend only on other tasks within the same feature. Task execution progress is part of work control; branch suspension / merge coordination is part of collaboration control.
 
@@ -161,7 +164,7 @@ interface ModelUsageAggregate {
   usd: number;
 }
 
-type UnitStatus = "pending" | "in_progress" | "done" | "failed" | "cancelled";
+type UnitStatus = "pending" | "in_progress" | "done" | "failed" | "partially_failed" | "cancelled";
 
 type FeatureWorkControl =
   | "discussing"
@@ -182,7 +185,8 @@ type FeatureCollabControl =
   | "merge_queued"
   | "integrating"
   | "merged"
-  | "conflict";
+  | "conflict"
+  | "cancelled";
 
 type TaskStatus =
   | "pending"

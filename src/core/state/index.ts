@@ -77,9 +77,31 @@ export function deriveFeatureDone(feature: Feature): boolean {
   );
 }
 
-export function deriveFeatureUnitStatus(feature: Feature): UnitStatus {
+export function deriveFeatureUnitStatus(
+  feature: Feature,
+  frontierTaskStatuses: TaskStatus[],
+): UnitStatus {
+  if (feature.collabControl === 'cancelled') {
+    return 'cancelled';
+  }
+
   if (deriveFeatureDone(feature)) {
     return 'done';
+  }
+
+  const failedFrontierCount = frontierTaskStatuses.filter(
+    (status) => status === 'failed',
+  ).length;
+
+  if (
+    frontierTaskStatuses.length > 0 &&
+    failedFrontierCount === frontierTaskStatuses.length
+  ) {
+    return 'failed';
+  }
+
+  if (failedFrontierCount > 0) {
+    return 'partially_failed';
   }
 
   if (
@@ -105,12 +127,47 @@ export function deriveFeatureUnitStatus(feature: Feature): UnitStatus {
   return 'pending';
 }
 
+export function deriveMilestoneUnitStatus(
+  featureStatuses: UnitStatus[],
+): UnitStatus {
+  if (featureStatuses.length === 0) {
+    return 'pending';
+  }
+
+  if (featureStatuses.every((status) => status === 'done')) {
+    return 'done';
+  }
+
+  if (featureStatuses.every((status) => status === 'cancelled')) {
+    return 'cancelled';
+  }
+
+  const hasInProgress = featureStatuses.includes('in_progress');
+  const hasPartiallyFailed = featureStatuses.includes('partially_failed');
+  const hasFailed = featureStatuses.includes('failed');
+
+  if (hasPartiallyFailed || (hasFailed && hasInProgress)) {
+    return 'partially_failed';
+  }
+
+  if (hasFailed) {
+    return 'failed';
+  }
+
+  if (hasInProgress) {
+    return 'in_progress';
+  }
+
+  return 'pending';
+}
+
 export function deriveFeatureAggregateState(
   feature: Feature,
+  frontierTaskStatuses: TaskStatus[],
 ): FeatureAggregateState {
   return {
     featureId: feature.id,
-    status: deriveFeatureUnitStatus(feature),
+    status: deriveFeatureUnitStatus(feature, frontierTaskStatuses),
     summaryAvailability: deriveSummaryAvailability(feature),
     isDone: deriveFeatureDone(feature),
   };

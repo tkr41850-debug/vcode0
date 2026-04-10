@@ -140,12 +140,14 @@ than in-place reinterpretation of existing payloads.
 
 Use structured SQL columns for authoritative live orchestration
 state that the scheduler/TUI/filtering logic depends on directly
-(`status`, `collab_status`, `blocked_by_feature_id`,
+(`collab_status`, `blocked_by_feature_id`,
 merge-train ordering fields, `summary`, foreign keys,
 timestamps, and run-level retry fields on `agent_runs`).
 Use JSON-in-TEXT only for nested per-row support data that is
 naturally array/object shaped and usually read/written as one
 value.
+
+`features.status` and `milestones.status` are derived reporting fields rather than independent authority. Persisting them is acceptable as a query/cache convenience, but their meaning is defined by recomputation from work/collaboration/task state rather than by direct mutation alone.
 
 Baseline JSON-in-TEXT examples:
 - `reserved_write_paths` — JSON array of normalized project-root-relative paths owned by one task

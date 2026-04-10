@@ -1,5 +1,7 @@
 import {
   deriveFeatureAggregateState,
+  deriveFeatureUnitStatus,
+  deriveMilestoneUnitStatus,
   deriveSummaryAvailability,
   deriveTaskPresentationStatus,
 } from '@core/state';
@@ -81,13 +83,72 @@ describe('core state contracts', () => {
     ).toBe('blocked');
   });
 
+  it('derives cancelled feature status from collaboration control', () => {
+    expect(
+      deriveFeatureUnitStatus(makeFeature({ collabControl: 'cancelled' }), [
+        'failed',
+      ]),
+    ).toBe('cancelled');
+  });
+
+  it('derives failed feature status when all frontier tasks failed', () => {
+    expect(
+      deriveFeatureUnitStatus(makeFeature({ workControl: 'executing' }), [
+        'failed',
+        'failed',
+      ]),
+    ).toBe('failed');
+  });
+
+  it('derives partially_failed feature status when some frontier tasks failed', () => {
+    expect(
+      deriveFeatureUnitStatus(makeFeature({ workControl: 'executing' }), [
+        'failed',
+        'running',
+      ]),
+    ).toBe('partially_failed');
+  });
+
+  it('keeps active feature status in_progress with an empty frontier', () => {
+    expect(
+      deriveFeatureUnitStatus(makeFeature({ workControl: 'executing' }), []),
+    ).toBe('in_progress');
+  });
+
   it('marks features done only after work_complete plus merged', () => {
     const aggregate = deriveFeatureAggregateState(
       makeFeature({ workControl: 'work_complete', collabControl: 'merged' }),
+      [],
     );
 
     expect(aggregate.isDone).toBe(true);
     expect(aggregate.status).toBe('done');
     expect(aggregate.summaryAvailability).toBe('skipped');
+  });
+
+  it('derives milestone status as done when all features are done', () => {
+    expect(deriveMilestoneUnitStatus(['done', 'done'])).toBe('done');
+  });
+
+  it('derives milestone status as in_progress when active work remains', () => {
+    expect(deriveMilestoneUnitStatus(['done', 'in_progress'])).toBe(
+      'in_progress',
+    );
+  });
+
+  it('derives milestone status as cancelled when all features are cancelled', () => {
+    expect(deriveMilestoneUnitStatus(['cancelled', 'cancelled'])).toBe(
+      'cancelled',
+    );
+  });
+
+  it('derives milestone status as failed when failures remain with no active work', () => {
+    expect(deriveMilestoneUnitStatus(['failed', 'pending'])).toBe('failed');
+  });
+
+  it('derives milestone status as partially_failed for mixed failed and active work', () => {
+    expect(deriveMilestoneUnitStatus(['failed', 'in_progress'])).toBe(
+      'partially_failed',
+    );
   });
 });

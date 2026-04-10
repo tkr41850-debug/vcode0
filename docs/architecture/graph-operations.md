@@ -15,7 +15,7 @@ See [ARCHITECTURE.md](../../ARCHITECTURE.md) for the high-level architecture ove
 | **removeDependency(fromId, toId)** | Remove a dependency edge |
 | **splitFeature(featureId, subfeatures)** | Break a feature into smaller features; redistribute work when replanning |
 | **mergeFeatures(featureIds, name)** | Combine features into one. Union of deps and tasks. Redirect incoming edges |
-| **cancelFeature(featureId, cascade?)** | Mark as cancelled. If cascade=true, cancel all transitive dependents |
+| **cancelFeature(featureId, cascade?)** | Mark as cancelled (`collabControl → cancelled`), kill all in-flight tasks immediately, and optionally cancel transitive dependents when `cascade=true` |
 | **changeMilestone(featureId, newMilestoneId)** | Reassign a feature to a different milestone without changing dependency semantics |
 | **editFeature(featureId, patch)** | Update name, description, or task list of a feature |
 | **addTask(featureId, description, deps?)** | Add a task to an existing feature |
@@ -74,6 +74,11 @@ override: among ready work, earlier queued milestones sort
 ahead of later queued milestones,
 while dependency legality and in-feature task constraints
 still apply.
+
+Work from features whose derived status is `partially_failed`
+remains runnable, but it should be deprioritized behind ready
+work from features that are not `partially_failed` while such
+work exists.
 
 Reservation-only cross-feature overlap does not hard-block
 ready work, but it does apply a heavy scheduling penalty.

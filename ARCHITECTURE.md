@@ -11,6 +11,7 @@
   - **collaboration control** tracks branch, merge, suspension, and conflict coordination
   - **run state** tracks retry windows, help/approval waits, and manual takeover on `agent_runs`
 - **Overall feature completion is merge-aware.** A feature is fully done only after collaboration control reaches `merged` and work control reaches `work_complete`.
+- **Partially failed features are deprioritized.** Frontier failures surface as derived status, and the scheduler should prefer other runnable features while non-`partially_failed` work exists.
 - **Summary availability is derived.** Post-merge summary behavior depends on lifecycle state plus the presence of summary text, rather than a second summary-status enum.
 
 ## Lifecycle Snapshot
@@ -28,6 +29,8 @@ Feature collaboration:
   none → branch_open → merge_queued → integrating → merged
                                ↓
                             conflict
+
+  branch_open / merge_queued / conflict → cancelled
 
 Task run overlay:
   ready ↔ running ↔ retry_await

@@ -3,6 +3,7 @@ export type UnitStatus =
   | 'in_progress'
   | 'done'
   | 'failed'
+  | 'partially_failed'
   | 'cancelled';
 
 export type FeatureWorkControl =
@@ -24,7 +25,8 @@ export type FeatureCollabControl =
   | 'merge_queued'
   | 'integrating'
   | 'merged'
-  | 'conflict';
+  | 'conflict'
+  | 'cancelled';
 
 export type TaskStatus =
   | 'pending'

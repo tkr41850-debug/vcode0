@@ -68,3 +68,11 @@ Capture the expected lifecycle of a feature branch and its task worktrees.
 - Then feature collaboration control becomes `merged`
 - And feature-branch cleanup happens as part of that integration outcome
 - And the feature later either runs blocking `summarizing` and writes summary text or skips summarizing and reaches `work_complete` with no summary text
+
+### Feature cancellation stops active work immediately
+- Given a feature has active in-flight task runs
+- When the user cancels that feature
+- Then feature collaboration control becomes `cancelled`
+- And all in-flight tasks for that feature are killed immediately
+- And the feature stays out of normal scheduling until it is explicitly restored
+- And restoring the feature returns collaboration control to `branch_open` when work remains or `merge_queued` when all feature work is already complete
