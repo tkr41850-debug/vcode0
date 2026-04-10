@@ -112,7 +112,7 @@ interface Feature {
   status: UnitStatus;              // derived aggregate reporting status
   workControl: FeatureWorkControl;
   collabControl: FeatureCollabControl;
-  featureBranch: string;           // e.g. feat-auth
+  featureBranch: string;           // e.g. feat-<feature-id>
   featureTestPolicy?: TestPolicy;
   mergeTrainManualPosition?: number;  // manual override bucket position when explicitly ordered
   mergeTrainEnteredAt?: number;
@@ -260,24 +260,26 @@ type RunAttention = "none" | "crashloop_backoff";
 
 The feature graph determines which features can run. Milestones are organizational / steering units: they do not unblock execution and they do not create dependency edges. A user may queue multiple milestones to steer scheduler attention. Among ready work, the scheduler first compares the queue position of each task's associated milestone; work whose milestone is not queued gets an effective queue position of infinity. Within the same milestone queue-position bucket, normal critical-path / readiness logic applies. If no milestones are queued, the scheduler runs autonomously from the global ready frontier. Within a runnable feature, all tasks with satisfied in-feature deps are dispatched in parallel.
 
+Feature IDs below are illustrative placeholders that show dependency shape only.
+
 ```
 Feature graph:
-  F-auth ──→ F-api ──→ F-ui
-                ↑
-  F-db ────────┘
+  F-<feature-a> ──→ F-<feature-b> ──→ F-<feature-c>
+                        ↑
+  F-<feature-d> ────────┘
 
-Ready frontier: [F-auth, F-db]  (no unmet feature deps)
+Ready frontier: [F-<feature-a>, F-<feature-d>]  (no unmet feature deps)
 Queued milestones: [M1, M3]
 Tuple ordering over ready work:
   1. milestoneQueuePosition(task.milestoneId)   // ∞ if not queued
   2. -criticalPathWeight(task)
   3. stable fallback
 No queued milestones: start from the global ready frontier and sort by critical path
-After F-auth + F-db done: [F-api]
-After F-api done: [F-ui]
+After F-<feature-a> + F-<feature-d> done: [F-<feature-b>]
+After F-<feature-b> done: [F-<feature-c>]
 
-Within F-auth:
-  Task 1, Task 2, Task 3  (all independent → all dispatched in parallel)
+Within F-<feature-a>:
+  Task <a>, Task <b>, Task <c>  (all independent → all dispatched in parallel)
 ```
 
 ### Git Branch Model

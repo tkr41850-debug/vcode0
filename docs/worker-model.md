@@ -51,18 +51,20 @@ the task summary as the message.
 Once feature work is complete, the merge train serializes
 feature-branch integration into `main`.
 
+The branch names and commit subjects below are illustrative placeholders.
+
 ```text
-task worktree branch (feat-auth-task-042):
-  feat: add JWT types
-  feat: implement token signing
-  fix: handle expiry edge case
-  test: add JWT unit tests
+task worktree branch (feat-<feature-id>-task-<task-id>):
+  feat: add <first incremental change>
+  feat: implement <second incremental change>
+  fix: handle <edge case>
+  test: add <targeted coverage>
          ↓ squash merge
-feat-auth:
-  feat(auth): implement JWT signing and validation [task-042]
+feat-<feature-id>:
+  feat(<feature-scope>): implement <task summary> [task-<task-id>]
          ↓ merge train
 main:
-  feat(auth): merge feat-auth
+  feat(<feature-scope>): merge feat-<feature-id>
 ```
 
 ## Feature Branch Integration

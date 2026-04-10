@@ -14,22 +14,24 @@ The UI presents two state axes:
 
 Milestones are shown as organizational / progress buckets. Users may queue multiple milestones as an ordered steering override; otherwise auto-execution stays in autonomous mode and pulls from the global ready frontier.
 
+The labels below are illustrative placeholders that show layout only, not current repo entities.
+
 ```text
 ┌──────────────────────────────────────────────────────────────┐
-│ gvc0  goal: "implement auth system"   cost: $1.23            │
+│ gvc0  goal: "<goal summary>"          cost: $1.23           │
 ├──────────────────────────────────────────────────────────────┤
-│  M1: Core Infrastructure [queue: 1]       [3/5 done]        │
-│  ├── ✓ F-db: Database schema                                   │
-│  ├── ✓ F-models: Data models                                   │
-│  ├── ⟳ F-auth: Auth middleware      [work: executing]          │
-│  │                                [collab: branch_open]        │
-│  │   ├── ✓ Task: JWT validation                                │
-│  │   ├── ⟳ Task: Session store          [branch_open]          │
-│  │   └── · Task: Middleware wiring     [ready]                 │
-│  ├── · F-api: REST endpoints         [waiting on feature deps] │
-│  └── · F-ui: Login page              [waiting on feature deps] │
-│  M2: Testing                          [0/2 done]               │
-│  └── · F-tests: Integration tests     [waiting on M1 features] │
+│  M1: <milestone-a> [queue: 1]          [3/5 done]            │
+│  ├── ✓ F-<feature-a>: <completed feature>                    │
+│  ├── ✓ F-<feature-b>: <completed feature>                    │
+│  ├── ⟳ F-<feature-c>: <active feature> [work: executing]     │
+│  │                                 [collab: branch_open]     │
+│  │   ├── ✓ Task: <completed task>                            │
+│  │   ├── ⟳ Task: <active task>        [branch_open]          │
+│  │   └── · Task: <ready task>         [ready]                │
+│  ├── · F-<feature-d>: <blocked feature> [waiting on deps]    │
+│  └── · F-<feature-e>: <blocked feature> [waiting on deps]    │
+│  M2: <milestone-b>                    [0/2 done]             │
+│  └── · F-<feature-f>: <planned feature> [waiting on M1]      │
 ├──────────────────────────────────────────────────────────────┤
 │ workers: 3 running  2 idle   tasks: 4/12 done                │
 └──────────────────────────────────────────────────────────────┘
@@ -136,14 +138,16 @@ The main DAG tree should stay progress-focused rather than showing token totals 
 
 A TUI overlay (press `m`) showing all running workers with their live output streams. Each worker's pi-sdk `progress` IPC messages are displayed in a scrollable pane. Users can select a worker and steer it in real time. These log lines are runtime-only UI state and do not need to round-trip through SQLite.
 
+The task label and file paths below are illustrative placeholders.
+
 ```text
 ┌─────────────────────────────────────────────────────┐
 │ Agent Monitor          [3 running]          [m] hide │
 ├──────────────┬──────────────────────────────────────┤
-│ > worker-1   │ Task: JWT validation                  │
+│ > worker-1   │ Task: <active task>                   │
 │   worker-2   │ ─────────────────────────────────     │
-│   worker-3   │ Reading src/auth/middleware.ts...     │
-│              │ Writing src/auth/jwt.ts...            │
+│   worker-3   │ Reading src/<area>/<input>.ts...      │
+│              │ Writing src/<area>/<output>.ts...     │
 │              │ Running: tsc --noEmit                 │
 │              │ ✓ TypeScript compiles                 │
 │              │ Calling submit...                     │
