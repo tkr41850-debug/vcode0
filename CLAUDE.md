@@ -17,11 +17,19 @@ npm run check
 # Extended verification (includes lint:ci)
 npm run verify
 
-# Run tests
+# Run all tests
 npm run test
 
-# Run tests in watch mode
+# Run all tests in watch mode
 npm run test:watch
+
+# Run only unit tests
+npm run test:unit
+npm run test:unit:watch
+
+# Run only integration tests
+npm run test:integration
+npm run test:integration:watch
 
 # Type checking
 npm run typecheck
@@ -91,10 +99,10 @@ Deferred-note directories:
 
 ## Testing
 
-Tests use Vitest and are configured to run from `test/**/*.test.ts` and `test/**/*.spec.ts`.
+Tests use Vitest and are split across `test/unit/**/*.test.ts`, `test/unit/**/*.spec.ts`, `test/integration/**/*.test.ts`, and `test/integration/**/*.spec.ts`.
 
 ### Unit Tests
-Pure logic tests with no LLM calls or child processes. Key targets:
+Executable unit tests live under `test/unit/` and cover pure logic or narrow contract surfaces with no LLM calls or child processes. Key targets:
 - DAG mutations and cycle detection
 - Critical path calculation
 - Scheduler ordering and frontier computation
@@ -102,7 +110,7 @@ Pure logic tests with no LLM calls or child processes. Key targets:
 - Graph invariant validation
 
 ### Integration Tests
-Use pi-sdk's `fauxModel` with scripted `FauxResponse` sequences to run real `Agent` loops with deterministic responses (no API calls). Test targets:
+Executable integration tests belong under `test/integration/`. Use pi-sdk's `fauxModel` with scripted `FauxResponse` sequences to run real `Agent` loops with deterministic responses (no API calls). Harness scaffolds live under `test/integration/harness/`, while shared deterministic fixtures live under `test/helpers/`. Test targets:
 - Worker submit/confirm flow
 - Feature branch lifecycle
 - Merge train integration

@@ -8,6 +8,11 @@ export default defineConfig({
     environment: 'node',
     globals: false,
     passWithNoTests: true,
-    include: ['test/**/*.test.ts', 'test/**/*.spec.ts'],
+    include: [
+      'test/unit/**/*.test.ts',
+      'test/unit/**/*.spec.ts',
+      'test/integration/**/*.test.ts',
+      'test/integration/**/*.spec.ts',
+    ],
   },
 });

@@ -109,7 +109,7 @@ All verification layers are configured as editable command lists in `.gvc0/confi
   "verification": {
     "task": {
       "checks": [
-        { "description": "Targeted unit tests", "command": "npm test -- --runInBand --findRelatedTests" },
+        { "description": "Unit test suite", "command": "npm run test:unit" },
         { "description": "Changed-file lint",    "command": "eslint" }
       ],
       "timeoutSecs": 60,

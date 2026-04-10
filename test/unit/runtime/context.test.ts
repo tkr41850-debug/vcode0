@@ -1,12 +1,11 @@
+import type { GvcConfig, TaskResumeReason, TaskSuspendReason } from '@core/types';
+import type { GitConflictContext } from '@git';
 import type {
-  ConflictSteeringContext,
-  GvcConfig,
-  TaskResumeReason,
-  TaskSuspendReason,
-} from '@core/types';
+  OrchestratorToWorkerMessage,
+  RuntimeSteeringDirective,
+} from '@runtime';
 import { WorkerContextBuilder } from '@runtime/context';
 import type { SessionHandle } from '@runtime/harness';
-import type { OrchestratorMessage } from '@runtime/ipc';
 import { ModelRouter } from '@runtime/routing';
 import { describe, expect, expectTypeOf, it } from 'vitest';
 
@@ -28,16 +27,16 @@ function makeConfig(overrides: Partial<GvcConfig> = {}): GvcConfig {
 }
 
 describe('worker context builder', () => {
-  it('keeps the documented agent handle on session handles', () => {
+  it('keeps provider-neutral live operations on session handles', () => {
     expectTypeOf<SessionHandle>().toMatchTypeOf<{
       sessionId: string;
-      agent: unknown;
       abort: () => void;
+      sendInput: (text: string) => Promise<void>;
     }>();
   });
 
   it('uses typed IPC steering and suspend/resume reasons', () => {
-    const steerContext: ConflictSteeringContext = {
+    const steerContext: GitConflictContext = {
       kind: 'same_feature_task_rebase',
       featureId: 'feature-1',
       taskId: 'task-1',
@@ -47,23 +46,34 @@ describe('worker context builder', () => {
       files: ['src/core/types/index.ts'],
     };
 
+    const steerDirective: RuntimeSteeringDirective = {
+      kind: 'conflict_steer',
+      timing: 'immediate',
+      gitConflictContext: steerContext,
+    };
     const suspendReason: TaskSuspendReason = 'same_feature_overlap';
     const resumeReason: TaskResumeReason = 'manual';
 
-    const messages: OrchestratorMessage[] = [
+    const messages: OrchestratorToWorkerMessage[] = [
       {
         type: 'steer',
         taskId: 'task-1',
-        message: 'sync recommended before submit()',
-        context: steerContext,
+        agentRunId: 'run-1',
+        directive: steerDirective,
       },
       {
         type: 'suspend',
         taskId: 'task-1',
+        agentRunId: 'run-1',
         reason: suspendReason,
         files: ['src/core/types/index.ts'],
       },
-      { type: 'resume', taskId: 'task-1', reason: resumeReason },
+      {
+        type: 'resume',
+        taskId: 'task-1',
+        agentRunId: 'run-1',
+        reason: resumeReason,
+      },
     ];
 
     expect(messages).toHaveLength(3);

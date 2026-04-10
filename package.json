@@ -17,6 +17,10 @@
     "lint:ci": "eslint \"src/**/*.ts\" \"test/**/*.ts\" \"vitest.config.ts\" --max-warnings=0 --no-error-on-unmatched-pattern --cache",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:unit": "vitest run test/unit",
+    "test:unit:watch": "vitest test/unit",
+    "test:integration": "vitest run test/integration",
+    "test:integration:watch": "vitest test/integration",
     "typecheck": "tsc --noEmit",
     "verify": "npm run check && npm run lint:ci"
   },

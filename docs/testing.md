@@ -4,13 +4,13 @@ See [ARCHITECTURE.md](../ARCHITECTURE.md) for the high-level architecture overvi
 
 ## Current Test Coverage
 
-Vitest is wired up, and the current executable tests focus on architecture contracts and state derivation rather than full worker/integration flows.
+Vitest now separates executable suites under `test/unit/` and `test/integration/`. The current executable coverage is still a small unit-focused seed suite centered on architecture contracts and state derivation rather than full worker/integration flows.
 
-Current targets:
+Current unit targets:
 
-- `test/core/state.test.ts` ↔ `src/core/state/index.ts` — summary availability, derived blocked state, feature aggregate status, and milestone status rules.
-- `test/runtime/context.test.ts` ↔ `src/runtime/context/index.ts`, `src/runtime/routing/index.ts`, `src/runtime/ipc/index.ts` — worker-context assembly, routing policy, and typed IPC message contracts.
-- `test/persistence/queries.test.ts` ↔ `src/persistence/queries/index.ts` — typed row boundaries and JSON serialization for TEXT-backed support fields.
+- `test/unit/core/state.test.ts` ↔ `src/core/state/index.ts` — summary availability, derived blocked state, feature aggregate status, and milestone status rules.
+- `test/unit/runtime/context.test.ts` ↔ `src/runtime/context/index.ts`, `src/runtime/routing/index.ts`, `src/runtime/ipc/index.ts` — worker-context assembly, routing policy, and typed IPC message contracts.
+- `test/unit/persistence/queries.test.ts` ↔ `src/persistence/queries/index.ts` — typed row boundaries and JSON serialization for TEXT-backed support fields.
 
 This is intentionally a seed suite. It validates the current contract surfaces while the broader worker/integration harness is still being scaffolded.
 
@@ -18,7 +18,7 @@ This is intentionally a seed suite. It validates the current contract surfaces w
 
 When integration tests are added, use pi-sdk's `fauxModel` with scripted `FauxResponse` sequences as the `streamFn`. That lets tests exercise real agent/tool loops with deterministic responses and no external API calls.
 
-The `test/utils/` modules are placeholder scaffolds today. They intentionally throw `new Error("Not implemented yet.")` until integration-test work begins.
+The integration harness placeholders currently live under `test/integration/harness/` and intentionally throw `new Error("Not implemented yet.")` until integration-test work begins. Shared deterministic fixture builders live under `test/helpers/`.
 
 Planned integration targets:
 
@@ -49,13 +49,16 @@ Keep `specs/test_*.md` focused on end-to-end scenarios that are likely to become
 ```text
 gvc0/
 ├── test/
-│   ├── core/
-│   ├── persistence/
-│   ├── runtime/
-│   └── utils/
-│       ├── faux-stream.ts    -- placeholder faux-provider wrapper scaffold
-│       ├── graph-builders.ts -- placeholder graph-fixture scaffold
-│       └── store-memory.ts   -- placeholder in-memory store scaffold
+│   ├── helpers/
+│   │   └── graph-builders.ts    -- shared deterministic graph/feature/task fixtures
+│   ├── integration/
+│   │   └── harness/
+│   │       ├── faux-stream.ts   -- placeholder faux-provider wrapper scaffold
+│   │       └── store-memory.ts  -- placeholder in-memory store scaffold
+│   └── unit/
+│       ├── core/
+│       ├── persistence/
+│       └── runtime/
 ```
 
-The `test/utils/` files document the intended harness shape, but they are not wired into executable tests yet.
+The `test/integration/harness/` and `test/helpers/` files document the intended harness shape, but they are not wired into executable integration tests yet.
