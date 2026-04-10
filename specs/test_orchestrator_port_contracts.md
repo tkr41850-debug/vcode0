@@ -17,7 +17,7 @@ Capture the responsibility split across the orchestrator adapter ports so orches
 - Given the orchestrator needs a feature branch, a task worktree, a task merge, a feature rebase, or overlap scan results
 - When it performs repository-facing collaboration work
 - Then those actions go through `GitPort`
-- And git-specific mechanics stay out of the scheduler and state model
+- And git-specific mechanics and git-specific contract types stay in the git-owned boundary rather than the scheduler or state model
 
 ### RuntimePort owns task process lifecycle
 - Given a task needs to dispatch, suspend, resume, abort, or stop with the rest of the runtime

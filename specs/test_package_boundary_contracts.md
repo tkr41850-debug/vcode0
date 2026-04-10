@@ -21,8 +21,14 @@ Capture the package-boundary and ownership rules across the `src/` architecture 
 ### Orchestrator coordinates through ports
 - Given the orchestrator needs persistence, git, runtime, agent, and UI capabilities
 - When orchestration logic invokes those capabilities
-- Then it does so through the port interfaces rather than importing concrete backend implementations directly
+- Then it does so through the port interfaces and adapter-owned contract types rather than importing concrete backend implementations directly
 - And orchestration keeps ownership of workflow coordination rather than adapter-specific mechanics
+
+### Adapter packages own adapter-specific contract surfaces
+- Given `@git/*`, `@runtime/*`, `@persistence/*`, and `@tui/*` expose side-effecting capabilities to the orchestrator
+- When their boundaries need result shapes, reference types, or port interfaces
+- Then those adapter-specific contracts live in the package that owns the side effect
+- And `@core/*` keeps only workflow/domain contracts that are not adapter-specific
 
 ### Agents own planning logic without becoming the runtime
 - Given `@agents/*` owns planner and replanner prompts and graph-mutation tools

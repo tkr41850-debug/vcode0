@@ -72,6 +72,12 @@ gvc0/
 └── tsconfig.json
 ```
 
+## Boundary Notes
+
+- `@core/*` owns pure workflow/domain contracts and scheduling/state rules.
+- Adapter packages (`@git/*`, `@runtime/*`, `@persistence/*`, `@tui/*`) own their side-effecting mechanics and any adapter-specific port/result/reference types.
+- `@orchestrator/*` coordinates through those adapter-owned contracts and should not depend on concrete adapter implementations.
+
 ## Documentation Entry Points
 
 - [docs/README.md](./docs/README.md) — main documentation landing page.
