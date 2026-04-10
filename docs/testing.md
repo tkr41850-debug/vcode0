@@ -2,45 +2,25 @@
 
 See [ARCHITECTURE.md](../ARCHITECTURE.md) for the high-level architecture overview and [specs/README.md](../specs/README.md) for the grouped scenario-spec index.
 
-## Unit Tests
+## Current Test Coverage
 
-Vitest unit tests cover pure orchestration logic with no LLM calls and no child processes.
+Vitest is wired up, and the current executable tests focus on architecture contracts and state derivation rather than full worker/integration flows.
 
-Key targets:
+Current targets:
 
-- `graph/feature-graph.ts` — DAG mutations, cycle detection, and frontier computation
-- `graph/critical-path.ts` — critical-path weight calculation
-- `scheduler/retry.ts` — backoff math and jitter bounds
-- `scheduler/model-router.ts` — tier selection, ceiling enforcement, and budget pressure
-- `ipc/ndjson.ts` — message framing and partial-line handling
-- graph invariant rejection (cycles, cross-feature task deps, dangling refs, illegal mutations)
-- ordered milestone steering queue vs autonomous scheduler selection
-- critical-path-first ordering within a queue bucket
-- merge-train queue ordering and state transitions
-- work control vs collaboration control type transitions
+- `test/core/state.test.ts` ↔ `src/core/state/index.ts` — summary availability, derived blocked state, feature aggregate status, and milestone status rules.
+- `test/runtime/context.test.ts` ↔ `src/runtime/context/index.ts`, `src/runtime/routing/index.ts`, `src/runtime/ipc/index.ts` — worker-context assembly, routing policy, and typed IPC message contracts.
+- `test/persistence/queries.test.ts` ↔ `src/persistence/queries/index.ts` — typed row boundaries and JSON serialization for TEXT-backed support fields.
 
-## Integration Tests: pi-sdk Faux Provider
+This is intentionally a seed suite. It validates the current contract surfaces while the broader worker/integration harness is still being scaffolded.
 
-Integration tests should use pi-sdk's `fauxModel` with scripted `FauxResponse` sequences as the `streamFn`. This runs a real `Agent` loop with real tool dispatch and deterministic responses, without external API calls.
+## Planned Integration Harness: pi-sdk Faux Provider
 
-```typescript
-import { Agent } from "@mariozechner/pi-agent-core";
-import { fauxStreamFn, fauxModel } from "../test/utils/faux-stream.js";
+When integration tests are added, use pi-sdk's `fauxModel` with scripted `FauxResponse` sequences as the `streamFn`. That lets tests exercise real agent/tool loops with deterministic responses and no external API calls.
 
-test("worker calls submit then confirm after passing preflight", async () => {
-  const agent = new Agent({
-    initialState: { model: fauxModel, tools: workerTools },
-    streamFn: fauxStreamFn([
-      { toolCalls: [{ name: "submit", args: { summary: "done", filesChanged: [] } }] },
-      { toolCalls: [{ name: "confirm", args: { summary: "done", filesChanged: [] } }] },
-      { text: "Task complete." },
-    ]),
-  });
-  await agent.prompt("Implement the feature.");
-});
-```
+The `test/utils/` modules are placeholder scaffolds today. They intentionally throw `new Error("Not implemented yet.")` until integration-test work begins.
 
-Integration test targets:
+Planned integration targets:
 
 - worker `submit()` / `confirm()` closeout flow
 - feature-branch `feature_ci` and agent-level `verifying`
@@ -69,10 +49,13 @@ Keep `specs/test_*.md` focused on end-to-end scenarios that are likely to become
 ```text
 gvc0/
 ├── test/
-│   ├── utils/
-│   │   ├── faux-stream.ts    -- fauxModel + fauxStreamFn (wraps pi-sdk faux provider)
-│   │   ├── graph-builders.ts -- helpers to build test FeatureGraphs
-│   │   └── store-memory.ts   -- in-memory Store (no SQLite needed in tests)
-│   ├── unit/
-│   └── integration/
+│   ├── core/
+│   ├── persistence/
+│   ├── runtime/
+│   └── utils/
+│       ├── faux-stream.ts    -- placeholder faux-provider wrapper scaffold
+│       ├── graph-builders.ts -- placeholder graph-fixture scaffold
+│       └── store-memory.ts   -- placeholder in-memory store scaffold
 ```
+
+The `test/utils/` files document the intended harness shape, but they are not wired into executable tests yet.
