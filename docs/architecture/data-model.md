@@ -77,6 +77,13 @@ The baseline uses typed prefixed IDs to distinguish graph unit classes at compil
 
 This keeps graph references scalar and persistence-friendly while making dependency legality and ownership relations explicit in the type surface.
 
+Containment and sibling order are child-owned in the baseline:
+- `Feature.milestoneId` + `Feature.orderInMilestone` define feature membership and order within a milestone
+- `Task.featureId` + `Task.orderInFeature` define task membership and order within a feature
+- parent collections are derived by filtering children by owner and sorting by the child order field
+
+The baseline expects relatively small sibling sets (roughly `<= 50` features per milestone and `<= 50` tasks per feature), so simple child-order rewrites are acceptable. The warning system should surface cardinality growth if that assumption stops holding.
+
 **Task** — the atomic unit of work. Executed by a single worker process. Tasks may depend only on other tasks within the same feature. Task execution progress is part of work control; branch suspension / merge coordination is part of collaboration control.
 
 ### Data Model
@@ -90,7 +97,6 @@ interface Milestone {
   id: MilestoneId;
   name: string;
   description: string;
-  featureIds: FeatureId[];         // derived membership, authoritative order only
   status: UnitStatus;              // derived aggregate status for reporting
   order: number;                   // display order only; not an execution dependency
   steeringQueuePosition?: number;  // ordered scheduler override; absent = not queued (effective ∞)
@@ -99,10 +105,10 @@ interface Milestone {
 interface Feature {
   id: FeatureId;
   milestoneId: MilestoneId;        // exactly one authoritative milestone per feature
+  orderInMilestone: number;        // authoritative sibling order within the owning milestone
   name: string;
   description: string;
   dependsOn: FeatureId[];          // feature ids only
-  taskIds: TaskId[];               // derived membership, authoritative order only
   status: UnitStatus;              // derived aggregate reporting status
   workControl: FeatureWorkControl;
   collabControl: FeatureCollabControl;
@@ -119,6 +125,7 @@ interface Feature {
 interface Task {
   id: TaskId;
   featureId: FeatureId;            // exactly one authoritative owning feature per task
+  orderInFeature: number;          // authoritative sibling order within the owning feature
   description: string;
   dependsOn: TaskId[];             // task ids within the same feature only
   status: TaskStatus;              // work-control execution status

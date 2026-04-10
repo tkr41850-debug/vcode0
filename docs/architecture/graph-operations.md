@@ -35,6 +35,7 @@ Every mutation must preserve DAG invariants:
 - **Task deps are same-feature only** — a task may depend only on tasks with the same `featureId`
 - **Typed ID namespaces** — milestone ids are `m-*`, feature ids are `f-*`, and task ids are `t-*`
 - **One milestone per feature** — milestones group features but do not alter DAG semantics
+- **Child-owned order** — `Feature.orderInMilestone` and `Task.orderInFeature` define sibling order; parent collections are derived views
 - **Referential integrity** — no dangling dependency edges
 - **Status consistency** — can't add tasks to a cancelled/done feature
 

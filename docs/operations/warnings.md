@@ -64,6 +64,18 @@ Stage 2 examples:
 - one feature pair repeatedly triggering overlap pauses
 - one feature consuming a disproportionate share of recovery work over time
 
+### Hierarchy Cardinality Warnings
+
+Hierarchy cardinality warnings capture cases where graph shape exceeds the baseline assumption that milestones and features usually own relatively small sibling sets.
+
+Stage 1 examples:
+- one milestone exceeds the expected child-feature envelope (roughly `> 50` features)
+- one feature exceeds the expected child-task envelope (roughly `> 50` tasks)
+
+Stage 2 examples:
+- one milestone's child-feature count drifts upward across recent runs
+- one feature's child-task count repeatedly grows past the expected planning envelope
+
 ## What Is Tracked
 
 ### Per Verification Check Run
@@ -93,6 +105,15 @@ For each feature, track at least:
 - merge-train re-entry count
 
 These should be available both as lifetime counts and as recent-window counts.
+
+### Current Hierarchy Cardinality Gauges
+
+Track current graph-shape gauges separately from churn counters:
+- current child-task count per feature
+- current child-feature count per milestone
+- optional recent-window max counts if trend warnings later need them
+
+These are current-size signals, not lifetime counters.
 
 ### Per Feature-Pair Overlap Signals
 

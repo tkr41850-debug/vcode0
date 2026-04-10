@@ -11,8 +11,10 @@
   - **collaboration control** tracks branch, merge, suspension, and conflict coordination
   - **run state** tracks retry windows, help/approval waits, and manual takeover on `agent_runs`
 - **Typed prefixed IDs keep graph references scalar.** Milestones use `m-${string}`, features use `f-${string}`, and tasks use `t-${string}` so dependency kind and ownership stay explicit without object-shaped references.
+- **Containment order is child-owned.** Membership stays on child foreign keys and sibling order stays on child rows rather than parent-owned id arrays.
 - **Overall feature completion is merge-aware.** A feature is fully done only after collaboration control reaches `merged` and work control reaches `work_complete`.
 - **Partially failed features are deprioritized.** Frontier failures surface as derived status, and the scheduler should prefer other runnable features while non-`partially_failed` work exists.
+- **Small sibling sets are assumed.** The baseline expects roughly `<= 50` features per milestone and `<= 50` tasks per feature; warnings should surface when that assumption drifts.
 - **Summary availability is derived.** Post-merge summary behavior depends on lifecycle state plus the presence of summary text, rather than a second summary-status enum.
 
 ## Lifecycle Snapshot
