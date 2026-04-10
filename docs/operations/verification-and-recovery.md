@@ -90,7 +90,16 @@ const confirmTool: AgentTool = {
         details: { confirmed: false },
       };
     }
-    ipc.send({ type: "result", taskId, summary: args.summary, filesChanged: args.filesChanged });
+    ipc.send({
+      type: "result",
+      taskId,
+      agentRunId,
+      result: {
+        summary: args.summary,
+        filesChanged: args.filesChanged,
+      },
+      usage,
+    });
     return {
       content: [{ type: "text", text: "Task confirmed successfully." }],
       details: { confirmed: true },
@@ -213,7 +222,9 @@ When `maxConsecutiveFailures` is reached:
 
 ## Help / Approval / Replanning
 
-Task execution runs and feature-phase runs may call `request_help(query)` when they hit a semantic blocker that is not a transient provider failure. `request_help()` pauses the run immediately, stores the query in `payload_json`, and moves the run to `await_response` with manual ownership. The TUI may either answer the request directly or attach to the live session and continue it in `running/manual` mode.
+Task execution runs and feature-phase runs may call `request_help(query)` when they hit a semantic blocker that is not a transient provider failure. `request_help()` pauses the run immediately, stores the query in `payload_json`, and moves the run to `await_response` with manual ownership. The TUI may either answer the request directly through a typed runtime help-response message or attach to the live session and continue it in `running/manual` mode.
+
+Manual drop-in interaction uses the same runtime control path: the orchestrator forwards plain-text `manual_input`, and the worker may stream plain-text `assistant_output` back while the run remains under manual ownership. Approval requests likewise stay run-owned: a worker emits `request_approval`, the orchestrator persists the waiting state on `agent_runs`, and later sends a typed `approval_decision` such as `approved`, `approve_always` when supported, `reject`, or `discuss`.
 
 Replanning is triggered manually (user presses `p` on a stuck/conflicted feature) or automatically when a feature cannot integrate cleanly after repair attempts.
 

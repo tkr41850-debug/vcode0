@@ -1,11 +1,45 @@
 import type {
-  ConflictSteeringContext,
+  DependencyOutputSummary,
   Feature,
   IntegrationQueueEntry,
   Task,
   TaskResult,
   TaskSuspendReason,
+  VerificationSummary,
 } from '@core/types/index';
+
+export interface BaseGitConflictContext {
+  featureId: string;
+  files: string[];
+  conflictedFiles?: string[];
+  dependencyOutputs?: DependencyOutputSummary[];
+  lastVerification?: VerificationSummary;
+}
+
+export interface SameFeatureTaskRebaseGitConflictContext
+  extends BaseGitConflictContext {
+  kind: 'same_feature_task_rebase';
+  taskId: string;
+  taskBranch: string;
+  rebaseTarget: string;
+  pauseReason: 'same_feature_overlap';
+  dominantTaskId?: string;
+  dominantTaskSummary?: string;
+  dominantTaskFilesChanged?: string[];
+  reservedWritePaths?: string[];
+}
+
+export interface CrossFeatureFeatureRebaseGitConflictContext
+  extends BaseGitConflictContext {
+  kind: 'cross_feature_feature_rebase';
+  blockedByFeatureId: string;
+  targetBranch: string;
+  pauseReason: 'cross_feature_overlap';
+}
+
+export type GitConflictContext =
+  | SameFeatureTaskRebaseGitConflictContext
+  | CrossFeatureFeatureRebaseGitConflictContext;
 
 export interface FeatureBranchHandle {
   featureId: string;
@@ -25,7 +59,7 @@ export interface GitOperationResult {
   ok: boolean;
   summary: string;
   conflicts?: string[];
-  conflictContext?: ConflictSteeringContext;
+  gitConflictContext?: GitConflictContext;
 }
 
 export interface TaskWorktreeRebaseOk {
@@ -43,7 +77,7 @@ export interface TaskWorktreeRebaseConflict {
   branchName: string;
   worktreePath: string;
   conflictedFiles: string[];
-  conflictContext: ConflictSteeringContext;
+  gitConflictContext: GitConflictContext;
 }
 
 export type TaskWorktreeRebaseResult =
@@ -63,7 +97,7 @@ export interface FeatureBranchRepairRequired {
   branchName: string;
   worktreePath: string;
   conflictedFiles: string[];
-  conflictContext: ConflictSteeringContext;
+  gitConflictContext: GitConflictContext;
 }
 
 export type FeatureBranchRebaseResult =

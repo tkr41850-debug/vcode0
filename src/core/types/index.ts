@@ -68,39 +68,6 @@ export interface VerificationSummary {
   failedChecks?: string[];
 }
 
-interface BaseConflictSteeringContext {
-  featureId: string;
-  files: string[];
-  conflictedFiles?: string[];
-  dependencyOutputs?: DependencyOutputSummary[];
-  lastVerification?: VerificationSummary;
-}
-
-export interface SameFeatureTaskRebaseConflictSteeringContext
-  extends BaseConflictSteeringContext {
-  kind: 'same_feature_task_rebase';
-  taskId: string;
-  taskBranch: string;
-  rebaseTarget: string;
-  pauseReason: 'same_feature_overlap';
-  dominantTaskId?: string;
-  dominantTaskSummary?: string;
-  dominantTaskFilesChanged?: string[];
-  reservedWritePaths?: string[];
-}
-
-export interface CrossFeatureFeatureRebaseConflictSteeringContext
-  extends BaseConflictSteeringContext {
-  kind: 'cross_feature_feature_rebase';
-  blockedByFeatureId: string;
-  targetBranch: string;
-  pauseReason: 'cross_feature_overlap';
-}
-
-export type ConflictSteeringContext =
-  | SameFeatureTaskRebaseConflictSteeringContext
-  | CrossFeatureFeatureRebaseConflictSteeringContext;
-
 export type AgentRunPhase =
   | 'execute'
   | 'discuss'

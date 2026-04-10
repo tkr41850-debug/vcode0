@@ -136,6 +136,7 @@ interface Task {
   result?: TaskResult;
   weight?: number;                 // estimated cost/complexity for critical path
   tokenUsage?: TokenUsageAggregate; // lifetime aggregate across retries, failures, and resumes
+  sessionId?: string;              // compatibility/task-facing session pointer; agent_runs.session_id stays authoritative
 }
 
 interface AgentRun {

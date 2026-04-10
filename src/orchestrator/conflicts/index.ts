@@ -40,21 +40,19 @@ export class ConflictCoordinator {
     await this.handleFeatureBranchRebaseResult(rebaseResult, tasks);
   }
 
-  private handleTaskWorktreeRebaseResult(
+  private async handleTaskWorktreeRebaseResult(
     result: TaskWorktreeRebaseResult,
   ): Promise<void> {
     if (result.kind === 'rebased') {
-      return this.ports.runtime.resumeTask(
-        result.taskId,
-        'same_feature_rebase',
-      );
+      await this.ports.runtime.resumeTask(result.taskId, 'same_feature_rebase');
+      return;
     }
 
-    return this.ports.runtime.steerTask(
-      result.taskId,
-      'Resolve same-feature rebase conflicts in the existing task worktree.',
-      result.conflictContext,
-    );
+    await this.ports.runtime.steerTask(result.taskId, {
+      kind: 'conflict_steer',
+      timing: 'immediate',
+      gitConflictContext: result.gitConflictContext,
+    });
   }
 
   private async handleFeatureBranchRebaseResult(
@@ -63,11 +61,11 @@ export class ConflictCoordinator {
   ): Promise<void> {
     if (result.kind === 'repair_required') {
       for (const task of tasks) {
-        await this.ports.runtime.steerTask(
-          task.id,
-          'Feature branch rebase requires integration repair before task resume.',
-          result.conflictContext,
-        );
+        await this.ports.runtime.steerTask(task.id, {
+          kind: 'conflict_steer',
+          timing: 'immediate',
+          gitConflictContext: result.gitConflictContext,
+        });
       }
 
       return;

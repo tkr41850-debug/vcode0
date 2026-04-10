@@ -6,48 +6,42 @@ Capture the session, IPC, and worker-context contracts used by the local task ru
 
 ## Scenarios
 
-### Starting a task creates a resumable session handle
+### Starting a task creates a resumable live session handle
 - Given a task is about to execute with an assembled `WorkerContext`
 - When `SessionHarness.start(task, context)` succeeds
-- Then it returns a `SessionHandle` with a `sessionId`, live agent reference, and `abort()` capability
-- And the returned handle can later be persisted for recovery
+- Then it returns a `SessionHandle` with a `sessionId`, `abort()`, and `sendInput(text)`
+- And the public handle stays provider-neutral rather than exposing a provider agent object
 
-### Resuming work uses the persisted session id
-- Given a task execution session was previously persisted
-- And the orchestrator still has the authoritative `sessionId` for that run
-- When `SessionHarness.resume(sessionId, task)` is called
-- Then the harness reconstructs a live `SessionHandle` for the same logical task run
-- And recovery continues from the persisted session pointer rather than starting unrelated new work silently
+### Resuming work uses the authoritative run session pointer
+- Given a task execution run has an authoritative `agent_runs.session_id`
+- And the runtime derives a resumable task-execution run reference from persisted run state
+- When `SessionHarness.resume(task, run)` is called
+- Then the harness returns either `resumed` with a live `SessionHandle` or `not_resumable` with a typed reason
+- And recovery continues from the persisted session pointer rather than silently starting unrelated new work
 
-### Persist records the recovery pointer before restart recovery relies on it
-- Given a live session handle exists for in-flight work
-- When the runtime persists that handle
-- Then the handle's recovery identity is stored before the orchestrator depends on restart-time resume behavior
-- And crash recovery can treat the persisted session id as authoritative input to `resume()`
-
-### Aborting a session stops live execution
+### Aborting and manual input act on the live session handle
 - Given a `SessionHandle` is still active
 - When `abort()` is invoked
 - Then the live session is told to stop
-- And the runtime can treat that handle as no longer executing normal forward progress
+- And when `sendInput(text)` is invoked the live session receives manual/operator input through the same provider-neutral handle
 
-### IPC run messages carry both task identity and worker context
+### IPC run messages carry task identity, run identity, dispatch mode, and worker context
 - Given the orchestrator dispatches work to a worker process
 - When it sends a `run` message
-- Then that message includes the `Task` payload and the assembled `WorkerContext`
-- And worker execution does not need to guess its task identity or context inputs
+- Then that message includes `taskId`, `agentRunId`, `dispatch`, `Task`, and the assembled `WorkerContext`
+- And worker execution does not need to guess task identity, run identity, or recovery mode
 
-### IPC control messages cover orchestration commands beyond initial dispatch
+### IPC control messages cover steering, suspension, resume, abort, and human responses
 - Given an already-running worker may need operator or scheduler intervention
-- When the orchestrator sends `abort`, `steer`, `suspend`, or `resume` messages
-- Then those commands travel through the `OrchestratorMessage` contract rather than ad hoc side channels
-- And the worker can distinguish cancellation, steering, suspension, and resume intent explicitly
+- When the orchestrator sends `steer`, `suspend`, `resume`, `abort`, `help_response`, `approval_decision`, or `manual_input`
+- Then those commands travel through the typed orchestrator-to-worker runtime contract rather than ad hoc side channels
+- And the worker can distinguish structured steering from human follow-up or manual drop-in input
 
-### Worker messages cover status, progress, result, error, and cost reporting
+### Worker messages cover progress, terminal result or error, and waiting requests
 - Given a worker needs to report execution back to the orchestrator
 - When it emits runtime updates
-- Then those updates use the `WorkerMessage` contract for status, progress, result, error, or cost events
-- And cost reporting carries structured provider usage rather than untyped free-form text
+- Then those updates use the worker-to-orchestrator runtime contract for `progress`, `result`, `error`, `request_help`, `request_approval`, and `assistant_output`
+- And terminal `result` / `error` messages may carry normalized runtime usage without reusing aggregate accounting types
 
 ### IPC transports provide a send, receive, and close surface
 - Given a concrete transport such as NDJSON stdio or a Unix socket is in use

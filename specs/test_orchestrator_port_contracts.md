@@ -23,7 +23,7 @@ Capture the responsibility split across the orchestrator adapter ports so orches
 - Given a task needs to dispatch, suspend, resume, abort, or stop with the rest of the runtime
 - When the orchestrator controls live task execution
 - Then it does so through `RuntimePort`
-- And runtime-dispatch options such as resume mode and session identifiers stay part of the runtime boundary
+- And runtime dispatch, steering, control, and IPC-facing contract types stay part of the runtime-owned boundary rather than the orchestrator package
 
 ### AgentPort owns feature-phase agent work
 - Given the system needs feature-level discuss, research, planning, verification, summary, or replanning work

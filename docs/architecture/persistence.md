@@ -104,7 +104,7 @@ CREATE TABLE events (
 ```
 
 The `events` table is an append-only audit log for debugging,
-progress reporting, warnings, and per-call cost audit trails.
+progress reporting, warnings, and runtime usage audit trails.
 
 The baseline keeps IDs persisted as plain `TEXT` columns in SQLite while using typed prefixed aliases in TypeScript (`m-${string}`, `f-${string}`, `t-${string}`). This preserves simple storage and joins without introducing object-shaped reference payloads.
 `milestones.display_order` stores UI ordering only,

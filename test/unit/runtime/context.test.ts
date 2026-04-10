@@ -1,4 +1,8 @@
-import type { GvcConfig, TaskResumeReason, TaskSuspendReason } from '@core/types';
+import type {
+  GvcConfig,
+  TaskResumeReason,
+  TaskSuspendReason,
+} from '@core/types';
 import type { GitConflictContext } from '@git';
 import type {
   OrchestratorToWorkerMessage,

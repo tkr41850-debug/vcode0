@@ -1,7 +1,8 @@
 import type { Task } from '@core/types/index';
 import type { WorkerContext } from '@runtime/context/index';
+import type { OrchestratorToWorkerMessage } from '@runtime/contracts';
 import type { SessionHarness } from '@runtime/harness/index';
-import type { IpcTransport, OrchestratorMessage } from '@runtime/ipc/index';
+import type { IpcTransport } from '@runtime/ipc/index';
 
 export class WorkerRuntime {
   constructor(
@@ -15,7 +16,7 @@ export class WorkerRuntime {
     return Promise.resolve();
   }
 
-  handleMessage(_message: OrchestratorMessage): void {
+  handleMessage(_message: OrchestratorToWorkerMessage): void {
     void this.transport;
   }
 }

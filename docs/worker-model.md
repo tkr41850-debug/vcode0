@@ -110,71 +110,137 @@ acknowledgments, and explicit backpressure handling are deferred.
 See [Feature Candidate: Advanced IPC Guarantees](./feature-candidates/advanced-ipc-guarantees.md).
 
 ```typescript
-// Worker → Orchestrator
-type WorkerMessage =
-  | {
-      type: "status";
-      taskId: string;
-      status: TaskStatus; // task work-control only; retry/help/approval stay on agent_runs
-    }
-  | { type: "progress"; taskId: string; message: string }
-  | { type: "result"; taskId: string; summary: string; filesChanged: string[] }
-  | { type: "error"; taskId: string; error: string }
-  | { type: "cost"; taskId: string; usage: ProviderUsage }
+type TaskRuntimeDispatch =
+  | { mode: "start"; agentRunId: string }
+  | { mode: "resume"; agentRunId: string; sessionId: string };
 
-interface ProviderUsage {
-  provider: string;                // anthropic, openai, google, ...
+type RuntimeSteeringDirective =
+  | { kind: "sync_recommended"; timing: "next_checkpoint" | "immediate" }
+  | { kind: "sync_required"; timing: "next_checkpoint" | "immediate" }
+  | {
+      kind: "conflict_steer";
+      timing: "next_checkpoint" | "immediate";
+      gitConflictContext: GitConflictContext;
+    };
+
+interface RuntimeUsageDelta {
+  provider: string;
   model: string;
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens?: number;
   cacheWriteTokens?: number;
-  reasoningTokens?: number;        // exposed separately by some providers/models
+  reasoningTokens?: number;
   audioInputTokens?: number;
   audioOutputTokens?: number;
   totalTokens: number;
   usd: number;
-  rawUsage?: unknown;              // provider response for audit / future fields
+  rawUsage?: unknown;
 }
 
+type ApprovalDecision =
+  | { kind: "approved" }
+  | { kind: "approve_always" }
+  | { kind: "reject"; comment?: string }
+  | { kind: "discuss" };
+
+type HelpResponse =
+  | { kind: "answer"; text: string }
+  | { kind: "discuss" };
+
+// Worker → Orchestrator
+type WorkerToOrchestratorMessage =
+  | { type: "progress"; taskId: string; agentRunId: string; message: string }
+  | {
+      type: "result";
+      taskId: string;
+      agentRunId: string;
+      result: TaskResult;
+      usage: RuntimeUsageDelta;
+    }
+  | {
+      type: "error";
+      taskId: string;
+      agentRunId: string;
+      error: string;
+      usage?: RuntimeUsageDelta;
+    }
+  | { type: "request_help"; taskId: string; agentRunId: string; query: string }
+  | {
+      type: "request_approval";
+      taskId: string;
+      agentRunId: string;
+      payloadJson: string;
+    }
+  | {
+      type: "assistant_output";
+      taskId: string;
+      agentRunId: string;
+      text: string;
+    };
+
 // Orchestrator → Worker
-type OrchestratorMessage =
-  | { type: "run"; task: Task; context: WorkerContext }
-  | { type: "abort"; taskId: string }
+type OrchestratorToWorkerMessage =
+  | {
+      type: "run";
+      taskId: string;
+      agentRunId: string;
+      dispatch: TaskRuntimeDispatch;
+      task: Task;
+      context: WorkerContext;
+    }
   | {
       type: "steer";
       taskId: string;
-      message: string;
-      context?: ConflictSteeringContext;
+      agentRunId: string;
+      directive: RuntimeSteeringDirective;
     }
   | {
       type: "suspend";
       taskId: string;
+      agentRunId: string;
       reason: "same_feature_overlap" | "cross_feature_overlap";
       files: string[];
     }
   | {
       type: "resume";
       taskId: string;
+      agentRunId: string;
       reason: "same_feature_rebase" | "cross_feature_rebase" | "manual";
     }
+  | { type: "abort"; taskId: string; agentRunId: string }
+  | {
+      type: "help_response";
+      taskId: string;
+      agentRunId: string;
+      response: HelpResponse;
+    }
+  | {
+      type: "approval_decision";
+      taskId: string;
+      agentRunId: string;
+      decision: ApprovalDecision;
+    }
+  | { type: "manual_input"; taskId: string; agentRunId: string; text: string };
 ```
 
-The `suspend` / `resume` messages are a
-**same-feature collaboration-control** mechanism.
-Cross-feature overlap uses a separate feature-pair protocol:
-reservation overlap applies only a scheduling penalty,
-while runtime overlap pauses the secondary feature's affected tasks,
-waits for the primary feature to land,
-then rebases and resumes the secondary side.
+The `suspend` / `resume` messages are a general
+**collaboration-control** mechanism.
+Same-feature overlap and cross-feature overlap both use them for live
+runtime coordination.
+The task-scoped `resume` control path is only for live in-memory worker
+state; authoritative restart recovery goes back through `run` with
+`dispatch.mode = "resume"` plus the persisted `sessionId`.
 If a task rebase cannot be auto-resolved with `ort` merge or similar,
 the orchestrator keeps the task in `conflict`
-collaboration control and uses `steer` to inject the exact
-conflict context instead of resetting files.
-`cost` messages are emitted after each provider call and should be
-treated as append-only accounting inputs;
-retries and failed attempts still count toward task and feature
-lifetime usage.
+collaboration control and uses a typed steering directive to inject the
+exact git conflict context instead of resetting files.
+Worker wait-state reporting stays semantic and explicit:
+`request_help`, `request_approval`, and `assistant_output` report live
+interaction needs, while `help_response`, `approval_decision`, and
+`manual_input` carry operator responses back into the worker.
+Terminal `result` / `error` messages may include a runtime-owned usage
+delta for that attempt.
 This transport does not carry extra task enums for retry/help/approval;
 those remain execution-run concerns on `agent_runs`, while task status
 stays coarse and `blocked` remains derived in the UI.
@@ -185,8 +251,8 @@ for the recommendation/required-sync/escalation ladder.
 
 ```typescript
 interface IpcTransport {
-  send(msg: OrchestratorMessage): void;
-  onMessage(handler: (msg: WorkerMessage) => void): void;
+  send(msg: OrchestratorToWorkerMessage): void;
+  onMessage(handler: (msg: WorkerToOrchestratorMessage) => void): void;
   close(): void;
 }
 
@@ -194,7 +260,11 @@ class NdjsonStdioTransport implements IpcTransport { /* ... */ }
 class UnixSocketTransport implements IpcTransport { /* ... */ }
 ```
 
-Default is `NdjsonStdioTransport`. Can swap to `UnixSocketTransport` if stdio latency becomes a bottleneck.
+Default is `NdjsonStdioTransport`.
+The message shapes stay transport-agnostic rather than stdio-specific,
+so a future migration to a network transport is tractable without
+redesigning the runtime seam.
+See [Feature Candidate: Distributed Runtime](./feature-candidates/distributed-runtime.md).
 
 ## Context Strategy: Configurable (default: shared read-only summary)
 
@@ -319,19 +389,25 @@ plus pi-sdk's tool/model contracts,
 not on provider-specific session details.
 
 ```typescript
+interface SessionHandle {
+  sessionId: string;
+  abort(): void;
+  sendInput(text: string): Promise<void>;
+}
+
+type ResumeSessionResult =
+  | { kind: "resumed"; handle: SessionHandle }
+  | {
+      kind: "not_resumable";
+      sessionId: string;
+      reason: "session_not_found" | "path_mismatch" | "unsupported_by_harness";
+    };
+
 interface SessionHarness {
   /** Start a new session for a task */
   start(task: Task, context: WorkerContext): Promise<SessionHandle>;
-  /** Resume an existing session by stored ID */
-  resume(sessionId: string, task: Task): Promise<SessionHandle>;
-  /** Persist session state for crash recovery */
-  persist(handle: SessionHandle): Promise<void>;
-}
-
-interface SessionHandle {
-  sessionId: string;
-  agent: Agent;
-  abort(): void;
+  /** Resume from authoritative persisted run/session state */
+  resume(task: Task, run: ResumableTaskExecutionRunRef): Promise<ResumeSessionResult>;
 }
 
 // Baseline implementation
@@ -348,6 +424,9 @@ for execution runs.
 If a separate session service is ever introduced,
 it may map those IDs onto provider-specific underlying sessions
 without changing the main task schema.
+Runtime live control remains task-scoped at the orchestrator seam,
+while the runtime internally maps live task execution to
+`agentRunId` / `sessionId` state.
 On startup:
 
 ```typescript
@@ -356,7 +435,11 @@ async function recoverOrphanedTasks(store: Store, pool: WorkerPool) {
   for (const run of orphaned) {
     if (run.sessionId) {
       // Resume from saved session, rebasing onto current feature branch HEAD first
-      pool.dispatch(run.scopeId, { resume: true, sessionId: run.sessionId });
+      await pool.dispatchTask(task, {
+        mode: "resume",
+        agentRunId: run.id,
+        sessionId: run.sessionId,
+      });
     } else {
       // No resumable session — reset to ready for a fresh run
       await store.updateAgentRun(run.id, { runStatus: "ready", owner: "system" });

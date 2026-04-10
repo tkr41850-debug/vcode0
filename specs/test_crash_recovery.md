@@ -8,14 +8,14 @@ Capture restart behavior when work is in flight.
 
 ### Running task with session resumes
 - Given the orchestrator restarts while a task is `running`
-- And the task has a stored `session_id`
+- And the task execution run has a stored `agent_runs.session_id`
 - When recovery runs
-- Then the task resumes through `SessionHarness.resume()`
+- Then the task resumes through resume dispatch plus `SessionHarness.resume()`
 - And its worktree rebases onto the current feature branch HEAD first
 
 ### Running task without session resets
 - Given the orchestrator restarts while a task is `running`
-- And the task has no stored `session_id`
+- And the task execution run has no stored `agent_runs.session_id`
 - When recovery runs
 - Then the run resets to `ready`
 - And `owner` becomes `system`

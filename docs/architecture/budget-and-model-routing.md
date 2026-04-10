@@ -4,7 +4,7 @@ See [ARCHITECTURE.md](../../ARCHITECTURE.md) for the high-level architecture ove
 
 ## Budget
 
-Configurable per-task and global USD ceilings. Workers report token usage via IPC after each LLM call; the orchestrator normalizes provider-specific usage into a shared shape, accumulates lifetime totals per task and feature, and enforces limits from real USD spend. Production provider calls should stay behind pi-sdk's model/stream interface, and gvc0 should consume pi-sdk's cost/usage reporting rather than inventing a second accounting path.
+Configurable per-task and global USD ceilings. The current runtime contract allows workers to report normalized runtime usage through IPC on terminal result/error reporting; the orchestrator accumulates lifetime totals per task and feature and enforces limits from real USD spend. Production provider calls should stay behind pi-sdk's model/stream interface, and gvc0 should consume pi-sdk's cost/usage reporting rather than inventing a second accounting path.
 
 Normalized usage fields:
 - `provider`, `model`
@@ -32,7 +32,7 @@ Provider notes:
 ```
 
 ```typescript
-// Orchestrator checks after each cost IPC message
+// Orchestrator checks after each terminal runtime usage report
 function checkBudget(state: BudgetState, config: BudgetConfig): BudgetAction {
   if (state.totalUsd >= config.globalUsd) return "halt";
   if (state.totalUsd >= config.globalUsd * config.warnAtPercent / 100) return "warn";

@@ -20,6 +20,11 @@ Surface upstream updates early enough that agents can sync before stale assumpti
 4. **conflict steer** — inject exact conflict context after automatic reconciliation fails
 5. **halted / no progress** — if repair stalls, escalate to targeted repair work, replanning, or user intervention
 
+Runtime delivery models that ladder with a typed steering directive:
+- `sync_recommended` with `timing: 'next_checkpoint' | 'immediate'`
+- `sync_required` with `timing: 'next_checkpoint' | 'immediate'`
+- `conflict_steer` with `timing: 'next_checkpoint' | 'immediate'` plus git-owned conflict detail
+
 ### Update Available
 
 Use for low-risk awareness only:

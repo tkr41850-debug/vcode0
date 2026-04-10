@@ -17,19 +17,20 @@ Capture the sync recommendation ladder and conflict steering behavior before and
 - Given upstream changes intersect a task's reserved write paths
 - And no active edited-path overlap is known yet
 - When the task reaches a stable checkpoint such as end-of-turn or pre-submit
-- Then the orchestrator injects a sync recommendation
+- Then the orchestrator injects a `sync_recommended` steering directive
 - And the task may choose to sync before continuing
 
 ### Active-path overlap requires sync before continued execution
 - Given upstream changes intersect paths the task has already edited or currently locks
 - When the orchestrator reaches the next enforcement checkpoint
 - Then it pauses or redirects the task into sync work before normal execution continues
+- And the runtime steering boundary represents that intent as `sync_required`
 
 ### Same-feature rebase conflict steers the existing task in the conflicted worktree
 - Given a same-feature rebase cannot be auto-resolved with `ort` merge or similar
 - When the orchestrator escalates from required sync to conflict steering
 - Then it preserves the conflicted worktree state
-- And it steers the existing task agent with concrete conflict context
+- And it steers the existing task agent with concrete git conflict context
 - And it does not destructively reset files
 
 ### Cross-feature runtime overlap coordinates execution before repair
