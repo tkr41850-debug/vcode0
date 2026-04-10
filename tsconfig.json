@@ -24,6 +24,7 @@
         "src/orchestrator/*/index.ts",
         "src/orchestrator/*"
       ],
+      "@agents": ["src/agents/index.ts"],
       "@agents/*": ["src/agents/*.ts", "src/agents/*/index.ts", "src/agents/*"],
       "@runtime/*": [
         "src/runtime/*.ts",

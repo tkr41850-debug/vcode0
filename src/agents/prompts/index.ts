@@ -11,11 +11,6 @@ export interface PromptTemplate {
   render(input: Record<string, unknown>): string;
 }
 
-export class PromptLibrary {
-  get(name: PromptTemplateName): PromptTemplate {
-    return {
-      name,
-      render: () => '',
-    };
-  }
+export interface PromptLibrary {
+  get(name: PromptTemplateName): PromptTemplate;
 }

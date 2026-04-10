@@ -1,3 +1,4 @@
+import type { AgentPort } from '@agents';
 import type { GraphSnapshot } from '@core/graph/index';
 import type {
   AgentRun,
@@ -44,15 +45,6 @@ export interface RuntimePort {
   resumeTask(taskId: string, reason: TaskResumeReason): Promise<void>;
   abortTask(taskId: string): Promise<void>;
   stopAll(): Promise<void>;
-}
-
-export interface AgentPort {
-  discussFeature(feature: Feature): Promise<void>;
-  researchFeature(feature: Feature): Promise<void>;
-  planFeature(feature: Feature): Promise<void>;
-  verifyFeature(feature: Feature): Promise<void>;
-  summarizeFeature(feature: Feature): Promise<void>;
-  replanFeature(feature: Feature, reason: string): Promise<void>;
 }
 
 export interface UiPort {
