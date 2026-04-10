@@ -54,7 +54,7 @@ feature-branch integration into `main`.
 The branch names and commit subjects below are illustrative placeholders.
 
 ```text
-task worktree branch (feat-<feature-id>-task-<task-id>):
+task branch in its task worktree (feat-<feature-id>-task-<task-id>):
   feat: add <first incremental change>
   feat: implement <second incremental change>
   fix: handle <edge case>
@@ -88,7 +88,7 @@ Each feature owns exactly one long-lived integration branch.
    `merge_queued`.
 6. The merge train rebases the feature branch onto the latest
    `main`, runs merge-train verification, and either merges or
-   removes the feature from the queue for same-branch repair.
+   removes the feature from the merge train for same-branch repair.
 7. After collaboration control reaches `merged`,
    the feature normally runs blocking `summarizing`
    and then reaches `work_complete`;

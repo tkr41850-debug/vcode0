@@ -80,7 +80,7 @@ Action:
 
 - preserve real collaboration conflict state
 - for same-feature task conflicts, steer the existing task agent in the real conflicted worktree
-- for cross-feature integration failures, remove the feature from the merge queue and create or steer repair work on the same feature branch
+- for cross-feature integration failures, remove the feature from the merge train and create or steer repair work on the same feature branch
 - keep `await_response` reserved for actual human-help/manual-takeover cases rather than normal agent-directed repair
 
 ## Coordination Protocols
@@ -109,8 +109,8 @@ Before runtime overlap handling kicks in, the planner reserves expected edit pat
 
 When the dominant task completes its work:
 
-1. Merge its task worktree branch into the feature branch.
-2. Rebase each suspended worktree branch onto the updated feature branch.
+1. Merge its task branch into the feature branch.
+2. Rebase each suspended task branch onto the updated feature branch.
 3. If rebase resolves cleanly, optionally run a cheap sanity check such as `git diff --check`, then resume.
 4. If rebase does not resolve cleanly, do not reset files and do not auto-pick `ours` / `theirs`; keep task collaboration control at `conflict` and inject exact conflict context.
 5. Only resume the child process after the agent has the updated or conflicted context.

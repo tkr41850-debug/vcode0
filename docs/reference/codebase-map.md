@@ -1,6 +1,8 @@
 # Codebase Map
 
-This page points to the code-local README files under `src/`. Use them when you already know which subsystem you are editing and want the nearest boundary description.
+This page points to the code-local README files under `src/`. Use it when you already know which subsystem you are editing and want the nearest boundary description.
+
+This docs page is separate from the generated `CODEBASE.md` artifact described in [Knowledge Files](./knowledge-files.md).
 
 Start with [ARCHITECTURE.md](../../ARCHITECTURE.md) for the system-wide map, then jump to the source-area README that matches the code you are touching.
 

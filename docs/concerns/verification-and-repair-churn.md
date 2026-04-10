@@ -2,7 +2,7 @@
 
 ## Concern
 
-The baseline execution path includes several expensive gates: task submit checks, feature CI, agent-level spec verification, and merge-train verification after rebase. Failures can loop back into repair work and rerun those gates.
+The baseline execution path includes several expensive gates: task submit checks, feature CI, agent-level spec review in `verifying`, and merge-train verification after rebase. Failures can loop back into repair work and rerun those gates.
 
 ## Why to Watch
 

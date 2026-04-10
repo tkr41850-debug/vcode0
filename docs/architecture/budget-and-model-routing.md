@@ -50,7 +50,7 @@ Each task type is assigned a complexity tier. The router selects the best-fit mo
 |---|---|---|
 | **heavy** | planning, replanning, roadmap reassessment | Opus-class |
 | **standard** | task execution, research, feature CI | Sonnet-class |
-| **light** | spec verification, completion summaries, codebase map generation | Haiku-class |
+| **light** | `verifying`, completion summaries, `CODEBASE.md` generation | Haiku-class |
 
 ```typescript
 type RoutingTier = "heavy" | "standard" | "light";
@@ -96,6 +96,6 @@ A single config knob that coordinates model selection, context compression, and 
 Context inline levels per profile:
 - **minimal** — task description + essential prior summaries only
 - **standard** — task plan + prior summaries + slice plan + roadmap excerpt
-- **full** — everything: plans, summaries, decisions register, KNOWLEDGE.md, codebase map
+- **full** — everything: plans, summaries, decisions register, `KNOWLEDGE.md`, and `CODEBASE.md`
 
 Token profiles set default context posture, but explicit worker-context assembly lives under the `context` section in `.gvc0/config.json` (see [Worker Model](../worker-model.md)). In other words: token profile picks the default compression level, while `context.defaults` and `context.stages[...]` control the actual inclusion/strategy knobs.

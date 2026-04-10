@@ -4,7 +4,7 @@ See [ARCHITECTURE.md](../../ARCHITECTURE.md) for the high-level architecture ove
 
 ## Work Unit Hierarchy: Milestone → Feature → Task
 
-```
+```text
 Milestone (organizational / progress unit)
 ├── Feature A
 │   ├── Task 1
@@ -42,7 +42,7 @@ structural or repeated failure → replanning
 - **executing** — tasks dispatch to workers in parallel per the feature-local DAG frontier. The feature branch may be red during `executing`.
 - **feature_ci** — heavy branch-level verification after the last task or repair task lands. By default the feature branch should be green before leaving `feature_ci` and entering `verifying`, though a loose feature-level policy may relax that boundary.
 - **verifying** — agent-level review that checks whether the feature branch actually satisfies the feature spec, not just whether CI passes.
-- **awaiting_merge** — local implementation and spec review are complete; the feature is waiting for collaboration control to carry it through the merge queue and integration into `main`.
+- **awaiting_merge** — local implementation and spec review are complete; the feature is waiting for collaboration control to carry it through merge-train integration into `main`.
 - **summarizing** — after collaboration control reaches `merged`, a `light`-tier model writes a feature summary for downstream context injection. While this phase is active and the feature has no summary text yet, summary availability is treated as waiting.
 - **executing_repair** — repair tasks appended on the same feature branch after `feature_ci`, `verifying`, or integration repair finds issues. This is still part of execution, and the branch may remain red here.
 - **replanning** — recovery phase entered after repeated work failures, repeated unresolved same-feature conflict handling, or a structural integration mismatch.
@@ -52,7 +52,7 @@ structural or repeated failure → replanning
 
 Collaboration control tracks how the feature coordinates with branches, the merge train, and shared files.
 
-```
+```text
 none → branch_open → merge_queued → integrating → merged
                              ↓
                           conflict
@@ -61,8 +61,8 @@ branch_open / merge_queued / conflict → cancelled
 ```
 
 - **none** — feature branch not opened yet.
-- **branch_open** — feature branch / feature worktree exists as the integration surface; tasks may merge into it.
-- **merge_queued** — feature is waiting in the serialized integration queue.
+- **branch_open** — feature branch and feature worktree exist as the integration surface; tasks may merge into the feature branch.
+- **merge_queued** — feature is waiting in the integration queue.
 - **integrating** — feature branch is rebasing / running merge-train verification against the latest `main`.
 - **merged** — feature branch landed on `main` and is cleaned up.
 - **conflict** — feature-level collaboration issue blocks normal progress. While a feature is in `conflict`, suspend all non-repair task runs for that feature until the conflict is cleared.
@@ -262,7 +262,7 @@ The feature graph determines which features can run. Milestones are organization
 
 Feature IDs below are illustrative placeholders that show dependency shape only.
 
-```
+```text
 Feature graph:
   F-<feature-a> ──→ F-<feature-b> ──→ F-<feature-c>
                         ↑

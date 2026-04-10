@@ -43,7 +43,7 @@ Baseline state rules:
 
 Retry state persists in SQLite so retries survive orchestrator restarts.
 
-## Verification: Task Submit vs Feature CI vs Feature Verify vs Merge Train
+## Verification: Task Submit vs Feature CI vs `verifying` vs Merge Train
 
 Task completion is a two-step closeout. Workers first call `submit()` to run light task-local preflight checks and receive structured failure feedback when those checks do not pass. If `submit()` reaches an acceptable result for the task's policy, the worker performs a quick final review and then calls `confirm()` to terminate the session and merge the task branch into the feature branch. Feature-level heavy CI runs later on the feature branch in `feature_ci`, followed by agent-level spec review in `verifying`, and finally merge-train verification after rebasing onto the latest `main`.
 
@@ -139,7 +139,7 @@ All verification layers are configured as editable command lists in `.gvc0/confi
 
 Task checks run in the task's worktree and are intentionally light/local. They may be loose enough to support workflows like red-test-first TDD, but `submit()` must still return concrete failed checks so the agent sees what remains. Feature checks run in the feature branch during `feature_ci` and are the heavy branch-level gate before spec review. `verifying` is an agent-level review that checks whether the feature branch meets the feature spec. Merge-train checks run again after rebasing the feature branch onto the latest `main`, and provide final landing confidence. Verification commands should run through the same Node.js child-process execution layer used elsewhere in the orchestrator, while git rebases/merges continue to use `simple-git`, so stdout+stderr can be captured and included in the failure message fed back to the agent. Timeouts are configurable per verification layer; the 60s / 600s values shown above are only baseline examples for local-machine workflows. Support for substantially longer-running verification windows is deferred. See [Feature Candidate: Long Verification Timeouts](../feature-candidates/long-verification-timeouts.md). Slow-check warnings and feature-churn warnings are described in [Warnings](./warnings.md). Upstream sync recommendation and conflict escalation behavior are described in [Conflict Coordination](./conflict-coordination.md).
 
-### Feature CI and Spec-Review Outcome
+### Feature CI and `verifying` Outcomes
 
 A feature reaches `feature_ci` after the last task or repair task lands on the feature branch. By default the branch should be green before the feature may leave `feature_ci` and enter `verifying`, though a loose feature policy may relax that boundary.
 
@@ -155,7 +155,7 @@ If `verifying` finds that the code does not satisfy the feature spec:
 3. The orchestrator adds a repair task to fix the reported spec gaps.
 4. Return to `feature_ci` after the repair task lands.
 
-## Integration Queue
+## Merge Train
 
 Task completion does not land work on `main` directly. Instead:
 1. The task calls `confirm()` and merges into the feature branch.
@@ -185,7 +185,7 @@ When a same-feature task enters collaboration-control `conflict` after auto-reba
 ### Cross-Feature Integration Conflict
 
 When feature integration fails at rebase or merge-train verification:
-1. Set feature collaboration control to `conflict` and remove the feature from the merge queue.
+1. Set feature collaboration control to `conflict` and remove the feature from the merge train.
 2. Suspend all non-repair task runs for that feature while the feature remains in `conflict`.
 3. The orchestrator creates repair work on the same feature branch and moves feature work control to `executing_repair`.
 4. Once repair lands, rerun the normal `feature_ci -> verifying` path on that feature branch.

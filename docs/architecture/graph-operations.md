@@ -25,7 +25,7 @@ See [ARCHITECTURE.md](../../ARCHITECTURE.md) for the high-level architecture ove
 | **queueMilestone(milestoneId)** | Append a milestone to the scheduler steering queue |
 | **dequeueMilestone(milestoneId)** | Remove a milestone from the scheduler steering queue |
 | **clearQueuedMilestones()** | Clear milestone steering and return to autonomous scheduling |
-| **enqueueFeatureMerge(featureId)** | Add a completed feature branch to the serialized integration queue |
+| **enqueueFeatureMerge(featureId)** | Add a completed feature branch to the integration queue |
 
 ### Validation
 
@@ -178,7 +178,7 @@ premature feature split.
 
 ## Collaboration Control: Merge Train
 
-Completed feature branches do not merge directly to `main`. Instead, they enter a serialized integration queue.
+Completed feature branches do not merge directly to `main`. Instead, they enter the integration queue for the merge train.
 
 ```typescript
 interface IntegrationQueueEntry {

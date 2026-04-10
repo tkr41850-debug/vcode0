@@ -53,14 +53,14 @@ Stage 2 examples:
 Feature churn warnings capture repeated recovery loops that indicate poor decomposition, integration hotspots, or thrashing.
 
 Stage 1 examples:
-- multiple feature-verification failures on the same feature
+- multiple `verifying` failures on the same feature
 - multiple merge-train verification failures / queue ejections
 - repeated integration repair tasks on the same feature
 - a feature blocked behind another feature for more than 8 hours
 - repeated stuck-task incidents or replanning on the same feature
 
 Stage 2 examples:
-- one feature repeatedly cycling between merge queue and repair
+- one feature repeatedly cycling between the merge train and repair
 - one feature pair repeatedly triggering overlap pauses
 - one feature consuming a disproportionate share of recovery work over time
 

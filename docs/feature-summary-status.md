@@ -1,5 +1,5 @@
 # Feature Summary Status
 
-This page has been folded into the core architecture docs.
+This page has been consolidated.
 
-Use [Architecture / Data Model](./architecture/data-model.md) for the canonical summary-availability model, and [Operations / Verification and Recovery](./operations/verification-and-recovery.md) for the post-merge lifecycle.
+Use [Architecture / Data Model](./architecture/data-model.md) for the canonical summary-availability model, and [Operations / Verification and Recovery](./operations/verification-and-recovery.md) for the canonical post-merge lifecycle.

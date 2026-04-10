@@ -20,7 +20,7 @@ The main difference is that our **feature** is not just a planning unit; it is a
 | Autonomous long-running execution | Yes | Covered by scheduler loop, worker pool, retries, crash recovery, and merge train. |
 | Step mode / one-unit-at-a-time review | Partial | We have TUI + steering, but no explicitly documented `next one unit then pause` mode yet. |
 | Fresh context per task | Yes | `WorkerContext` + codebase/knowledge/decision injection covers this. |
-| Context engineering / decisions register | Yes | `.gvc0/CODEBASE.md`, `KNOWLEDGE.md`, and `DECISIONS.md`. |
+| Context engineering / decisions register | Yes | `CODEBASE.md`, `KNOWLEDGE.md`, and `DECISIONS.md`. |
 | Git isolation | Yes, stronger | gsd-2 exposes milestone worktrees/branches; we use feature branches plus task worktrees and a merge train. |
 | Verification enforcement | Yes, stronger layering | We separate task, feature, and merge-train verification. |
 | Auto-fix retry loops | Yes | Task submit failures stay in the agent loop; feature/merge verification failures create repair work. |
