@@ -19,11 +19,10 @@ export interface StoreGraphState {
   tasks: Task[];
 }
 
-export interface DependencyEdge {
-  fromId: FeatureId | TaskId;
-  toId: FeatureId | TaskId;
-  depType: 'feature' | 'task';
-}
+/** Dependency edge: fromId depends on toId (toId must complete before fromId). */
+export type DependencyEdge =
+  | { depType: 'feature'; fromId: FeatureId; toId: FeatureId }
+  | { depType: 'task'; fromId: TaskId; toId: TaskId };
 
 export interface StoreRecoveryState extends StoreGraphState {
   agentRuns: AgentRun[];
@@ -63,12 +62,36 @@ export interface Store {
   listAgentRuns(query?: AgentRunQuery): Promise<AgentRun[]>;
   listEvents(query?: EventQuery): Promise<EventRecord[]>;
 
-  // Entity mutations
-  updateMilestone(id: MilestoneId, patch: Partial<Milestone>): Promise<void>;
-  updateFeature(id: FeatureId, patch: Partial<Feature>): Promise<void>;
-  updateTask(id: TaskId, patch: Partial<Task>): Promise<void>;
+  // Entity mutations (identity and FSM-controlled fields excluded from patches)
+  updateMilestone(
+    id: MilestoneId,
+    patch: Partial<Omit<Milestone, 'id'>>,
+  ): Promise<void>;
+  updateFeature(
+    id: FeatureId,
+    patch: Partial<
+      Omit<
+        Feature,
+        | 'id'
+        | 'milestoneId'
+        | 'dependsOn'
+        | 'status'
+        | 'workControl'
+        | 'collabControl'
+      >
+    >,
+  ): Promise<void>;
+  updateTask(
+    id: TaskId,
+    patch: Partial<
+      Omit<Task, 'id' | 'featureId' | 'dependsOn' | 'status' | 'collabControl'>
+    >,
+  ): Promise<void>;
   createAgentRun(run: AgentRun): Promise<void>;
-  updateAgentRun(runId: string, patch: Partial<AgentRun>): Promise<void>;
+  updateAgentRun(
+    runId: string,
+    patch: Partial<Omit<AgentRun, 'id' | 'scopeType' | 'scopeId'>>,
+  ): Promise<void>;
 
   // Dependencies
   listDependencies(): Promise<DependencyEdge[]>;

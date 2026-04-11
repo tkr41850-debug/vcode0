@@ -68,15 +68,36 @@ export class SqliteStore implements Store {
     return Promise.resolve([]);
   }
 
-  updateMilestone(_id: MilestoneId, _patch: Partial<Milestone>): Promise<void> {
+  updateMilestone(
+    _id: MilestoneId,
+    _patch: Partial<Omit<Milestone, 'id'>>,
+  ): Promise<void> {
     return Promise.resolve();
   }
 
-  updateFeature(_id: FeatureId, _patch: Partial<Feature>): Promise<void> {
+  updateFeature(
+    _id: FeatureId,
+    _patch: Partial<
+      Omit<
+        Feature,
+        | 'id'
+        | 'milestoneId'
+        | 'dependsOn'
+        | 'status'
+        | 'workControl'
+        | 'collabControl'
+      >
+    >,
+  ): Promise<void> {
     return Promise.resolve();
   }
 
-  updateTask(_id: TaskId, _patch: Partial<Task>): Promise<void> {
+  updateTask(
+    _id: TaskId,
+    _patch: Partial<
+      Omit<Task, 'id' | 'featureId' | 'dependsOn' | 'status' | 'collabControl'>
+    >,
+  ): Promise<void> {
     return Promise.resolve();
   }
 
@@ -84,7 +105,10 @@ export class SqliteStore implements Store {
     return Promise.resolve();
   }
 
-  updateAgentRun(_runId: string, _patch: Partial<AgentRun>): Promise<void> {
+  updateAgentRun(
+    _runId: string,
+    _patch: Partial<Omit<AgentRun, 'id' | 'scopeType' | 'scopeId'>>,
+  ): Promise<void> {
     return Promise.resolve();
   }
 
