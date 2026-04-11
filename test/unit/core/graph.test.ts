@@ -1289,4 +1289,29 @@ describe('InMemoryFeatureGraph', () => {
       GraphValidationError,
     );
   });
+
+  // ── Snapshot ─────────────────────────────────────────────────────────
+
+  it('snapshot returns all milestones, features, and tasks', () => {
+    const g = createGraphWithTask();
+
+    const snap = g.snapshot();
+
+    expect(snap.milestones).toHaveLength(1);
+    expect(snap.milestones[0]!.id).toBe('m-1');
+    expect(snap.features).toHaveLength(1);
+    expect(snap.features[0]!.id).toBe('f-1');
+    expect(snap.tasks).toHaveLength(1);
+    expect(snap.tasks[0]!.id).toBe('t-1');
+  });
+
+  it('snapshot returns defensive copies', () => {
+    const g = createGraphWithMilestone();
+
+    const snap1 = g.snapshot();
+    snap1.milestones.push(createMilestoneFixture({ id: 'm-extra' }));
+
+    const snap2 = g.snapshot();
+    expect(snap2.milestones).toHaveLength(1);
+  });
 });

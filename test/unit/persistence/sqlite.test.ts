@@ -545,4 +545,173 @@ describe('SqliteStore', () => {
       );
     });
   });
+
+  it('close() prevents further database operations', async () => {
+    await withTestStore(async (store) => {
+      await store.saveGraphState({
+        milestones: [createMilestoneFixture({ id: 'm-1' })],
+        features: [],
+        tasks: [],
+      });
+      store.close();
+      // After close, the underlying db handle is dead — any operation should throw
+      await expect(store.listMilestones()).rejects.toThrow();
+    });
+  });
+
+  it('updateMilestone patches individual fields', async () => {
+    await withTestStore(async (store) => {
+      const milestone = createMilestoneFixture({
+        id: 'm-1',
+        name: 'Original',
+        status: 'pending',
+        order: 0,
+      });
+      await store.saveGraphState({
+        milestones: [milestone],
+        features: [],
+        tasks: [],
+      });
+
+      await store.updateMilestone('m-1', { name: 'Updated', status: 'done' });
+
+      const result = await store.getMilestone('m-1');
+      expect(result).toBeDefined();
+      expect(result!.name).toBe('Updated');
+      expect(result!.status).toBe('done');
+      // Unpatched fields remain
+      expect(result!.order).toBe(0);
+    });
+  });
+
+  it('updateMilestone with empty patch is a no-op', async () => {
+    await withTestStore(async (store) => {
+      const milestone = createMilestoneFixture({ id: 'm-1', name: 'Orig' });
+      await store.saveGraphState({
+        milestones: [milestone],
+        features: [],
+        tasks: [],
+      });
+
+      await store.updateMilestone('m-1', {});
+
+      const result = await store.getMilestone('m-1');
+      expect(result!.name).toBe('Orig');
+    });
+  });
+
+  it('updateFeature patches individual fields', async () => {
+    await withTestStore(async (store) => {
+      const feature = createFeatureFixture({
+        id: 'f-1',
+        milestoneId: 'm-1',
+        name: 'Original',
+        featureBranch: 'feat-f-1',
+        orderInMilestone: 1,
+      });
+      await store.saveGraphState({
+        milestones: [createMilestoneFixture({ id: 'm-1' })],
+        features: [feature],
+        tasks: [],
+      });
+
+      await store.updateFeature('f-1', {
+        name: 'Updated',
+        featureBranch: 'feat-f-1-v2',
+        mergeTrainManualPosition: 5,
+      });
+
+      const result = await store.getFeature('f-1');
+      expect(result).toBeDefined();
+      expect(result!.name).toBe('Updated');
+      expect(result!.featureBranch).toBe('feat-f-1-v2');
+      expect(result!.mergeTrainManualPosition).toBe(5);
+      // Unpatched fields remain
+      expect(result!.orderInMilestone).toBe(1);
+    });
+  });
+
+  it('updateFeature with empty patch is a no-op', async () => {
+    await withTestStore(async (store) => {
+      const feature = createFeatureFixture({
+        id: 'f-1',
+        milestoneId: 'm-1',
+        name: 'Orig',
+        featureBranch: 'feat-f-1',
+      });
+      await store.saveGraphState({
+        milestones: [createMilestoneFixture({ id: 'm-1' })],
+        features: [feature],
+        tasks: [],
+      });
+
+      await store.updateFeature('f-1', {});
+
+      const result = await store.getFeature('f-1');
+      expect(result!.name).toBe('Orig');
+    });
+  });
+
+  it('updateTask patches individual fields', async () => {
+    await withTestStore(async (store) => {
+      const task = createTaskFixture({
+        id: 't-1',
+        featureId: 'f-1',
+        description: 'Original',
+        weight: 'small',
+        orderInFeature: 1,
+      });
+      await store.saveGraphState({
+        milestones: [createMilestoneFixture({ id: 'm-1' })],
+        features: [
+          createFeatureFixture({
+            id: 'f-1',
+            milestoneId: 'm-1',
+            featureBranch: 'feat-f-1',
+          }),
+        ],
+        tasks: [task],
+      });
+
+      await store.updateTask('t-1', {
+        description: 'Updated',
+        weight: 'heavy',
+        workerId: 'worker-99',
+      });
+
+      const result = await store.getTask('t-1');
+      expect(result).toBeDefined();
+      expect(result!.description).toBe('Updated');
+      expect(result!.weight).toBe('heavy');
+      expect(result!.workerId).toBe('worker-99');
+      // Unpatched fields remain
+      expect(result!.orderInFeature).toBe(1);
+    });
+  });
+
+  it('updateTask with empty patch is a no-op', async () => {
+    await withTestStore(async (store) => {
+      const task = createTaskFixture({
+        id: 't-1',
+        featureId: 'f-1',
+        description: 'Orig',
+      });
+      await store.saveGraphState({
+        milestones: [createMilestoneFixture({ id: 'm-1' })],
+        features: [
+          createFeatureFixture({
+            id: 'f-1',
+            milestoneId: 'm-1',
+            featureBranch: 'feat-f-1',
+          }),
+        ],
+        tasks: [task],
+      });
+
+      await store.updateTask('t-1', {});
+
+      const result = await store.getTask('t-1');
+      expect(result!.description).toBe('Orig');
+    });
+  });
 });

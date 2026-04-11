@@ -66,4 +66,45 @@ describe('PromptLibrary', () => {
     expect(rendered).toContain('task t-3 failed after 3 retries');
     expect(typeof rendered).toBe('string');
   });
+
+  it('renders a research prompt with feature context', () => {
+    const library = createPromptLibrary();
+    const template = library.get('research');
+
+    const rendered = template.render({
+      featureName: 'Cache layer',
+      featureDescription: 'Add Redis caching',
+    });
+
+    expect(rendered).toContain('Cache layer');
+    expect(rendered).toContain('Add Redis caching');
+  });
+
+  it('renders a verify prompt with feature name', () => {
+    const library = createPromptLibrary();
+    const template = library.get('verify');
+
+    const rendered = template.render({ featureName: 'Auth system' });
+
+    expect(rendered).toContain('Auth system');
+    expect(rendered).toContain('Verify');
+  });
+
+  it('renders a summarize prompt with feature name', () => {
+    const library = createPromptLibrary();
+    const template = library.get('summarize');
+
+    const rendered = template.render({ featureName: 'Payment flow' });
+
+    expect(rendered).toContain('Payment flow');
+    expect(rendered).toContain('Summarize');
+  });
+
+  it('throws for an unknown template name', () => {
+    const library = createPromptLibrary();
+
+    expect(() => library.get('nonexistent' as PromptTemplateName)).toThrow(
+      /unknown prompt template/i,
+    );
+  });
 });

@@ -149,6 +149,57 @@ describe('VerificationService', () => {
     expect(result.failedChecks).toBeDefined();
     expect(result.failedChecks!.length).toBeGreaterThan(0);
   });
+
+  it('stops at first failure when continueOnFail is false', async () => {
+    const ports = createMockPorts({
+      config: createMinimalConfig({
+        verification: {
+          feature: {
+            checks: [
+              { description: 'lint', command: 'false' },
+              { description: 'test', command: 'false' },
+            ],
+            timeoutSecs: 10,
+            continueOnFail: false,
+          },
+        },
+      }),
+    });
+    const service = new VerificationService(ports);
+    const feature = createFeatureFixture({ id: 'f-1' });
+
+    const result = await service.verifyFeature(feature);
+
+    expect(result.ok).toBe(false);
+    // Should stop after first failure
+    expect(result.failedChecks).toHaveLength(1);
+    expect(result.failedChecks![0]).toBe('lint');
+  });
+
+  it('collects all failures when continueOnFail is true', async () => {
+    const ports = createMockPorts({
+      config: createMinimalConfig({
+        verification: {
+          feature: {
+            checks: [
+              { description: 'lint', command: 'false' },
+              { description: 'test', command: 'false' },
+            ],
+            timeoutSecs: 10,
+            continueOnFail: true,
+          },
+        },
+      }),
+    });
+    const service = new VerificationService(ports);
+    const feature = createFeatureFixture({ id: 'f-1' });
+
+    const result = await service.verifyFeature(feature);
+
+    expect(result.ok).toBe(false);
+    expect(result.failedChecks).toHaveLength(2);
+    expect(result.failedChecks).toEqual(['lint', 'test']);
+  });
 });
 
 describe('BudgetService', () => {
