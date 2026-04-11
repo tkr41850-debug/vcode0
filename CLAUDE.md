@@ -58,8 +58,8 @@ This is a single root TypeScript package (not a monorepo) with architectural bou
 ### Execution Model
 
 - **Process-per-task**: Each task spawns a dedicated child process running a pi-sdk `Agent` in an isolated git worktree
-- **Feature branches**: Each feature owns one long-lived integration branch (`feat-<feature-id>`)
-- **Task worktrees**: Tasks run in worktrees (`feat-<feature-id>-task-<task-id>`) that branch from the feature branch
+- **Feature branches**: Each feature owns one long-lived integration branch (`feat-<name>-<feature-id>`)
+- **Task worktrees**: Tasks run in worktrees (`feat-<name>-<feature-id>-<task-id>`) that branch from the feature branch
 - **Squash merge**: Task worktrees squash-merge back into the feature branch on completion
 - **Merge train**: Feature branches serialize integration into `main` through a merge queue
 - **IPC**: Workers communicate via NDJSON over stdio (swappable transport)

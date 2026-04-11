@@ -20,7 +20,7 @@ function makeFeature(overrides: Partial<Feature> = {}): Feature {
     status: 'pending',
     workControl: 'summarizing',
     collabControl: 'none',
-    featureBranch: 'feat-feature-1',
+    featureBranch: 'feat-feature-feature-1',
     ...overrides,
   };
 }

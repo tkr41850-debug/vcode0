@@ -33,7 +33,7 @@ export function createFeatureFixture(
     status: 'pending',
     workControl: 'discussing',
     collabControl: 'none',
-    featureBranch: 'feat-f-1',
+    featureBranch: 'feat-feature-1-1',
     ...overrides,
   };
 }

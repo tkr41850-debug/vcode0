@@ -71,7 +71,7 @@ describe('InMemoryFeatureGraph', () => {
     expect(f.status).toBe('pending');
     expect(f.workControl).toBe('discussing');
     expect(f.collabControl).toBe('none');
-    expect(f.featureBranch).toBe('feat-f-1');
+    expect(f.featureBranch).toBe('feat-feature-1-1');
     expect(f.dependsOn).toEqual([]);
     expect(f.orderInMilestone).toBe(0);
     expect(g.features.get('f-1')).toEqual(f);
@@ -904,42 +904,41 @@ describe('InMemoryFeatureGraph', () => {
     expect(() => g.reweight('t-999', 'small')).toThrow(GraphValidationError);
   });
 
-  // ── Lifecycle transitions (Phase 5) ───────────────────────────────
+  // ── FSM-validated transitions ─────────────────────────────────────
 
-  it('advanceTaskStatus transitions pending to ready', () => {
+  it('transitionTask advances status pending to ready', () => {
     const g = createGraphWithTask();
 
-    g.advanceTaskStatus('t-1');
+    g.transitionTask('t-1', { status: 'ready' });
     expect(g.tasks.get('t-1')?.status).toBe('ready');
-
-    // Also verify explicit `to` parameter works
-    const g2 = createGraphWithTask();
-    g2.advanceTaskStatus('t-1', 'ready');
-    expect(g2.tasks.get('t-1')?.status).toBe('ready');
   });
 
-  it('advanceTaskStatus rejects invalid transition', () => {
+  it('transitionTask rejects invalid status transition', () => {
     const g = createGraphWithTask();
 
     // pending -> done is not valid
-    expect(() => g.advanceTaskStatus('t-1', 'done')).toThrow(
+    expect(() => g.transitionTask('t-1', { status: 'done' })).toThrow(
       GraphValidationError,
     );
   });
 
-  it('advanceTaskCollab transitions none to branch_open', () => {
+  it('transitionTask advances collabControl none to branch_open', () => {
     const g = createGraphWithTask();
 
-    g.advanceTaskCollab('t-1');
+    g.transitionTask('t-1', { collabControl: 'branch_open' });
 
     expect(g.tasks.get('t-1')?.collabControl).toBe('branch_open');
   });
 
-  it('completeTask sets status done and collabControl merged', () => {
+  it('transitionTask completes task with done + merged + result', () => {
     const g = createGraphWithTask();
     updateTask(g, 't-1', { status: 'running', collabControl: 'branch_open' });
 
-    g.completeTask('t-1', { summary: 'done', filesChanged: [] });
+    g.transitionTask('t-1', {
+      status: 'done',
+      collabControl: 'merged',
+      result: { summary: 'done', filesChanged: [] },
+    });
 
     expect(g.tasks.get('t-1')?.status).toBe('done');
     expect(g.tasks.get('t-1')?.collabControl).toBe('merged');
@@ -949,74 +948,130 @@ describe('InMemoryFeatureGraph', () => {
     });
   });
 
-  it('suspendTask sets collabControl to suspended', () => {
+  it('transitionTask rejects completing a cancelled task', () => {
     const g = createGraphWithTask();
-    updateTask(g, 't-1', { collabControl: 'branch_open' });
+    updateTask(g, 't-1', { status: 'cancelled' });
 
-    g.suspendTask('t-1', 'same_feature_overlap', ['file.ts']);
+    expect(() =>
+      g.transitionTask('t-1', { status: 'done', collabControl: 'merged' }),
+    ).toThrow(GraphValidationError);
+  });
+
+  it('transitionTask suspends a running task with reason and files', () => {
+    const g = createGraphWithTask();
+    updateTask(g, 't-1', {
+      status: 'running',
+      collabControl: 'branch_open',
+    });
+
+    g.transitionTask('t-1', {
+      collabControl: 'suspended',
+      suspendReason: 'same_feature_overlap',
+      suspendedAt: 1000,
+      suspendedFiles: ['file.ts'],
+    });
 
     expect(g.tasks.get('t-1')?.collabControl).toBe('suspended');
     expect(g.tasks.get('t-1')?.suspendReason).toBe('same_feature_overlap');
+    expect(g.tasks.get('t-1')?.suspendedAt).toBe(1000);
     expect(g.tasks.get('t-1')?.suspendedFiles).toEqual(['file.ts']);
   });
 
-  it('resumeTask sets collabControl back to branch_open', () => {
+  it('transitionTask rejects suspending a non-running task', () => {
     const g = createGraphWithTask();
-    updateTask(g, 't-1', {
-      collabControl: 'suspended',
-      suspendReason: 'same_feature_overlap',
-    });
+    updateTask(g, 't-1', { collabControl: 'branch_open' });
 
-    g.resumeTask('t-1');
-
-    expect(g.tasks.get('t-1')?.collabControl).toBe('branch_open');
+    expect(() =>
+      g.transitionTask('t-1', { collabControl: 'suspended' }),
+    ).toThrow(GraphValidationError);
   });
 
-  it('advanceWorkControl transitions discussing to researching', () => {
+  it('transitionTask resumes and clears suspend fields', () => {
+    const g = createGraphWithTask();
+    updateTask(g, 't-1', {
+      status: 'running',
+      collabControl: 'suspended',
+      suspendReason: 'same_feature_overlap',
+      suspendedAt: 1000,
+      suspendedFiles: ['file.ts'],
+    });
+
+    g.transitionTask('t-1', { collabControl: 'branch_open' });
+
+    expect(g.tasks.get('t-1')?.collabControl).toBe('branch_open');
+    expect(g.tasks.get('t-1')?.suspendReason).toBeUndefined();
+    expect(g.tasks.get('t-1')?.suspendedAt).toBeUndefined();
+    expect(g.tasks.get('t-1')?.suspendedFiles).toBeUndefined();
+  });
+
+  it('transitionFeature advances discussing to researching', () => {
     const g = createGraphWithFeature();
     updateFeature(g, 'f-1', { status: 'done', collabControl: 'branch_open' });
 
-    g.advanceWorkControl('f-1');
+    g.transitionFeature('f-1', {
+      workControl: 'researching',
+      status: 'pending',
+    });
 
     expect(g.features.get('f-1')?.workControl).toBe('researching');
+    expect(g.features.get('f-1')?.status).toBe('pending');
   });
 
-  it('advanceWorkControl rejects invalid transition', () => {
+  it('transitionFeature rejects invalid work transition', () => {
     const g = createGraphWithFeature();
 
-    // discussing -> feature_ci is invalid
-    expect(() => g.advanceWorkControl('f-1', 'feature_ci')).toThrow(
-      GraphValidationError,
-    );
+    // discussing -> feature_ci is invalid (requires status=done for advance)
+    expect(() =>
+      g.transitionFeature('f-1', {
+        workControl: 'feature_ci',
+        status: 'pending',
+      }),
+    ).toThrow(GraphValidationError);
   });
 
-  it('advanceWorkControl blocks feature_ci when collabControl is cancelled', () => {
+  it('transitionFeature blocks when collabControl is cancelled', () => {
     const g = createGraphWithFeature();
     updateFeature(g, 'f-1', {
       workControl: 'executing',
       collabControl: 'cancelled',
     });
 
-    expect(() => g.advanceWorkControl('f-1', 'feature_ci')).toThrow(
-      GraphValidationError,
-    );
+    expect(() =>
+      g.transitionFeature('f-1', {
+        workControl: 'feature_ci',
+        status: 'pending',
+      }),
+    ).toThrow(GraphValidationError);
   });
 
-  it('advanceCollabControl transitions none to branch_open', () => {
+  it('transitionFeature advances collabControl none to branch_open', () => {
     const g = createGraphWithFeature();
 
-    g.advanceCollabControl('f-1');
+    g.transitionFeature('f-1', { collabControl: 'branch_open' });
 
     expect(g.features.get('f-1')?.collabControl).toBe('branch_open');
   });
 
-  it('advanceCollabControl rejects merge_queued unless workControl is awaiting_merge', () => {
+  it('transitionFeature rejects merge_queued unless workControl is awaiting_merge', () => {
     const g = createGraphWithFeature();
     updateFeature(g, 'f-1', { collabControl: 'branch_open' });
 
     // workControl is still 'discussing', not 'awaiting_merge'
-    expect(() => g.advanceCollabControl('f-1', 'merge_queued')).toThrow(
-      GraphValidationError,
-    );
+    expect(() =>
+      g.transitionFeature('f-1', { collabControl: 'merge_queued' }),
+    ).toThrow(GraphValidationError);
+  });
+
+  it('transitionFeature enforces status reset on phase advance', () => {
+    const g = createGraphWithFeature();
+    updateFeature(g, 'f-1', { status: 'done', collabControl: 'branch_open' });
+
+    // Phase advance without resetting status to pending should fail
+    expect(() =>
+      g.transitionFeature('f-1', {
+        workControl: 'researching',
+        status: 'done',
+      }),
+    ).toThrow(GraphValidationError);
   });
 });

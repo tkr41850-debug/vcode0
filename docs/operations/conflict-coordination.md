@@ -161,7 +161,7 @@ Cross-feature overlap is handled more conservatively than same-feature file lock
 1. Detect an overlap incident between two features using normalized project-root-relative file paths.
 2. The `ConflictCoordinator` receives the overlap incident and both features, applies the cross-feature priority policy (below) to choose **primary** and **secondary**.
 3. Add a runtime feature dependency: `addDependency(secondary, primary)`. This blocks all secondary feature work through the existing DAG scheduling — `readyFeatures()` will not return the secondary until the primary completes.
-4. Suspend all running secondary tasks via `suspendTask()`, transitioning task collab to `suspended` with `suspend_reason = "cross_feature_overlap"` and `blocked_by_feature_id = <primary feature id>`.
+4. Suspend all running secondary tasks via `transitionTask()`, transitioning task collab to `suspended` with `suspend_reason = "cross_feature_overlap"` and `blocked_by_feature_id = <primary feature id>`.
 5. Release active path locks for suspended tasks; reservations remain as planning metadata.
 6. Let the primary feature continue normally.
 7. If the secondary feature stays blocked for too long (`Date.now() - task.suspendedAt > threshold`), raise a warning via the existing warnings framework.

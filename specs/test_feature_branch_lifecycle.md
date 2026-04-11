@@ -9,14 +9,14 @@ Capture the expected lifecycle of a feature branch and its task worktrees.
 ### Feature branch opens when requested
 - Given a feature whose feature dependencies are satisfied
 - When the orchestrator requests a feature branch for that feature
-- Then it creates `feat-<feature-id>` from the current `main`
+- Then it creates `feat-<name>-<feature-id>` from the current `main`
 - And opens the feature worktree
 - And feature collaboration control becomes `branch_open`
 
 ### Task worktree branches from feature branch
 - Given a feature with an open feature branch
 - When a task is dispatched
-- Then its worktree branch `feat-<feature-id>-task-<task-id>` is created from the current HEAD of the feature branch
+- Then its worktree branch `feat-<name>-<feature-id>-<task-id>` is created from the current HEAD of the feature branch
 - And task collaboration control becomes `branch_open`
 
 ### Task dispatch creates an execution run

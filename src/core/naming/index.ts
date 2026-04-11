@@ -10,14 +10,29 @@ function stripTaskPrefix(taskId: TaskId): string {
   return taskId.slice(2);
 }
 
-/** Canonical feature-branch name: `feat-<id>` (without the `f-` prefix). */
-export function featureBranchName(featureId: FeatureId): string {
-  return `feat-${stripFeaturePrefix(featureId)}`;
+/** Slugify a name for use in branch names: lowercase, non-alphanumeric → hyphens, trimmed. */
+function slugify(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
 }
 
-/** Canonical task-worktree branch name: `feat-<featureId>-task-<taskId>` (prefixes stripped). */
-export function taskBranchName(featureId: FeatureId, taskId: TaskId): string {
-  return `feat-${stripFeaturePrefix(featureId)}-task-${stripTaskPrefix(taskId)}`;
+/** Canonical feature-branch name: `feat-<slugified-name>-<id>` (f- prefix stripped). */
+export function featureBranchName(
+  featureId: FeatureId,
+  featureName: string,
+): string {
+  return `feat-${slugify(featureName)}-${stripFeaturePrefix(featureId)}`;
+}
+
+/** Canonical task-worktree branch name: `feat-<slugified-name>-<featId>-<taskId>` (prefixes stripped). */
+export function taskBranchName(
+  featureId: FeatureId,
+  featureName: string,
+  taskId: TaskId,
+): string {
+  return `feat-${slugify(featureName)}-${stripFeaturePrefix(featureId)}-${stripTaskPrefix(taskId)}`;
 }
 
 /** Canonical worktree path for a given branch name. */

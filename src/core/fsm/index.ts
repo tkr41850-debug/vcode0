@@ -144,10 +144,10 @@ export function validateFeatureWorkTransition(
     return { valid: true };
   }
 
-  // Replan succeeded → re-execute
+  // Replan succeeded → re-plan or re-execute
   if (
     current === 'replanning' &&
-    proposed === 'executing' &&
+    (proposed === 'planning' || proposed === 'executing') &&
     status === 'done'
   ) {
     return { valid: true };
@@ -437,6 +437,50 @@ export function validateTaskCollabTransition(
       valid: false,
       reason: `illegal task collab transition: ${current} → ${proposed}`,
     };
+  }
+
+  return { valid: true };
+}
+
+// ── Task composite guard ───────────────────────────────────────────────
+
+export interface TaskStatePair {
+  status: TaskStatus;
+  collabControl: TaskCollabControl;
+}
+
+/**
+ * Validates a full task state-pair transition. Checks each changed axis
+ * in order: status first, then collab (using proposed status for collab
+ * validation so multi-axis transitions like done+merged work correctly).
+ */
+export function validateTaskTransition(
+  current: TaskStatePair,
+  proposed: TaskStatePair,
+): TransitionResult {
+  const statusChanged = current.status !== proposed.status;
+  const collabChanged = current.collabControl !== proposed.collabControl;
+
+  if (!statusChanged && !collabChanged) {
+    return { valid: false, reason: 'no-op: nothing changed' };
+  }
+
+  if (statusChanged) {
+    const result = validateTaskStatusTransition(
+      current.status,
+      proposed.status,
+      current.collabControl,
+    );
+    if (!result.valid) return result;
+  }
+
+  if (collabChanged) {
+    const result = validateTaskCollabTransition(
+      current.collabControl,
+      proposed.collabControl,
+      proposed.status,
+    );
+    if (!result.valid) return result;
   }
 
   return { valid: true };

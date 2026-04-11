@@ -83,6 +83,17 @@ describe('validateFeatureWorkTransition', () => {
     ).toEqual({ valid: true });
   });
 
+  it('replan succeeded → planning', () => {
+    expect(
+      validateFeatureWorkTransition(
+        'replanning',
+        'planning',
+        'done',
+        'branch_open',
+      ),
+    ).toEqual({ valid: true });
+  });
+
   it('rejects no-op transition', () => {
     expectRejected(
       validateFeatureWorkTransition(

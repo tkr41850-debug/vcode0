@@ -44,8 +44,8 @@ describe('worker context builder', () => {
       kind: 'same_feature_task_rebase',
       featureId: 'f-feature-1',
       taskId: 't-task-1',
-      taskBranch: 'feat-feature-1-task-1',
-      rebaseTarget: 'feat-feature-1',
+      taskBranch: 'feat-feature-feature-1-task-1',
+      rebaseTarget: 'feat-feature-feature-1',
       pauseReason: 'same_feature_overlap',
       files: ['src/core/types/index.ts'],
     };

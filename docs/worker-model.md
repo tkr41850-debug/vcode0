@@ -24,19 +24,19 @@ so only files being actively edited hold runtime ownership.
 
 ```text
 main
-└── feat-<feature-id>
-    ├── Worker 1 (worktree: .gvc0/worktrees/feat-<feature-id>-task-<task-id-a>/)
+└── feat-<name>-<feature-id>
+    ├── Worker 1 (worktree: .gvc0/worktrees/feat-<name>-<feature-id>-<task-id-a>/)
     │   └── pi-sdk Agent → executes first runnable task
-    ├── Worker 2 (worktree: .gvc0/worktrees/feat-<feature-id>-task-<task-id-b>/)
+    ├── Worker 2 (worktree: .gvc0/worktrees/feat-<name>-<feature-id>-<task-id-b>/)
     │   └── pi-sdk Agent → executes second runnable task
-    └── Worker 3 (worktree: .gvc0/worktrees/feat-<feature-id>-task-<task-id-c>/)
+    └── Worker 3 (worktree: .gvc0/worktrees/feat-<name>-<feature-id>-<task-id-c>/)
         └── pi-sdk Agent → executes third runnable task
 ```
 
 - **Max concurrency**: configurable (default: CPU count or provider rate limit, whichever is lower)
 - **Worktree lifecycle**: created on dispatch from the
   feature branch, using the same basename as the task branch
-  (`feat-<feature-id>-task-<task-id>`), squash-merged back into
+  (`feat-<name>-<feature-id>-<task-id>`), squash-merged back into
   the feature branch on success, and retained until the owning
   feature lands on `main` or garbage collection snapshots and
   removes the stale worktree
@@ -54,17 +54,17 @@ feature-branch integration into `main`.
 The branch names and commit subjects below are illustrative placeholders.
 
 ```text
-task branch in its task worktree (feat-<feature-id>-task-<task-id>):
+task branch in its task worktree (feat-<name>-<feature-id>-<task-id>):
   feat: add <first incremental change>
   feat: implement <second incremental change>
   fix: handle <edge case>
   test: add <targeted coverage>
          ↓ squash merge
-feat-<feature-id>:
+feat-<name>-<feature-id>:
   feat(<feature-scope>): implement <task summary> [task-<task-id>]
          ↓ merge train
 main:
-  feat(<feature-scope>): merge feat-<feature-id>
+  feat(<feature-scope>): merge feat-<name>-<feature-id>
 ```
 
 ## Feature Branch Integration
@@ -72,13 +72,13 @@ main:
 Each feature owns exactly one long-lived integration branch.
 
 1. When a feature branch is requested, the orchestrator creates
-   `feat-<feature-id>` from the current `main`
+   `feat-<name>-<feature-id>` from the current `main`
    and opens its feature worktree.
 2. Task worktrees use branch names
-   `feat-<feature-id>-task-<task-id>` and branch from the current
-   HEAD of `feat-<feature-id>`.
+   `feat-<name>-<feature-id>-<task-id>` and branch from the current
+   HEAD of `feat-<name>-<feature-id>`.
 3. Task completion is finalized by `confirm()`,
-   which merges into `feat-<feature-id>` after `submit()`
+   which merges into `feat-<name>-<feature-id>` after `submit()`
    preflight has passed.
 4. After the last task or repair task lands, the feature runs
    `feature_ci` on the feature branch,

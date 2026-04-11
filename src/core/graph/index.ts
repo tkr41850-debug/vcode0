@@ -1,9 +1,9 @@
+import type { FeatureStateTriple } from '@core/fsm/index';
 import {
-  validateFeatureCollabTransition,
-  validateFeatureWorkTransition,
-  validateTaskCollabTransition,
-  validateTaskStatusTransition,
+  validateFeatureTransition,
+  validateTaskTransition,
 } from '@core/fsm/index';
+import { featureBranchName } from '@core/naming/index';
 import type {
   Feature,
   FeatureCollabControl,
@@ -18,50 +18,8 @@ import type {
   TaskStatus,
   TaskSuspendReason,
   TaskWeight,
+  UnitStatus,
 } from '@core/types/index';
-
-// Auto-advance maps: graph-level policy for happy-path successor when `to` is omitted.
-// The FSM validates; these decide where to go.
-const TASK_STATUS_AUTO: ReadonlyMap<TaskStatus, TaskStatus> = new Map([
-  ['pending', 'ready'],
-  ['ready', 'running'],
-  // 'running' has no auto — use completeTask()
-]);
-
-const TASK_COLLAB_AUTO: ReadonlyMap<TaskCollabControl, TaskCollabControl> =
-  new Map([
-    ['none', 'branch_open'],
-    ['suspended', 'branch_open'],
-    ['conflict', 'branch_open'],
-    // 'branch_open' has no auto — merged via completeTask()
-  ]);
-
-const FEATURE_WORK_AUTO: ReadonlyMap<FeatureWorkControl, FeatureWorkControl> =
-  new Map([
-    ['discussing', 'researching'],
-    ['researching', 'planning'],
-    ['planning', 'executing'],
-    ['executing', 'feature_ci'],
-    ['feature_ci', 'verifying'],
-    ['verifying', 'awaiting_merge'],
-    ['awaiting_merge', 'summarizing'],
-    ['summarizing', 'work_complete'],
-    ['executing_repair', 'feature_ci'],
-    ['replanning', 'planning'],
-    // 'work_complete' is terminal
-  ]);
-
-const FEATURE_COLLAB_AUTO: ReadonlyMap<
-  FeatureCollabControl,
-  FeatureCollabControl
-> = new Map([
-  ['none', 'branch_open'],
-  ['branch_open', 'merge_queued'],
-  ['merge_queued', 'integrating'],
-  ['integrating', 'merged'],
-  ['conflict', 'branch_open'],
-  // 'merged', 'cancelled' are terminal
-]);
 
 export interface CreateMilestoneOptions {
   id: MilestoneId;
@@ -126,6 +84,21 @@ export interface GraphSnapshot {
   tasks: Task[];
 }
 
+export interface FeatureTransitionPatch {
+  workControl?: FeatureWorkControl;
+  status?: UnitStatus;
+  collabControl?: FeatureCollabControl;
+}
+
+export interface TaskTransitionPatch {
+  status?: TaskStatus;
+  collabControl?: TaskCollabControl;
+  result?: TaskResult;
+  suspendReason?: TaskSuspendReason;
+  suspendedAt?: number;
+  suspendedFiles?: string[];
+}
+
 export class GraphValidationError extends Error {
   constructor(message: string) {
     super(message);
@@ -165,22 +138,10 @@ export interface FeatureGraph {
   queueMilestone(milestoneId: MilestoneId): void;
   dequeueMilestone(milestoneId: MilestoneId): void;
   clearQueuedMilestones(): void;
-  enqueueFeatureMerge(featureId: FeatureId): void;
 
-  // Task lifecycle transitions
-  advanceTaskStatus(taskId: TaskId, to?: TaskStatus): void;
-  advanceTaskCollab(taskId: TaskId, to?: TaskCollabControl): void;
-  completeTask(taskId: TaskId, result: TaskResult): void;
-  suspendTask(
-    taskId: TaskId,
-    reason: TaskSuspendReason,
-    files?: string[],
-  ): void;
-  resumeTask(taskId: TaskId): void;
-
-  // Feature lifecycle transitions
-  advanceWorkControl(featureId: FeatureId, to?: FeatureWorkControl): void;
-  advanceCollabControl(featureId: FeatureId, to?: FeatureCollabControl): void;
+  // FSM-validated transitions
+  transitionFeature(featureId: FeatureId, patch: FeatureTransitionPatch): void;
+  transitionTask(taskId: TaskId, patch: TaskTransitionPatch): void;
 }
 
 export class InMemoryFeatureGraph implements FeatureGraph {
@@ -638,7 +599,7 @@ export class InMemoryFeatureGraph implements FeatureGraph {
       status: 'pending',
       workControl: 'discussing',
       collabControl: 'none',
-      featureBranch: `feat-${opts.id}`,
+      featureBranch: featureBranchName(opts.id, opts.name),
     };
 
     // Apply atomically: insert feature and update adjacency
@@ -1175,162 +1136,80 @@ export class InMemoryFeatureGraph implements FeatureGraph {
     }
   }
 
-  enqueueFeatureMerge(_featureId: FeatureId): void {
-    throw new Error('Not implemented.');
-  }
-
-  advanceTaskStatus(taskId: TaskId, to?: TaskStatus): void {
-    const task = this.tasks.get(taskId);
-    if (!task) {
-      throw new GraphValidationError(`Task "${taskId}" does not exist`);
+  transitionFeature(featureId: FeatureId, patch: FeatureTransitionPatch): void {
+    const feature = this.features.get(featureId);
+    if (!feature) {
+      throw new GraphValidationError(`Feature "${featureId}" does not exist`);
     }
 
-    const target = to ?? TASK_STATUS_AUTO.get(task.status);
-    if (target === undefined) {
-      throw new GraphValidationError(
-        `No auto-advance successor for task status "${task.status}"`,
-      );
-    }
+    const proposed: FeatureStateTriple = {
+      workControl: patch.workControl ?? feature.workControl,
+      status: patch.status ?? feature.status,
+      collabControl: patch.collabControl ?? feature.collabControl,
+    };
 
-    const result = validateTaskStatusTransition(
-      task.status,
-      target,
-      task.collabControl,
+    const result = validateFeatureTransition(
+      {
+        workControl: feature.workControl,
+        status: feature.status,
+        collabControl: feature.collabControl,
+      },
+      proposed,
     );
     if (!result.valid) {
       throw new GraphValidationError(result.reason);
     }
 
-    this.tasks.set(taskId, { ...task, status: target });
-  }
-
-  advanceTaskCollab(taskId: TaskId, to?: TaskCollabControl): void {
-    const task = this.tasks.get(taskId);
-    if (!task) {
-      throw new GraphValidationError(`Task "${taskId}" does not exist`);
-    }
-
-    const target = to ?? TASK_COLLAB_AUTO.get(task.collabControl);
-    if (target === undefined) {
-      throw new GraphValidationError(
-        `No auto-advance successor for task collab control "${task.collabControl}"`,
-      );
-    }
-
-    const result = validateTaskCollabTransition(
-      task.collabControl,
-      target,
-      task.status,
-    );
-    if (!result.valid) {
-      throw new GraphValidationError(result.reason);
-    }
-
-    this.tasks.set(taskId, { ...task, collabControl: target });
-  }
-
-  completeTask(taskId: TaskId, result: TaskResult): void {
-    const task = this.tasks.get(taskId);
-    if (!task) {
-      throw new GraphValidationError(`Task "${taskId}" does not exist`);
-    }
-
-    this.tasks.set(taskId, {
-      ...task,
-      status: 'done',
-      collabControl: 'merged',
-      result,
+    this.features.set(featureId, {
+      ...feature,
+      ...proposed,
     });
   }
 
-  suspendTask(
-    taskId: TaskId,
-    reason: TaskSuspendReason,
-    files?: string[],
-  ): void {
+  transitionTask(taskId: TaskId, patch: TaskTransitionPatch): void {
     const task = this.tasks.get(taskId);
     if (!task) {
       throw new GraphValidationError(`Task "${taskId}" does not exist`);
     }
 
-    const updated: Task = {
-      ...task,
-      collabControl: 'suspended',
-      suspendReason: reason,
-      suspendedAt: Date.now(),
-    };
-    if (files !== undefined) {
-      updated.suspendedFiles = files;
-    }
-    this.tasks.set(taskId, updated);
-  }
+    const proposedStatus = patch.status ?? task.status;
+    const proposedCollab = patch.collabControl ?? task.collabControl;
 
-  resumeTask(taskId: TaskId): void {
-    const task = this.tasks.get(taskId);
-    if (!task) {
-      throw new GraphValidationError(`Task "${taskId}" does not exist`);
-    }
-
-    const updated: Task = {
-      ...task,
-      collabControl: 'branch_open',
-    };
-    // Clear suspend fields by reconstructing without them
-    delete updated.suspendReason;
-    delete updated.suspendedAt;
-    delete updated.suspendedFiles;
-    this.tasks.set(taskId, updated);
-  }
-
-  advanceWorkControl(featureId: FeatureId, to?: FeatureWorkControl): void {
-    const feature = this.features.get(featureId);
-    if (!feature) {
-      throw new GraphValidationError(`Feature "${featureId}" does not exist`);
-    }
-
-    const target = to ?? FEATURE_WORK_AUTO.get(feature.workControl);
-    if (target === undefined) {
-      throw new GraphValidationError(
-        `No auto-advance successor for work control "${feature.workControl}"`,
-      );
-    }
-
-    const result = validateFeatureWorkTransition(
-      feature.workControl,
-      target,
-      feature.status,
-      feature.collabControl,
+    const result = validateTaskTransition(
+      { status: task.status, collabControl: task.collabControl },
+      { status: proposedStatus, collabControl: proposedCollab },
     );
     if (!result.valid) {
       throw new GraphValidationError(result.reason);
     }
 
-    this.features.set(featureId, { ...feature, workControl: target });
-  }
+    const updated: Task = {
+      ...task,
+      status: proposedStatus,
+      collabControl: proposedCollab,
+    };
 
-  advanceCollabControl(featureId: FeatureId, to?: FeatureCollabControl): void {
-    const feature = this.features.get(featureId);
-    if (!feature) {
-      throw new GraphValidationError(`Feature "${featureId}" does not exist`);
+    // Apply associated data fields from patch
+    if (patch.result !== undefined) {
+      updated.result = patch.result;
+    }
+    if (patch.suspendReason !== undefined) {
+      updated.suspendReason = patch.suspendReason;
+    }
+    if (patch.suspendedAt !== undefined) {
+      updated.suspendedAt = patch.suspendedAt;
+    }
+    if (patch.suspendedFiles !== undefined) {
+      updated.suspendedFiles = patch.suspendedFiles;
     }
 
-    const target = to ?? FEATURE_COLLAB_AUTO.get(feature.collabControl);
-    if (target === undefined) {
-      throw new GraphValidationError(
-        `No auto-advance successor for collab control "${feature.collabControl}"`,
-      );
+    // Clear suspend fields when resuming (collabControl leaving suspended)
+    if (task.collabControl === 'suspended' && proposedCollab !== 'suspended') {
+      delete updated.suspendReason;
+      delete updated.suspendedAt;
+      delete updated.suspendedFiles;
     }
 
-    const result = validateFeatureCollabTransition(
-      feature.collabControl,
-      target,
-      feature.workControl,
-      feature.status,
-    );
-    if (!result.valid) {
-      throw new GraphValidationError(result.reason);
-    }
-
-    this.features.set(featureId, { ...feature, collabControl: target });
+    this.tasks.set(taskId, updated);
   }
 }
