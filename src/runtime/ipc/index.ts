@@ -10,6 +10,12 @@ export interface IpcTransport {
   close(): void;
 }
 
+export interface WorkerIpcTransport {
+  send(message: WorkerToOrchestratorMessage): void;
+  onMessage(handler: (message: OrchestratorToWorkerMessage) => void): void;
+  close(): void;
+}
+
 export class NdjsonStdioTransport implements IpcTransport {
   private buffer = '';
   private closed = false;
