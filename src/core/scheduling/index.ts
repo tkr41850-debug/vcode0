@@ -56,8 +56,13 @@ export const TASK_WEIGHT_VALUE: Record<TaskWeight, number> = {
 
 // Schedulable unit — the unified dispatch abstraction
 export type SchedulableUnit =
-  | { kind: 'task'; task: Task; featureId: FeatureId }
-  | { kind: 'feature_phase'; feature: Feature; phase: AgentRunPhase };
+  | { kind: 'task'; task: Task; featureId: FeatureId; readyAt: number }
+  | {
+      kind: 'feature_phase';
+      feature: Feature;
+      phase: AgentRunPhase;
+      readyAt: number;
+    };
 
 // Combined graph node for cross-boundary critical path
 export interface CombinedGraphNode {
@@ -408,7 +413,8 @@ export class CriticalPathScheduler {
     graph: FeatureGraph,
     _runs: ExecutionRunReader,
     metrics: GraphMetrics,
-    _now: number,
+    now: number,
+    readySince?: Map<string, number>,
   ): SchedulableUnit[] {
     const units: SchedulableUnit[] = [];
 
@@ -418,6 +424,7 @@ export class CriticalPathScheduler {
         kind: 'task' as const,
         task,
         featureId: task.featureId,
+        readyAt: readySince?.get(task.id) ?? now,
       });
     }
 
@@ -430,6 +437,7 @@ export class CriticalPathScheduler {
           kind: 'feature_phase' as const,
           feature,
           phase: workControlToAgentRunPhase(feature.workControl),
+          readyAt: readySince?.get(feature.id) ?? now,
         });
       }
     }
@@ -541,7 +549,10 @@ export class CriticalPathScheduler {
       const bRetry = isRetryEligible(b) ? 0 : 1;
       if (aRetry !== bRetry) return aRetry - bRetry;
 
-      // Key 7: Stable fallback by ID (alphabetical)
+      // Key 7: Stable fallback by readiness age (older first)
+      if (a.readyAt !== b.readyAt) return a.readyAt - b.readyAt;
+
+      // Key 8: Final tiebreaker by ID (alphabetical)
       const aId = a.kind === 'task' ? a.task.id : a.feature.id;
       const bId = b.kind === 'task' ? b.task.id : b.feature.id;
       return aId.localeCompare(bId);
@@ -580,11 +591,13 @@ export function prioritizeReadyWork(
   runs: ExecutionRunReader,
   metrics: GraphMetrics,
   now: number,
+  readySince?: Map<string, number>,
 ): SchedulableUnit[] {
   return new CriticalPathScheduler().prioritizeReadyWork(
     graph,
     runs,
     metrics,
     now,
+    readySince,
   );
 }

@@ -696,7 +696,7 @@ describe('CriticalPathScheduler.prioritizeReadyWork', () => {
     expect(ids.indexOf('t-retry')).toBeLessThan(ids.indexOf('t-fresh'));
   });
 
-  it('uses stable fallback by ID (alphabetical)', () => {
+  it('uses readiness age as stable fallback (older first)', () => {
     const g = createGraphWithMilestone();
     g.createFeature({
       id: 'f-a',
@@ -728,6 +728,59 @@ describe('CriticalPathScheduler.prioritizeReadyWork', () => {
 
     g.queueMilestone('m-1');
 
+    // t-z became ready at time 100, t-a at time 200 — older wins
+    const readySince = new Map([
+      ['t-z', 100],
+      ['t-a', 200],
+    ]);
+    const combined = buildCombinedGraph(g);
+    const metrics = computeGraphMetrics(combined);
+    const scheduler = new CriticalPathScheduler();
+    const result = scheduler.prioritizeReadyWork(
+      g,
+      noopRunReader,
+      metrics,
+      300,
+      readySince,
+    );
+    const ids = extractSchedulableIds(result);
+    // t-z is older (readyAt=100) so it comes before t-a (readyAt=200)
+    expect(ids.indexOf('t-z')).toBeLessThan(ids.indexOf('t-a'));
+  });
+
+  it('uses ID as final tiebreaker when readiness is equal', () => {
+    const g = createGraphWithMilestone();
+    g.createFeature({
+      id: 'f-a',
+      milestoneId: 'm-1',
+      name: 'FA',
+      description: 'desc',
+    });
+    updateFeature(g, 'f-a', { workControl: 'executing' });
+    g.createTask({
+      id: 't-z',
+      featureId: 'f-a',
+      description: 'Z task',
+      weight: 'medium',
+    });
+
+    g.createFeature({
+      id: 'f-b',
+      milestoneId: 'm-1',
+      name: 'FB',
+      description: 'desc',
+    });
+    updateFeature(g, 'f-b', { workControl: 'executing' });
+    g.createTask({
+      id: 't-a',
+      featureId: 'f-b',
+      description: 'A task',
+      weight: 'medium',
+    });
+
+    g.queueMilestone('m-1');
+
+    // Same readyAt — falls through to alphabetical ID
     const result = runScheduler(g);
     const ids = extractSchedulableIds(result);
     expect(ids.indexOf('t-a')).toBeLessThan(ids.indexOf('t-z'));

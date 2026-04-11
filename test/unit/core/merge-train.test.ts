@@ -1,15 +1,18 @@
-import { GraphValidationError } from '@core/graph/index';
+import { GraphValidationError, InMemoryFeatureGraph } from '@core/graph/index';
 import { MergeTrainCoordinator } from '@core/merge-train/index';
-import type { Feature, FeatureId } from '@core/types/index';
+import type { Feature } from '@core/types/index';
 import { describe, expect, it } from 'vitest';
-import { createFeatureFixture } from '../../helpers/graph-builders.js';
+import {
+  createFeatureFixture,
+  createMilestoneFixture,
+} from '../../helpers/graph-builders.js';
 
-function buildFeatures(...fixtures: Feature[]): Map<FeatureId, Feature> {
-  const map = new Map<FeatureId, Feature>();
-  for (const f of fixtures) {
-    map.set(f.id, f);
-  }
-  return map;
+function buildGraph(...features: Feature[]): InMemoryFeatureGraph {
+  return new InMemoryFeatureGraph({
+    milestones: [createMilestoneFixture()],
+    features,
+    tasks: [],
+  });
 }
 
 function expectMergeTrainFieldsCleared(feature: Feature | undefined): void {
@@ -28,6 +31,7 @@ describe('MergeTrainCoordinator', () => {
       id: 'f-dep',
       collabControl: 'merged',
       workControl: 'work_complete',
+      status: 'done',
     });
     const feat = createFeatureFixture({
       id: 'f-1',
@@ -35,11 +39,11 @@ describe('MergeTrainCoordinator', () => {
       collabControl: 'branch_open',
       dependsOn: ['f-dep'],
     });
-    const features = buildFeatures(dep, feat);
+    const graph = buildGraph(dep, feat);
 
-    coord.enqueueFeatureMerge('f-1', features);
+    coord.enqueueFeatureMerge('f-1', graph);
 
-    const updated = features.get('f-1');
+    const updated = graph.features.get('f-1');
     expect(updated).toBeDefined();
     expect(updated?.collabControl).toBe('merge_queued');
     expect(updated?.mergeTrainEntrySeq).toBe(1);
@@ -60,9 +64,9 @@ describe('MergeTrainCoordinator', () => {
       collabControl: 'branch_open',
       dependsOn: ['f-dep'],
     });
-    const features = buildFeatures(dep, feat);
+    const graph = buildGraph(dep, feat);
 
-    expect(() => coord.enqueueFeatureMerge('f-1', features)).toThrow(
+    expect(() => coord.enqueueFeatureMerge('f-1', graph)).toThrow(
       GraphValidationError,
     );
   });
@@ -74,29 +78,29 @@ describe('MergeTrainCoordinator', () => {
       workControl: 'executing',
       collabControl: 'branch_open',
     });
-    const features = buildFeatures(feat);
+    const graph = buildGraph(feat);
 
-    expect(() => coord.enqueueFeatureMerge('f-1', features)).toThrow(
+    expect(() => coord.enqueueFeatureMerge('f-1', graph)).toThrow(
       GraphValidationError,
     );
   });
 
   it('throws when feature does not exist', () => {
     const coord = new MergeTrainCoordinator();
-    const features = new Map<FeatureId, Feature>();
+    const graph = buildGraph();
 
-    expect(() => coord.enqueueFeatureMerge('f-missing', features)).toThrow(
+    expect(() => coord.enqueueFeatureMerge('f-missing', graph)).toThrow(
       GraphValidationError,
     );
   });
 
   // ── nextToIntegrate ──────────────────────────────────────────────
 
-  it('returns undefined for empty queue', () => {
+  it('returns undefined for empty graph', () => {
     const coord = new MergeTrainCoordinator();
-    const features = new Map<FeatureId, Feature>();
+    const graph = buildGraph();
 
-    expect(coord.nextToIntegrate(features)).toBeUndefined();
+    expect(coord.nextToIntegrate(graph)).toBeUndefined();
   });
 
   it('returns undefined when no features are merge_queued', () => {
@@ -105,15 +109,16 @@ describe('MergeTrainCoordinator', () => {
       id: 'f-1',
       collabControl: 'branch_open',
     });
-    const features = buildFeatures(feat);
+    const graph = buildGraph(feat);
 
-    expect(coord.nextToIntegrate(features)).toBeUndefined();
+    expect(coord.nextToIntegrate(graph)).toBeUndefined();
   });
 
   it('manual position takes priority in queue ordering', () => {
     const coord = new MergeTrainCoordinator();
     const f1 = createFeatureFixture({
       id: 'f-1',
+      workControl: 'awaiting_merge',
       collabControl: 'merge_queued',
       mergeTrainManualPosition: 10,
       mergeTrainReentryCount: 0,
@@ -121,52 +126,57 @@ describe('MergeTrainCoordinator', () => {
     });
     const f2 = createFeatureFixture({
       id: 'f-2',
+      workControl: 'awaiting_merge',
       collabControl: 'merge_queued',
       mergeTrainManualPosition: 1,
       mergeTrainReentryCount: 0,
       mergeTrainEntrySeq: 2,
     });
-    const features = buildFeatures(f1, f2);
+    const graph = buildGraph(f1, f2);
 
-    expect(coord.nextToIntegrate(features)).toBe('f-2');
+    expect(coord.nextToIntegrate(graph)).toBe('f-2');
   });
 
   it('re-entry count (desc) breaks ties when no manual position', () => {
     const coord = new MergeTrainCoordinator();
     const f1 = createFeatureFixture({
       id: 'f-1',
+      workControl: 'awaiting_merge',
       collabControl: 'merge_queued',
       mergeTrainReentryCount: 2,
       mergeTrainEntrySeq: 2,
     });
     const f2 = createFeatureFixture({
       id: 'f-2',
+      workControl: 'awaiting_merge',
       collabControl: 'merge_queued',
       mergeTrainReentryCount: 0,
       mergeTrainEntrySeq: 1,
     });
-    const features = buildFeatures(f1, f2);
+    const graph = buildGraph(f1, f2);
 
-    expect(coord.nextToIntegrate(features)).toBe('f-1');
+    expect(coord.nextToIntegrate(graph)).toBe('f-1');
   });
 
   it('entry sequence (asc) breaks further ties', () => {
     const coord = new MergeTrainCoordinator();
     const f1 = createFeatureFixture({
       id: 'f-1',
+      workControl: 'awaiting_merge',
       collabControl: 'merge_queued',
       mergeTrainReentryCount: 0,
       mergeTrainEntrySeq: 5,
     });
     const f2 = createFeatureFixture({
       id: 'f-2',
+      workControl: 'awaiting_merge',
       collabControl: 'merge_queued',
       mergeTrainReentryCount: 0,
       mergeTrainEntrySeq: 3,
     });
-    const features = buildFeatures(f1, f2);
+    const graph = buildGraph(f1, f2);
 
-    expect(coord.nextToIntegrate(features)).toBe('f-2');
+    expect(coord.nextToIntegrate(graph)).toBe('f-2');
   });
 
   // ── beginIntegration ─────────────────────────────────────────────
@@ -175,13 +185,14 @@ describe('MergeTrainCoordinator', () => {
     const coord = new MergeTrainCoordinator();
     const feat = createFeatureFixture({
       id: 'f-1',
+      workControl: 'awaiting_merge',
       collabControl: 'merge_queued',
     });
-    const features = buildFeatures(feat);
+    const graph = buildGraph(feat);
 
-    coord.beginIntegration('f-1', features);
+    coord.beginIntegration('f-1', graph);
 
-    const updated = features.get('f-1');
+    const updated = graph.features.get('f-1');
     expect(updated).toBeDefined();
     expect(updated?.collabControl).toBe('integrating');
   });
@@ -190,15 +201,17 @@ describe('MergeTrainCoordinator', () => {
     const coord = new MergeTrainCoordinator();
     const f1 = createFeatureFixture({
       id: 'f-1',
+      workControl: 'awaiting_merge',
       collabControl: 'integrating',
     });
     const f2 = createFeatureFixture({
       id: 'f-2',
+      workControl: 'awaiting_merge',
       collabControl: 'merge_queued',
     });
-    const features = buildFeatures(f1, f2);
+    const graph = buildGraph(f1, f2);
 
-    expect(() => coord.beginIntegration('f-2', features)).toThrow(
+    expect(() => coord.beginIntegration('f-2', graph)).toThrow(
       GraphValidationError,
     );
   });
@@ -209,17 +222,18 @@ describe('MergeTrainCoordinator', () => {
     const coord = new MergeTrainCoordinator();
     const feat = createFeatureFixture({
       id: 'f-1',
+      workControl: 'awaiting_merge',
       collabControl: 'integrating',
       mergeTrainManualPosition: 1,
       mergeTrainEnteredAt: 1000,
       mergeTrainEntrySeq: 3,
       mergeTrainReentryCount: 1,
     });
-    const features = buildFeatures(feat);
+    const graph = buildGraph(feat);
 
-    coord.completeIntegration('f-1', features);
+    coord.completeIntegration('f-1', graph);
 
-    const updated = features.get('f-1');
+    const updated = graph.features.get('f-1');
     expect(updated).toBeDefined();
     expect(updated?.collabControl).toBe('merged');
     expectMergeTrainFieldsCleared(updated);
@@ -232,17 +246,18 @@ describe('MergeTrainCoordinator', () => {
     const coord = new MergeTrainCoordinator();
     const feat = createFeatureFixture({
       id: 'f-1',
+      workControl: 'awaiting_merge',
       collabControl: 'merge_queued',
       mergeTrainManualPosition: 2,
       mergeTrainEnteredAt: 1000,
       mergeTrainEntrySeq: 1,
       mergeTrainReentryCount: 0,
     });
-    const features = buildFeatures(feat);
+    const graph = buildGraph(feat);
 
-    coord.ejectFromQueue('f-1', features);
+    coord.ejectFromQueue('f-1', graph);
 
-    const updated = features.get('f-1');
+    const updated = graph.features.get('f-1');
     expect(updated).toBeDefined();
     expect(updated?.collabControl).toBe('branch_open');
     expectMergeTrainFieldsCleared(updated);
@@ -259,32 +274,25 @@ describe('MergeTrainCoordinator', () => {
       collabControl: 'branch_open',
       dependsOn: [],
     });
-    const features = buildFeatures(feat);
+    const graph = buildGraph(feat);
 
     // First enqueue
-    coord.enqueueFeatureMerge('f-1', features);
-    const afterEnqueue = features.get('f-1');
+    coord.enqueueFeatureMerge('f-1', graph);
+    const afterEnqueue = graph.features.get('f-1');
     expect(afterEnqueue).toBeDefined();
     expect(afterEnqueue?.mergeTrainReentryCount).toBe(0);
     expect(afterEnqueue?.mergeTrainEntrySeq).toBe(1);
 
     // Eject
-    coord.ejectFromQueue('f-1', features);
-    const afterEject = features.get('f-1');
+    coord.ejectFromQueue('f-1', graph);
+    const afterEject = graph.features.get('f-1');
     expect(afterEject).toBeDefined();
     expect(afterEject?.mergeTrainReentryCount).toBe(1);
     expect(afterEject?.collabControl).toBe('branch_open');
 
-    // Fix workControl back to awaiting_merge for re-enqueue
-    const toReenqueue = features.get('f-1');
-    expect(toReenqueue).toBeDefined();
-    if (toReenqueue) {
-      features.set('f-1', { ...toReenqueue, workControl: 'awaiting_merge' });
-    }
-
-    // Re-enqueue
-    coord.enqueueFeatureMerge('f-1', features);
-    const afterReenqueue = features.get('f-1');
+    // Re-enqueue (still in awaiting_merge workControl after eject)
+    coord.enqueueFeatureMerge('f-1', graph);
+    const afterReenqueue = graph.features.get('f-1');
     expect(afterReenqueue).toBeDefined();
     expect(afterReenqueue?.mergeTrainReentryCount).toBe(1);
     expect(afterReenqueue?.mergeTrainEntrySeq).toBe(2);

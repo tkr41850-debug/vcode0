@@ -1,3 +1,4 @@
+import type { FeatureGraph } from '@core/graph/index';
 import { GraphValidationError } from '@core/graph/index';
 import type { Feature, FeatureId } from '@core/types/index';
 
@@ -10,11 +11,8 @@ export class MergeTrainCoordinator {
    * Validates the feature exists, is in `awaiting_merge` work control,
    * and all feature dependencies have `collabControl === 'merged'`.
    */
-  enqueueFeatureMerge(
-    featureId: FeatureId,
-    features: Map<FeatureId, Feature>,
-  ): void {
-    const feature = features.get(featureId);
+  enqueueFeatureMerge(featureId: FeatureId, graph: FeatureGraph): void {
+    const feature = graph.features.get(featureId);
     if (!feature) {
       throw new GraphValidationError(`Feature "${featureId}" does not exist`);
     }
@@ -26,7 +24,7 @@ export class MergeTrainCoordinator {
     }
 
     for (const depId of feature.dependsOn) {
-      const dep = features.get(depId);
+      const dep = graph.features.get(depId);
       if (!dep || dep.collabControl !== 'merged') {
         throw new GraphValidationError(
           `Feature "${featureId}" depends on "${depId}" which is not merged (collabControl: "${dep?.collabControl ?? 'missing'}")`,
@@ -36,15 +34,12 @@ export class MergeTrainCoordinator {
 
     this._entrySeq++;
 
-    const updated: Feature = {
-      ...feature,
-      collabControl: 'merge_queued',
+    graph.transitionFeature(featureId, { collabControl: 'merge_queued' });
+    graph.updateMergeTrainState(featureId, {
       mergeTrainEnteredAt: Date.now(),
       mergeTrainEntrySeq: this._entrySeq,
       mergeTrainReentryCount: feature.mergeTrainReentryCount ?? 0,
-    };
-
-    features.set(featureId, updated);
+    });
   }
 
   /**
@@ -55,9 +50,9 @@ export class MergeTrainCoordinator {
    * 2. Re-entry count (descending - higher priority for re-entries)
    * 3. Entry sequence (ascending - FIFO for equal priority)
    */
-  nextToIntegrate(features: Map<FeatureId, Feature>): FeatureId | undefined {
+  nextToIntegrate(graph: FeatureGraph): FeatureId | undefined {
     const queued: Feature[] = [];
-    for (const f of features.values()) {
+    for (const f of graph.features.values()) {
       if (f.collabControl === 'merge_queued') {
         queued.push(f);
       }
@@ -97,12 +92,9 @@ export class MergeTrainCoordinator {
    *
    * Only one feature can be integrating at a time.
    */
-  beginIntegration(
-    featureId: FeatureId,
-    features: Map<FeatureId, Feature>,
-  ): void {
+  beginIntegration(featureId: FeatureId, graph: FeatureGraph): void {
     // Check no other feature is already integrating
-    for (const f of features.values()) {
+    for (const f of graph.features.values()) {
       if (f.collabControl === 'integrating' && f.id !== featureId) {
         throw new GraphValidationError(
           `Cannot begin integration for "${featureId}": feature "${f.id}" is already integrating`,
@@ -110,15 +102,12 @@ export class MergeTrainCoordinator {
       }
     }
 
-    const feature = features.get(featureId);
+    const feature = graph.features.get(featureId);
     if (!feature) {
       throw new GraphValidationError(`Feature "${featureId}" does not exist`);
     }
 
-    features.set(featureId, {
-      ...feature,
-      collabControl: 'integrating',
-    });
+    graph.transitionFeature(featureId, { collabControl: 'integrating' });
   }
 
   /**
@@ -126,30 +115,19 @@ export class MergeTrainCoordinator {
    *
    * Sets collabControl to 'merged' and clears all merge train fields.
    */
-  completeIntegration(
-    featureId: FeatureId,
-    features: Map<FeatureId, Feature>,
-  ): void {
-    const feature = features.get(featureId);
+  completeIntegration(featureId: FeatureId, graph: FeatureGraph): void {
+    const feature = graph.features.get(featureId);
     if (!feature) {
       throw new GraphValidationError(`Feature "${featureId}" does not exist`);
     }
 
-    // Build a clean feature without optional merge train fields
-    const {
-      mergeTrainManualPosition: _mp,
-      mergeTrainEnteredAt: _ea,
-      mergeTrainEntrySeq: _es,
-      mergeTrainReentryCount: _rc,
-      ...rest
-    } = feature;
-
-    const updated: Feature = {
-      ...rest,
-      collabControl: 'merged',
-    };
-
-    features.set(featureId, updated);
+    graph.transitionFeature(featureId, { collabControl: 'merged' });
+    graph.updateMergeTrainState(featureId, {
+      mergeTrainManualPosition: undefined,
+      mergeTrainEnteredAt: undefined,
+      mergeTrainEntrySeq: undefined,
+      mergeTrainReentryCount: undefined,
+    });
   }
 
   /**
@@ -158,32 +136,20 @@ export class MergeTrainCoordinator {
    * Sets collabControl back to 'branch_open', clears position fields,
    * and increments mergeTrainReentryCount.
    */
-  ejectFromQueue(
-    featureId: FeatureId,
-    features: Map<FeatureId, Feature>,
-  ): void {
-    const feature = features.get(featureId);
+  ejectFromQueue(featureId: FeatureId, graph: FeatureGraph): void {
+    const feature = graph.features.get(featureId);
     if (!feature) {
       throw new GraphValidationError(`Feature "${featureId}" does not exist`);
     }
 
     const reentryCount = (feature.mergeTrainReentryCount ?? 0) + 1;
 
-    // Build a clean feature without optional merge train position fields
-    const {
-      mergeTrainManualPosition: _mp,
-      mergeTrainEnteredAt: _ea,
-      mergeTrainEntrySeq: _es,
-      mergeTrainReentryCount: _rc,
-      ...rest
-    } = feature;
-
-    const updated: Feature = {
-      ...rest,
-      collabControl: 'branch_open',
+    graph.transitionFeature(featureId, { collabControl: 'branch_open' });
+    graph.updateMergeTrainState(featureId, {
+      mergeTrainManualPosition: undefined,
+      mergeTrainEnteredAt: undefined,
+      mergeTrainEntrySeq: undefined,
       mergeTrainReentryCount: reentryCount,
-    };
-
-    features.set(featureId, updated);
+    });
   }
 }

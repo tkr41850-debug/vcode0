@@ -13,8 +13,8 @@ See [ARCHITECTURE.md](../../ARCHITECTURE.md) for the high-level architecture ove
 | **createTask(featureId, description, deps?)** | Add a task to a feature with in-feature task deps only |
 | **addDependency(fromId, toId)** | Add a dependency edge (`feature → feature` or `task → task` within the same feature). Edge kind is inferred from typed prefixed ids (`f-*`, `t-*`). |
 | **removeDependency(fromId, toId)** | Remove a dependency edge |
-| **splitFeature(featureId, subfeatures)** | Break a feature into smaller features; redistribute work when replanning |
-| **mergeFeatures(featureIds, name)** | Combine features into one. Union of deps and tasks. Redirect incoming edges |
+| **splitFeature(featureId, subfeatures)** | Break a feature into smaller sub-features (pre-planning only — no tasks may exist yet). Redistributes description and dependency edges. See [in-flight split/merge](../feature-candidates/in-flight-split-merge.md) for the deferred in-flight variant. |
+| **mergeFeatures(featureIds, name)** | Combine features into one (pre-planning only). Union of deps. Redirect incoming edges |
 | **cancelFeature(featureId, cascade?)** | Mark as cancelled (`collabControl → cancelled`), kill all in-flight tasks immediately, and optionally cancel transitive dependents when `cascade=true` |
 | **changeMilestone(featureId, newMilestoneId)** | Reassign a feature to a different milestone without changing dependency semantics |
 | **editFeature(featureId, patch)** | Update a feature's name or description |
@@ -25,7 +25,7 @@ See [ARCHITECTURE.md](../../ARCHITECTURE.md) for the high-level architecture ove
 | **queueMilestone(milestoneId)** | Append a milestone to the scheduler steering queue |
 | **dequeueMilestone(milestoneId)** | Remove a milestone from the scheduler steering queue |
 | **clearQueuedMilestones()** | Clear milestone steering and return to autonomous scheduling |
-| **enqueueFeatureMerge(featureId)** | Add a completed feature branch to the integration queue |
+| **enqueueFeatureMerge(featureId)** | Add a completed feature branch to the integration queue (owned by `MergeTrainCoordinator`, not `FeatureGraph`) |
 
 ### Validation
 
@@ -41,26 +41,45 @@ Every mutation must preserve DAG invariants:
 
 ```typescript
 interface FeatureGraph {
-  milestones: Map<MilestoneId, Milestone>;
-  features: Map<FeatureId, Feature>;
-  tasks: Map<TaskId, Task>;
+  readonly milestones: Map<MilestoneId, Milestone>;
+  readonly features: Map<FeatureId, Feature>;
+  readonly tasks: Map<TaskId, Task>;
+
+  // Snapshot / hydration
+  snapshot(): GraphSnapshot;
 
   // Core queries
-  readyFeatures(): Feature[];           // features whose feature deps are all done
-  readyTasks(): Task[];                 // tasks whose in-feature deps are all done
+  readyFeatures(): Feature[];           // unblocked features (deps done, not cancelled/complete)
+  readyTasks(): Task[];                 // unblocked tasks (deps done, feature not cancelled)
   queuedMilestones(): Milestone[];      // ordered user steering queue
-  isComplete(): boolean;                // all milestones done
+  isComplete(): boolean;                // all features completed and merged
   // Critical path lives in core/scheduling (buildCombinedGraph + computeGraphMetrics)
 
-  // Mutations (all validate invariants before applying)
+  // Structural mutations (all validate invariants before applying)
+  createMilestone(opts: CreateMilestoneOptions): Milestone;
   createFeature(opts: CreateFeatureOptions): Feature;
-  splitFeature(id: FeatureId, splits: SplitSpec[]): Feature[];
-  addDependency(opts: DependencyOptions): void; // FeatureDependencyOptions | TaskDependencyOptions
+  createTask(opts: CreateTaskOptions): Task;
+  addDependency(opts: DependencyOptions): void;
+  removeDependency(opts: DependencyOptions): void;
+  splitFeature(id: FeatureId, splits: SplitSpec[]): Feature[];   // pre-planning only
+  mergeFeatures(featureIds: FeatureId[], name: string): Feature;  // pre-planning only
+  cancelFeature(featureId: FeatureId, cascade?: boolean): void;
+  changeMilestone(featureId: FeatureId, newMilestoneId: MilestoneId): void;
+  editFeature(featureId: FeatureId, patch: FeatureEditPatch): Feature;
+  addTask(opts: AddTaskOptions): Task;
+  removeTask(taskId: TaskId): void;
+  reorderTasks(featureId: FeatureId, taskIds: TaskId[]): void;
+  reweight(taskId: TaskId, weight: TaskWeight): void;
   queueMilestone(id: MilestoneId): void;
   dequeueMilestone(id: MilestoneId): void;
   clearQueuedMilestones(): void;
-  enqueueFeatureMerge(id: FeatureId): void;
-  // ... etc
+
+  // FSM-validated transitions
+  transitionFeature(featureId: FeatureId, patch: FeatureTransitionPatch): void;
+  transitionTask(taskId: TaskId, patch: TaskTransitionPatch): void;
+
+  // Merge-train metadata (used by MergeTrainCoordinator)
+  updateMergeTrainState(featureId: FeatureId, fields: MergeTrainUpdate): void;
 }
 ```
 
@@ -133,22 +152,34 @@ After each graph mutation, recompute the combined graph.
 Two O(V+E) passes over the combined DAG:
 
 - **Max depth** (reverse topological DP): each node's weight = own weight + max(successor weights). This is the critical path weight — higher values mean more downstream work depends on this node. Used as the primary scheduling metric.
-- **SSSP from sources** (forward topological DP): predecessor distance from graph roots. Estimates how many predecessors must complete before a node becomes reachable. Available for future metrics and TUI predictions.
+- **Longest predecessor distance** (forward topological DP): each node's distance = max(distance(pred) + pred.weight). Estimates how much predecessor work must complete before a node becomes reachable. Available for future metrics and TUI predictions.
 
 ```typescript
 interface CombinedGraphNode {
-  id: string;             // FeatureId | TaskId
+  id: string;             // synthetic namespaced ID (virtual:f-1, virtual:f-1:post, task:f-1:t-1)
   weight: number;         // estimated or actual weight
+  type: 'virtual' | 'task';
+  featureId: FeatureId;
+  taskId?: TaskId;        // present when type is 'task'
   successors: string[];   // downstream node ids
+  predecessors: string[]; // upstream node ids
+}
+
+interface CombinedGraph {
+  nodes: Map<string, CombinedGraphNode>;
+}
+
+interface NodeMetrics {
+  maxDepth: number;       // critical path weight (reverse DP)
+  distance: number;       // longest predecessor distance (forward DP)
 }
 
 interface GraphMetrics {
-  maxDepth: Map<string, number>;   // critical path weight per node
-  distance: Map<string, number>;   // SSSP predecessor distance per node
+  nodeMetrics: Map<string, NodeMetrics>;
 }
 
-function buildCombinedGraph(graph: FeatureGraph): Map<string, CombinedGraphNode>;
-function computeGraphMetrics(combinedGraph: Map<string, CombinedGraphNode>): GraphMetrics;
+function buildCombinedGraph(graph: FeatureGraph): CombinedGraph;
+function computeGraphMetrics(combinedGraph: CombinedGraph): GraphMetrics;
 ```
 
 ### Work-Type Priority Tiers

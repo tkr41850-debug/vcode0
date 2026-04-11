@@ -21,6 +21,11 @@ import type {
   UnitStatus,
 } from '@core/types/index';
 
+/** Dependency edge: fromId depends on toId (toId must complete before fromId). */
+export type DependencyEdge =
+  | { depType: 'feature'; fromId: FeatureId; toId: FeatureId }
+  | { depType: 'task'; fromId: TaskId; toId: TaskId };
+
 export interface CreateMilestoneOptions {
   id: MilestoneId;
   name: string;
@@ -52,16 +57,25 @@ export interface AddTaskOptions {
   reservedWritePaths?: string[];
 }
 
+/** Spec for a sub-feature produced by splitFeature (pre-planning only — no tasks exist yet). */
 export interface SplitSpec {
   id: FeatureId;
   name: string;
   description: string;
-  taskIds: TaskId[];
+  deps?: FeatureId[];
 }
 
 export interface FeatureEditPatch {
   name?: string;
   description?: string;
+}
+
+/** Merge-train metadata update — undefined values clear the field. */
+export interface MergeTrainUpdate {
+  mergeTrainManualPosition?: number | undefined;
+  mergeTrainEnteredAt?: number | undefined;
+  mergeTrainEntrySeq?: number | undefined;
+  mergeTrainReentryCount?: number | undefined;
 }
 
 export interface FeatureDependencyOptions {
@@ -142,6 +156,9 @@ export interface FeatureGraph {
   // FSM-validated transitions
   transitionFeature(featureId: FeatureId, patch: FeatureTransitionPatch): void;
   transitionTask(taskId: TaskId, patch: TaskTransitionPatch): void;
+
+  // Merge-train metadata (used by MergeTrainCoordinator)
+  updateMergeTrainState(featureId: FeatureId, fields: MergeTrainUpdate): void;
 }
 
 export class InMemoryFeatureGraph implements FeatureGraph {
@@ -874,11 +891,37 @@ export class InMemoryFeatureGraph implements FeatureGraph {
     }
   }
 
-  splitFeature(_id: FeatureId, _splits: SplitSpec[]): Feature[] {
+  splitFeature(id: FeatureId, _splits: SplitSpec[]): Feature[] {
+    const feature = this.features.get(id);
+    if (!feature) {
+      throw new GraphValidationError(`Feature "${id}" does not exist`);
+    }
+    if (
+      feature.workControl !== 'discussing' &&
+      feature.workControl !== 'researching'
+    ) {
+      throw new GraphValidationError(
+        `splitFeature requires pre-planning phase (discussing or researching), feature "${id}" is in "${feature.workControl}"`,
+      );
+    }
     throw new Error('Not implemented.');
   }
 
-  mergeFeatures(_featureIds: FeatureId[], _name: string): Feature {
+  mergeFeatures(featureIds: FeatureId[], _name: string): Feature {
+    for (const id of featureIds) {
+      const feature = this.features.get(id);
+      if (!feature) {
+        throw new GraphValidationError(`Feature "${id}" does not exist`);
+      }
+      if (
+        feature.workControl !== 'discussing' &&
+        feature.workControl !== 'researching'
+      ) {
+        throw new GraphValidationError(
+          `mergeFeatures requires pre-planning phase (discussing or researching), feature "${id}" is in "${feature.workControl}"`,
+        );
+      }
+    }
     throw new Error('Not implemented.');
   }
 
@@ -1211,5 +1254,37 @@ export class InMemoryFeatureGraph implements FeatureGraph {
     }
 
     this.tasks.set(taskId, updated);
+  }
+
+  updateMergeTrainState(featureId: FeatureId, fields: MergeTrainUpdate): void {
+    const feature = this.features.get(featureId);
+    if (!feature) {
+      throw new GraphValidationError(`Feature "${featureId}" does not exist`);
+    }
+
+    const updated: Feature = { ...feature };
+
+    if (fields.mergeTrainManualPosition !== undefined) {
+      updated.mergeTrainManualPosition = fields.mergeTrainManualPosition;
+    } else if ('mergeTrainManualPosition' in fields) {
+      delete updated.mergeTrainManualPosition;
+    }
+    if (fields.mergeTrainEnteredAt !== undefined) {
+      updated.mergeTrainEnteredAt = fields.mergeTrainEnteredAt;
+    } else if ('mergeTrainEnteredAt' in fields) {
+      delete updated.mergeTrainEnteredAt;
+    }
+    if (fields.mergeTrainEntrySeq !== undefined) {
+      updated.mergeTrainEntrySeq = fields.mergeTrainEntrySeq;
+    } else if ('mergeTrainEntrySeq' in fields) {
+      delete updated.mergeTrainEntrySeq;
+    }
+    if (fields.mergeTrainReentryCount !== undefined) {
+      updated.mergeTrainReentryCount = fields.mergeTrainReentryCount;
+    } else if ('mergeTrainReentryCount' in fields) {
+      delete updated.mergeTrainReentryCount;
+    }
+
+    this.features.set(featureId, updated);
   }
 }

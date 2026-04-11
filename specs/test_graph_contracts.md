@@ -25,11 +25,12 @@ Capture the contract of `FeatureGraph` as the authoritative mutable DAG surface 
 - Then each method returns only the units currently unblocked by the graph
 - And those views update after graph mutations rather than remaining stale snapshots
 
-### Critical path is recomputed from the current task graph
+### Graph metrics are derived by the scheduling module
 - Given task weights or dependencies change within a feature
-- When `criticalPath()` is evaluated again
-- Then the returned path reflects the current task graph rather than an outdated earlier ordering
-- And scheduling code can treat it as a derived view over the authoritative graph state
+- When `buildCombinedGraph()` and `computeGraphMetrics()` from `@core/scheduling` are evaluated
+- Then the resulting metrics (max depth, longest weighted predecessor distance) reflect the current graph state
+- And the scheduling module treats these as derived views over the authoritative `FeatureGraph`
+- Note: tested via `test_scheduler_frontier_priority.md` scenarios rather than graph contract tests
 
 ### Queued milestones are explicit graph views
 - Given milestones have been queued and features may be ready for merge
