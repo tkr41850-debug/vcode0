@@ -12,7 +12,6 @@ Start with [ARCHITECTURE.md](../../ARCHITECTURE.md) for the system-wide map, the
 - [src/core/README.md](../../src/core/README.md) — pure domain logic for graph/state/scheduling contracts.
 - [src/orchestrator/README.md](../../src/orchestrator/README.md) — orchestration and state-transition services.
 - [src/runtime/README.md](../../src/runtime/README.md) — worker lifecycle, IPC, harnessing, and local execution.
-- [src/git/README.md](../../src/git/README.md) — feature branches, task worktrees, merge train, and overlap helpers.
 - [src/persistence/README.md](../../src/persistence/README.md) — database-backed state storage and migrations.
 - [src/agents/README.md](../../src/agents/README.md) — planner/replanner logic, prompts, and graph-mutation tools.
 - [src/tui/README.md](../../src/tui/README.md) — terminal UI shell, derived view state, and TUI commands.

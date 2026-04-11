@@ -52,7 +52,6 @@ This is a single root TypeScript package (not a monorepo) with architectural bou
 - `@orchestrator/*` - Service layer (scheduler, feature lifecycle, conflicts, summaries)
 - `@agents/*` - Planner and replanner agents with prompts and tools
 - `@runtime/*` - Worker pool, IPC, harness, context assembly
-- `@git/*` - Feature branches, worktrees, merge train, overlap detection
 - `@persistence/*` - SQLite implementation with better-sqlite3
 - `@tui/*` - Terminal UI components and view models
 
