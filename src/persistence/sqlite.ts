@@ -1,4 +1,3 @@
-import type { GraphSnapshot } from '@core/graph/index';
 import type {
   AgentRun,
   EventRecord,
@@ -6,20 +5,25 @@ import type {
   Milestone,
   Task,
 } from '@core/types/index';
-import type { Store } from '@orchestrator/ports/index';
+import type {
+  AgentRunQuery,
+  EventQuery,
+  Store,
+  StoreGraphState,
+  StoreRecoveryState,
+} from '@orchestrator/ports/index';
 
 export class SqliteStore implements Store {
-  loadGraphSnapshot(): Promise<GraphSnapshot> {
+  loadRecoveryState(): Promise<StoreRecoveryState> {
     return Promise.resolve({
       milestones: [],
       features: [],
       tasks: [],
-      dependencies: [],
-      integrationQueue: [],
+      agentRuns: [],
     });
   }
 
-  saveGraphSnapshot(_snapshot: GraphSnapshot): Promise<void> {
+  saveGraphState(_state: StoreGraphState): Promise<void> {
     return Promise.resolve();
   }
 
@@ -35,16 +39,16 @@ export class SqliteStore implements Store {
     return Promise.resolve([]);
   }
 
-  listAgentRuns(): Promise<AgentRun[]> {
-    return Promise.resolve([]);
-  }
-
-  getTaskRunsByStatus(_status: AgentRun['runStatus']): Promise<AgentRun[]> {
+  listAgentRuns(_query?: AgentRunQuery): Promise<AgentRun[]> {
     return Promise.resolve([]);
   }
 
   updateAgentRun(_runId: string, _patch: Partial<AgentRun>): Promise<void> {
     return Promise.resolve();
+  }
+
+  listEvents(_query?: EventQuery): Promise<EventRecord[]> {
+    return Promise.resolve([]);
   }
 
   appendEvent(_event: EventRecord): Promise<void> {

@@ -6,17 +6,17 @@ import {
   deriveTaskBlocked,
   deriveTaskPresentationStatus,
 } from '@core/state';
-import type { AgentRun, Feature, Task } from '@core/types';
+import type { Feature, Task, TaskAgentRun } from '@core/types';
 import { describe, expect, it } from 'vitest';
 
 function makeFeature(overrides: Partial<Feature> = {}): Feature {
   return {
-    id: 'feature-1',
-    milestoneId: 'm1',
+    id: 'f-feature-1',
+    milestoneId: 'm-1',
+    orderInMilestone: 0,
     name: 'Feature',
     description: 'desc',
     dependsOn: [],
-    taskIds: [],
     status: 'pending',
     workControl: 'summarizing',
     collabControl: 'none',
@@ -27,8 +27,9 @@ function makeFeature(overrides: Partial<Feature> = {}): Feature {
 
 function makeTask(overrides: Partial<Task> = {}): Task {
   return {
-    id: 'task-1',
-    featureId: 'feature-1',
+    id: 't-task-1',
+    featureId: 'f-feature-1',
+    orderInFeature: 0,
     description: 'desc',
     dependsOn: [],
     status: 'running',
@@ -37,11 +38,11 @@ function makeTask(overrides: Partial<Task> = {}): Task {
   };
 }
 
-function makeRun(overrides: Partial<AgentRun> = {}): AgentRun {
+function makeRun(overrides: Partial<TaskAgentRun> = {}): TaskAgentRun {
   return {
     id: 'run-1',
     scopeType: 'task',
-    scopeId: 'task-1',
+    scopeId: 't-task-1',
     phase: 'execute',
     runStatus: 'running',
     owner: 'system',

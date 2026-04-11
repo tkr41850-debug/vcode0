@@ -9,9 +9,11 @@ Capture the responsibility split across the orchestrator adapter ports so orches
 ### Store owns authoritative durable state
 - Given the orchestrator needs the current graph and agent-run state
 - When it loads or persists durable workflow state
-- Then `Store` is the authority for graph snapshots and agent-run records
+- Then `Store` is the authority for persisted graph state and recovery state through `StoreGraphState` and `StoreRecoveryState`
+- And `loadRecoveryState()` returns graph state together with recovery-critical agent-run records
+- And `saveGraphState()` persists the authoritative graph state without reintroducing snapshot-shaped persistence contracts
 - And recovery-critical run fields such as status, owner, retry timing, and session pointers persist through that boundary
-- And event records cross that same persistence boundary through `appendEvent()`
+- And event records cross that same persistence boundary through `appendEvent()` and `listEvents()`
 
 ### GitPort owns repository and worktree operations
 - Given the orchestrator needs a feature branch, a task worktree, a task merge, a feature rebase, or overlap scan results

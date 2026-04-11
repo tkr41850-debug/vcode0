@@ -1,53 +1,45 @@
 import type {
-  DependencyEdge,
   Feature,
-  IntegrationQueueEntry,
+  FeatureId,
   Milestone,
+  MilestoneId,
   Task,
-} from '@core/types';
+  TaskId,
+} from '@core/types/index';
 
 export interface CreateMilestoneOptions {
-  id: string;
+  id: MilestoneId;
   name: string;
   description: string;
 }
 
 export interface CreateFeatureOptions {
-  id: string;
-  milestoneId: string;
+  id: FeatureId;
+  milestoneId: MilestoneId;
   name: string;
   description: string;
-  dependsOn?: string[];
+  dependsOn?: FeatureId[];
 }
 
 export interface CreateTaskOptions {
-  id: string;
-  featureId: string;
+  id: TaskId;
+  featureId: FeatureId;
   description: string;
-  dependsOn?: string[];
+  dependsOn?: TaskId[];
   weight?: number;
   reservedWritePaths?: string[];
 }
 
 export interface SplitSpec {
-  id: string;
+  id: FeatureId;
   name: string;
   description: string;
-  taskIds: string[];
+  taskIds: TaskId[];
 }
 
 export interface FeatureEditPatch {
   name?: string;
   description?: string;
-  taskIds?: string[];
-}
-
-export interface GraphSnapshot {
-  milestones: Milestone[];
-  features: Feature[];
-  tasks: Task[];
-  dependencies: DependencyEdge[];
-  integrationQueue: IntegrationQueueEntry[];
 }
 
 export class GraphValidationError extends Error {
@@ -58,42 +50,42 @@ export class GraphValidationError extends Error {
 }
 
 export interface FeatureGraph {
-  readonly milestones: Map<string, Milestone>;
-  readonly features: Map<string, Feature>;
-  readonly tasks: Map<string, Task>;
+  readonly milestones: Map<MilestoneId, Milestone>;
+  readonly features: Map<FeatureId, Feature>;
+  readonly tasks: Map<TaskId, Task>;
 
   readyFeatures(): Feature[];
   readyTasks(): Task[];
   criticalPath(): Task[];
-  integrationQueue(): IntegrationQueueEntry[];
   queuedMilestones(): Milestone[];
   isComplete(): boolean;
-  snapshot(): GraphSnapshot;
 
   createMilestone(opts: CreateMilestoneOptions): Milestone;
   createFeature(opts: CreateFeatureOptions): Feature;
   createTask(opts: CreateTaskOptions): Task;
-  addDependency(from: string, to: string): void;
-  removeDependency(from: string, to: string): void;
-  splitFeature(id: string, splits: SplitSpec[]): Feature[];
-  mergeFeatures(featureIds: string[], name: string): Feature;
-  cancelFeature(featureId: string, cascade?: boolean): void;
-  changeMilestone(featureId: string, newMilestoneId: string): void;
-  editFeature(featureId: string, patch: FeatureEditPatch): Feature;
-  addTask(featureId: string, description: string, deps?: string[]): Task;
-  removeTask(taskId: string): void;
-  reorderTasks(featureId: string, taskIds: string[]): void;
-  reweight(taskId: string, weight: number): void;
-  queueMilestone(milestoneId: string): void;
-  dequeueMilestone(milestoneId: string): void;
+  addDependency(from: FeatureId, to: FeatureId): void;
+  addDependency(from: TaskId, to: TaskId): void;
+  removeDependency(from: FeatureId, to: FeatureId): void;
+  removeDependency(from: TaskId, to: TaskId): void;
+  splitFeature(id: FeatureId, splits: SplitSpec[]): Feature[];
+  mergeFeatures(featureIds: FeatureId[], name: string): Feature;
+  cancelFeature(featureId: FeatureId, cascade?: boolean): void;
+  changeMilestone(featureId: FeatureId, newMilestoneId: MilestoneId): void;
+  editFeature(featureId: FeatureId, patch: FeatureEditPatch): Feature;
+  addTask(featureId: FeatureId, description: string, deps?: TaskId[]): Task;
+  removeTask(taskId: TaskId): void;
+  reorderTasks(featureId: FeatureId, taskIds: TaskId[]): void;
+  reweight(taskId: TaskId, weight: number): void;
+  queueMilestone(milestoneId: MilestoneId): void;
+  dequeueMilestone(milestoneId: MilestoneId): void;
   clearQueuedMilestones(): void;
-  enqueueFeatureMerge(featureId: string): void;
+  enqueueFeatureMerge(featureId: FeatureId): void;
 }
 
 export class InMemoryFeatureGraph implements FeatureGraph {
-  readonly milestones = new Map<string, Milestone>();
-  readonly features = new Map<string, Feature>();
-  readonly tasks = new Map<string, Task>();
+  readonly milestones = new Map<MilestoneId, Milestone>();
+  readonly features = new Map<FeatureId, Feature>();
+  readonly tasks = new Map<TaskId, Task>();
 
   readyFeatures(): Feature[] {
     return [];
@@ -107,26 +99,12 @@ export class InMemoryFeatureGraph implements FeatureGraph {
     return [];
   }
 
-  integrationQueue(): IntegrationQueueEntry[] {
-    return [];
-  }
-
   queuedMilestones(): Milestone[] {
     return [];
   }
 
   isComplete(): boolean {
     return false;
-  }
-
-  snapshot(): GraphSnapshot {
-    return {
-      milestones: [...this.milestones.values()],
-      features: [...this.features.values()],
-      tasks: [...this.tasks.values()],
-      dependencies: [],
-      integrationQueue: [],
-    };
   }
 
   createMilestone(_opts: CreateMilestoneOptions): Milestone {
@@ -141,55 +119,55 @@ export class InMemoryFeatureGraph implements FeatureGraph {
     throw new Error('Not implemented.');
   }
 
-  addDependency(_from: string, _to: string): void {
+  addDependency(_from: FeatureId | TaskId, _to: FeatureId | TaskId): void {
     throw new Error('Not implemented.');
   }
 
-  removeDependency(_from: string, _to: string): void {
+  removeDependency(_from: FeatureId | TaskId, _to: FeatureId | TaskId): void {
     throw new Error('Not implemented.');
   }
 
-  splitFeature(_id: string, _splits: SplitSpec[]): Feature[] {
+  splitFeature(_id: FeatureId, _splits: SplitSpec[]): Feature[] {
     throw new Error('Not implemented.');
   }
 
-  mergeFeatures(_featureIds: string[], _name: string): Feature {
+  mergeFeatures(_featureIds: FeatureId[], _name: string): Feature {
     throw new Error('Not implemented.');
   }
 
-  cancelFeature(_featureId: string, _cascade?: boolean): void {
+  cancelFeature(_featureId: FeatureId, _cascade?: boolean): void {
     throw new Error('Not implemented.');
   }
 
-  changeMilestone(_featureId: string, _newMilestoneId: string): void {
+  changeMilestone(_featureId: FeatureId, _newMilestoneId: MilestoneId): void {
     throw new Error('Not implemented.');
   }
 
-  editFeature(_featureId: string, _patch: FeatureEditPatch): Feature {
+  editFeature(_featureId: FeatureId, _patch: FeatureEditPatch): Feature {
     throw new Error('Not implemented.');
   }
 
-  addTask(_featureId: string, _description: string, _deps?: string[]): Task {
+  addTask(_featureId: FeatureId, _description: string, _deps?: TaskId[]): Task {
     throw new Error('Not implemented.');
   }
 
-  removeTask(_taskId: string): void {
+  removeTask(_taskId: TaskId): void {
     throw new Error('Not implemented.');
   }
 
-  reorderTasks(_featureId: string, _taskIds: string[]): void {
+  reorderTasks(_featureId: FeatureId, _taskIds: TaskId[]): void {
     throw new Error('Not implemented.');
   }
 
-  reweight(_taskId: string, _weight: number): void {
+  reweight(_taskId: TaskId, _weight: number): void {
     throw new Error('Not implemented.');
   }
 
-  queueMilestone(_milestoneId: string): void {
+  queueMilestone(_milestoneId: MilestoneId): void {
     throw new Error('Not implemented.');
   }
 
-  dequeueMilestone(_milestoneId: string): void {
+  dequeueMilestone(_milestoneId: MilestoneId): void {
     throw new Error('Not implemented.');
   }
 
@@ -197,7 +175,7 @@ export class InMemoryFeatureGraph implements FeatureGraph {
     throw new Error('Not implemented.');
   }
 
-  enqueueFeatureMerge(_featureId: string): void {
+  enqueueFeatureMerge(_featureId: FeatureId): void {
     throw new Error('Not implemented.');
   }
 }

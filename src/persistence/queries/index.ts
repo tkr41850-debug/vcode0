@@ -2,10 +2,13 @@ import type {
   AgentRunPhase,
   AgentRunStatus,
   FeatureCollabControl,
+  FeatureId,
   FeatureWorkControl,
+  MilestoneId,
   RunAttention,
   RunOwner,
   TaskCollabControl,
+  TaskId,
   TaskStatus,
   TaskSuspendReason,
   TestPolicy,
@@ -13,19 +16,22 @@ import type {
 } from '@core/types/index';
 
 export interface MilestoneRow {
-  id: string;
+  id: MilestoneId;
   name: string;
-  description: string;
+  description: string | null;
   display_order: number;
   steering_queue_position: number | null;
   status: UnitStatus;
+  created_at: number;
+  updated_at: number;
 }
 
 export interface FeatureRow {
-  id: string;
-  milestone_id: string;
+  id: FeatureId;
+  milestone_id: MilestoneId;
+  order_in_milestone: number;
   name: string;
-  description: string;
+  description: string | null;
   status: UnitStatus;
   work_phase: FeatureWorkControl;
   collab_status: FeatureCollabControl;
@@ -37,11 +43,14 @@ export interface FeatureRow {
   merge_train_reentry_count: number;
   summary: string | null;
   token_usage: string | null;
+  created_at: number;
+  updated_at: number;
 }
 
 export interface TaskRow {
-  id: string;
-  feature_id: string;
+  id: TaskId;
+  feature_id: FeatureId;
+  order_in_feature: number;
   description: string;
   weight: number | null;
   status: TaskStatus;
@@ -49,7 +58,7 @@ export interface TaskRow {
   worker_id: string | null;
   worktree_branch: string | null;
   reserved_write_paths: string | null;
-  blocked_by_feature_id: string | null;
+  blocked_by_feature_id: FeatureId | null;
   result_summary: string | null;
   files_changed: string | null;
   token_usage: string | null;
@@ -59,12 +68,12 @@ export interface TaskRow {
   suspended_at: number | null;
   suspend_reason: TaskSuspendReason | null;
   suspended_files: string | null;
+  created_at: number;
+  updated_at: number;
 }
 
-export interface AgentRunRow {
+interface BaseAgentRunRow {
   id: string;
-  scope_type: 'task' | 'feature_phase';
-  scope_id: string;
   phase: AgentRunPhase;
   run_status: AgentRunStatus;
   owner: RunOwner;
@@ -74,6 +83,42 @@ export interface AgentRunRow {
   max_retries: number;
   restart_count: number;
   retry_at: number | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface TaskAgentRunRow extends BaseAgentRunRow {
+  scope_type: 'task';
+  scope_id: TaskId;
+}
+
+export interface FeaturePhaseAgentRunRow extends BaseAgentRunRow {
+  scope_type: 'feature_phase';
+  scope_id: FeatureId;
+}
+
+export type AgentRunRow = TaskAgentRunRow | FeaturePhaseAgentRunRow;
+
+export interface FeatureDependencyRow {
+  from_id: FeatureId;
+  to_id: FeatureId;
+  dep_type: 'feature';
+}
+
+export interface TaskDependencyRow {
+  from_id: TaskId;
+  to_id: TaskId;
+  dep_type: 'task';
+}
+
+export type DependencyRow = FeatureDependencyRow | TaskDependencyRow;
+
+export interface EventRow {
+  id: number;
+  timestamp: number;
+  event_type: string;
+  entity_id: string;
+  payload: string | null;
 }
 
 export class QuerySerializer {

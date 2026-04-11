@@ -1,6 +1,7 @@
 import type {
   AgentRun,
   Feature,
+  FeatureId,
   Task,
   TaskStatus,
   UnitStatus,
@@ -15,7 +16,7 @@ export type SummaryAvailability =
 export type TaskPresentationStatus = TaskStatus | 'blocked';
 
 export interface FeatureAggregateState {
-  featureId: string;
+  featureId: FeatureId;
   status: UnitStatus;
   summaryAvailability: SummaryAvailability;
   isDone: boolean;

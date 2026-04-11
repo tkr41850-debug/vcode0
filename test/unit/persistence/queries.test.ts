@@ -22,7 +22,7 @@ describe('query serializer', () => {
     const serializer = new QuerySerializer();
     const value = {
       reservedWritePaths: ['src/core/types/index.ts'],
-      blockedByFeatureId: 'feature-2',
+      blockedByFeatureId: 'f-feature-2',
     };
 
     const encoded = serializer.serializeJson(value);

@@ -2,14 +2,14 @@
 
 ## Goal
 
-Capture the contract of `FeatureGraph` as the authoritative mutable DAG surface and read model for milestones, features, tasks, and integration queue state.
+Capture the contract of `FeatureGraph` as the authoritative mutable DAG surface and read model for milestones, features, tasks, and milestone steering state.
 
 ## Scenarios
 
-### Snapshot reflects the current authoritative graph state
-- Given milestones, features, tasks, dependencies, and merge-queue entries exist in the graph
-- When `snapshot()` is requested
-- Then the returned `GraphSnapshot` contains the current graph contents needed to persist or reload the model
+### Recovery/load state reflects the current authoritative graph state
+- Given milestones, features, tasks, and dependencies exist in the graph
+- When the graph is loaded for persistence or recovery
+- Then the resulting graph state contains the current graph contents needed to persist or reload the model
 - And it reflects the same authoritative state represented by the in-memory milestone, feature, and task maps
 
 ### Invalid mutations reject without partial graph corruption
@@ -31,11 +31,11 @@ Capture the contract of `FeatureGraph` as the authoritative mutable DAG surface 
 - Then the returned path reflects the current task graph rather than an outdated earlier ordering
 - And scheduling code can treat it as a derived view over the authoritative graph state
 
-### Integration queue and queued milestones are explicit graph views
-- Given milestones have been queued and features have been enqueued for merge
-- When `queuedMilestones()` or `integrationQueue()` is read
-- Then those methods expose the current explicit queue state
-- And queue membership is not inferred solely from generic feature completion
+### Queued milestones are explicit graph views
+- Given milestones have been queued and features may be ready for merge
+- When `queuedMilestones()` is read
+- Then it exposes the current explicit milestone steering state
+- And merge-train eligibility is not inferred solely from generic feature completion
 
 ### Completion and milestone queue reset are derived graph operations
 - Given the graph still has incomplete work and explicit milestone steering may already be queued

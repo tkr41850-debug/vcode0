@@ -1,5 +1,4 @@
 import type { AgentPort } from '@agents';
-import type { GraphSnapshot } from '@core/graph/index';
 import type {
   AgentRun,
   EventRecord,
@@ -11,15 +10,40 @@ import type {
 import type { GitPort } from '@git';
 import type { RuntimePort } from '@runtime';
 
+export interface StoreGraphState {
+  milestones: Milestone[];
+  features: Feature[];
+  tasks: Task[];
+}
+
+export interface StoreRecoveryState extends StoreGraphState {
+  agentRuns: AgentRun[];
+}
+
+export interface AgentRunQuery {
+  scopeType?: AgentRun['scopeType'];
+  scopeId?: AgentRun['scopeId'];
+  phase?: AgentRun['phase'];
+  runStatus?: AgentRun['runStatus'];
+  owner?: AgentRun['owner'];
+}
+
+export interface EventQuery {
+  eventType?: string;
+  entityId?: string;
+  since?: number;
+  until?: number;
+}
+
 export interface Store {
-  loadGraphSnapshot(): Promise<GraphSnapshot>;
-  saveGraphSnapshot(snapshot: GraphSnapshot): Promise<void>;
+  loadRecoveryState(): Promise<StoreRecoveryState>;
+  saveGraphState(state: StoreGraphState): Promise<void>;
   listMilestones(): Promise<Milestone[]>;
   listFeatures(): Promise<Feature[]>;
   listTasks(): Promise<Task[]>;
-  listAgentRuns(): Promise<AgentRun[]>;
-  getTaskRunsByStatus(status: AgentRun['runStatus']): Promise<AgentRun[]>;
+  listAgentRuns(query?: AgentRunQuery): Promise<AgentRun[]>;
   updateAgentRun(runId: string, patch: Partial<AgentRun>): Promise<void>;
+  listEvents(query?: EventQuery): Promise<EventRecord[]>;
   appendEvent(event: EventRecord): Promise<void>;
 }
 

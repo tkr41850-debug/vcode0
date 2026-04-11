@@ -17,7 +17,7 @@ See [ARCHITECTURE.md](../../ARCHITECTURE.md) for the high-level architecture ove
 | **mergeFeatures(featureIds, name)** | Combine features into one. Union of deps and tasks. Redirect incoming edges |
 | **cancelFeature(featureId, cascade?)** | Mark as cancelled (`collabControl → cancelled`), kill all in-flight tasks immediately, and optionally cancel transitive dependents when `cascade=true` |
 | **changeMilestone(featureId, newMilestoneId)** | Reassign a feature to a different milestone without changing dependency semantics |
-| **editFeature(featureId, patch)** | Update name, description, or task list of a feature |
+| **editFeature(featureId, patch)** | Update a feature's name or description |
 | **addTask(featureId, description, deps?)** | Add a task to an existing feature |
 | **removeTask(taskId)** | Remove a task (only if pending) |
 | **reorderTasks(featureId, taskIds)** | Reorder tasks within a feature (affects display, not scheduling) |
@@ -49,7 +49,6 @@ interface FeatureGraph {
   readyFeatures(): Feature[];           // features whose feature deps are all done
   readyTasks(): Task[];                 // tasks whose in-feature deps are all done
   criticalPath(): Task[];               // longest weighted path through the task DAG
-  integrationQueue(): IntegrationQueueEntry[]; // queued feature-merge entries
   queuedMilestones(): Milestone[];      // ordered user steering queue
   isComplete(): boolean;                // all milestones done
 
@@ -178,19 +177,7 @@ premature feature split.
 
 ## Collaboration Control: Merge Train
 
-Completed feature branches do not merge directly to `main`. Instead, they enter the integration queue for the merge train.
-
-```typescript
-interface IntegrationQueueEntry {
-  featureId: string;
-  branchName: string;
-  queuedMilestonePositions?: number[]; // snapshot of steering context before merge queueing
-  manualPosition?: number;             // present only for the manual override bucket
-  enteredAt: number;
-  entrySeq: number;
-  reentryCount: number;
-}
-```
+Completed feature branches do not merge directly to `main`. Instead, merge-train ordering remains feature-owned: queue eligibility and ordering derive from feature merge-train fields plus dependency legality and current milestone steering context.
 
 Queue rules:
 1. Only features whose feature deps are already merged to `main` may integrate.

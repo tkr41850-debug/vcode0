@@ -431,7 +431,11 @@ On startup:
 
 ```typescript
 async function recoverOrphanedTasks(store: Store, pool: WorkerPool) {
-  const orphaned = await store.getTaskRunsByStatus("running");
+  const orphaned = await store.listAgentRuns({
+    scopeType: "task",
+    runStatus: "running",
+  });
+
   for (const run of orphaned) {
     if (run.sessionId) {
       // Resume from saved session, rebasing onto current feature branch HEAD first

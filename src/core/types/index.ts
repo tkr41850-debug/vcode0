@@ -55,8 +55,12 @@ export type TaskResumeReason =
   | 'cross_feature_rebase'
   | 'manual';
 
+export type MilestoneId = `m-${string}`;
+export type FeatureId = `f-${string}`;
+export type TaskId = `t-${string}`;
+
 export interface DependencyOutputSummary {
-  taskId: string;
+  taskId: TaskId;
   featureName: string;
   summary: string;
   filesChanged: string[];
@@ -138,22 +142,21 @@ export interface TaskResult {
 }
 
 export interface Milestone {
-  id: string;
+  id: MilestoneId;
   name: string;
   description: string;
-  featureIds: string[];
   status: UnitStatus;
   order: number;
   steeringQueuePosition?: number;
 }
 
 export interface Feature {
-  id: string;
-  milestoneId: string;
+  id: FeatureId;
+  milestoneId: MilestoneId;
+  orderInMilestone: number;
   name: string;
   description: string;
-  dependsOn: string[];
-  taskIds: string[];
+  dependsOn: FeatureId[];
   status: UnitStatus;
   workControl: FeatureWorkControl;
   collabControl: FeatureCollabControl;
@@ -168,10 +171,11 @@ export interface Feature {
 }
 
 export interface Task {
-  id: string;
-  featureId: string;
+  id: TaskId;
+  featureId: FeatureId;
+  orderInFeature: number;
   description: string;
-  dependsOn: string[];
+  dependsOn: TaskId[];
   status: TaskStatus;
   collabControl: TaskCollabControl;
   workerId?: string;
@@ -181,7 +185,7 @@ export interface Task {
   weight?: number;
   tokenUsage?: TokenUsageAggregate;
   reservedWritePaths?: string[];
-  blockedByFeatureId?: string;
+  blockedByFeatureId?: FeatureId;
   sessionId?: string;
   consecutiveFailures?: number;
   suspendedAt?: number;
@@ -189,10 +193,8 @@ export interface Task {
   suspendedFiles?: string[];
 }
 
-export interface AgentRun {
+interface BaseAgentRun {
   id: string;
-  scopeType: 'task' | 'feature_phase';
-  scopeId: string;
   phase: AgentRunPhase;
   runStatus: AgentRunStatus;
   owner: RunOwner;
@@ -204,21 +206,17 @@ export interface AgentRun {
   retryAt?: number;
 }
 
-export interface DependencyEdge {
-  fromId: string;
-  toId: string;
-  depType: 'feature' | 'task';
+export interface TaskAgentRun extends BaseAgentRun {
+  scopeType: 'task';
+  scopeId: TaskId;
 }
 
-export interface IntegrationQueueEntry {
-  featureId: string;
-  branchName: string;
-  queuedMilestonePositions?: number[];
-  manualPosition?: number;
-  enteredAt: number;
-  entrySeq: number;
-  reentryCount: number;
+export interface FeaturePhaseAgentRun extends BaseAgentRun {
+  scopeType: 'feature_phase';
+  scopeId: FeatureId;
 }
+
+export type AgentRun = TaskAgentRun | FeaturePhaseAgentRun;
 
 export interface BudgetConfig {
   globalUsd: number;

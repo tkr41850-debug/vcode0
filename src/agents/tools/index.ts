@@ -5,7 +5,14 @@ import type {
   FeatureEditPatch,
   SplitSpec,
 } from '@core/graph/index';
-import type { Feature, Milestone, Task } from '@core/types/index';
+import type {
+  Feature,
+  FeatureId,
+  Milestone,
+  MilestoneId,
+  Task,
+  TaskId,
+} from '@core/types/index';
 
 export type {
   CreateFeatureOptions,
@@ -37,58 +44,66 @@ export type ReplannerToolName =
 
 export type AgentToolName = ReplannerToolName;
 
-export interface AddDependencyOptions {
-  from: string;
-  to: string;
+export interface FeatureDependencyOptions {
+  from: FeatureId;
+  to: FeatureId;
 }
 
-export interface RemoveDependencyOptions {
-  from: string;
-  to: string;
+export interface TaskDependencyOptions {
+  from: TaskId;
+  to: TaskId;
 }
+
+export type AddDependencyOptions =
+  | FeatureDependencyOptions
+  | TaskDependencyOptions;
+
+export type RemoveDependencyOptions =
+  | FeatureDependencyOptions
+  | TaskDependencyOptions;
 
 export interface SplitFeatureOptions {
-  featureId: string;
+  featureId: FeatureId;
   splits: SplitSpec[];
 }
 
 export interface MergeFeaturesOptions {
-  featureIds: string[];
+  featureIds: FeatureId[];
   name: string;
 }
 
 export interface CancelFeatureOptions {
-  featureId: string;
+  featureId: FeatureId;
   cascade?: boolean;
 }
 
 export interface ChangeMilestoneOptions {
-  featureId: string;
-  newMilestoneId: string;
+  featureId: FeatureId;
+  newMilestoneId: MilestoneId;
 }
 
 export interface EditFeatureOptions {
-  featureId: string;
+  featureId: FeatureId;
   patch: FeatureEditPatch;
 }
 
 export interface AddTaskOptions {
-  featureId: string;
+  featureId: FeatureId;
   description: string;
-  deps?: string[];
+  deps?: TaskId[];
 }
 
 export interface RemoveTaskOptions {
-  taskId: string;
+  taskId: TaskId;
 }
 
 export interface ReorderTasksOptions {
-  featureId: string;
-  taskIds: string[];
+  featureId: FeatureId;
+  taskIds: TaskId[];
 }
 
 export interface ReweightTaskOptions {
-  taskId: string;
+  taskId: TaskId;
   weight: number;
 }
 

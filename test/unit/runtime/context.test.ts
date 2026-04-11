@@ -42,8 +42,8 @@ describe('worker context builder', () => {
   it('uses typed IPC steering and suspend/resume reasons', () => {
     const steerContext: GitConflictContext = {
       kind: 'same_feature_task_rebase',
-      featureId: 'feature-1',
-      taskId: 'task-1',
+      featureId: 'f-feature-1',
+      taskId: 't-task-1',
       taskBranch: 'feat-feature-1-task-1',
       rebaseTarget: 'feat-feature-1',
       pauseReason: 'same_feature_overlap',
@@ -61,20 +61,20 @@ describe('worker context builder', () => {
     const messages: OrchestratorToWorkerMessage[] = [
       {
         type: 'steer',
-        taskId: 'task-1',
+        taskId: 't-task-1',
         agentRunId: 'run-1',
         directive: steerDirective,
       },
       {
         type: 'suspend',
-        taskId: 'task-1',
+        taskId: 't-task-1',
         agentRunId: 'run-1',
         reason: suspendReason,
         files: ['src/core/types/index.ts'],
       },
       {
         type: 'resume',
-        taskId: 'task-1',
+        taskId: 't-task-1',
         agentRunId: 'run-1',
         reason: resumeReason,
       },
@@ -125,13 +125,13 @@ describe('worker context builder', () => {
       planSummary: 'plan',
       dependencyOutputs: [
         {
-          taskId: 'task-1',
+          taskId: 't-task-1',
           featureName: 'Feature',
           summary: 'done',
           filesChanged: ['src/core/types/index.ts'],
         },
         {
-          taskId: 'task-2',
+          taskId: 't-task-2',
           featureName: 'Feature',
           summary: 'later',
           filesChanged: ['src/runtime/context/index.ts'],
