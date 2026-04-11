@@ -136,7 +136,13 @@ interface Task {
   result?: TaskResult;
   weight?: number;                 // estimated cost/complexity for critical path
   tokenUsage?: TokenUsageAggregate; // lifetime aggregate across retries, failures, and resumes
+  reservedWritePaths?: string[];   // planner-reserved edit paths for scheduling overlap checks
+  blockedByFeatureId?: FeatureId;  // cross-feature overlap: which feature blocks this task
   sessionId?: string;              // compatibility/task-facing session pointer; agent_runs.session_id stays authoritative
+  consecutiveFailures?: number;    // tracks failures for stuck detection / crashloop backoff
+  suspendedAt?: number;            // when the task was suspended
+  suspendReason?: TaskSuspendReason; // why the task was suspended
+  suspendedFiles?: string[];       // files involved in the suspension
 }
 
 interface AgentRun {
@@ -259,7 +265,7 @@ type RunAttention = "none" | "crashloop_backoff";
 
 ### Scheduling Levels
 
-The feature graph determines which features can run. Milestones are organizational / steering units: they do not unblock execution and they do not create dependency edges. A user may queue multiple milestones to steer scheduler attention. Among ready work, the scheduler first compares the queue position of each task's associated milestone; work whose milestone is not queued gets an effective queue position of infinity. Within the same milestone queue-position bucket, normal critical-path / readiness logic applies. If no milestones are queued, the scheduler runs autonomously from the global ready frontier. Within a runnable feature, all tasks with satisfied in-feature deps are dispatched in parallel.
+The feature graph determines which features can run. Milestones are organizational / steering units: they do not unblock execution and they do not create dependency edges. A user may queue multiple milestones to steer scheduler attention. The scheduler operates on a unified frontier of `SchedulableUnit` values covering both task execution and feature-phase agent work. See [graph-operations.md](./graph-operations.md) for the canonical scheduling priority order, combined graph metrics, work-type tiers, and the orchestrator tick model.
 
 Feature IDs below are illustrative placeholders that show dependency shape only.
 
@@ -271,11 +277,15 @@ Feature graph:
 
 Ready frontier: [F-<feature-a>, F-<feature-d>]  (no unmet feature deps)
 Queued milestones: [M1, M3]
-Tuple ordering over ready work:
-  1. milestoneQueuePosition(task.milestoneId)   // ∞ if not queued
-  2. -criticalPathWeight(task)
-  3. stable fallback
-No queued milestones: start from the global ready frontier and sort by critical path
+Priority ordering over ready work:
+  1. milestoneQueuePosition(unit.milestoneId)   // ∞ if not queued
+  2. workTypeTier(unit.phase)                   // verify > execute > plan > summarize
+  3. -criticalPathWeight(unit)                  // combined graph max depth
+  4. partially-failed deprioritization
+  5. reservation overlap penalty
+  6. retry-eligible before fresh
+  7. stable fallback (age — when the unit became ready, tracked by scheduler)
+No queued milestones: start from the global ready frontier and sort by work-type tier then critical path
 After F-<feature-a> + F-<feature-d> done: [F-<feature-b>]
 After F-<feature-b> done: [F-<feature-c>]
 

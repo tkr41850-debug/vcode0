@@ -53,7 +53,7 @@ interface FeatureGraph {
   isComplete(): boolean;                // all milestones done
 
   // Mutations (all validate invariants before applying)
-  createFeature(opts: CreateFeatureOpts): Feature;
+  createFeature(opts: CreateFeatureOptions): Feature;
   splitFeature(id: FeatureId, splits: SplitSpec[]): Feature[];
   addDependency(from: FeatureId | TaskId, to: FeatureId | TaskId): void;
   queueMilestone(id: MilestoneId): void;
@@ -64,100 +64,210 @@ interface FeatureGraph {
 }
 ```
 
-## Load Balancing: Critical-Path-First
+## Orchestrator Coordination Model
 
-The scheduler normally prioritizes tasks on the longest
-weighted path through the DAG.
-This minimizes total wall-clock time by ensuring bottleneck
-chains start as early as possible.
-If users queue milestones, that becomes an ordered steering
-override: among ready work, earlier queued milestones sort
-ahead of later queued milestones,
-while dependency legality and in-feature task constraints
-still apply.
+> **Implementation status**: The coordination model below is the agreed architectural design. Type-level contracts (`SchedulerEvent`, `SchedulableUnit`, `TransitionResult`, `CombinedGraphNode`, `GraphMetrics`) are defined. Behavior (tick loop, graph construction, transition tables, conflict detection) is not yet implemented.
 
-Work from features whose derived status is `partially_failed`
-remains runnable, but it should be deprioritized behind ready
-work from features that are not `partially_failed` while such
-work exists.
+The orchestrator uses a **hybrid serial core with async feature phases** (Direction D). All state-mutating coordination flows through a single serial event queue, while feature-phase agent runs (planning, verifying, summarizing, replanning) execute asynchronously and post results back as events.
 
-Reservation-only cross-feature overlap does not hard-block
-ready work, but it does apply a heavy scheduling penalty.
-In practice this means work whose reserved write paths overlap
-with another active feature should run only when higher-priority
-non-overlapping ready work is unavailable.
-Hard runtime overlap detected by the write prehook or actual git
-state is handled separately by the cross-feature overlap protocol.
+### Serial Event Queue
+
+All orchestrator mutations flow through a single FIFO queue. Each event is processed to completion before the next starts. This eliminates concurrency races without locking or CAS complexity.
+
+Event sources:
+- **Worker IPC messages**: task results, errors, progress, help requests, approval requests, assistant output — arrive asynchronously from worker processes and are enqueued.
+- **Feature-phase completions**: planning/verifying/summarizing/replanning agents run async and post result or error events back into the queue.
+- **Shutdown signal**: triggers graceful stop of the scheduler loop.
+
+### Tick Phases
+
+Each scheduler tick processes the event queue and dispatches new work:
+
+```
+1. Drain events     — dequeue all pending events, process each serially
+2. Update state     — apply state transitions (validated by core/fsm guards)
+3. Check conflicts  — detect reservation overlaps (runtime overlaps are push-based via write prehook)
+4. Compute frontier — build combined graph, compute metrics, find ready work
+5. Sort             — apply priority ordering to ready work
+6. Dispatch         — send work to available workers via RuntimePort
+```
+
+### Conflict Detection Timing
+
+Overlap detection uses two layers:
+
+- **Reservation overlap** (tick-based): On each scheduler tick, the scheduler checks write-path reservations of ready work against running tasks. This is a scheduling-time penalty, not a hard block. Detection latency is bounded by the tick interval, which is acceptable for the local-machine baseline because task worktrees isolate blast radius.
+- **Runtime overlap** (push-based): When a task attempts to write a file, the write prehook tries to claim an active path lock through the orchestrator. If the path is already locked by another task, the incident is routed into the normal coordination flow immediately. See [conflict-coordination](../operations/conflict-coordination.md) and [worker-model](../worker-model.md) for the write-prehook mechanics.
+
+Additional reservation-level detection could be made push-based in the future. See [push-based conflict detection](../optimization-candidates/push-based-conflict-detection.md) for that optimization candidate.
+
+### State Transition Guards
+
+State transitions should be validated by pure guard functions in `core/fsm/` before being applied. Guards check both axes (work-control and collab-control) together — for example, `executing → feature_ci` should only be valid when `collabControl !== 'cancelled'`. The guard interface is defined but transition tables are not yet implemented. SQL constraint hardening may be added later as a safety net but does not replace the orchestrator guards.
+
+### Feature-Phase Concurrency
+
+Feature-phase agent runs do not block the tick. When the scheduler decides a feature needs planning, verification, or summarization, it dispatches the phase agent and continues processing. The phase agent posts a completion or error event back into the queue, which a future tick processes to advance the feature lifecycle.
+
+This means:
+- Multiple features can have active planning/verification/summarization concurrently.
+- Task execution and feature-phase work share the same worker pool and compete for the same slots.
+- The tick loop never awaits a feature-phase result inline.
+
+## Load Balancing: Combined Critical Path
+
+### Combined Feature+Task Graph
+
+Critical path weights are computed over a **virtual combined graph** that spans both feature and task DAG layers, not just the task DAG in isolation. This ensures that a task blocking a downstream feature correctly reflects the full weight of that feature's downstream work.
+
+The combined graph is constructed as a derived view:
+- Features in pre-execution phases (discussing, researching, planning) appear as single weighted nodes with estimated weight.
+- Features in executing state expand to their concrete task nodes.
+- Feature→feature dependency edges route through terminal tasks of the upstream feature to root tasks of the dependent feature.
+- Feature-phase nodes (verify, summarize) appear as virtual nodes with edges to/from their feature's tasks.
+
+After each graph mutation, recompute the combined graph.
+
+### Graph Metrics
+
+Two O(V+E) passes over the combined DAG:
+
+- **Max depth** (reverse topological DP): each node's weight = own weight + max(successor weights). This is the critical path weight — higher values mean more downstream work depends on this node. Used as the primary scheduling metric.
+- **SSSP from sources** (forward topological DP): predecessor distance from graph roots. Estimates how many predecessors must complete before a node becomes reachable. Available for future metrics and TUI predictions.
 
 ```typescript
-function prioritizeReadyTasks(
-  graph: FeatureGraph,
-  runs: AgentRunStore,
-  now: number,
-): Task[] {
-  const ready = graph.readyTasks().filter((task) => {
-    const run = runs.getExecutionRun(task.id);
-    return (
-      run === undefined ||
-      run.runStatus === "ready" ||
-      (run.runStatus === "retry_await" &&
-        run.retryAt !== undefined &&
-        run.retryAt <= now)
-    );
-  });
-  const criticalWeights = computeCriticalPathWeights(graph);
-  const queuedMilestones = graph.queuedMilestones();
-  const queuePos = new Map(queuedMilestones.map((m, i) => [m.id, i]));
-
-  return ready.sort((a, b) => {
-    const aQueuePos = queuePos.get(milestoneIdOf(graph, a)) ?? Infinity;
-    const bQueuePos = queuePos.get(milestoneIdOf(graph, b)) ?? Infinity;
-    if (aQueuePos !== bQueuePos) return aQueuePos - bQueuePos;
-
-    const weightDiff = criticalWeights.get(b.id)! - criticalWeights.get(a.id)!;
-    if (weightDiff !== 0) return weightDiff;
-
-    const aRun = runs.getExecutionRun(a.id);
-    const bRun = runs.getExecutionRun(b.id);
-    const aRetryEligible =
-      aRun?.runStatus === "retry_await" &&
-      aRun.retryAt !== undefined &&
-      aRun.retryAt <= now;
-    const bRetryEligible =
-      bRun?.runStatus === "retry_await" &&
-      bRun.retryAt !== undefined &&
-      bRun.retryAt <= now;
-    if (aRetryEligible !== bRetryEligible) return aRetryEligible ? -1 : 1;
-
-    return readySince(a) - readySince(b); // stable fallback
-  });
+interface CombinedGraphNode {
+  id: string;             // FeatureId | TaskId
+  weight: number;         // estimated or actual weight
+  successors: string[];   // downstream node ids
 }
 
-// Critical path weight = task's own weight + max weight of any downstream path
-function computeCriticalPathWeights(graph: FeatureGraph): Map<string, number> {
-  // Reverse topological traversal, memoized
-  // ...
+interface GraphMetrics {
+  maxDepth: Map<string, number>;   // critical path weight per node
+  distance: Map<string, number>;   // SSSP predecessor distance per node
+}
+
+function buildCombinedGraph(graph: FeatureGraph): Map<string, CombinedGraphNode>;
+function computeGraphMetrics(combinedGraph: Map<string, CombinedGraphNode>): GraphMetrics;
+```
+
+### Work-Type Priority Tiers
+
+A work-type tier sort key sits between milestone position and critical path weight. It groups `AgentRunPhase` values into scheduling priority buckets:
+
+| Tier | Priority | Phases | Rationale |
+|------|----------|--------|-----------|
+| 1 (highest) | verify | `verify`, `feature_ci` | Closest to feature completion; unblocks merge queue |
+| 2 | execute | `execute` | Makes progress on planned work; non-tail tasks naturally sort above tail tasks by critical path weight |
+| 3 | plan | `plan`, `discuss`, `research`, `replan` | Starts new feature work; produces future tasks |
+| 4 (lowest) | summarize | `summarize` | Post-merge; blocks nothing |
+
+The principle: **prefer completing features over starting new ones**.
+
+### Scheduling Priority Order
+
+When workers are scarce, ready work is sorted by:
+
+| Sort Key | Source | Direction |
+|----------|--------|-----------|
+| 1. Milestone queue position | `queuedMilestones()` | Lower position first |
+| 2. Work-type tier | `workTypeTierOf(phase)` | Higher tier first |
+| 3. Critical path weight | Combined graph max depth | Higher weight first |
+| 4. Partially-failed deprioritization | Feature derived status | Non-failed first |
+| 5. Reservation overlap penalty | Write-path intersection | Non-overlapping first |
+| 6. Retry-eligible before fresh | `run.runStatus === 'retry_await' && retryAt <= now` | Retry first |
+| 7. Stable fallback | age (when the unit became ready, tracked by scheduler) | Older first |
+
+When workers are plentiful, everything ready runs.
+
+Work whose milestone is not queued falls into the `∞` bucket, so it still runs when higher-priority queued buckets do not supply enough runnable work.
+
+Tasks whose execution run is currently `await_response` or `await_approval` are not dispatchable and should surface as derived `blocked` UI state instead. A run in `retry_await` is not dispatchable before `retryAt`, but becomes eligible again once that backoff window expires.
+
+### Cross-Milestone Dependency Handling
+
+When a feature in a higher-priority milestone is blocked by an incomplete feature in a lower-priority milestone, the scheduler pulls the blocking feature's work forward (dependency satisfaction overrides milestone ordering). This also emits a scheduling priority warning, because milestone priority inversion suggests the milestone decomposition may need revision. See [warnings](../operations/warnings.md).
+
+### Schedulable Units
+
+The scheduler operates on a unified dispatch abstraction that covers both task execution and feature-phase agent work:
+
+```typescript
+type SchedulableUnit =
+  | { kind: 'task'; task: Task; featureId: FeatureId }
+  | { kind: 'feature_phase'; feature: Feature; phase: AgentRunPhase };
+```
+
+Both kinds compete for the same worker pool and follow the same priority ordering. The scheduler computes a single merged frontier of ready work from both task readiness (DAG + run status + overlap) and feature-phase readiness (lifecycle state + dependency completion).
+
+## Scheduler Loop
+
+```typescript
+type SchedulerEvent =
+  | { type: 'worker_message'; message: WorkerToOrchestratorMessage }
+  | { type: 'feature_phase_complete'; featureId: FeatureId; phase: AgentRunPhase; summary: string }
+  | { type: 'feature_phase_error'; featureId: FeatureId; phase: AgentRunPhase; error: string }
+  | { type: 'shutdown' };
+
+async function schedulerLoop(
+  graph: FeatureGraph,
+  ports: OrchestratorPorts,
+  events: SchedulerEvent[],
+) {
+  while (!graph.isComplete()) {
+    // 1. Drain events
+    while (events.length > 0) {
+      const event = events.shift()!;
+      if (event.type === 'shutdown') return;
+
+      if (event.type === 'worker_message') {
+        // Update graph/run state based on worker result, error, or request
+        handleWorkerMessage(graph, ports.store, event.message);
+      } else if (event.type === 'feature_phase_complete') {
+        // Advance feature lifecycle (e.g., planning → executing)
+        advanceFeatureLifecycle(graph, ports.store, event.featureId, event.phase, event.summary);
+      } else if (event.type === 'feature_phase_error') {
+        handleFeaturePhaseError(graph, ports.store, event.featureId, event.phase, event.error);
+      }
+    }
+
+    // 2. Check reservation overlaps (runtime overlaps are push-based via write prehook)
+    detectReservationOverlaps(graph, ports);
+
+    // 3. Compute frontier and sort
+    const now = Date.now();
+    const combinedGraph = buildCombinedGraph(graph);
+    const metrics = computeGraphMetrics(combinedGraph);
+    const ready = prioritizeReadyWork(graph, runs, metrics, now);
+
+    // 4. Dispatch to available workers
+    for (const unit of ready.slice(0, idleWorkerCount)) {
+      if (unit.kind === 'task') {
+        // Look up or create the execution run record for this task
+        // Build dispatch payload (start or resume) from run state
+        const dispatch: TaskRuntimeDispatch = { mode: 'start', agentRunId: run.id };
+        const result = await ports.runtime.dispatchTask(unit.task, dispatch);
+
+        if (result.kind === 'not_resumable') {
+          // Fall back to fresh start on next tick
+          continue;
+        }
+
+        // Mark run as running in the store
+        await ports.store.updateAgentRun(run.id, { runStatus: 'running' });
+      } else {
+        // Dispatch feature-phase agent work (planning, verifying, etc.)
+        // Phase agent runs async; result posts back as SchedulerEvent
+      }
+    }
+
+    // 5. Wait for next event or tick interval
+    await waitForEventOrTimeout(events);
+  }
 }
 ```
 
-When workers are scarce, earlier queued milestones win first,
-then critical-path weight inside each queue-position bucket.
-If those dimensions tie, execution runs that are re-entering
-readiness after a backoff window has passed sort ahead of fresh
-ready work before the final age/stable fallback.
-Work whose milestone is not queued falls into the `∞` bucket,
-so it still runs when higher-priority queued buckets do not
-supply enough runnable work.
-When workers are plentiful, everything ready runs.
-Tasks whose execution run is currently `await_response`
-or `await_approval` are not dispatchable and should surface as
-derived `blocked` UI state instead.
-A run in `retry_await` is not dispatchable before `retryAt`,
-but becomes eligible again once that backoff window expires.
-This is intentional state splitting: scheduler readiness stays tied
-to coarse task lifecycle plus run eligibility, while waiting/
-manual/approval details stay on the execution run rather than on
-`tasks.status`.
+This pseudocode illustrates the intended tick model. Variable names like `runs`, `run`, and `idleWorkerCount` represent concepts whose exact API homes will be decided during the persistence (#104) and agent (#105) interface discussions. The actual implementation will be a `SchedulerLoop` class with an `enqueue()` method for posting events and `run()`/`stop()` for lifecycle control.
 
 Planner note: this works best when prerequisite-shaping tasks
 (schemas, interfaces, shared contracts,
@@ -191,9 +301,9 @@ Queue rules:
    ordering.
 4. Baseline manual merge-train steering is intentionally limited
    to a simple override bucket: explicitly ordered queued features
-   sort first by `manualPosition`, and the remaining queued features
-   use automatic priority (`reentryCount` desc, then current queue
-   entry order via `enteredAt` / `entrySeq`). Fully arbitrary
+   sort first by `mergeTrainManualPosition`, and the remaining queued features
+   use automatic priority (`mergeTrainReentryCount` desc, then current queue
+   entry order via `mergeTrainEnteredAt` / `mergeTrainEntrySeq`). Fully arbitrary
    persistent manual ordering is deferred as a feature candidate
    because it adds persistence/update complexity. See
    [Feature Candidate: Arbitrary Merge-Train Manual Ordering](../feature-candidates/arbitrary-merge-train-manual-ordering.md).
@@ -206,58 +316,3 @@ Queue rules:
    Reservation overlap only penalizes scheduling;
    runtime overlap uses the feature-pair coordination protocol
    described in [conflict coordination](../operations/conflict-coordination.md).
-
-## Scheduler Loop
-
-```typescript
-async function schedulerLoop(graph: FeatureGraph, pool: WorkerPool, store: Store) {
-  while (!graph.isComplete()) {
-    const now = Date.now();
-    const ready = prioritizeReadyTasks(graph, store, now);
-    const idle = pool.idleWorkers();
-
-    const toDispatch = ready.slice(0, idle.length);
-    const dispatched: Promise<void>[] = [];
-
-    for (let i = 0; i < toDispatch.length; i++) {
-      const task = toDispatch[i];
-      const worker = idle[i];
-      const run = store.getOrCreateExecutionRun(task.id);
-      graph.markRunning(task.id);
-      store.updateTask(task.id, { status: "running", workerId: worker.id });
-      store.updateAgentRun(run.id, { runStatus: "running", owner: "system" });
-
-      dispatched.push(
-        worker.run(task, buildWorkerContext(graph, task)).then(
-          (result) => {
-            graph.markDone(task.id, result);
-            store.updateTask(task.id, { status: "done", result });
-            store.updateAgentRun(run.id, { runStatus: "completed" });
-            propagateFeatureStatus(graph, task.featureId, store);
-          },
-          (err) => {
-            if (isTransient(err)) {
-              store.updateTask(task.id, { status: "ready", workerId: null });
-              store.updateAgentRun(run.id, {
-                runStatus: "retry_await",
-                retryAt: nextRetryAt(now, run.restartCount, retryPolicy),
-              });
-            } else {
-              graph.markFailed(task.id, err);
-              store.updateTask(task.id, { status: "failed", error: err.message });
-              store.updateAgentRun(run.id, { runStatus: "failed" });
-              // Orchestrator may instead mark the task stuck and move the feature into replanning
-            }
-          }
-        )
-      );
-    }
-
-    if (dispatched.length > 0) {
-      await Promise.race(dispatched);
-    } else {
-      await pool.waitForAnyCompletion();
-    }
-  }
-}
-```

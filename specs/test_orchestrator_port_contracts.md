@@ -44,3 +44,17 @@ Capture the responsibility split across the orchestrator adapter ports so orches
 - When its dependencies are provided
 - Then `OrchestratorPorts` supplies store, git, runtime, agents, UI, and config together as the orchestration boundary
 - And swapping implementations at that seam does not change the orchestrator's workflow contract
+
+### Scheduler events are typed and processed serially
+- Given the orchestrator scheduler receives events from workers, feature-phase agents, and internal signals
+- When an event arrives
+- Then it is enqueued as a typed `SchedulerEvent` into the serial event queue
+- And the scheduler tick drains and processes events one at a time before computing the ready frontier
+- And no concurrent event processing occurs within the orchestrator's coordination core
+
+### State transitions are validated by pure FSM guards
+- Given the orchestrator needs to transition a feature's work-control or collab-control state
+- When the transition is proposed
+- Then it is validated by a pure `core/fsm` guard function that checks both axes together
+- And invalid transitions are rejected before any persistence write occurs
+- And the guard functions have no side effects and no dependencies outside of `core`

@@ -64,6 +64,18 @@ Stage 2 examples:
 - one feature pair repeatedly triggering overlap pauses
 - one feature consuming a disproportionate share of recovery work over time
 
+### Scheduling Priority Warnings
+
+Scheduling priority warnings surface structural issues in milestone decomposition or dependency ordering that cause the scheduler to override expected priority.
+
+Stage 1 examples:
+- a feature in a higher-priority milestone is blocked by an incomplete feature in a lower-priority milestone (milestone priority inversion)
+- dependency satisfaction pulls a lower-milestone feature forward, overriding the expected milestone ordering
+
+Stage 2 examples:
+- one milestone pair repeatedly causes priority inversions across runs
+- a milestone's features are chronically blocked by work in later milestones
+
 ### Hierarchy Cardinality Warnings
 
 Hierarchy cardinality warnings capture cases where graph shape exceeds the baseline assumption that milestones and features usually own relatively small sibling sets.
