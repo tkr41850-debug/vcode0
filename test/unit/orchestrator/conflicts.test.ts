@@ -1,4 +1,4 @@
-import type { Feature, Task } from '@core/types/index';
+import type { Task } from '@core/types/index';
 import type {
   FeatureBranchRebaseResult,
   OverlapIncident,
@@ -22,7 +22,7 @@ function createMockPorts(
     store: {} as OrchestratorPorts['store'],
     git: {
       rebaseTaskWorktree: vi.fn(
-        async (task: { id: string }): Promise<TaskWorktreeRebaseResult> => ({
+        async (task: Task): Promise<TaskWorktreeRebaseResult> => ({
           kind: 'rebased',
           taskId: task.id,
           featureId: 'f-1',

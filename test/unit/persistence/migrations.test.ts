@@ -5,6 +5,8 @@ import {
 } from '@persistence/migrations';
 import { describe, expect, it, vi } from 'vitest';
 
+/* eslint-disable @typescript-eslint/require-await, @typescript-eslint/unbound-method */
+
 describe('MigrationRunner', () => {
   it('runs all migrations in order', async () => {
     const executionOrder: string[] = [];

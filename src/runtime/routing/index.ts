@@ -32,7 +32,7 @@ export class ModelRouter {
     const effectiveTier = this.resolveTier(tier, config, options);
 
     return {
-      model: config.tiers[effectiveTier] ?? config.ceiling,
+      model: config.tiers[effectiveTier] || config.ceiling,
       tier: effectiveTier,
     };
   }
