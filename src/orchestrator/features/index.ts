@@ -1,5 +1,4 @@
 import type { Feature } from '@core/types/index';
-import type { FeatureBranchHandle } from '@git';
 import type { OrchestratorPorts } from '@orchestrator/ports/index';
 
 export class FeatureLifecycleCoordinator {
@@ -7,18 +6,26 @@ export class FeatureLifecycleCoordinator {
 
   async openBranch(feature: Feature): Promise<void> {
     const branch = await this.ports.git.createFeatureBranch(feature);
-    this.useFeatureBranchHandle(branch);
+    await this.ports.store.updateFeature(feature.id, {
+      featureBranch: branch.branchName,
+    });
   }
 
-  runFeatureCi(_feature: Feature): Promise<void> {
-    void this.ports;
-    return Promise.resolve();
+  async runFeatureCi(feature: Feature): Promise<void> {
+    const featureConfig = this.ports.config.verification?.feature;
+    const ok = !featureConfig || featureConfig.checks.length === 0;
+
+    await this.ports.store.appendEvent({
+      eventType: 'feature_ci',
+      entityId: feature.id,
+      timestamp: Date.now(),
+      payload: { ok },
+    });
   }
 
-  markAwaitingMerge(_feature: Feature): Promise<void> {
-    void this.ports;
-    return Promise.resolve();
+  async markAwaitingMerge(feature: Feature): Promise<void> {
+    await this.ports.store.updateFeature(feature.id, {
+      mergeTrainEnteredAt: Date.now(),
+    });
   }
-
-  private useFeatureBranchHandle(_branch: FeatureBranchHandle): void {}
 }
