@@ -48,14 +48,14 @@ interface FeatureGraph {
   // Core queries
   readyFeatures(): Feature[];           // features whose feature deps are all done
   readyTasks(): Task[];                 // tasks whose in-feature deps are all done
-  criticalPath(): Task[];               // longest weighted path through the task DAG
   queuedMilestones(): Milestone[];      // ordered user steering queue
   isComplete(): boolean;                // all milestones done
+  // Critical path lives in core/scheduling (buildCombinedGraph + computeGraphMetrics)
 
   // Mutations (all validate invariants before applying)
   createFeature(opts: CreateFeatureOptions): Feature;
   splitFeature(id: FeatureId, splits: SplitSpec[]): Feature[];
-  addDependency(from: FeatureId | TaskId, to: FeatureId | TaskId): void;
+  addDependency(opts: DependencyOptions): void; // FeatureDependencyOptions | TaskDependencyOptions
   queueMilestone(id: MilestoneId): void;
   dequeueMilestone(id: MilestoneId): void;
   clearQueuedMilestones(): void;
@@ -205,7 +205,7 @@ Both kinds compete for the same worker pool and follow the same priority orderin
 ```typescript
 type SchedulerEvent =
   | { type: 'worker_message'; message: WorkerToOrchestratorMessage }
-  | { type: 'feature_phase_complete'; featureId: FeatureId; phase: AgentRunPhase; summary: string }
+  | { type: 'feature_phase_complete'; featureId: FeatureId; phase: AgentRunPhase; summary: string; verification?: VerificationSummary }
   | { type: 'feature_phase_error'; featureId: FeatureId; phase: AgentRunPhase; error: string }
   | { type: 'shutdown' };
 

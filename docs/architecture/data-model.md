@@ -134,7 +134,7 @@ interface Task {
   worktreeBranch?: string;
   taskTestPolicy?: TestPolicy;
   result?: TaskResult;
-  weight?: number;                 // estimated cost/complexity for critical path
+  weight?: TaskWeight;             // estimated cost/complexity for critical path
   tokenUsage?: TokenUsageAggregate; // lifetime aggregate across retries, failures, and resumes
   reservedWritePaths?: string[];   // planner-reserved edit paths for scheduling overlap checks
   blockedByFeatureId?: FeatureId;  // cross-feature overlap: which feature blocks this task
@@ -145,10 +145,8 @@ interface Task {
   suspendedFiles?: string[];       // files involved in the suspension
 }
 
-interface AgentRun {
+interface BaseAgentRun {
   id: string;
-  scopeType: "task" | "feature_phase";
-  scopeId: TaskId | FeatureId;
   phase: AgentRunPhase;
   runStatus: AgentRunStatus;
   owner: RunOwner;
@@ -159,6 +157,18 @@ interface AgentRun {
   maxRetries: number;
   retryAt?: number;
 }
+
+interface TaskAgentRun extends BaseAgentRun {
+  scopeType: "task";
+  scopeId: TaskId;
+}
+
+interface FeaturePhaseAgentRun extends BaseAgentRun {
+  scopeType: "feature_phase";
+  scopeId: FeatureId;
+}
+
+type AgentRun = TaskAgentRun | FeaturePhaseAgentRun;
 
 interface TokenUsageAggregate {
   llmCalls: number;
