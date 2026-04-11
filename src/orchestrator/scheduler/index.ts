@@ -41,11 +41,28 @@ export class SchedulerLoop {
     this.events.push(event);
   }
 
-  run(): Promise<void> {
+  async run(): Promise<void> {
     this.ports.ui.refresh();
-    void this.graph;
-    void this.events;
-    return Promise.resolve();
+
+    // Dispatch ready tasks
+    const readyTasks = this.graph.readyTasks();
+    const idleCount = this.ports.runtime.idleWorkerCount();
+    const toDispatch = readyTasks.slice(0, idleCount);
+
+    for (const task of toDispatch) {
+      await this.ports.runtime.dispatchTask(task, {
+        mode: 'start',
+        agentRunId: `run-${task.id}`,
+      });
+    }
+
+    // Drain enqueued events
+    while (this.events.length > 0) {
+      const event = this.events.shift()!;
+      if (event.type === 'shutdown') {
+        return;
+      }
+    }
   }
 
   stop(): Promise<void> {
