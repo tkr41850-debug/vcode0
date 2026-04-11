@@ -3,8 +3,10 @@ export type UnitStatus =
   | 'in_progress'
   | 'done'
   | 'failed'
-  | 'partially_failed'
   | 'cancelled';
+
+/** UnitStatus extended with derived-only values for display and scheduler. */
+export type DerivedUnitStatus = UnitStatus | 'partially_failed';
 
 export type FeatureWorkControl =
   | 'discussing'

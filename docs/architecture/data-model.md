@@ -68,7 +68,7 @@ branch_open / merge_queued / conflict → cancelled
 - **conflict** — feature-level collaboration issue blocks normal progress. While a feature is in `conflict`, suspend all non-repair task runs for that feature until the conflict is cleared.
 - **cancelled** — feature participation in the branch / merge lifecycle has been explicitly stopped. Cancellation kills all in-flight tasks immediately, freezes the current work phase, and keeps the feature out of normal scheduling until it is explicitly restored.
 
-Feature and milestone `status` fields are derived reporting values, not independent authority. Feature status is derived from collaboration control plus frontier task outcomes; milestone status is derived from child feature statuses. A feature becomes `done` only when `workControl = "work_complete"` and `collabControl = "merged"`. A feature becomes `failed` when all frontier tasks are failed, and `partially_failed` when only some frontier tasks are failed.
+Feature and milestone `status` fields are derived reporting values, not independent authority. Feature status is derived from collaboration control plus frontier task outcomes; milestone status is derived from child feature statuses. A feature becomes `done` only when `workControl = "work_complete"` and `collabControl = "merged"`. A feature becomes `failed` when all frontier tasks are failed. `partially_failed` is a derived display status (not part of `UnitStatus`) computed when some frontier tasks have failed but dispatchable work remains — it is used for TUI display and scheduler deprioritization (sort key #4) but never stored or transitioned through the FSM.
 
 The baseline uses typed prefixed IDs to distinguish graph unit classes at compile time:
 - milestones: `m-${string}`
@@ -189,7 +189,10 @@ interface ModelUsageAggregate {
   usd: number;
 }
 
-type UnitStatus = "pending" | "in_progress" | "done" | "failed" | "partially_failed" | "cancelled";
+type UnitStatus = "pending" | "in_progress" | "done" | "failed" | "cancelled";
+
+// Derived display status — includes partially_failed for TUI and scheduler
+type DerivedUnitStatus = UnitStatus | "partially_failed";
 
 type FeatureWorkControl =
   | "discussing"

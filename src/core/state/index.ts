@@ -1,10 +1,10 @@
 import type {
   AgentRun,
+  DerivedUnitStatus,
   Feature,
   FeatureId,
   Task,
   TaskStatus,
-  UnitStatus,
 } from '@core/types';
 
 export type SummaryAvailability =
@@ -17,7 +17,7 @@ export type TaskPresentationStatus = TaskStatus | 'blocked';
 
 export interface FeatureAggregateState {
   featureId: FeatureId;
-  status: UnitStatus;
+  status: DerivedUnitStatus;
   summaryAvailability: SummaryAvailability;
   isDone: boolean;
 }
@@ -81,7 +81,7 @@ export function deriveFeatureDone(feature: Feature): boolean {
 export function deriveFeatureUnitStatus(
   feature: Feature,
   frontierTaskStatuses: TaskStatus[],
-): UnitStatus {
+): DerivedUnitStatus {
   if (feature.collabControl === 'cancelled') {
     return 'cancelled';
   }
@@ -129,8 +129,8 @@ export function deriveFeatureUnitStatus(
 }
 
 export function deriveMilestoneUnitStatus(
-  featureStatuses: UnitStatus[],
-): UnitStatus {
+  featureStatuses: DerivedUnitStatus[],
+): DerivedUnitStatus {
   if (featureStatuses.length === 0) {
     return 'pending';
   }
