@@ -1,5 +1,11 @@
 import { InMemoryFeatureGraph } from '@core/graph/index';
-import type { Feature, Milestone, Task } from '@core/types/index';
+import type {
+  Feature,
+  FeatureId,
+  Milestone,
+  Task,
+  TaskId,
+} from '@core/types/index';
 
 export function createMilestoneFixture(
   overrides: Partial<Milestone> = {},
@@ -47,4 +53,63 @@ export function createTaskFixture(overrides: Partial<Task> = {}): Task {
 
 export function createGraphFixture(): InMemoryFeatureGraph {
   return new InMemoryFeatureGraph();
+}
+
+/** Graph with a default milestone m-1 pre-created. */
+export function createGraphWithMilestone(): InMemoryFeatureGraph {
+  const g = new InMemoryFeatureGraph();
+  g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+  return g;
+}
+
+/** Graph with milestone m-1 and feature f-1 pre-created. */
+export function createGraphWithFeature(
+  featureOverrides: Partial<Feature> = {},
+): InMemoryFeatureGraph {
+  const g = createGraphWithMilestone();
+  g.createFeature({
+    id: 'f-1',
+    milestoneId: 'm-1',
+    name: 'F',
+    description: 'd',
+    ...featureOverrides,
+  });
+  return g;
+}
+
+/** Graph with milestone m-1, feature f-1, and task t-1 pre-created. */
+export function createGraphWithTask(
+  taskOverrides: Partial<Task> = {},
+  featureOverrides: Partial<Feature> = {},
+): InMemoryFeatureGraph {
+  const g = createGraphWithFeature(featureOverrides);
+  g.createTask({
+    id: 't-1',
+    featureId: 'f-1',
+    description: 'T1',
+    ...taskOverrides,
+  });
+  return g;
+}
+
+/** Mutate a feature in the graph's map — avoids the get/assert/set boilerplate. */
+export function updateFeature(
+  g: InMemoryFeatureGraph,
+  id: FeatureId,
+  patch: Partial<Feature>,
+): void {
+  const f = g.features.get(id);
+  if (!f) throw new Error(`Feature "${id}" not found`);
+  g.features.set(id, { ...f, ...patch });
+}
+
+/** Mutate a task in the graph's map — avoids the get/assert/set boilerplate. */
+export function updateTask(
+  g: InMemoryFeatureGraph,
+  id: TaskId,
+  patch: Partial<Task>,
+): void {
+  const t = g.tasks.get(id);
+  if (!t) throw new Error(`Task "${id}" not found`);
+  g.tasks.set(id, { ...t, ...patch });
 }

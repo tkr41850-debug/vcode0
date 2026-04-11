@@ -3,8 +3,13 @@ import { describe, expect, it } from 'vitest';
 import {
   createFeatureFixture,
   createGraphFixture,
+  createGraphWithFeature,
+  createGraphWithMilestone,
+  createGraphWithTask,
   createMilestoneFixture,
   createTaskFixture,
+  updateFeature,
+  updateTask,
 } from '../../helpers/graph-builders.js';
 
 describe('InMemoryFeatureGraph', () => {
@@ -54,8 +59,7 @@ describe('InMemoryFeatureGraph', () => {
   // ── Feature creation ────────────────────────────────────────────────
 
   it('creates a feature with no dependencies', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    const g = createGraphWithMilestone();
     const f = g.createFeature({
       id: 'f-1',
       milestoneId: 'm-1',
@@ -74,14 +78,7 @@ describe('InMemoryFeatureGraph', () => {
   });
 
   it('creates a feature with valid dependencies', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F1',
-      description: 'd',
-    });
+    const g = createGraphWithFeature();
     const f2 = g.createFeature({
       id: 'f-2',
       milestoneId: 'm-1',
@@ -105,8 +102,7 @@ describe('InMemoryFeatureGraph', () => {
   });
 
   it('rejects feature with nonexistent dependency', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    const g = createGraphWithMilestone();
     expect(() =>
       g.createFeature({
         id: 'f-1',
@@ -119,8 +115,7 @@ describe('InMemoryFeatureGraph', () => {
   });
 
   it('rejects feature with self-dependency', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    const g = createGraphWithMilestone();
     expect(() =>
       g.createFeature({
         id: 'f-1',
@@ -128,25 +123,6 @@ describe('InMemoryFeatureGraph', () => {
         name: 'F',
         description: 'd',
         dependsOn: ['f-1'],
-      }),
-    ).toThrow(GraphValidationError);
-  });
-
-  it('rejects feature dependency cycle (A→B→A)', () => {
-    // Self-dependency is the simplest cycle at creation time.
-    // Multi-node cycles through createFeature alone are impossible because
-    // a new node has no dependents yet and thus cannot be reachable from its deps.
-    // The cycle detection infrastructure is exercised here and will catch
-    // real multi-node cycles once addDependency is implemented.
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    expect(() =>
-      g.createFeature({
-        id: 'f-a',
-        milestoneId: 'm-1',
-        name: 'A',
-        description: 'd',
-        dependsOn: ['f-a'],
       }),
     ).toThrow(GraphValidationError);
   });
@@ -182,8 +158,7 @@ describe('InMemoryFeatureGraph', () => {
 
   it('allows diamond dependencies without cycle error', () => {
     // f-a is root; f-b and f-c both depend on f-a; f-d depends on both f-b and f-c
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    const g = createGraphWithMilestone();
     g.createFeature({
       id: 'f-a',
       milestoneId: 'm-1',
@@ -216,14 +191,7 @@ describe('InMemoryFeatureGraph', () => {
   });
 
   it('rejects duplicate feature id', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F1',
-      description: 'd',
-    });
+    const g = createGraphWithFeature();
     expect(() =>
       g.createFeature({
         id: 'f-1',
@@ -237,14 +205,7 @@ describe('InMemoryFeatureGraph', () => {
   // ── Task creation ───────────────────────────────────────────────────
 
   it('creates a task with no dependencies', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F',
-      description: 'd',
-    });
+    const g = createGraphWithFeature();
     const t = g.createTask({
       id: 't-1',
       featureId: 'f-1',
@@ -260,15 +221,7 @@ describe('InMemoryFeatureGraph', () => {
   });
 
   it('creates a task with valid same-feature dependencies', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F',
-      description: 'd',
-    });
-    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+    const g = createGraphWithTask();
     const t2 = g.createTask({
       id: 't-2',
       featureId: 'f-1',
@@ -280,14 +233,7 @@ describe('InMemoryFeatureGraph', () => {
   });
 
   it('rejects task with cross-feature dependency', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F1',
-      description: 'd',
-    });
+    const g = createGraphWithFeature();
     g.createFeature({
       id: 'f-2',
       milestoneId: 'm-1',
@@ -306,14 +252,7 @@ describe('InMemoryFeatureGraph', () => {
   });
 
   it('rejects task with nonexistent dependency', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F',
-      description: 'd',
-    });
+    const g = createGraphWithFeature();
     expect(() =>
       g.createTask({
         id: 't-1',
@@ -325,36 +264,16 @@ describe('InMemoryFeatureGraph', () => {
   });
 
   it('rejects task on cancelled feature', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F',
-      description: 'd',
-    });
-    // Manually set collabControl to cancelled for testing
-    const f = g.features.get('f-1');
-    if (!f) throw new Error('expected feature');
-    g.features.set('f-1', { ...f, collabControl: 'cancelled' });
+    const g = createGraphWithFeature();
+    updateFeature(g, 'f-1', { collabControl: 'cancelled' });
     expect(() =>
       g.createTask({ id: 't-1', featureId: 'f-1', description: 'T' }),
     ).toThrow(GraphValidationError);
   });
 
   it('rejects task on done feature (workControl=work_complete, collabControl=merged)', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F',
-      description: 'd',
-    });
-    const f = g.features.get('f-1');
-    if (!f) throw new Error('expected feature');
-    g.features.set('f-1', {
-      ...f,
+    const g = createGraphWithFeature();
+    updateFeature(g, 'f-1', {
       workControl: 'work_complete',
       collabControl: 'merged',
     });
@@ -364,14 +283,7 @@ describe('InMemoryFeatureGraph', () => {
   });
 
   it('rejects task with invalid id prefix', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F',
-      description: 'd',
-    });
+    const g = createGraphWithFeature();
     expect(() =>
       g.createTask({
         id: 'x-1' as `t-${string}`,
@@ -389,30 +301,13 @@ describe('InMemoryFeatureGraph', () => {
   });
 
   it('isComplete returns false with incomplete features', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F',
-      description: 'd',
-    });
+    const g = createGraphWithFeature();
     expect(g.isComplete()).toBe(false);
   });
 
   it('isComplete returns true when all features done', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F',
-      description: 'd',
-    });
-    const f = g.features.get('f-1');
-    if (!f) throw new Error('expected feature');
-    g.features.set('f-1', {
-      ...f,
+    const g = createGraphWithFeature();
+    updateFeature(g, 'f-1', {
       workControl: 'work_complete',
       collabControl: 'merged',
     });
@@ -465,14 +360,7 @@ describe('InMemoryFeatureGraph', () => {
   // ── Atomicity ───────────────────────────────────────────────────────
 
   it('graph state unchanged after rejected mutation', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F',
-      description: 'd',
-    });
+    const g = createGraphWithFeature();
 
     const featuresBefore = g.snapshot().features;
 
@@ -495,16 +383,7 @@ describe('InMemoryFeatureGraph', () => {
   // ── Snapshot hydration ──────────────────────────────────────────────
 
   it('snapshot hydration validates invariants and builds correct state', () => {
-    // Build a valid graph, snapshot it, hydrate a new instance
-    const g1 = createGraphFixture();
-    g1.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g1.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F',
-      description: 'd',
-    });
-    g1.createTask({ id: 't-1', featureId: 'f-1', description: 'T' });
+    const g1 = createGraphWithTask();
 
     const snap = g1.snapshot();
     const g2 = new InMemoryFeatureGraph(snap);
@@ -573,14 +452,7 @@ describe('InMemoryFeatureGraph', () => {
   // ── addDependency ───────────────────────────────────────────────────
 
   it('addDependency adds a feature dependency', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F1',
-      description: 'd',
-    });
+    const g = createGraphWithFeature();
     g.createFeature({
       id: 'f-2',
       milestoneId: 'm-1',
@@ -595,15 +467,7 @@ describe('InMemoryFeatureGraph', () => {
   });
 
   it('addDependency adds a task dependency', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F1',
-      description: 'd',
-    });
-    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+    const g = createGraphWithTask();
     g.createTask({ id: 't-2', featureId: 'f-1', description: 'T2' });
 
     g.addDependency({ from: 't-2', to: 't-1' });
@@ -613,14 +477,7 @@ describe('InMemoryFeatureGraph', () => {
   });
 
   it('addDependency rejects cycle in feature dependencies', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F1',
-      description: 'd',
-    });
+    const g = createGraphWithFeature();
     g.createFeature({
       id: 'f-2',
       milestoneId: 'm-1',
@@ -638,15 +495,7 @@ describe('InMemoryFeatureGraph', () => {
   });
 
   it('addDependency rejects cycle in task dependencies', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F1',
-      description: 'd',
-    });
-    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+    const g = createGraphWithTask();
     g.createTask({
       id: 't-2',
       featureId: 'f-1',
@@ -661,21 +510,13 @@ describe('InMemoryFeatureGraph', () => {
   });
 
   it('addDependency rejects cross-feature task dependency', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F1',
-      description: 'd',
-    });
+    const g = createGraphWithTask();
     g.createFeature({
       id: 'f-2',
       milestoneId: 'm-1',
       name: 'F2',
       description: 'd',
     });
-    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
     g.createTask({ id: 't-2', featureId: 'f-2', description: 'T2' });
 
     expect(() => g.addDependency({ from: 't-2', to: 't-1' })).toThrow(
@@ -684,14 +525,7 @@ describe('InMemoryFeatureGraph', () => {
   });
 
   it('addDependency rejects nonexistent feature', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F1',
-      description: 'd',
-    });
+    const g = createGraphWithFeature();
 
     expect(() => g.addDependency({ from: 'f-1', to: 'f-999' })).toThrow(
       GraphValidationError,
@@ -699,14 +533,7 @@ describe('InMemoryFeatureGraph', () => {
   });
 
   it('addDependency rejects duplicate dependency', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F1',
-      description: 'd',
-    });
+    const g = createGraphWithFeature();
     g.createFeature({
       id: 'f-2',
       milestoneId: 'm-1',
@@ -723,14 +550,7 @@ describe('InMemoryFeatureGraph', () => {
   // ── removeDependency ───────────────────────────────────────────────
 
   it('removeDependency removes a feature dependency', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F1',
-      description: 'd',
-    });
+    const g = createGraphWithFeature();
     g.createFeature({
       id: 'f-2',
       milestoneId: 'm-1',
@@ -745,15 +565,7 @@ describe('InMemoryFeatureGraph', () => {
   });
 
   it('removeDependency removes a task dependency', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F1',
-      description: 'd',
-    });
-    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+    const g = createGraphWithTask();
     g.createTask({
       id: 't-2',
       featureId: 'f-1',
@@ -767,14 +579,7 @@ describe('InMemoryFeatureGraph', () => {
   });
 
   it('removeDependency rejects nonexistent edge', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F1',
-      description: 'd',
-    });
+    const g = createGraphWithFeature();
     g.createFeature({
       id: 'f-2',
       milestoneId: 'm-1',
@@ -790,14 +595,7 @@ describe('InMemoryFeatureGraph', () => {
   // ── readyFeatures ─────────────────────────────────────────────────
 
   it('readyFeatures returns features with no deps', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F1',
-      description: 'd',
-    });
+    const g = createGraphWithFeature();
 
     const ready = g.readyFeatures();
     expect(ready).toHaveLength(1);
@@ -805,14 +603,7 @@ describe('InMemoryFeatureGraph', () => {
   });
 
   it('readyFeatures excludes features with unsatisfied deps', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F1',
-      description: 'd',
-    });
+    const g = createGraphWithFeature();
     g.createFeature({
       id: 'f-2',
       milestoneId: 'm-1',
@@ -827,14 +618,7 @@ describe('InMemoryFeatureGraph', () => {
   });
 
   it('readyFeatures includes feature once dep is done', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F1',
-      description: 'd',
-    });
+    const g = createGraphWithFeature();
     g.createFeature({
       id: 'f-2',
       milestoneId: 'm-1',
@@ -844,10 +628,7 @@ describe('InMemoryFeatureGraph', () => {
     });
 
     // Mark f-1 as done
-    const f1 = g.features.get('f-1');
-    if (!f1) throw new Error('expected feature');
-    g.features.set('f-1', {
-      ...f1,
+    updateFeature(g, 'f-1', {
       workControl: 'work_complete',
       collabControl: 'merged',
     });
@@ -858,36 +639,15 @@ describe('InMemoryFeatureGraph', () => {
   });
 
   it('readyFeatures excludes cancelled features', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F1',
-      description: 'd',
-    });
-
-    const f1 = g.features.get('f-1');
-    if (!f1) throw new Error('expected feature');
-    g.features.set('f-1', { ...f1, collabControl: 'cancelled' });
+    const g = createGraphWithFeature();
+    updateFeature(g, 'f-1', { collabControl: 'cancelled' });
 
     expect(g.readyFeatures()).toHaveLength(0);
   });
 
   it('readyFeatures excludes done features', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F1',
-      description: 'd',
-    });
-
-    const f1 = g.features.get('f-1');
-    if (!f1) throw new Error('expected feature');
-    g.features.set('f-1', {
-      ...f1,
+    const g = createGraphWithFeature();
+    updateFeature(g, 'f-1', {
       workControl: 'work_complete',
       collabControl: 'merged',
     });
@@ -898,15 +658,7 @@ describe('InMemoryFeatureGraph', () => {
   // ── readyTasks ────────────────────────────────────────────────────
 
   it('readyTasks returns tasks with no deps in pending status', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F1',
-      description: 'd',
-    });
-    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+    const g = createGraphWithTask();
 
     const ready = g.readyTasks();
     expect(ready).toHaveLength(1);
@@ -914,15 +666,7 @@ describe('InMemoryFeatureGraph', () => {
   });
 
   it('readyTasks excludes tasks with unsatisfied deps', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F1',
-      description: 'd',
-    });
-    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+    const g = createGraphWithTask();
     g.createTask({
       id: 't-2',
       featureId: 'f-1',
@@ -936,15 +680,7 @@ describe('InMemoryFeatureGraph', () => {
   });
 
   it('readyTasks includes task once dep is done', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F1',
-      description: 'd',
-    });
-    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+    const g = createGraphWithTask();
     g.createTask({
       id: 't-2',
       featureId: 'f-1',
@@ -953,9 +689,7 @@ describe('InMemoryFeatureGraph', () => {
     });
 
     // Mark t-1 as done
-    const t1 = g.tasks.get('t-1');
-    if (!t1) throw new Error('expected task');
-    g.tasks.set('t-1', { ...t1, status: 'done' });
+    updateTask(g, 't-1', { status: 'done' });
 
     const ready = g.readyTasks();
     expect(ready).toHaveLength(1);
@@ -963,88 +697,29 @@ describe('InMemoryFeatureGraph', () => {
   });
 
   it('readyTasks excludes tasks on cancelled feature', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F1',
-      description: 'd',
-    });
-    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
-
-    const f1 = g.features.get('f-1');
-    if (!f1) throw new Error('expected feature');
-    g.features.set('f-1', { ...f1, collabControl: 'cancelled' });
+    const g = createGraphWithTask();
+    updateFeature(g, 'f-1', { collabControl: 'cancelled' });
 
     expect(g.readyTasks()).toHaveLength(0);
   });
 
   it('readyTasks excludes tasks that are already running or done', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F1',
-      description: 'd',
-    });
-    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+    const g = createGraphWithTask();
     g.createTask({ id: 't-2', featureId: 'f-1', description: 'T2' });
     g.createTask({ id: 't-3', featureId: 'f-1', description: 'T3' });
 
-    const t1 = g.tasks.get('t-1');
-    if (!t1) throw new Error('expected task');
-    g.tasks.set('t-1', { ...t1, status: 'running' });
-
-    const t2 = g.tasks.get('t-2');
-    if (!t2) throw new Error('expected task');
-    g.tasks.set('t-2', { ...t2, status: 'done' });
+    updateTask(g, 't-1', { status: 'running' });
+    updateTask(g, 't-2', { status: 'done' });
 
     const ready = g.readyTasks();
     expect(ready).toHaveLength(1);
     expect(ready[0]?.id).toBe('t-3');
   });
 
-  // ── Test fixture helpers ────────────────────────────────────────────
-
-  it('createMilestoneFixture produces valid default milestone', () => {
-    const m = createMilestoneFixture();
-    expect(m.id).toBe('m-1');
-    expect(m.name).toBe('Milestone 1');
-    expect(m.status).toBe('pending');
-    expect(m.order).toBe(0);
-  });
-
-  it('createFeatureFixture produces valid default feature', () => {
-    const f = createFeatureFixture();
-    expect(f.id).toBe('f-1');
-    expect(f.milestoneId).toBe('m-1');
-    expect(f.workControl).toBe('discussing');
-    expect(f.collabControl).toBe('none');
-    expect(f.featureBranch).toBe('feat-f-1');
-  });
-
-  it('createTaskFixture produces valid default task', () => {
-    const t = createTaskFixture();
-    expect(t.id).toBe('t-1');
-    expect(t.featureId).toBe('f-1');
-    expect(t.status).toBe('pending');
-    expect(t.collabControl).toBe('none');
-  });
-
   // ── cancelFeature ─────────────────────────────────────────────────
 
   it('cancelFeature cancels feature and its tasks', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F1',
-      description: 'd',
-    });
-    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+    const g = createGraphWithTask();
     g.createTask({ id: 't-2', featureId: 'f-1', description: 'T2' });
 
     g.cancelFeature('f-1');
@@ -1055,14 +730,7 @@ describe('InMemoryFeatureGraph', () => {
   });
 
   it('cancelFeature with cascade cancels transitive dependents', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F1',
-      description: 'd',
-    });
+    const g = createGraphWithFeature();
     g.createFeature({
       id: 'f-2',
       milestoneId: 'm-1',
@@ -1086,14 +754,7 @@ describe('InMemoryFeatureGraph', () => {
   });
 
   it('cancelFeature without cascade does not cancel dependents', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F1',
-      description: 'd',
-    });
+    const g = createGraphWithFeature();
     g.createFeature({
       id: 'f-2',
       milestoneId: 'm-1',
@@ -1132,14 +793,7 @@ describe('InMemoryFeatureGraph', () => {
   });
 
   it('changeMilestone rejects nonexistent milestone', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M1', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F1',
-      description: 'd',
-    });
+    const g = createGraphWithFeature();
 
     expect(() => g.changeMilestone('f-1', 'm-999')).toThrow(
       GraphValidationError,
@@ -1149,14 +803,7 @@ describe('InMemoryFeatureGraph', () => {
   // ── editFeature ───────────────────────────────────────────────────
 
   it('editFeature updates name and description', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'Old',
-      description: 'old desc',
-    });
+    const g = createGraphWithFeature({ name: 'Old', description: 'old desc' });
 
     const updated = g.editFeature('f-1', {
       name: 'New',
@@ -1169,17 +816,8 @@ describe('InMemoryFeatureGraph', () => {
   });
 
   it('editFeature rejects editing cancelled feature', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F',
-      description: 'd',
-    });
-    const f = g.features.get('f-1');
-    if (!f) throw new Error('expected feature');
-    g.features.set('f-1', { ...f, collabControl: 'cancelled' });
+    const g = createGraphWithFeature();
+    updateFeature(g, 'f-1', { collabControl: 'cancelled' });
 
     expect(() => g.editFeature('f-1', { name: 'X' })).toThrow(
       GraphValidationError,
@@ -1189,14 +827,7 @@ describe('InMemoryFeatureGraph', () => {
   // ── addTask (auto-ID) ────────────────────────────────────────────
 
   it('addTask generates incrementing task IDs', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F',
-      description: 'd',
-    });
+    const g = createGraphWithFeature();
 
     const t1 = g.addTask({ featureId: 'f-1', description: 'T1' });
     const t2 = g.addTask({ featureId: 'f-1', description: 'T2' });
@@ -1209,15 +840,7 @@ describe('InMemoryFeatureGraph', () => {
   // ── removeTask ────────────────────────────────────────────────────
 
   it('removeTask removes a pending task', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F',
-      description: 'd',
-    });
-    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+    const g = createGraphWithTask();
 
     g.removeTask('t-1');
 
@@ -1225,33 +848,14 @@ describe('InMemoryFeatureGraph', () => {
   });
 
   it('removeTask rejects non-pending task', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F',
-      description: 'd',
-    });
-    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
-
-    const t = g.tasks.get('t-1');
-    if (!t) throw new Error('expected task');
-    g.tasks.set('t-1', { ...t, status: 'running' });
+    const g = createGraphWithTask();
+    updateTask(g, 't-1', { status: 'running' });
 
     expect(() => g.removeTask('t-1')).toThrow(GraphValidationError);
   });
 
   it('removeTask cleans up dependsOn references', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F',
-      description: 'd',
-    });
-    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+    const g = createGraphWithTask();
     g.createTask({
       id: 't-2',
       featureId: 'f-1',
@@ -1267,15 +871,7 @@ describe('InMemoryFeatureGraph', () => {
   // ── reorderTasks ──────────────────────────────────────────────────
 
   it('reorderTasks updates orderInFeature', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F',
-      description: 'd',
-    });
-    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+    const g = createGraphWithTask();
     g.createTask({ id: 't-2', featureId: 'f-1', description: 'T2' });
     g.createTask({ id: 't-3', featureId: 'f-1', description: 'T3' });
 
@@ -1287,15 +883,7 @@ describe('InMemoryFeatureGraph', () => {
   });
 
   it('reorderTasks rejects incomplete task set', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F',
-      description: 'd',
-    });
-    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+    const g = createGraphWithTask();
     g.createTask({ id: 't-2', featureId: 'f-1', description: 'T2' });
 
     expect(() => g.reorderTasks('f-1', ['t-1'])).toThrow(GraphValidationError);
@@ -1304,15 +892,7 @@ describe('InMemoryFeatureGraph', () => {
   // ── reweight ──────────────────────────────────────────────────────
 
   it('reweight updates task weight', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F',
-      description: 'd',
-    });
-    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+    const g = createGraphWithTask();
 
     g.reweight('t-1', 'heavy');
 
@@ -1327,47 +907,19 @@ describe('InMemoryFeatureGraph', () => {
   // ── Lifecycle transitions (Phase 5) ───────────────────────────────
 
   it('advanceTaskStatus transitions pending to ready', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F',
-      description: 'd',
-    });
-    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+    const g = createGraphWithTask();
 
     g.advanceTaskStatus('t-1');
-
     expect(g.tasks.get('t-1')?.status).toBe('ready');
-  });
 
-  it('advanceTaskStatus transitions with explicit to', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F',
-      description: 'd',
-    });
-    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
-
-    g.advanceTaskStatus('t-1', 'ready');
-
-    expect(g.tasks.get('t-1')?.status).toBe('ready');
+    // Also verify explicit `to` parameter works
+    const g2 = createGraphWithTask();
+    g2.advanceTaskStatus('t-1', 'ready');
+    expect(g2.tasks.get('t-1')?.status).toBe('ready');
   });
 
   it('advanceTaskStatus rejects invalid transition', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F',
-      description: 'd',
-    });
-    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+    const g = createGraphWithTask();
 
     // pending -> done is not valid
     expect(() => g.advanceTaskStatus('t-1', 'done')).toThrow(
@@ -1376,15 +928,7 @@ describe('InMemoryFeatureGraph', () => {
   });
 
   it('advanceTaskCollab transitions none to branch_open', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F',
-      description: 'd',
-    });
-    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+    const g = createGraphWithTask();
 
     g.advanceTaskCollab('t-1');
 
@@ -1392,24 +936,8 @@ describe('InMemoryFeatureGraph', () => {
   });
 
   it('completeTask sets status done and collabControl merged', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F',
-      description: 'd',
-    });
-    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
-
-    // Advance to running first
-    const t = g.tasks.get('t-1');
-    if (!t) throw new Error('expected task');
-    g.tasks.set('t-1', {
-      ...t,
-      status: 'running',
-      collabControl: 'branch_open',
-    });
+    const g = createGraphWithTask();
+    updateTask(g, 't-1', { status: 'running', collabControl: 'branch_open' });
 
     g.completeTask('t-1', { summary: 'done', filesChanged: [] });
 
@@ -1422,19 +950,8 @@ describe('InMemoryFeatureGraph', () => {
   });
 
   it('suspendTask sets collabControl to suspended', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F',
-      description: 'd',
-    });
-    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
-
-    const t = g.tasks.get('t-1');
-    if (!t) throw new Error('expected task');
-    g.tasks.set('t-1', { ...t, collabControl: 'branch_open' });
+    const g = createGraphWithTask();
+    updateTask(g, 't-1', { collabControl: 'branch_open' });
 
     g.suspendTask('t-1', 'same_feature_overlap', ['file.ts']);
 
@@ -1444,20 +961,8 @@ describe('InMemoryFeatureGraph', () => {
   });
 
   it('resumeTask sets collabControl back to branch_open', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F',
-      description: 'd',
-    });
-    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
-
-    const t = g.tasks.get('t-1');
-    if (!t) throw new Error('expected task');
-    g.tasks.set('t-1', {
-      ...t,
+    const g = createGraphWithTask();
+    updateTask(g, 't-1', {
       collabControl: 'suspended',
       suspendReason: 'same_feature_overlap',
     });
@@ -1468,14 +973,7 @@ describe('InMemoryFeatureGraph', () => {
   });
 
   it('advanceWorkControl transitions discussing to researching', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F',
-      description: 'd',
-    });
+    const g = createGraphWithFeature();
 
     g.advanceWorkControl('f-1');
 
@@ -1483,14 +981,7 @@ describe('InMemoryFeatureGraph', () => {
   });
 
   it('advanceWorkControl rejects invalid transition', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F',
-      description: 'd',
-    });
+    const g = createGraphWithFeature();
 
     // discussing -> feature_ci is invalid
     expect(() => g.advanceWorkControl('f-1', 'feature_ci')).toThrow(
@@ -1499,19 +990,8 @@ describe('InMemoryFeatureGraph', () => {
   });
 
   it('advanceWorkControl blocks feature_ci when collabControl is cancelled', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F',
-      description: 'd',
-    });
-
-    const f = g.features.get('f-1');
-    if (!f) throw new Error('expected feature');
-    g.features.set('f-1', {
-      ...f,
+    const g = createGraphWithFeature();
+    updateFeature(g, 'f-1', {
       workControl: 'executing',
       collabControl: 'cancelled',
     });
@@ -1522,14 +1002,7 @@ describe('InMemoryFeatureGraph', () => {
   });
 
   it('advanceCollabControl transitions none to branch_open', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F',
-      description: 'd',
-    });
+    const g = createGraphWithFeature();
 
     g.advanceCollabControl('f-1');
 
@@ -1537,18 +1010,8 @@ describe('InMemoryFeatureGraph', () => {
   });
 
   it('advanceCollabControl rejects merge_queued unless workControl is awaiting_merge', () => {
-    const g = createGraphFixture();
-    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
-    g.createFeature({
-      id: 'f-1',
-      milestoneId: 'm-1',
-      name: 'F',
-      description: 'd',
-    });
-
-    const f = g.features.get('f-1');
-    if (!f) throw new Error('expected feature');
-    g.features.set('f-1', { ...f, collabControl: 'branch_open' });
+    const g = createGraphWithFeature();
+    updateFeature(g, 'f-1', { collabControl: 'branch_open' });
 
     // workControl is still 'discussing', not 'awaiting_merge'
     expect(() => g.advanceCollabControl('f-1', 'merge_queued')).toThrow(

@@ -10,378 +10,187 @@ import {
 } from '@core/fsm';
 import { describe, expect, it } from 'vitest';
 
+import { expectRejected } from '../../helpers/assertions.js';
+
 describe('validateFeatureWorkTransition', () => {
-  it('allows discussing -> researching', () => {
-    expect(
-      validateFeatureWorkTransition('discussing', 'researching', 'none'),
-    ).toEqual({ valid: true });
-  });
-
-  it('allows discussing -> planning (budget skip)', () => {
-    expect(
-      validateFeatureWorkTransition('discussing', 'planning', 'none'),
-    ).toEqual({ valid: true });
-  });
-
-  it('allows planning -> executing', () => {
-    expect(
-      validateFeatureWorkTransition('planning', 'executing', 'branch_open'),
-    ).toEqual({ valid: true });
-  });
-
-  it('allows executing -> feature_ci when collabControl is not cancelled', () => {
-    expect(
-      validateFeatureWorkTransition('executing', 'feature_ci', 'branch_open'),
-    ).toEqual({ valid: true });
-  });
-
-  it('allows feature_ci -> executing_repair', () => {
-    expect(
-      validateFeatureWorkTransition(
-        'feature_ci',
-        'executing_repair',
-        'branch_open',
-      ),
-    ).toEqual({ valid: true });
-  });
-
-  it('allows awaiting_merge -> summarizing when collabControl is merged', () => {
-    expect(
-      validateFeatureWorkTransition('awaiting_merge', 'summarizing', 'merged'),
-    ).toEqual({ valid: true });
-  });
-
-  it('allows awaiting_merge -> work_complete when collabControl is merged (budget)', () => {
-    expect(
-      validateFeatureWorkTransition(
-        'awaiting_merge',
-        'work_complete',
-        'merged',
-      ),
-    ).toEqual({ valid: true });
-  });
-
-  it('allows executing_repair -> feature_ci', () => {
-    expect(
-      validateFeatureWorkTransition(
-        'executing_repair',
-        'feature_ci',
-        'branch_open',
-      ),
-    ).toEqual({ valid: true });
-  });
-
-  it('allows replanning -> planning', () => {
-    expect(
-      validateFeatureWorkTransition('replanning', 'planning', 'branch_open'),
-    ).toEqual({ valid: true });
-  });
-
-  it('rejects executing -> feature_ci when collabControl is cancelled', () => {
-    const result = validateFeatureWorkTransition(
-      'executing',
-      'feature_ci',
-      'cancelled',
-    );
-    expect(result.valid).toBe(false);
-    if (!result.valid) {
-      expect(result.reason).toContain('cancelled');
-    }
-  });
-
-  it('rejects awaiting_merge -> summarizing when collabControl is not merged', () => {
-    const result = validateFeatureWorkTransition(
-      'awaiting_merge',
-      'summarizing',
-      'branch_open',
-    );
-    expect(result.valid).toBe(false);
-    if (!result.valid) {
-      expect(result.reason).toContain('merged');
-    }
-  });
-
-  it('rejects transitions from terminal state work_complete', () => {
-    const result = validateFeatureWorkTransition(
-      'work_complete',
-      'discussing',
-      'merged',
-    );
-    expect(result.valid).toBe(false);
-    if (!result.valid) {
-      expect(result.reason).toContain('work_complete');
-    }
-  });
-
-  it('rejects invalid transition discussing -> executing', () => {
-    const result = validateFeatureWorkTransition(
-      'discussing',
-      'executing',
-      'none',
-    );
-    expect(result.valid).toBe(false);
-    if (!result.valid) {
-      expect(result.reason).toContain('discussing');
-      expect(result.reason).toContain('executing');
-    }
-  });
-});
-
-describe('validateFeatureCollabTransition', () => {
-  it('allows none -> branch_open', () => {
-    expect(
-      validateFeatureCollabTransition('none', 'branch_open', 'discussing'),
-    ).toEqual({ valid: true });
-  });
-
-  it('allows branch_open -> merge_queued when workControl is awaiting_merge', () => {
-    expect(
-      validateFeatureCollabTransition(
-        'branch_open',
-        'merge_queued',
-        'awaiting_merge',
-      ),
-    ).toEqual({ valid: true });
-  });
-
-  it('allows merge_queued -> integrating', () => {
-    expect(
-      validateFeatureCollabTransition(
-        'merge_queued',
-        'integrating',
-        'awaiting_merge',
-      ),
-    ).toEqual({ valid: true });
-  });
-
-  it('allows integrating -> merged', () => {
-    expect(
-      validateFeatureCollabTransition(
-        'integrating',
-        'merged',
-        'awaiting_merge',
-      ),
-    ).toEqual({ valid: true });
-  });
-
-  it('allows conflict -> branch_open', () => {
-    expect(
-      validateFeatureCollabTransition('conflict', 'branch_open', 'executing'),
-    ).toEqual({ valid: true });
-  });
-
-  it('allows branch_open -> cancelled', () => {
-    expect(
-      validateFeatureCollabTransition('branch_open', 'cancelled', 'discussing'),
-    ).toEqual({ valid: true });
-  });
-
-  it('rejects branch_open -> merge_queued when workControl is not awaiting_merge', () => {
-    const result = validateFeatureCollabTransition(
-      'branch_open',
-      'merge_queued',
-      'executing',
-    );
-    expect(result.valid).toBe(false);
-    if (!result.valid) {
-      expect(result.reason).toContain('awaiting_merge');
-    }
-  });
-
-  it('rejects transitions from terminal state merged', () => {
-    const result = validateFeatureCollabTransition(
-      'merged',
-      'branch_open',
-      'work_complete',
-    );
-    expect(result.valid).toBe(false);
-    if (!result.valid) {
-      expect(result.reason).toContain('merged');
-    }
-  });
-
-  it('rejects transitions from terminal state cancelled', () => {
-    const result = validateFeatureCollabTransition(
-      'cancelled',
-      'branch_open',
-      'discussing',
-    );
-    expect(result.valid).toBe(false);
-    if (!result.valid) {
-      expect(result.reason).toContain('cancelled');
-    }
-  });
-});
-
-describe('validateTaskStatusTransition', () => {
-  it('allows pending -> ready', () => {
-    expect(validateTaskStatusTransition('pending', 'ready', 'none')).toEqual({
+  it.each([
+    ['discussing', 'researching', 'none'],
+    ['discussing', 'planning', 'none'],
+    ['planning', 'executing', 'branch_open'],
+    ['executing', 'feature_ci', 'branch_open'],
+    ['feature_ci', 'executing_repair', 'branch_open'],
+    ['awaiting_merge', 'summarizing', 'merged'],
+    ['awaiting_merge', 'work_complete', 'merged'],
+    ['executing_repair', 'feature_ci', 'branch_open'],
+    ['replanning', 'planning', 'branch_open'],
+  ] as const)('allows %s -> %s (guard: %s)', (from, to, guard) => {
+    expect(validateFeatureWorkTransition(from, to, guard)).toEqual({
       valid: true,
     });
   });
 
-  it('allows ready -> running', () => {
-    expect(
-      validateTaskStatusTransition('ready', 'running', 'branch_open'),
-    ).toEqual({ valid: true });
+  it('rejects executing -> feature_ci when collabControl is cancelled', () => {
+    expectRejected(
+      validateFeatureWorkTransition('executing', 'feature_ci', 'cancelled'),
+      'cancelled',
+    );
   });
 
-  it('allows running -> done', () => {
-    expect(
-      validateTaskStatusTransition('running', 'done', 'branch_open'),
-    ).toEqual({ valid: true });
+  it('rejects awaiting_merge -> summarizing when collabControl is not merged', () => {
+    expectRejected(
+      validateFeatureWorkTransition(
+        'awaiting_merge',
+        'summarizing',
+        'branch_open',
+      ),
+      'merged',
+    );
   });
 
-  it('allows running -> stuck', () => {
-    expect(
-      validateTaskStatusTransition('running', 'stuck', 'branch_open'),
-    ).toEqual({ valid: true });
+  it('rejects transitions from terminal state work_complete', () => {
+    expectRejected(
+      validateFeatureWorkTransition('work_complete', 'discussing', 'merged'),
+      'work_complete',
+    );
   });
 
-  it('allows running -> failed', () => {
-    expect(
-      validateTaskStatusTransition('running', 'failed', 'branch_open'),
-    ).toEqual({ valid: true });
+  it('rejects invalid transition discussing -> executing', () => {
+    expectRejected(
+      validateFeatureWorkTransition('discussing', 'executing', 'none'),
+      'discussing',
+      'executing',
+    );
+  });
+});
+
+describe('validateFeatureCollabTransition', () => {
+  it.each([
+    ['none', 'branch_open', 'discussing'],
+    ['branch_open', 'merge_queued', 'awaiting_merge'],
+    ['merge_queued', 'integrating', 'awaiting_merge'],
+    ['integrating', 'merged', 'awaiting_merge'],
+    ['conflict', 'branch_open', 'executing'],
+    ['branch_open', 'cancelled', 'discussing'],
+  ] as const)('allows %s -> %s (guard: %s)', (from, to, guard) => {
+    expect(validateFeatureCollabTransition(from, to, guard)).toEqual({
+      valid: true,
+    });
   });
 
-  it('allows stuck -> running', () => {
-    expect(
-      validateTaskStatusTransition('stuck', 'running', 'branch_open'),
-    ).toEqual({ valid: true });
+  it('rejects branch_open -> merge_queued when workControl is not awaiting_merge', () => {
+    expectRejected(
+      validateFeatureCollabTransition(
+        'branch_open',
+        'merge_queued',
+        'executing',
+      ),
+      'awaiting_merge',
+    );
   });
 
-  it('allows pending -> cancelled', () => {
-    expect(
-      validateTaskStatusTransition('pending', 'cancelled', 'none'),
-    ).toEqual({ valid: true });
-  });
-
-  it('rejects transitions from terminal state done', () => {
-    const result = validateTaskStatusTransition('done', 'running', 'merged');
-    expect(result.valid).toBe(false);
-    if (!result.valid) {
-      expect(result.reason).toContain('done');
-    }
+  it('rejects transitions from terminal state merged', () => {
+    expectRejected(
+      validateFeatureCollabTransition('merged', 'branch_open', 'work_complete'),
+      'merged',
+    );
   });
 
   it('rejects transitions from terminal state cancelled', () => {
-    const result = validateTaskStatusTransition('cancelled', 'pending', 'none');
-    expect(result.valid).toBe(false);
-    if (!result.valid) {
-      expect(result.reason).toContain('cancelled');
-    }
+    expectRejected(
+      validateFeatureCollabTransition('cancelled', 'branch_open', 'discussing'),
+      'cancelled',
+    );
+  });
+});
+
+describe('validateTaskStatusTransition', () => {
+  it.each([
+    ['pending', 'ready', 'none'],
+    ['ready', 'running', 'branch_open'],
+    ['running', 'done', 'branch_open'],
+    ['running', 'stuck', 'branch_open'],
+    ['running', 'failed', 'branch_open'],
+    ['stuck', 'running', 'branch_open'],
+    ['pending', 'cancelled', 'none'],
+  ] as const)('allows %s -> %s (guard: %s)', (from, to, guard) => {
+    expect(validateTaskStatusTransition(from, to, guard)).toEqual({
+      valid: true,
+    });
+  });
+
+  it('rejects transitions from terminal state done', () => {
+    expectRejected(
+      validateTaskStatusTransition('done', 'running', 'merged'),
+      'done',
+    );
+  });
+
+  it('rejects transitions from terminal state cancelled', () => {
+    expectRejected(
+      validateTaskStatusTransition('cancelled', 'pending', 'none'),
+      'cancelled',
+    );
   });
 
   it('rejects pending -> running (must go through ready)', () => {
-    const result = validateTaskStatusTransition('pending', 'running', 'none');
-    expect(result.valid).toBe(false);
-    if (!result.valid) {
-      expect(result.reason).toContain('pending');
-      expect(result.reason).toContain('running');
-    }
+    expectRejected(
+      validateTaskStatusTransition('pending', 'running', 'none'),
+      'pending',
+      'running',
+    );
   });
 });
 
 describe('validateTaskCollabTransition', () => {
-  it('allows none -> branch_open', () => {
-    expect(
-      validateTaskCollabTransition('none', 'branch_open', 'ready'),
-    ).toEqual({ valid: true });
-  });
-
-  it('allows branch_open -> suspended', () => {
-    expect(
-      validateTaskCollabTransition('branch_open', 'suspended', 'running'),
-    ).toEqual({ valid: true });
-  });
-
-  it('allows branch_open -> merged when taskStatus is done', () => {
-    expect(
-      validateTaskCollabTransition('branch_open', 'merged', 'done'),
-    ).toEqual({ valid: true });
-  });
-
-  it('allows suspended -> branch_open (resume)', () => {
-    expect(
-      validateTaskCollabTransition('suspended', 'branch_open', 'running'),
-    ).toEqual({ valid: true });
-  });
-
-  it('allows conflict -> branch_open', () => {
-    expect(
-      validateTaskCollabTransition('conflict', 'branch_open', 'running'),
-    ).toEqual({ valid: true });
+  it.each([
+    ['none', 'branch_open', 'ready'],
+    ['branch_open', 'suspended', 'running'],
+    ['branch_open', 'merged', 'done'],
+    ['suspended', 'branch_open', 'running'],
+    ['conflict', 'branch_open', 'running'],
+  ] as const)('allows %s -> %s (guard: %s)', (from, to, guard) => {
+    expect(validateTaskCollabTransition(from, to, guard)).toEqual({
+      valid: true,
+    });
   });
 
   it('rejects branch_open -> merged when taskStatus is not done', () => {
-    const result = validateTaskCollabTransition(
-      'branch_open',
-      'merged',
-      'running',
+    expectRejected(
+      validateTaskCollabTransition('branch_open', 'merged', 'running'),
+      'done',
     );
-    expect(result.valid).toBe(false);
-    if (!result.valid) {
-      expect(result.reason).toContain('done');
-    }
   });
 
   it('rejects transitions from terminal state merged', () => {
-    const result = validateTaskCollabTransition(
+    expectRejected(
+      validateTaskCollabTransition('merged', 'branch_open', 'done'),
       'merged',
-      'branch_open',
-      'done',
     );
-    expect(result.valid).toBe(false);
-    if (!result.valid) {
-      expect(result.reason).toContain('merged');
-    }
   });
 });
 
 describe('success-successor maps', () => {
-  it('maps feature work discussing -> researching', () => {
+  it('FEATURE_WORK_SUCCESS_SUCCESSOR has correct terminal behavior', () => {
     expect(FEATURE_WORK_SUCCESS_SUCCESSOR.get('discussing')).toBe(
       'researching',
     );
-  });
-
-  it('maps feature work executing -> feature_ci', () => {
-    expect(FEATURE_WORK_SUCCESS_SUCCESSOR.get('executing')).toBe('feature_ci');
-  });
-
-  it('maps feature work replanning -> planning', () => {
-    expect(FEATURE_WORK_SUCCESS_SUCCESSOR.get('replanning')).toBe('planning');
-  });
-
-  it('has no entry for terminal work_complete', () => {
     expect(FEATURE_WORK_SUCCESS_SUCCESSOR.has('work_complete')).toBe(false);
   });
 
-  it('maps feature collab none -> branch_open', () => {
+  it('FEATURE_COLLAB_SUCCESS_SUCCESSOR has correct terminal behavior', () => {
     expect(FEATURE_COLLAB_SUCCESS_SUCCESSOR.get('none')).toBe('branch_open');
-  });
-
-  it('has no entry for terminal merged', () => {
     expect(FEATURE_COLLAB_SUCCESS_SUCCESSOR.has('merged')).toBe(false);
+    expect(FEATURE_COLLAB_SUCCESS_SUCCESSOR.has('cancelled')).toBe(false);
   });
 
-  it('maps task status pending -> ready', () => {
+  it('TASK_STATUS_SUCCESS_SUCCESSOR omits running (use completeTask)', () => {
     expect(TASK_STATUS_SUCCESS_SUCCESSOR.get('pending')).toBe('ready');
-  });
-
-  it('has no entry for running (use completeTask)', () => {
     expect(TASK_STATUS_SUCCESS_SUCCESSOR.has('running')).toBe(false);
   });
 
-  it('maps task collab none -> branch_open', () => {
+  it('TASK_COLLAB_SUCCESS_SUCCESSOR omits branch_open (merged via completeTask)', () => {
     expect(TASK_COLLAB_SUCCESS_SUCCESSOR.get('none')).toBe('branch_open');
-  });
-
-  it('has no entry for branch_open (merged via completeTask)', () => {
-    expect(TASK_COLLAB_SUCCESS_SUCCESSOR.has('branch_open')).toBe(false);
-  });
-
-  it('maps task collab suspended -> branch_open', () => {
     expect(TASK_COLLAB_SUCCESS_SUCCESSOR.get('suspended')).toBe('branch_open');
+    expect(TASK_COLLAB_SUCCESS_SUCCESSOR.has('branch_open')).toBe(false);
   });
 });

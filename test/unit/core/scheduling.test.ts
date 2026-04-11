@@ -1,5 +1,8 @@
 import type { InMemoryFeatureGraph } from '@core/graph/index';
-import type { ExecutionRunReader } from '@core/scheduling/index';
+import type {
+  ExecutionRunReader,
+  SchedulableUnit,
+} from '@core/scheduling/index';
 import {
   buildCombinedGraph,
   CriticalPathScheduler,
@@ -8,54 +11,30 @@ import {
   workTypeTierOf,
   workTypeTierPriority,
 } from '@core/scheduling/index';
-import type {
-  AgentRun,
-  FeatureId,
-  FeatureWorkControl,
-} from '@core/types/index';
+import type { AgentRun } from '@core/types/index';
 import { describe, expect, it } from 'vitest';
-import { createGraphFixture } from '../../helpers/graph-builders.js';
+import { extractSchedulableIds } from '../../helpers/assertions.js';
+import {
+  createGraphWithFeature,
+  createGraphWithMilestone,
+  updateFeature,
+  updateTask,
+} from '../../helpers/graph-builders.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────
-
-function setupGraph(): InMemoryFeatureGraph {
-  const g = createGraphFixture();
-  g.createMilestone({ id: 'm-1', name: 'M1', description: 'desc' });
-  return g;
-}
-
-/** Safely override a feature's workControl on an InMemoryFeatureGraph. */
-function setFeatureWorkControl(
-  g: InMemoryFeatureGraph,
-  featureId: FeatureId,
-  workControl: FeatureWorkControl,
-): void {
-  const f = g.features.get(featureId);
-  if (f) {
-    g.features.set(featureId, { ...f, workControl });
-  }
-}
-
-function setupGraphWithFeature(
-  workControl: FeatureWorkControl,
-  featureId: FeatureId = 'f-1',
-): InMemoryFeatureGraph {
-  const g = setupGraph();
-  g.createFeature({
-    id: featureId,
-    milestoneId: 'm-1',
-    name: `Feature ${featureId}`,
-    description: 'desc',
-  });
-  setFeatureWorkControl(g, featureId, workControl);
-  return g;
-}
 
 const noopRunReader: ExecutionRunReader = {
   getExecutionRun(): AgentRun | undefined {
     return undefined;
   },
 };
+
+function runScheduler(g: InMemoryFeatureGraph): SchedulableUnit[] {
+  const combined = buildCombinedGraph(g);
+  const metrics = computeGraphMetrics(combined);
+  const scheduler = new CriticalPathScheduler();
+  return scheduler.prioritizeReadyWork(g, noopRunReader, metrics, 0);
+}
 
 // ── workTypeTierOf / workTypeTierPriority ─────────────────────────────
 
@@ -99,8 +78,8 @@ describe('workTypeTierPriority', () => {
 
 describe('buildCombinedGraph', () => {
   it('creates a virtual node for a pre-execution feature', () => {
-    const g = setupGraphWithFeature('planning');
-    // Add tasks to the feature
+    const g = createGraphWithFeature();
+    updateFeature(g, 'f-1', { workControl: 'planning' });
     g.createTask({
       id: 't-1',
       featureId: 'f-1',
@@ -127,7 +106,8 @@ describe('buildCombinedGraph', () => {
   });
 
   it('creates a virtual node with default weight when pre-execution feature has no tasks', () => {
-    const g = setupGraphWithFeature('discussing');
+    const g = createGraphWithFeature();
+    updateFeature(g, 'f-1', { workControl: 'discussing' });
 
     const combined = buildCombinedGraph(g);
     expect(combined.nodes.size).toBe(1);
@@ -137,7 +117,8 @@ describe('buildCombinedGraph', () => {
   });
 
   it('expands an executing feature into concrete task nodes', () => {
-    const g = setupGraphWithFeature('executing');
+    const g = createGraphWithFeature();
+    updateFeature(g, 'f-1', { workControl: 'executing' });
     g.createTask({
       id: 't-1',
       featureId: 'f-1',
@@ -172,7 +153,8 @@ describe('buildCombinedGraph', () => {
   });
 
   it('creates a virtual node for a post-execution feature', () => {
-    const g = setupGraphWithFeature('awaiting_merge');
+    const g = createGraphWithFeature();
+    updateFeature(g, 'f-1', { workControl: 'awaiting_merge' });
 
     const combined = buildCombinedGraph(g);
     expect(combined.nodes.size).toBe(1);
@@ -182,22 +164,22 @@ describe('buildCombinedGraph', () => {
   });
 
   it('skips work_complete features', () => {
-    const g = setupGraphWithFeature('work_complete');
+    const g = createGraphWithFeature();
+    updateFeature(g, 'f-1', { workControl: 'work_complete' });
 
     const combined = buildCombinedGraph(g);
     expect(combined.nodes.size).toBe(0);
   });
 
   it('wires cross-feature edges between terminal and root tasks', () => {
-    const g = setupGraph();
-    // Feature A: executing, has two tasks (t-a1 -> t-a2)
+    const g = createGraphWithMilestone();
     g.createFeature({
       id: 'f-a',
       milestoneId: 'm-1',
       name: 'Feature A',
       description: 'desc',
     });
-    setFeatureWorkControl(g, 'f-a', 'executing');
+    updateFeature(g, 'f-a', { workControl: 'executing' });
     g.createTask({
       id: 't-a1',
       featureId: 'f-a',
@@ -212,7 +194,6 @@ describe('buildCombinedGraph', () => {
       dependsOn: ['t-a1'],
     });
 
-    // Feature B depends on Feature A: executing, has one root task
     g.createFeature({
       id: 'f-b',
       milestoneId: 'm-1',
@@ -220,7 +201,7 @@ describe('buildCombinedGraph', () => {
       description: 'desc',
       dependsOn: ['f-a'],
     });
-    setFeatureWorkControl(g, 'f-b', 'executing');
+    updateFeature(g, 'f-b', { workControl: 'executing' });
     g.createTask({
       id: 't-b1',
       featureId: 'f-b',
@@ -238,15 +219,14 @@ describe('buildCombinedGraph', () => {
   });
 
   it('wires cross-feature edges from virtual upstream to expanded downstream', () => {
-    const g = setupGraph();
-    // Feature A: pre-execution (planning)
+    const g = createGraphWithMilestone();
     g.createFeature({
       id: 'f-a',
       milestoneId: 'm-1',
       name: 'Feature A',
       description: 'desc',
     });
-    setFeatureWorkControl(g, 'f-a', 'planning');
+    updateFeature(g, 'f-a', { workControl: 'planning' });
     g.createTask({
       id: 't-a1',
       featureId: 'f-a',
@@ -254,7 +234,6 @@ describe('buildCombinedGraph', () => {
       weight: 'small',
     });
 
-    // Feature B depends on A: executing
     g.createFeature({
       id: 'f-b',
       milestoneId: 'm-1',
@@ -262,7 +241,7 @@ describe('buildCombinedGraph', () => {
       description: 'desc',
       dependsOn: ['f-a'],
     });
-    setFeatureWorkControl(g, 'f-b', 'executing');
+    updateFeature(g, 'f-b', { workControl: 'executing' });
     g.createTask({
       id: 't-b1',
       featureId: 'f-b',
@@ -286,33 +265,30 @@ describe('buildCombinedGraph', () => {
 describe('computeGraphMetrics', () => {
   it('computes maxDepth for a linear graph', () => {
     // A(w=4) -> B(w=10) -> C(w=1)
-    const combined = buildCombinedGraph(
-      (() => {
-        const g = setupGraphWithFeature('executing');
-        g.createTask({
-          id: 't-1',
-          featureId: 'f-1',
-          description: 'A',
-          weight: 'small',
-        });
-        g.createTask({
-          id: 't-2',
-          featureId: 'f-1',
-          description: 'B',
-          weight: 'medium',
-          dependsOn: ['t-1'],
-        });
-        g.createTask({
-          id: 't-3',
-          featureId: 'f-1',
-          description: 'C',
-          weight: 'trivial',
-          dependsOn: ['t-2'],
-        });
-        return g;
-      })(),
-    );
+    const g = createGraphWithFeature();
+    updateFeature(g, 'f-1', { workControl: 'executing' });
+    g.createTask({
+      id: 't-1',
+      featureId: 'f-1',
+      description: 'A',
+      weight: 'small',
+    });
+    g.createTask({
+      id: 't-2',
+      featureId: 'f-1',
+      description: 'B',
+      weight: 'medium',
+      dependsOn: ['t-1'],
+    });
+    g.createTask({
+      id: 't-3',
+      featureId: 'f-1',
+      description: 'C',
+      weight: 'trivial',
+      dependsOn: ['t-2'],
+    });
 
+    const combined = buildCombinedGraph(g);
     const metrics = computeGraphMetrics(combined);
     // C: maxDepth = 1 (its own weight)
     // B: maxDepth = 10 + 1 = 11
@@ -324,7 +300,8 @@ describe('computeGraphMetrics', () => {
 
   it('computes maxDepth for a diamond graph', () => {
     // A -> B(w=10), A -> C(w=1), B -> D, C -> D
-    const g = setupGraphWithFeature('executing');
+    const g = createGraphWithFeature();
+    updateFeature(g, 'f-1', { workControl: 'executing' });
     g.createTask({
       id: 't-a',
       featureId: 'f-1',
@@ -367,7 +344,8 @@ describe('computeGraphMetrics', () => {
   });
 
   it('computes distance for a linear graph', () => {
-    const g = setupGraphWithFeature('executing');
+    const g = createGraphWithFeature();
+    updateFeature(g, 'f-1', { workControl: 'executing' });
     g.createTask({
       id: 't-1',
       featureId: 'f-1',
@@ -402,7 +380,8 @@ describe('computeGraphMetrics', () => {
 
   it('computes distance with max across predecessors', () => {
     // Diamond: A -> B, A -> C, B -> D, C -> D
-    const g = setupGraphWithFeature('executing');
+    const g = createGraphWithFeature();
+    updateFeature(g, 'f-1', { workControl: 'executing' });
     g.createTask({
       id: 't-a',
       featureId: 'f-1',
@@ -445,7 +424,8 @@ describe('computeGraphMetrics', () => {
   });
 
   it('handles a single-node graph', () => {
-    const g = setupGraphWithFeature('executing');
+    const g = createGraphWithFeature();
+    updateFeature(g, 'f-1', { workControl: 'executing' });
     g.createTask({
       id: 't-1',
       featureId: 'f-1',
@@ -464,24 +444,17 @@ describe('computeGraphMetrics', () => {
 // ── CriticalPathScheduler.prioritizeReadyWork ─────────────────────────
 
 describe('CriticalPathScheduler.prioritizeReadyWork', () => {
-  function buildSchedulerScenario() {
-    const g = setupGraph();
-    // Create a second milestone for queue position tests
+  it('sorts by milestone queue position (lower first, unqueued last)', () => {
+    const g = createGraphWithMilestone();
     g.createMilestone({ id: 'm-2', name: 'M2', description: 'desc' });
 
-    return g;
-  }
-
-  it('sorts by milestone queue position (lower first, unqueued last)', () => {
-    const g = buildSchedulerScenario();
-    // Two features in different milestones
     g.createFeature({
       id: 'f-a',
       milestoneId: 'm-2',
       name: 'FA',
       description: 'desc',
     });
-    setFeatureWorkControl(g, 'f-a', 'executing');
+    updateFeature(g, 'f-a', { workControl: 'executing' });
     g.createTask({
       id: 't-a1',
       featureId: 'f-a',
@@ -495,7 +468,7 @@ describe('CriticalPathScheduler.prioritizeReadyWork', () => {
       name: 'FB',
       description: 'desc',
     });
-    setFeatureWorkControl(g, 'f-b', 'executing');
+    updateFeature(g, 'f-b', { workControl: 'executing' });
     g.createTask({
       id: 't-b1',
       featureId: 'f-b',
@@ -503,31 +476,23 @@ describe('CriticalPathScheduler.prioritizeReadyWork', () => {
       weight: 'medium',
     });
 
-    // Queue m-1 first, m-2 second
     g.queueMilestone('m-1');
     g.queueMilestone('m-2');
 
-    const combined = buildCombinedGraph(g);
-    const metrics = computeGraphMetrics(combined);
-    const scheduler = new CriticalPathScheduler();
-    const result = scheduler.prioritizeReadyWork(g, noopRunReader, metrics, 0);
-
-    // f-b (milestone m-1, pos 0) should come before f-a (milestone m-2, pos 1)
-    const ids = result.map((u) =>
-      u.kind === 'task' ? u.task.id : u.feature.id,
-    );
+    const result = runScheduler(g);
+    const ids = extractSchedulableIds(result);
     expect(ids.indexOf('t-b1')).toBeLessThan(ids.indexOf('t-a1'));
   });
 
   it('sorts by work-type tier (verify before execute)', () => {
-    const g = buildSchedulerScenario();
+    const g = createGraphWithMilestone();
     g.createFeature({
       id: 'f-a',
       milestoneId: 'm-1',
       name: 'FA',
       description: 'desc',
     });
-    setFeatureWorkControl(g, 'f-a', 'executing');
+    updateFeature(g, 'f-a', { workControl: 'executing' });
     g.createTask({
       id: 't-exec',
       featureId: 'f-a',
@@ -541,7 +506,7 @@ describe('CriticalPathScheduler.prioritizeReadyWork', () => {
       name: 'FB',
       description: 'desc',
     });
-    setFeatureWorkControl(g, 'f-b', 'verifying');
+    updateFeature(g, 'f-b', { workControl: 'verifying' });
     g.createTask({
       id: 't-verify',
       featureId: 'f-b',
@@ -549,31 +514,22 @@ describe('CriticalPathScheduler.prioritizeReadyWork', () => {
       weight: 'medium',
     });
 
-    // Queue the same milestone for both
     g.queueMilestone('m-1');
 
-    const combined = buildCombinedGraph(g);
-    const metrics = computeGraphMetrics(combined);
-    const scheduler = new CriticalPathScheduler();
-    const result = scheduler.prioritizeReadyWork(g, noopRunReader, metrics, 0);
-
-    const ids = result.map((u) =>
-      u.kind === 'task' ? u.task.id : u.feature.id,
-    );
-    // verify tier < execute tier, so t-verify should come first
+    const result = runScheduler(g);
+    const ids = extractSchedulableIds(result);
     expect(ids.indexOf('t-verify')).toBeLessThan(ids.indexOf('t-exec'));
   });
 
   it('sorts by critical-path weight / maxDepth (higher first)', () => {
-    const g = buildSchedulerScenario();
+    const g = createGraphWithMilestone();
     g.createFeature({
       id: 'f-a',
       milestoneId: 'm-1',
       name: 'FA',
       description: 'desc',
     });
-    setFeatureWorkControl(g, 'f-a', 'executing');
-    // Short chain: trivial task
+    updateFeature(g, 'f-a', { workControl: 'executing' });
     g.createTask({
       id: 't-short',
       featureId: 'f-a',
@@ -587,8 +543,7 @@ describe('CriticalPathScheduler.prioritizeReadyWork', () => {
       name: 'FB',
       description: 'desc',
     });
-    setFeatureWorkControl(g, 'f-b', 'executing');
-    // Long chain: heavy -> medium
+    updateFeature(g, 'f-b', { workControl: 'executing' });
     g.createTask({
       id: 't-long',
       featureId: 'f-b',
@@ -605,39 +560,28 @@ describe('CriticalPathScheduler.prioritizeReadyWork', () => {
 
     g.queueMilestone('m-1');
 
-    const combined = buildCombinedGraph(g);
-    const metrics = computeGraphMetrics(combined);
-    const scheduler = new CriticalPathScheduler();
-    const result = scheduler.prioritizeReadyWork(g, noopRunReader, metrics, 0);
-
+    const result = runScheduler(g);
     // t-long has higher maxDepth (30+10=40) than t-short (1)
-    // Only ready tasks should appear: t-short and t-long (t-long2 depends on t-long)
-    const ids = result.map((u) =>
-      u.kind === 'task' ? u.task.id : u.feature.id,
-    );
+    const ids = extractSchedulableIds(result);
     expect(ids.indexOf('t-long')).toBeLessThan(ids.indexOf('t-short'));
   });
 
   it('deprioritizes items with consecutiveFailures > 0', () => {
-    const g = buildSchedulerScenario();
+    const g = createGraphWithMilestone();
     g.createFeature({
       id: 'f-a',
       milestoneId: 'm-1',
       name: 'FA',
       description: 'desc',
     });
-    setFeatureWorkControl(g, 'f-a', 'executing');
+    updateFeature(g, 'f-a', { workControl: 'executing' });
     g.createTask({
       id: 't-fail',
       featureId: 'f-a',
       description: 'failed task',
       weight: 'medium',
     });
-    // Mark as having failures
-    const failTask = g.tasks.get('t-fail');
-    if (failTask) {
-      g.tasks.set('t-fail', { ...failTask, consecutiveFailures: 2 });
-    }
+    updateTask(g, 't-fail', { consecutiveFailures: 2 });
 
     g.createFeature({
       id: 'f-b',
@@ -645,7 +589,7 @@ describe('CriticalPathScheduler.prioritizeReadyWork', () => {
       name: 'FB',
       description: 'desc',
     });
-    setFeatureWorkControl(g, 'f-b', 'executing');
+    updateFeature(g, 'f-b', { workControl: 'executing' });
     g.createTask({
       id: 't-ok',
       featureId: 'f-b',
@@ -655,27 +599,20 @@ describe('CriticalPathScheduler.prioritizeReadyWork', () => {
 
     g.queueMilestone('m-1');
 
-    const combined = buildCombinedGraph(g);
-    const metrics = computeGraphMetrics(combined);
-    const scheduler = new CriticalPathScheduler();
-    const result = scheduler.prioritizeReadyWork(g, noopRunReader, metrics, 0);
-
-    const ids = result.map((u) =>
-      u.kind === 'task' ? u.task.id : u.feature.id,
-    );
-    // t-ok should come before t-fail
+    const result = runScheduler(g);
+    const ids = extractSchedulableIds(result);
     expect(ids.indexOf('t-ok')).toBeLessThan(ids.indexOf('t-fail'));
   });
 
   it('deprioritizes items with reservation overlap', () => {
-    const g = buildSchedulerScenario();
+    const g = createGraphWithMilestone();
     g.createFeature({
       id: 'f-a',
       milestoneId: 'm-1',
       name: 'FA',
       description: 'desc',
     });
-    setFeatureWorkControl(g, 'f-a', 'executing');
+    updateFeature(g, 'f-a', { workControl: 'executing' });
     g.createTask({
       id: 't-overlap',
       featureId: 'f-a',
@@ -690,7 +627,7 @@ describe('CriticalPathScheduler.prioritizeReadyWork', () => {
       name: 'FB',
       description: 'desc',
     });
-    setFeatureWorkControl(g, 'f-b', 'executing');
+    updateFeature(g, 'f-b', { workControl: 'executing' });
     g.createTask({
       id: 't-overlap2',
       featureId: 'f-b',
@@ -705,7 +642,7 @@ describe('CriticalPathScheduler.prioritizeReadyWork', () => {
       name: 'FC',
       description: 'desc',
     });
-    setFeatureWorkControl(g, 'f-c', 'executing');
+    updateFeature(g, 'f-c', { workControl: 'executing' });
     g.createTask({
       id: 't-clean',
       featureId: 'f-c',
@@ -715,28 +652,21 @@ describe('CriticalPathScheduler.prioritizeReadyWork', () => {
 
     g.queueMilestone('m-1');
 
-    const combined = buildCombinedGraph(g);
-    const metrics = computeGraphMetrics(combined);
-    const scheduler = new CriticalPathScheduler();
-    const result = scheduler.prioritizeReadyWork(g, noopRunReader, metrics, 0);
-
-    const ids = result.map((u) =>
-      u.kind === 'task' ? u.task.id : u.feature.id,
-    );
-    // t-clean (no overlap) should come before the overlapping tasks
+    const result = runScheduler(g);
+    const ids = extractSchedulableIds(result);
     expect(ids.indexOf('t-clean')).toBeLessThan(ids.indexOf('t-overlap'));
     expect(ids.indexOf('t-clean')).toBeLessThan(ids.indexOf('t-overlap2'));
   });
 
   it('prefers retry-eligible before fresh work', () => {
-    const g = buildSchedulerScenario();
+    const g = createGraphWithMilestone();
     g.createFeature({
       id: 'f-a',
       milestoneId: 'm-1',
       name: 'FA',
       description: 'desc',
     });
-    setFeatureWorkControl(g, 'f-a', 'executing');
+    updateFeature(g, 'f-a', { workControl: 'executing' });
     g.createTask({
       id: 't-fresh',
       featureId: 'f-a',
@@ -750,42 +680,31 @@ describe('CriticalPathScheduler.prioritizeReadyWork', () => {
       name: 'FB',
       description: 'desc',
     });
-    setFeatureWorkControl(g, 'f-b', 'executing');
+    updateFeature(g, 'f-b', { workControl: 'executing' });
     g.createTask({
       id: 't-retry',
       featureId: 'f-b',
       description: 'retryable task',
       weight: 'medium',
     });
-    // Mark as previously failed (status stuck/failed = retry-eligible)
-    const retryTask = g.tasks.get('t-retry');
-    if (retryTask) {
-      g.tasks.set('t-retry', { ...retryTask, status: 'stuck' });
-    }
+    updateTask(g, 't-retry', { status: 'stuck' });
 
     g.queueMilestone('m-1');
 
-    const combined = buildCombinedGraph(g);
-    const metrics = computeGraphMetrics(combined);
-    const scheduler = new CriticalPathScheduler();
-    const result = scheduler.prioritizeReadyWork(g, noopRunReader, metrics, 0);
-
-    const ids = result.map((u) =>
-      u.kind === 'task' ? u.task.id : u.feature.id,
-    );
-    // t-retry (stuck) should come before t-fresh (pending)
+    const result = runScheduler(g);
+    const ids = extractSchedulableIds(result);
     expect(ids.indexOf('t-retry')).toBeLessThan(ids.indexOf('t-fresh'));
   });
 
   it('uses stable fallback by ID (alphabetical)', () => {
-    const g = buildSchedulerScenario();
+    const g = createGraphWithMilestone();
     g.createFeature({
       id: 'f-a',
       milestoneId: 'm-1',
       name: 'FA',
       description: 'desc',
     });
-    setFeatureWorkControl(g, 'f-a', 'executing');
+    updateFeature(g, 'f-a', { workControl: 'executing' });
     g.createTask({
       id: 't-z',
       featureId: 'f-a',
@@ -799,7 +718,7 @@ describe('CriticalPathScheduler.prioritizeReadyWork', () => {
       name: 'FB',
       description: 'desc',
     });
-    setFeatureWorkControl(g, 'f-b', 'executing');
+    updateFeature(g, 'f-b', { workControl: 'executing' });
     g.createTask({
       id: 't-a',
       featureId: 'f-b',
@@ -809,34 +728,24 @@ describe('CriticalPathScheduler.prioritizeReadyWork', () => {
 
     g.queueMilestone('m-1');
 
-    const combined = buildCombinedGraph(g);
-    const metrics = computeGraphMetrics(combined);
-    const scheduler = new CriticalPathScheduler();
-    const result = scheduler.prioritizeReadyWork(g, noopRunReader, metrics, 0);
-
-    const ids = result.map((u) =>
-      u.kind === 'task' ? u.task.id : u.feature.id,
-    );
-    // All other keys are equal, so alphabetical: t-a before t-z
+    const result = runScheduler(g);
+    const ids = extractSchedulableIds(result);
     expect(ids.indexOf('t-a')).toBeLessThan(ids.indexOf('t-z'));
   });
 
   it('returns feature_phase schedulable units for pre-execution features', () => {
-    const g = setupGraph();
+    const g = createGraphWithMilestone();
     g.createFeature({
       id: 'f-a',
       milestoneId: 'm-1',
       name: 'FA',
       description: 'desc',
     });
-    setFeatureWorkControl(g, 'f-a', 'planning');
+    updateFeature(g, 'f-a', { workControl: 'planning' });
 
     g.queueMilestone('m-1');
 
-    const combined = buildCombinedGraph(g);
-    const metrics = computeGraphMetrics(combined);
-    const scheduler = new CriticalPathScheduler();
-    const result = scheduler.prioritizeReadyWork(g, noopRunReader, metrics, 0);
+    const result = runScheduler(g);
 
     expect(result.length).toBe(1);
     const unit = result[0];

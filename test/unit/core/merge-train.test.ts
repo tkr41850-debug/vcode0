@@ -12,6 +12,13 @@ function buildFeatures(...fixtures: Feature[]): Map<FeatureId, Feature> {
   return map;
 }
 
+function expectMergeTrainFieldsCleared(feature: Feature | undefined): void {
+  expect(feature).toBeDefined();
+  expect(feature?.mergeTrainManualPosition).toBeUndefined();
+  expect(feature?.mergeTrainEnteredAt).toBeUndefined();
+  expect(feature?.mergeTrainEntrySeq).toBeUndefined();
+}
+
 describe('MergeTrainCoordinator', () => {
   // ── enqueueFeatureMerge ──────────────────────────────────────────
 
@@ -33,6 +40,7 @@ describe('MergeTrainCoordinator', () => {
     coord.enqueueFeatureMerge('f-1', features);
 
     const updated = features.get('f-1');
+    expect(updated).toBeDefined();
     expect(updated?.collabControl).toBe('merge_queued');
     expect(updated?.mergeTrainEntrySeq).toBe(1);
     expect(updated?.mergeTrainEnteredAt).toBeTypeOf('number');
@@ -173,7 +181,9 @@ describe('MergeTrainCoordinator', () => {
 
     coord.beginIntegration('f-1', features);
 
-    expect(features.get('f-1')?.collabControl).toBe('integrating');
+    const updated = features.get('f-1');
+    expect(updated).toBeDefined();
+    expect(updated?.collabControl).toBe('integrating');
   });
 
   it('throws when another feature is already integrating', () => {
@@ -210,10 +220,9 @@ describe('MergeTrainCoordinator', () => {
     coord.completeIntegration('f-1', features);
 
     const updated = features.get('f-1');
+    expect(updated).toBeDefined();
     expect(updated?.collabControl).toBe('merged');
-    expect(updated?.mergeTrainManualPosition).toBeUndefined();
-    expect(updated?.mergeTrainEnteredAt).toBeUndefined();
-    expect(updated?.mergeTrainEntrySeq).toBeUndefined();
+    expectMergeTrainFieldsCleared(updated);
     expect(updated?.mergeTrainReentryCount).toBeUndefined();
   });
 
@@ -234,10 +243,9 @@ describe('MergeTrainCoordinator', () => {
     coord.ejectFromQueue('f-1', features);
 
     const updated = features.get('f-1');
+    expect(updated).toBeDefined();
     expect(updated?.collabControl).toBe('branch_open');
-    expect(updated?.mergeTrainManualPosition).toBeUndefined();
-    expect(updated?.mergeTrainEnteredAt).toBeUndefined();
-    expect(updated?.mergeTrainEntrySeq).toBeUndefined();
+    expectMergeTrainFieldsCleared(updated);
     expect(updated?.mergeTrainReentryCount).toBe(1);
   });
 
@@ -255,24 +263,31 @@ describe('MergeTrainCoordinator', () => {
 
     // First enqueue
     coord.enqueueFeatureMerge('f-1', features);
-    expect(features.get('f-1')?.mergeTrainReentryCount).toBe(0);
-    expect(features.get('f-1')?.mergeTrainEntrySeq).toBe(1);
+    const afterEnqueue = features.get('f-1');
+    expect(afterEnqueue).toBeDefined();
+    expect(afterEnqueue?.mergeTrainReentryCount).toBe(0);
+    expect(afterEnqueue?.mergeTrainEntrySeq).toBe(1);
 
     // Eject
     coord.ejectFromQueue('f-1', features);
-    expect(features.get('f-1')?.mergeTrainReentryCount).toBe(1);
-    expect(features.get('f-1')?.collabControl).toBe('branch_open');
+    const afterEject = features.get('f-1');
+    expect(afterEject).toBeDefined();
+    expect(afterEject?.mergeTrainReentryCount).toBe(1);
+    expect(afterEject?.collabControl).toBe('branch_open');
 
     // Fix workControl back to awaiting_merge for re-enqueue
-    const ejected = features.get('f-1');
-    if (ejected) {
-      features.set('f-1', { ...ejected, workControl: 'awaiting_merge' });
+    const toReenqueue = features.get('f-1');
+    expect(toReenqueue).toBeDefined();
+    if (toReenqueue) {
+      features.set('f-1', { ...toReenqueue, workControl: 'awaiting_merge' });
     }
 
     // Re-enqueue
     coord.enqueueFeatureMerge('f-1', features);
-    expect(features.get('f-1')?.mergeTrainReentryCount).toBe(1);
-    expect(features.get('f-1')?.mergeTrainEntrySeq).toBe(2);
-    expect(features.get('f-1')?.collabControl).toBe('merge_queued');
+    const afterReenqueue = features.get('f-1');
+    expect(afterReenqueue).toBeDefined();
+    expect(afterReenqueue?.mergeTrainReentryCount).toBe(1);
+    expect(afterReenqueue?.mergeTrainEntrySeq).toBe(2);
+    expect(afterReenqueue?.collabControl).toBe('merge_queued');
   });
 });
