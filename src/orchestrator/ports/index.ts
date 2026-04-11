@@ -10,7 +10,6 @@ import type {
   Task,
   TaskId,
 } from '@core/types/index';
-import type { GitPort } from '@git';
 import type { RuntimePort } from '@runtime';
 
 export interface StoreGraphState {
@@ -110,7 +109,6 @@ export interface UiPort {
 
 export interface OrchestratorPorts {
   store: Store;
-  git: GitPort;
   runtime: RuntimePort;
   agents: AgentPort;
   ui: UiPort;

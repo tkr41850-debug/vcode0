@@ -54,7 +54,6 @@ gvc0/
 │   ├── orchestrator/   -- scheduler, feature lifecycle, conflicts, summaries
 │   ├── agents/         -- planner/replanner prompts and graph-mutation tools
 │   ├── runtime/        -- worker pool, IPC, harness, context assembly
-│   ├── git/            -- feature branches, worktrees, merge train, overlap helpers
 │   ├── persistence/    -- SQLite implementation and migrations
 │   └── tui/            -- terminal UI shell and derived view state
 ├── docs/
@@ -77,8 +76,8 @@ gvc0/
 
 ## Boundary Notes
 
-- `@core/*` owns pure workflow/domain contracts and scheduling/state rules.
-- Adapter packages (`@git/*`, `@runtime/*`, `@persistence/*`, `@tui/*`) own their side-effecting mechanics and any adapter-specific port/result/reference types.
+- `@core/*` owns pure workflow/domain contracts, scheduling/state rules, and naming utilities.
+- Adapter packages (`@runtime/*`, `@persistence/*`, `@tui/*`) own their side-effecting mechanics and any adapter-specific port/result/reference types. Git operations use `simple-git` directly rather than a separate architectural layer.
 - `@orchestrator/*` coordinates through those adapter-owned contracts and should not depend on concrete adapter implementations.
 
 ## Documentation Entry Points

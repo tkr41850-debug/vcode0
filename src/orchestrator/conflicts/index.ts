@@ -1,16 +1,25 @@
-import type { Feature, Task } from '@core/types/index';
 import type {
-  FeatureBranchRebaseResult,
-  OverlapIncident,
-  TaskWorktreeRebaseResult,
-} from '@git';
+  Feature,
+  FeatureId,
+  Task,
+  TaskId,
+  TaskSuspendReason,
+} from '@core/types/index';
 import type { OrchestratorPorts } from '@orchestrator/ports/index';
+
+export interface OverlapIncident {
+  featureId: FeatureId;
+  taskIds: TaskId[];
+  files: string[];
+  blockedByFeatureId?: FeatureId;
+  suspendReason: TaskSuspendReason;
+}
 
 export class ConflictCoordinator {
   constructor(private readonly ports: OrchestratorPorts) {}
 
   async handleSameFeatureOverlap(
-    feature: Feature,
+    _feature: Feature,
     incident: OverlapIncident,
     tasks: Task[] = [],
   ): Promise<void> {
@@ -21,58 +30,20 @@ export class ConflictCoordinator {
         continue;
       }
 
-      const rebaseResult = await this.ports.git.rebaseTaskWorktree(
-        task,
-        feature,
-      );
-
-      await this.handleTaskWorktreeRebaseResult(rebaseResult);
+      // TODO: use simple-git directly to rebase task worktree, then
+      // resume or steer the task via this.ports.runtime based on outcome.
+      void this.ports;
+      void task;
     }
   }
 
   async handleCrossFeatureOverlap(
     _primary: Feature,
-    secondary: Feature,
+    _secondary: Feature,
     tasks: Task[],
   ): Promise<void> {
-    const rebaseResult = await this.ports.git.rebaseFeatureBranch(secondary);
-
-    await this.handleFeatureBranchRebaseResult(rebaseResult, tasks);
-  }
-
-  private async handleTaskWorktreeRebaseResult(
-    result: TaskWorktreeRebaseResult,
-  ): Promise<void> {
-    if (result.kind === 'rebased') {
-      await this.ports.runtime.resumeTask(result.taskId, 'same_feature_rebase');
-      return;
-    }
-
-    await this.ports.runtime.steerTask(result.taskId, {
-      kind: 'conflict_steer',
-      timing: 'immediate',
-      gitConflictContext: result.gitConflictContext,
-    });
-  }
-
-  private async handleFeatureBranchRebaseResult(
-    result: FeatureBranchRebaseResult,
-    tasks: Task[],
-  ): Promise<void> {
-    if (result.kind === 'repair_required') {
-      for (const task of tasks) {
-        await this.ports.runtime.steerTask(task.id, {
-          kind: 'conflict_steer',
-          timing: 'immediate',
-          gitConflictContext: result.gitConflictContext,
-        });
-      }
-
-      return;
-    }
-
-    for (const task of tasks) {
-      await this.ports.runtime.resumeTask(task.id, 'cross_feature_rebase');
-    }
+    // TODO: use simple-git directly to rebase feature branch, then
+    // resume or steer affected tasks via this.ports.runtime based on outcome.
+    void tasks;
   }
 }

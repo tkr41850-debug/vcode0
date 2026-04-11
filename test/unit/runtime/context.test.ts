@@ -1,9 +1,9 @@
 import type {
+  GitConflictContext,
   GvcConfig,
   TaskResumeReason,
   TaskSuspendReason,
 } from '@core/types';
-import type { GitConflictContext } from '@git';
 import type {
   OrchestratorToWorkerMessage,
   RuntimeSteeringDirective,

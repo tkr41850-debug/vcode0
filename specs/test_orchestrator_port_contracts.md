@@ -15,11 +15,11 @@ Capture the responsibility split across the orchestrator adapter ports so orches
 - And recovery-critical run fields such as status, owner, retry timing, and session pointers persist through that boundary
 - And event records cross that same persistence boundary through `appendEvent()` and `listEvents()`
 
-### GitPort owns repository and worktree operations
+### Git operations use simple-git directly
 - Given the orchestrator needs a feature branch, a task worktree, a task merge, a feature rebase, or overlap scan results
 - When it performs repository-facing collaboration work
-- Then those actions go through `GitPort`
-- And git-specific mechanics and git-specific contract types stay in the git-owned boundary rather than the scheduler or state model
+- Then those actions use `simple-git` directly rather than a port abstraction
+- And branch/worktree naming conventions live in `@core/naming`
 
 ### RuntimePort owns task process lifecycle
 - Given a task needs to dispatch, suspend, resume, abort, or stop with the rest of the runtime
@@ -42,7 +42,7 @@ Capture the responsibility split across the orchestrator adapter ports so orches
 ### OrchestratorPorts is the full coordination seam
 - Given the orchestrator is assembled for a runnable application
 - When its dependencies are provided
-- Then `OrchestratorPorts` supplies store, git, runtime, agents, UI, and config together as the orchestration boundary
+- Then `OrchestratorPorts` supplies store, runtime, agents, UI, and config together as the orchestration boundary
 - And swapping implementations at that seam does not change the orchestrator's workflow contract
 
 ### Scheduler events are typed and processed serially

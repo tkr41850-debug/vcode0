@@ -1,13 +1,12 @@
 import type { Feature } from '@core/types/index';
-import type { FeatureBranchHandle } from '@git';
 import type { OrchestratorPorts } from '@orchestrator/ports/index';
 
 export class FeatureLifecycleCoordinator {
   constructor(private readonly ports: OrchestratorPorts) {}
 
-  async openBranch(feature: Feature): Promise<void> {
-    const branch = await this.ports.git.createFeatureBranch(feature);
-    this.useFeatureBranchHandle(branch);
+  async openBranch(_feature: Feature): Promise<void> {
+    // TODO: use simple-git directly to create feature branch
+    void this.ports;
   }
 
   runFeatureCi(_feature: Feature): Promise<void> {
@@ -19,6 +18,4 @@ export class FeatureLifecycleCoordinator {
     void this.ports;
     return Promise.resolve();
   }
-
-  private useFeatureBranchHandle(_branch: FeatureBranchHandle): void {}
 }

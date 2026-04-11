@@ -25,10 +25,11 @@ Capture the package-boundary and ownership rules across the `src/` architecture 
 - And orchestration keeps ownership of workflow coordination rather than adapter-specific mechanics
 
 ### Adapter packages own adapter-specific contract surfaces
-- Given `@git/*`, `@runtime/*`, `@persistence/*`, and `@tui/*` expose side-effecting capabilities to the orchestrator
+- Given `@runtime/*`, `@persistence/*`, and `@tui/*` expose side-effecting capabilities to the orchestrator
 - When their boundaries need result shapes, reference types, or port interfaces
 - Then those adapter-specific contracts live in the package that owns the side effect
 - And `@core/*` keeps only workflow/domain contracts that are not adapter-specific
+- And git operations use `simple-git` directly rather than a separate architectural layer
 
 ### Agents own planning logic without becoming the runtime
 - Given `@agents/*` owns planner and replanner prompts and graph-mutation tools
@@ -42,8 +43,9 @@ Capture the package-boundary and ownership rules across the `src/` architecture 
 - Then runtime handles process and session mechanics
 - And authoritative graph mutation and durable workflow state stay outside the runtime package
 
-### Persistence, git, and TUI stay in their lanes
-- Given `@persistence/*`, `@git/*`, and `@tui/*` each represent distinct side-effecting surfaces
-- When the system saves state, manipulates branches/worktrees, or presents operator controls
-- Then persistence owns durable storage, git owns repository operations, and TUI owns presentation and user-triggered commands
+### Persistence and TUI stay in their lanes
+- Given `@persistence/*` and `@tui/*` each represent distinct side-effecting surfaces
+- When the system saves state or presents operator controls
+- Then persistence owns durable storage and TUI owns presentation and user-triggered commands
 - And none of those packages becomes the source of truth for the overall orchestration model
+- And git operations use `simple-git` directly without a separate package boundary

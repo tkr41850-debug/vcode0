@@ -1,10 +1,10 @@
 import type {
+  GitConflictContext,
   Task,
   TaskResult,
   TaskResumeReason,
   TaskSuspendReason,
 } from '@core/types/index';
-import type { GitConflictContext } from '@git';
 import type { WorkerContext } from '@runtime/context/index';
 
 export interface TaskExecutionRunRef {
