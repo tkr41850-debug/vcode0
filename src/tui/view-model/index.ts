@@ -41,12 +41,36 @@ export interface StatusBarViewModel {
 
 export class TuiViewModelBuilder {
   buildMilestoneTree(
-    _milestones: Milestone[],
-    _features: Feature[],
-    _tasks: Task[],
+    milestones: Milestone[],
+    features: Feature[],
+    tasks: Task[],
     _runs: AgentRun[] = [],
   ): DagNodeViewModel[] {
-    return [];
+    return milestones.map((m) => {
+      const mFeatures = features.filter((f) => f.milestoneId === m.id);
+      return {
+        id: m.id,
+        label: m.name,
+        workStatus: 'milestone' as const,
+        collabStatus: 'none' as const,
+        children: mFeatures.map((f) => {
+          const fTasks = tasks.filter((t) => t.featureId === f.id);
+          return {
+            id: f.id,
+            label: f.name,
+            workStatus: f.workControl,
+            collabStatus: f.collabControl,
+            children: fTasks.map((t) => ({
+              id: t.id,
+              label: t.description,
+              workStatus: t.status as DagNodeWorkStatus,
+              collabStatus: t.collabControl,
+              children: [],
+            })),
+          };
+        }),
+      };
+    });
   }
 
   buildStatusBar(inputs: StatusBarViewModel): StatusBarViewModel {
