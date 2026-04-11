@@ -1,4 +1,4 @@
-import type { Feature } from '@core/types/index';
+import type { Feature, VerificationSummary } from '@core/types/index';
 import type { OrchestratorPorts } from '@orchestrator/ports/index';
 
 export class RecoveryService {
@@ -13,9 +13,9 @@ export class RecoveryService {
 export class VerificationService {
   constructor(private readonly ports: OrchestratorPorts) {}
 
-  verifyFeature(_feature: Feature): Promise<void> {
+  verifyFeature(_feature: Feature): Promise<VerificationSummary> {
     void this.ports;
-    return Promise.resolve();
+    return Promise.resolve({ ok: true });
   }
 }
 

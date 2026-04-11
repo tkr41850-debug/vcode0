@@ -1,5 +1,9 @@
 import type { FeatureGraph } from '@core/graph/index';
-import type { AgentRunPhase, FeatureId } from '@core/types/index';
+import type {
+  AgentRunPhase,
+  FeatureId,
+  VerificationSummary,
+} from '@core/types/index';
 import type { OrchestratorPorts } from '@orchestrator/ports/index';
 import type { WorkerToOrchestratorMessage } from '@runtime/contracts';
 
@@ -13,6 +17,7 @@ export type SchedulerEvent =
       featureId: FeatureId;
       phase: AgentRunPhase;
       summary: string;
+      verification?: VerificationSummary;
     }
   | {
       type: 'feature_phase_error';

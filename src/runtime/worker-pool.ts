@@ -53,7 +53,7 @@ export class LocalWorkerPool implements RuntimePort {
       };
     }
 
-    await this.harness.start(task, {
+    const handle = await this.harness.start(task, {
       strategy: 'shared-summary',
     });
 
@@ -61,6 +61,7 @@ export class LocalWorkerPool implements RuntimePort {
       kind: 'started',
       taskId: task.id,
       agentRunId: dispatch.agentRunId,
+      sessionId: handle.sessionId,
     };
   }
 
