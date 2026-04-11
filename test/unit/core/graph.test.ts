@@ -570,6 +570,442 @@ describe('InMemoryFeatureGraph', () => {
     );
   });
 
+  // ── addDependency ───────────────────────────────────────────────────
+
+  it('addDependency adds a feature dependency', () => {
+    const g = createGraphFixture();
+    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'F1',
+      description: 'd',
+    });
+    g.createFeature({
+      id: 'f-2',
+      milestoneId: 'm-1',
+      name: 'F2',
+      description: 'd',
+    });
+
+    g.addDependency({ from: 'f-2', to: 'f-1' });
+
+    const f2 = g.features.get('f-2');
+    expect(f2?.dependsOn).toContain('f-1');
+  });
+
+  it('addDependency adds a task dependency', () => {
+    const g = createGraphFixture();
+    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'F1',
+      description: 'd',
+    });
+    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+    g.createTask({ id: 't-2', featureId: 'f-1', description: 'T2' });
+
+    g.addDependency({ from: 't-2', to: 't-1' });
+
+    const t2 = g.tasks.get('t-2');
+    expect(t2?.dependsOn).toContain('t-1');
+  });
+
+  it('addDependency rejects cycle in feature dependencies', () => {
+    const g = createGraphFixture();
+    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'F1',
+      description: 'd',
+    });
+    g.createFeature({
+      id: 'f-2',
+      milestoneId: 'm-1',
+      name: 'F2',
+      description: 'd',
+      dependsOn: ['f-1'],
+    });
+
+    // f-1 -> f-2 already exists, adding f-2 -> f-1 would create a cycle
+    expect(() => g.addDependency({ from: 'f-1', to: 'f-2' })).toThrow(
+      GraphValidationError,
+    );
+    // Graph unchanged
+    expect(g.features.get('f-1')?.dependsOn).toEqual([]);
+  });
+
+  it('addDependency rejects cycle in task dependencies', () => {
+    const g = createGraphFixture();
+    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'F1',
+      description: 'd',
+    });
+    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+    g.createTask({
+      id: 't-2',
+      featureId: 'f-1',
+      description: 'T2',
+      dependsOn: ['t-1'],
+    });
+
+    expect(() => g.addDependency({ from: 't-1', to: 't-2' })).toThrow(
+      GraphValidationError,
+    );
+    expect(g.tasks.get('t-1')?.dependsOn).toEqual([]);
+  });
+
+  it('addDependency rejects cross-feature task dependency', () => {
+    const g = createGraphFixture();
+    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'F1',
+      description: 'd',
+    });
+    g.createFeature({
+      id: 'f-2',
+      milestoneId: 'm-1',
+      name: 'F2',
+      description: 'd',
+    });
+    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+    g.createTask({ id: 't-2', featureId: 'f-2', description: 'T2' });
+
+    expect(() => g.addDependency({ from: 't-2', to: 't-1' })).toThrow(
+      GraphValidationError,
+    );
+  });
+
+  it('addDependency rejects nonexistent feature', () => {
+    const g = createGraphFixture();
+    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'F1',
+      description: 'd',
+    });
+
+    expect(() => g.addDependency({ from: 'f-1', to: 'f-999' })).toThrow(
+      GraphValidationError,
+    );
+  });
+
+  it('addDependency rejects duplicate dependency', () => {
+    const g = createGraphFixture();
+    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'F1',
+      description: 'd',
+    });
+    g.createFeature({
+      id: 'f-2',
+      milestoneId: 'm-1',
+      name: 'F2',
+      description: 'd',
+      dependsOn: ['f-1'],
+    });
+
+    expect(() => g.addDependency({ from: 'f-2', to: 'f-1' })).toThrow(
+      GraphValidationError,
+    );
+  });
+
+  // ── removeDependency ───────────────────────────────────────────────
+
+  it('removeDependency removes a feature dependency', () => {
+    const g = createGraphFixture();
+    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'F1',
+      description: 'd',
+    });
+    g.createFeature({
+      id: 'f-2',
+      milestoneId: 'm-1',
+      name: 'F2',
+      description: 'd',
+      dependsOn: ['f-1'],
+    });
+
+    g.removeDependency({ from: 'f-2', to: 'f-1' });
+
+    expect(g.features.get('f-2')?.dependsOn).toEqual([]);
+  });
+
+  it('removeDependency removes a task dependency', () => {
+    const g = createGraphFixture();
+    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'F1',
+      description: 'd',
+    });
+    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+    g.createTask({
+      id: 't-2',
+      featureId: 'f-1',
+      description: 'T2',
+      dependsOn: ['t-1'],
+    });
+
+    g.removeDependency({ from: 't-2', to: 't-1' });
+
+    expect(g.tasks.get('t-2')?.dependsOn).toEqual([]);
+  });
+
+  it('removeDependency rejects nonexistent edge', () => {
+    const g = createGraphFixture();
+    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'F1',
+      description: 'd',
+    });
+    g.createFeature({
+      id: 'f-2',
+      milestoneId: 'm-1',
+      name: 'F2',
+      description: 'd',
+    });
+
+    expect(() => g.removeDependency({ from: 'f-2', to: 'f-1' })).toThrow(
+      GraphValidationError,
+    );
+  });
+
+  // ── readyFeatures ─────────────────────────────────────────────────
+
+  it('readyFeatures returns features with no deps', () => {
+    const g = createGraphFixture();
+    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'F1',
+      description: 'd',
+    });
+
+    const ready = g.readyFeatures();
+    expect(ready).toHaveLength(1);
+    expect(ready[0]?.id).toBe('f-1');
+  });
+
+  it('readyFeatures excludes features with unsatisfied deps', () => {
+    const g = createGraphFixture();
+    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'F1',
+      description: 'd',
+    });
+    g.createFeature({
+      id: 'f-2',
+      milestoneId: 'm-1',
+      name: 'F2',
+      description: 'd',
+      dependsOn: ['f-1'],
+    });
+
+    const ready = g.readyFeatures();
+    expect(ready).toHaveLength(1);
+    expect(ready[0]?.id).toBe('f-1');
+  });
+
+  it('readyFeatures includes feature once dep is done', () => {
+    const g = createGraphFixture();
+    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'F1',
+      description: 'd',
+    });
+    g.createFeature({
+      id: 'f-2',
+      milestoneId: 'm-1',
+      name: 'F2',
+      description: 'd',
+      dependsOn: ['f-1'],
+    });
+
+    // Mark f-1 as done
+    const f1 = g.features.get('f-1');
+    if (!f1) throw new Error('expected feature');
+    g.features.set('f-1', {
+      ...f1,
+      workControl: 'work_complete',
+      collabControl: 'merged',
+    });
+
+    const ready = g.readyFeatures();
+    expect(ready).toHaveLength(1);
+    expect(ready[0]?.id).toBe('f-2');
+  });
+
+  it('readyFeatures excludes cancelled features', () => {
+    const g = createGraphFixture();
+    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'F1',
+      description: 'd',
+    });
+
+    const f1 = g.features.get('f-1');
+    if (!f1) throw new Error('expected feature');
+    g.features.set('f-1', { ...f1, collabControl: 'cancelled' });
+
+    expect(g.readyFeatures()).toHaveLength(0);
+  });
+
+  it('readyFeatures excludes done features', () => {
+    const g = createGraphFixture();
+    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'F1',
+      description: 'd',
+    });
+
+    const f1 = g.features.get('f-1');
+    if (!f1) throw new Error('expected feature');
+    g.features.set('f-1', {
+      ...f1,
+      workControl: 'work_complete',
+      collabControl: 'merged',
+    });
+
+    expect(g.readyFeatures()).toHaveLength(0);
+  });
+
+  // ── readyTasks ────────────────────────────────────────────────────
+
+  it('readyTasks returns tasks with no deps in pending status', () => {
+    const g = createGraphFixture();
+    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'F1',
+      description: 'd',
+    });
+    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+
+    const ready = g.readyTasks();
+    expect(ready).toHaveLength(1);
+    expect(ready[0]?.id).toBe('t-1');
+  });
+
+  it('readyTasks excludes tasks with unsatisfied deps', () => {
+    const g = createGraphFixture();
+    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'F1',
+      description: 'd',
+    });
+    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+    g.createTask({
+      id: 't-2',
+      featureId: 'f-1',
+      description: 'T2',
+      dependsOn: ['t-1'],
+    });
+
+    const ready = g.readyTasks();
+    expect(ready).toHaveLength(1);
+    expect(ready[0]?.id).toBe('t-1');
+  });
+
+  it('readyTasks includes task once dep is done', () => {
+    const g = createGraphFixture();
+    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'F1',
+      description: 'd',
+    });
+    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+    g.createTask({
+      id: 't-2',
+      featureId: 'f-1',
+      description: 'T2',
+      dependsOn: ['t-1'],
+    });
+
+    // Mark t-1 as done
+    const t1 = g.tasks.get('t-1');
+    if (!t1) throw new Error('expected task');
+    g.tasks.set('t-1', { ...t1, status: 'done' });
+
+    const ready = g.readyTasks();
+    expect(ready).toHaveLength(1);
+    expect(ready[0]?.id).toBe('t-2');
+  });
+
+  it('readyTasks excludes tasks on cancelled feature', () => {
+    const g = createGraphFixture();
+    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'F1',
+      description: 'd',
+    });
+    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+
+    const f1 = g.features.get('f-1');
+    if (!f1) throw new Error('expected feature');
+    g.features.set('f-1', { ...f1, collabControl: 'cancelled' });
+
+    expect(g.readyTasks()).toHaveLength(0);
+  });
+
+  it('readyTasks excludes tasks that are already running or done', () => {
+    const g = createGraphFixture();
+    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'F1',
+      description: 'd',
+    });
+    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+    g.createTask({ id: 't-2', featureId: 'f-1', description: 'T2' });
+    g.createTask({ id: 't-3', featureId: 'f-1', description: 'T3' });
+
+    const t1 = g.tasks.get('t-1');
+    if (!t1) throw new Error('expected task');
+    g.tasks.set('t-1', { ...t1, status: 'running' });
+
+    const t2 = g.tasks.get('t-2');
+    if (!t2) throw new Error('expected task');
+    g.tasks.set('t-2', { ...t2, status: 'done' });
+
+    const ready = g.readyTasks();
+    expect(ready).toHaveLength(1);
+    expect(ready[0]?.id).toBe('t-3');
+  });
+
   // ── Test fixture helpers ────────────────────────────────────────────
 
   it('createMilestoneFixture produces valid default milestone', () => {

@@ -406,11 +406,62 @@ export class InMemoryFeatureGraph implements FeatureGraph {
   }
 
   readyFeatures(): Feature[] {
-    throw new Error('Not implemented.');
+    const result: Feature[] = [];
+    for (const f of this.features.values()) {
+      // Exclude done features
+      if (f.workControl === 'work_complete' && f.collabControl === 'merged') {
+        continue;
+      }
+      // Exclude cancelled features
+      if (f.collabControl === 'cancelled') {
+        continue;
+      }
+      // Check all deps are done
+      let allDepsDone = true;
+      for (const depId of f.dependsOn) {
+        const dep = this.features.get(depId);
+        if (
+          !dep ||
+          dep.workControl !== 'work_complete' ||
+          dep.collabControl !== 'merged'
+        ) {
+          allDepsDone = false;
+          break;
+        }
+      }
+      if (allDepsDone) {
+        result.push(f);
+      }
+    }
+    return result;
   }
 
   readyTasks(): Task[] {
-    throw new Error('Not implemented.');
+    const result: Task[] = [];
+    for (const t of this.tasks.values()) {
+      // Only pending or ready tasks
+      if (t.status !== 'pending' && t.status !== 'ready') {
+        continue;
+      }
+      // Owning feature must not be cancelled
+      const feature = this.features.get(t.featureId);
+      if (!feature || feature.collabControl === 'cancelled') {
+        continue;
+      }
+      // Check all deps are done
+      let allDepsDone = true;
+      for (const depId of t.dependsOn) {
+        const dep = this.tasks.get(depId);
+        if (!dep || dep.status !== 'done') {
+          allDepsDone = false;
+          break;
+        }
+      }
+      if (allDepsDone) {
+        result.push(t);
+      }
+    }
+    return result;
   }
 
   queuedMilestones(): Milestone[] {
@@ -658,12 +709,146 @@ export class InMemoryFeatureGraph implements FeatureGraph {
     return task;
   }
 
-  addDependency(_opts: DependencyOptions): void {
-    throw new Error('Not implemented.');
+  addDependency(opts: DependencyOptions): void {
+    if (this.isFeatureDependency(opts)) {
+      this.addFeatureDependency(opts);
+    } else {
+      this.addTaskDependency(opts);
+    }
   }
 
-  removeDependency(_opts: DependencyOptions): void {
-    throw new Error('Not implemented.');
+  removeDependency(opts: DependencyOptions): void {
+    if (this.isFeatureDependency(opts)) {
+      this.removeFeatureDependency(opts);
+    } else {
+      this.removeTaskDependency(opts);
+    }
+  }
+
+  private isFeatureDependency(
+    opts: DependencyOptions,
+  ): opts is FeatureDependencyOptions {
+    return opts.from.startsWith('f-');
+  }
+
+  private addFeatureDependency(opts: FeatureDependencyOptions): void {
+    const from = this.features.get(opts.from);
+    if (!from) {
+      throw new GraphValidationError(`Feature "${opts.from}" does not exist`);
+    }
+    const to = this.features.get(opts.to);
+    if (!to) {
+      throw new GraphValidationError(`Feature "${opts.to}" does not exist`);
+    }
+    if (from.dependsOn.includes(opts.to)) {
+      throw new GraphValidationError(
+        `Feature "${opts.from}" already depends on "${opts.to}"`,
+      );
+    }
+    // Cycle detection: adding from.dependsOn(to) creates successor to->from.
+    // A cycle exists if from already reaches to via existing successors.
+    if (
+      this.hasPathViaSuccessors(opts.from, opts.to, this._featureSuccessors)
+    ) {
+      throw new GraphValidationError(
+        `Adding dependency from "${opts.from}" to "${opts.to}" would create a cycle`,
+      );
+    }
+
+    // Apply: update dependsOn and adjacency index
+    this.features.set(opts.from, {
+      ...from,
+      dependsOn: [...from.dependsOn, opts.to],
+    });
+    let set = this._featureSuccessors.get(opts.to);
+    if (!set) {
+      set = new Set<FeatureId>();
+      this._featureSuccessors.set(opts.to, set);
+    }
+    set.add(opts.from);
+  }
+
+  private removeFeatureDependency(opts: FeatureDependencyOptions): void {
+    const from = this.features.get(opts.from);
+    if (!from) {
+      throw new GraphValidationError(`Feature "${opts.from}" does not exist`);
+    }
+    if (!from.dependsOn.includes(opts.to)) {
+      throw new GraphValidationError(
+        `Feature "${opts.from}" does not depend on "${opts.to}"`,
+      );
+    }
+
+    this.features.set(opts.from, {
+      ...from,
+      dependsOn: from.dependsOn.filter((d) => d !== opts.to),
+    });
+    const set = this._featureSuccessors.get(opts.to);
+    if (set) {
+      set.delete(opts.from);
+    }
+  }
+
+  private addTaskDependency(opts: TaskDependencyOptions): void {
+    const from = this.tasks.get(opts.from);
+    if (!from) {
+      throw new GraphValidationError(`Task "${opts.from}" does not exist`);
+    }
+    const to = this.tasks.get(opts.to);
+    if (!to) {
+      throw new GraphValidationError(`Task "${opts.to}" does not exist`);
+    }
+    if (from.featureId !== to.featureId) {
+      throw new GraphValidationError(
+        `Task "${opts.from}" (feature "${from.featureId}") and task "${opts.to}" (feature "${to.featureId}") belong to different features`,
+      );
+    }
+    if (from.dependsOn.includes(opts.to)) {
+      throw new GraphValidationError(
+        `Task "${opts.from}" already depends on "${opts.to}"`,
+      );
+    }
+    // Cycle detection: adding from.dependsOn(to) creates successor to->from.
+    // A cycle exists if from already reaches to via existing successors.
+    if (
+      this.hasTaskPathViaSuccessors(opts.from, opts.to, this._taskSuccessors)
+    ) {
+      throw new GraphValidationError(
+        `Adding dependency from "${opts.from}" to "${opts.to}" would create a cycle`,
+      );
+    }
+
+    this.tasks.set(opts.from, {
+      ...from,
+      dependsOn: [...from.dependsOn, opts.to],
+    });
+    let set = this._taskSuccessors.get(opts.to);
+    if (!set) {
+      set = new Set<TaskId>();
+      this._taskSuccessors.set(opts.to, set);
+    }
+    set.add(opts.from);
+  }
+
+  private removeTaskDependency(opts: TaskDependencyOptions): void {
+    const from = this.tasks.get(opts.from);
+    if (!from) {
+      throw new GraphValidationError(`Task "${opts.from}" does not exist`);
+    }
+    if (!from.dependsOn.includes(opts.to)) {
+      throw new GraphValidationError(
+        `Task "${opts.from}" does not depend on "${opts.to}"`,
+      );
+    }
+
+    this.tasks.set(opts.from, {
+      ...from,
+      dependsOn: from.dependsOn.filter((d) => d !== opts.to),
+    });
+    const set = this._taskSuccessors.get(opts.to);
+    if (set) {
+      set.delete(opts.from);
+    }
   }
 
   splitFeature(_id: FeatureId, _splits: SplitSpec[]): Feature[] {
