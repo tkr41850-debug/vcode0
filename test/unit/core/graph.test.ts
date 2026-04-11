@@ -974,6 +974,7 @@ describe('InMemoryFeatureGraph', () => {
 
   it('advanceWorkControl transitions discussing to researching', () => {
     const g = createGraphWithFeature();
+    updateFeature(g, 'f-1', { status: 'done', collabControl: 'branch_open' });
 
     g.advanceWorkControl('f-1');
 

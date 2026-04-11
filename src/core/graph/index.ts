@@ -1,8 +1,4 @@
 import {
-  FEATURE_COLLAB_SUCCESS_SUCCESSOR,
-  FEATURE_WORK_SUCCESS_SUCCESSOR,
-  TASK_COLLAB_SUCCESS_SUCCESSOR,
-  TASK_STATUS_SUCCESS_SUCCESSOR,
   validateFeatureCollabTransition,
   validateFeatureWorkTransition,
   validateTaskCollabTransition,
@@ -23,6 +19,49 @@ import type {
   TaskSuspendReason,
   TaskWeight,
 } from '@core/types/index';
+
+// Auto-advance maps: graph-level policy for happy-path successor when `to` is omitted.
+// The FSM validates; these decide where to go.
+const TASK_STATUS_AUTO: ReadonlyMap<TaskStatus, TaskStatus> = new Map([
+  ['pending', 'ready'],
+  ['ready', 'running'],
+  // 'running' has no auto — use completeTask()
+]);
+
+const TASK_COLLAB_AUTO: ReadonlyMap<TaskCollabControl, TaskCollabControl> =
+  new Map([
+    ['none', 'branch_open'],
+    ['suspended', 'branch_open'],
+    ['conflict', 'branch_open'],
+    // 'branch_open' has no auto — merged via completeTask()
+  ]);
+
+const FEATURE_WORK_AUTO: ReadonlyMap<FeatureWorkControl, FeatureWorkControl> =
+  new Map([
+    ['discussing', 'researching'],
+    ['researching', 'planning'],
+    ['planning', 'executing'],
+    ['executing', 'feature_ci'],
+    ['feature_ci', 'verifying'],
+    ['verifying', 'awaiting_merge'],
+    ['awaiting_merge', 'summarizing'],
+    ['summarizing', 'work_complete'],
+    ['executing_repair', 'feature_ci'],
+    ['replanning', 'planning'],
+    // 'work_complete' is terminal
+  ]);
+
+const FEATURE_COLLAB_AUTO: ReadonlyMap<
+  FeatureCollabControl,
+  FeatureCollabControl
+> = new Map([
+  ['none', 'branch_open'],
+  ['branch_open', 'merge_queued'],
+  ['merge_queued', 'integrating'],
+  ['integrating', 'merged'],
+  ['conflict', 'branch_open'],
+  // 'merged', 'cancelled' are terminal
+]);
 
 export interface CreateMilestoneOptions {
   id: MilestoneId;
@@ -1146,7 +1185,7 @@ export class InMemoryFeatureGraph implements FeatureGraph {
       throw new GraphValidationError(`Task "${taskId}" does not exist`);
     }
 
-    const target = to ?? TASK_STATUS_SUCCESS_SUCCESSOR.get(task.status);
+    const target = to ?? TASK_STATUS_AUTO.get(task.status);
     if (target === undefined) {
       throw new GraphValidationError(
         `No auto-advance successor for task status "${task.status}"`,
@@ -1171,7 +1210,7 @@ export class InMemoryFeatureGraph implements FeatureGraph {
       throw new GraphValidationError(`Task "${taskId}" does not exist`);
     }
 
-    const target = to ?? TASK_COLLAB_SUCCESS_SUCCESSOR.get(task.collabControl);
+    const target = to ?? TASK_COLLAB_AUTO.get(task.collabControl);
     if (target === undefined) {
       throw new GraphValidationError(
         `No auto-advance successor for task collab control "${task.collabControl}"`,
@@ -1249,8 +1288,7 @@ export class InMemoryFeatureGraph implements FeatureGraph {
       throw new GraphValidationError(`Feature "${featureId}" does not exist`);
     }
 
-    const target =
-      to ?? FEATURE_WORK_SUCCESS_SUCCESSOR.get(feature.workControl);
+    const target = to ?? FEATURE_WORK_AUTO.get(feature.workControl);
     if (target === undefined) {
       throw new GraphValidationError(
         `No auto-advance successor for work control "${feature.workControl}"`,
@@ -1260,6 +1298,7 @@ export class InMemoryFeatureGraph implements FeatureGraph {
     const result = validateFeatureWorkTransition(
       feature.workControl,
       target,
+      feature.status,
       feature.collabControl,
     );
     if (!result.valid) {
@@ -1275,8 +1314,7 @@ export class InMemoryFeatureGraph implements FeatureGraph {
       throw new GraphValidationError(`Feature "${featureId}" does not exist`);
     }
 
-    const target =
-      to ?? FEATURE_COLLAB_SUCCESS_SUCCESSOR.get(feature.collabControl);
+    const target = to ?? FEATURE_COLLAB_AUTO.get(feature.collabControl);
     if (target === undefined) {
       throw new GraphValidationError(
         `No auto-advance successor for collab control "${feature.collabControl}"`,
@@ -1287,6 +1325,7 @@ export class InMemoryFeatureGraph implements FeatureGraph {
       feature.collabControl,
       target,
       feature.workControl,
+      feature.status,
     );
     if (!result.valid) {
       throw new GraphValidationError(result.reason);
