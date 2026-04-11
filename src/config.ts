@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import type { GvcConfig } from '@core/types';
 
 export const DEFAULT_CONFIG_PATH = '.gvc0/config.json';
@@ -9,9 +10,8 @@ export interface ConfigLoader {
 export class JsonConfigLoader implements ConfigLoader {
   constructor(private readonly configPath = DEFAULT_CONFIG_PATH) {}
 
-  load(): Promise<GvcConfig> {
-    return Promise.reject(
-      new Error(`Not implemented: load config from ${this.configPath}.`),
-    );
+  async load(): Promise<GvcConfig> {
+    const raw = await readFile(this.configPath, 'utf8');
+    return JSON.parse(raw) as GvcConfig;
   }
 }
