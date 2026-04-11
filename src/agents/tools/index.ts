@@ -1,9 +1,13 @@
 import type {
+  AddTaskOptions,
   CreateFeatureOptions,
   CreateMilestoneOptions,
   CreateTaskOptions,
+  DependencyOptions,
+  FeatureDependencyOptions,
   FeatureEditPatch,
   SplitSpec,
+  TaskDependencyOptions,
 } from '@core/graph/index';
 import type {
   Feature,
@@ -12,14 +16,19 @@ import type {
   MilestoneId,
   Task,
   TaskId,
+  TaskWeight,
 } from '@core/types/index';
 
 export type {
+  AddTaskOptions,
   CreateFeatureOptions,
   CreateMilestoneOptions,
   CreateTaskOptions,
+  DependencyOptions,
+  FeatureDependencyOptions,
   FeatureEditPatch,
   SplitSpec,
+  TaskDependencyOptions,
 };
 
 export type PlannerToolName =
@@ -43,24 +52,6 @@ export type ReplannerToolName =
   | 'reweight';
 
 export type AgentToolName = ReplannerToolName;
-
-export interface FeatureDependencyOptions {
-  from: FeatureId;
-  to: FeatureId;
-}
-
-export interface TaskDependencyOptions {
-  from: TaskId;
-  to: TaskId;
-}
-
-export type AddDependencyOptions =
-  | FeatureDependencyOptions
-  | TaskDependencyOptions;
-
-export type RemoveDependencyOptions =
-  | FeatureDependencyOptions
-  | TaskDependencyOptions;
 
 export interface SplitFeatureOptions {
   featureId: FeatureId;
@@ -87,12 +78,6 @@ export interface EditFeatureOptions {
   patch: FeatureEditPatch;
 }
 
-export interface AddTaskOptions {
-  featureId: FeatureId;
-  description: string;
-  deps?: TaskId[];
-}
-
 export interface RemoveTaskOptions {
   taskId: TaskId;
 }
@@ -104,7 +89,7 @@ export interface ReorderTasksOptions {
 
 export interface ReweightTaskOptions {
   taskId: TaskId;
-  weight: number;
+  weight: TaskWeight;
 }
 
 export type SubmitPlanOptions = Record<string, never>;
@@ -113,9 +98,9 @@ export interface PlannerToolArgsMap {
   createMilestone: CreateMilestoneOptions;
   createFeature: CreateFeatureOptions;
   createTask: CreateTaskOptions;
-  addDependency: AddDependencyOptions;
+  addDependency: DependencyOptions;
   submit: SubmitPlanOptions;
-  removeDependency: RemoveDependencyOptions;
+  removeDependency: DependencyOptions;
   splitFeature: SplitFeatureOptions;
   mergeFeatures: MergeFeaturesOptions;
   cancelFeature: CancelFeatureOptions;

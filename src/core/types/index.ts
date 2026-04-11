@@ -46,6 +46,8 @@ export type TaskCollabControl =
 
 export type TestPolicy = 'loose' | 'strict';
 
+export type TaskWeight = 'trivial' | 'small' | 'medium' | 'heavy';
+
 export type TaskSuspendReason =
   | 'same_feature_overlap'
   | 'cross_feature_overlap';
@@ -182,7 +184,7 @@ export interface Task {
   worktreeBranch?: string;
   taskTestPolicy?: TestPolicy;
   result?: TaskResult;
-  weight?: number;
+  weight?: TaskWeight;
   tokenUsage?: TokenUsageAggregate;
   reservedWritePaths?: string[];
   blockedByFeatureId?: FeatureId;

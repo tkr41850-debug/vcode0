@@ -52,7 +52,7 @@ export interface TaskRow {
   feature_id: FeatureId;
   order_in_feature: number;
   description: string;
-  weight: number | null;
+  weight: string | null;
   status: TaskStatus;
   collab_status: TaskCollabControl;
   worker_id: string | null;

@@ -9,7 +9,6 @@ export type {
 } from '@agents/prompts';
 export type { ReplannerAgent } from '@agents/replanner';
 export type {
-  AddDependencyOptions,
   AddTaskOptions,
   AgentToolName,
   CancelFeatureOptions,
@@ -17,7 +16,9 @@ export type {
   CreateFeatureOptions,
   CreateMilestoneOptions,
   CreateTaskOptions,
+  DependencyOptions,
   EditFeatureOptions,
+  FeatureDependencyOptions,
   FeatureEditPatch,
   MergeFeaturesOptions,
   PlannerToolArgs,
@@ -27,7 +28,6 @@ export type {
   PlannerToolResult,
   PlannerToolResultMap,
   PlannerToolset,
-  RemoveDependencyOptions,
   RemoveTaskOptions,
   ReorderTasksOptions,
   ReplannerToolName,
@@ -35,6 +35,7 @@ export type {
   SplitFeatureOptions,
   SplitSpec,
   SubmitPlanOptions,
+  TaskDependencyOptions,
 } from '@agents/tools';
 
 export interface AgentPort extends PlannerAgent, ReplannerAgent {}

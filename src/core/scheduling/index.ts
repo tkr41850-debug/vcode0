@@ -5,6 +5,7 @@ import type {
   Feature,
   FeatureId,
   Task,
+  TaskWeight,
 } from '@core/types';
 
 export interface ExecutionRunReader {
@@ -42,6 +43,14 @@ const TIER_PRIORITY: Record<WorkTypeTier, number> = {
 export function workTypeTierPriority(tier: WorkTypeTier): number {
   return TIER_PRIORITY[tier];
 }
+
+// Numeric weight values for scheduling priority computation
+export const TASK_WEIGHT_VALUE: Record<TaskWeight, number> = {
+  trivial: 1,
+  small: 4,
+  medium: 10,
+  heavy: 30,
+};
 
 // Schedulable unit — the unified dispatch abstraction
 export type SchedulableUnit =
