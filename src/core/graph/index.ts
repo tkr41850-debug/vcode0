@@ -459,6 +459,49 @@ export class InMemoryFeatureGraph implements FeatureGraph {
     return false;
   }
 
+  private nextGeneratedFeatureId(existingIds?: Iterable<FeatureId>): FeatureId {
+    const used = new Set<FeatureId>();
+    let max = 0;
+
+    for (const id of existingIds ?? this.features.keys()) {
+      used.add(id);
+      const num = Number.parseInt(id.slice(2), 10);
+      if (!Number.isNaN(num) && num > max) {
+        max = num;
+      }
+    }
+
+    let next = max + 1;
+    let candidate: FeatureId = `f-${next}`;
+    while (used.has(candidate)) {
+      next++;
+      candidate = `f-${next}`;
+    }
+    return candidate;
+  }
+
+  private commitValidatedSnapshot(snapshot: GraphSnapshot): void {
+    const validated = new InMemoryFeatureGraph(snapshot);
+
+    this.milestones.clear();
+    for (const [id, milestone] of validated.milestones) {
+      this.milestones.set(id, milestone);
+    }
+
+    this.features.clear();
+    for (const [id, feature] of validated.features) {
+      this.features.set(id, feature);
+    }
+
+    this.tasks.clear();
+    for (const [id, task] of validated.tasks) {
+      this.tasks.set(id, task);
+    }
+
+    this.rebuildAdjacencyIndexes();
+    this.initTaskIdCounter();
+  }
+
   snapshot(): GraphSnapshot {
     return {
       milestones: [...this.milestones.values()],
@@ -913,12 +956,316 @@ export class InMemoryFeatureGraph implements FeatureGraph {
     }
   }
 
-  splitFeature(_id: FeatureId, _splits: SplitSpec[]): Feature[] {
-    throw new Error('Not implemented.');
+  splitFeature(id: FeatureId, splits: SplitSpec[]): Feature[] {
+    const source = this.features.get(id);
+    if (!source) {
+      throw new GraphValidationError(`Feature "${id}" does not exist`);
+    }
+    if (splits.length === 0) {
+      throw new GraphValidationError(
+        `splitFeature requires at least one split for feature "${id}"`,
+      );
+    }
+
+    const sourceTasks = [...this.tasks.values()]
+      .filter((task) => task.featureId === id)
+      .sort((a, b) => a.orderInFeature - b.orderInFeature);
+
+    for (const task of sourceTasks) {
+      if (task.status !== 'pending') {
+        throw new GraphValidationError(
+          `Cannot split feature "${id}" while task "${task.id}" has status "${task.status}"`,
+        );
+      }
+    }
+
+    const assignedTaskIds = new Set<TaskId>();
+    const splitIds = new Set<FeatureId>();
+    const splitByTaskId = new Map<TaskId, SplitSpec>();
+
+    for (const split of splits) {
+      if (!split.id.startsWith('f-')) {
+        throw new GraphValidationError(
+          `Feature id "${split.id}" must start with "f-"`,
+        );
+      }
+      if (
+        split.id === id ||
+        this.features.has(split.id) ||
+        splitIds.has(split.id)
+      ) {
+        throw new GraphValidationError(
+          `Feature with id "${split.id}" already exists`,
+        );
+      }
+      splitIds.add(split.id);
+
+      for (const taskId of split.taskIds) {
+        if (assignedTaskIds.has(taskId)) {
+          throw new GraphValidationError(
+            `Task "${taskId}" cannot be assigned to multiple split features`,
+          );
+        }
+        const task = this.tasks.get(taskId);
+        if (!task || task.featureId !== id) {
+          throw new GraphValidationError(
+            `Task "${taskId}" does not belong to feature "${id}"`,
+          );
+        }
+        assignedTaskIds.add(taskId);
+        splitByTaskId.set(taskId, split);
+      }
+    }
+
+    if (assignedTaskIds.size !== sourceTasks.length) {
+      throw new GraphValidationError(
+        `splitFeature must reassign all ${sourceTasks.length} tasks from feature "${id}"`,
+      );
+    }
+
+    const replacementIds = splits.map((split) => split.id);
+    const replaceDeps = (dependsOn: FeatureId[]): FeatureId[] => {
+      const next: FeatureId[] = [];
+      let insertedReplacement = false;
+      for (const dep of dependsOn) {
+        if (dep === id) {
+          if (!insertedReplacement) {
+            for (const replacementId of replacementIds) {
+              if (!next.includes(replacementId)) {
+                next.push(replacementId);
+              }
+            }
+            insertedReplacement = true;
+          }
+          continue;
+        }
+        if (!next.includes(dep)) {
+          next.push(dep);
+        }
+      }
+      return next;
+    };
+
+    const updatedFeatures = new Map<FeatureId, Feature>();
+    for (const feature of this.features.values()) {
+      if (feature.id === id) {
+        continue;
+      }
+      const dependsOn = feature.dependsOn.includes(id)
+        ? replaceDeps(feature.dependsOn)
+        : feature.dependsOn;
+      updatedFeatures.set(
+        feature.id,
+        dependsOn === feature.dependsOn ? feature : { ...feature, dependsOn },
+      );
+    }
+
+    for (let index = 0; index < splits.length; index++) {
+      const split = splits[index];
+      if (!split) continue;
+      updatedFeatures.set(split.id, {
+        ...source,
+        id: split.id,
+        name: split.name,
+        description: split.description,
+        dependsOn: [...source.dependsOn],
+        orderInMilestone: source.orderInMilestone + index,
+        featureBranch: `feat-${split.id}`,
+      });
+    }
+
+    const milestoneFeatureIds = [...this.features.values()]
+      .filter((feature) => feature.milestoneId === source.milestoneId)
+      .sort((a, b) => a.orderInMilestone - b.orderInMilestone)
+      .flatMap((feature) =>
+        feature.id === id ? splits.map((split) => split.id) : [feature.id],
+      );
+
+    milestoneFeatureIds.forEach((featureId, index) => {
+      const feature = updatedFeatures.get(featureId);
+      if (!feature) return;
+      updatedFeatures.set(featureId, { ...feature, orderInMilestone: index });
+    });
+
+    const updatedTasks = [...this.tasks.values()].map((task) => {
+      const split = splitByTaskId.get(task.id);
+      if (!split) {
+        return task;
+      }
+      return {
+        ...task,
+        featureId: split.id,
+        orderInFeature: split.taskIds.indexOf(task.id),
+      };
+    });
+
+    this.commitValidatedSnapshot({
+      milestones: [...this.milestones.values()],
+      features: [...updatedFeatures.values()],
+      tasks: updatedTasks,
+    });
+
+    return splits
+      .map((split) => this.features.get(split.id))
+      .filter((feature): feature is Feature => feature !== undefined);
   }
 
-  mergeFeatures(_featureIds: FeatureId[], _name: string): Feature {
-    throw new Error('Not implemented.');
+  mergeFeatures(featureIds: FeatureId[], name: string): Feature {
+    if (featureIds.length < 2) {
+      throw new GraphValidationError(
+        'mergeFeatures requires at least two feature ids',
+      );
+    }
+
+    const seen = new Set<FeatureId>();
+    const featuresToMerge = featureIds.map((featureId) => {
+      if (seen.has(featureId)) {
+        throw new GraphValidationError(
+          `Feature "${featureId}" cannot be merged more than once`,
+        );
+      }
+      seen.add(featureId);
+      const feature = this.features.get(featureId);
+      if (!feature) {
+        throw new GraphValidationError(`Feature "${featureId}" does not exist`);
+      }
+      return feature;
+    });
+
+    const first = featuresToMerge[0];
+    if (!first) {
+      throw new GraphValidationError(
+        'mergeFeatures requires at least one feature',
+      );
+    }
+    const milestoneId = first.milestoneId;
+    for (const feature of featuresToMerge) {
+      if (feature.milestoneId !== milestoneId) {
+        throw new GraphValidationError(
+          'Cannot merge features from different milestones',
+        );
+      }
+    }
+
+    const mergedIds = new Set(featureIds);
+    const mergedId = this.nextGeneratedFeatureId(this.features.keys());
+    const mergedDependsOn: FeatureId[] = [];
+    for (const feature of featuresToMerge) {
+      for (const dep of feature.dependsOn) {
+        if (!mergedIds.has(dep) && !mergedDependsOn.includes(dep)) {
+          mergedDependsOn.push(dep);
+        }
+      }
+    }
+
+    const replaceDeps = (dependsOn: FeatureId[]): FeatureId[] => {
+      const next: FeatureId[] = [];
+      let insertedMerged = false;
+      for (const dep of dependsOn) {
+        if (mergedIds.has(dep)) {
+          if (!insertedMerged) {
+            next.push(mergedId);
+            insertedMerged = true;
+          }
+          continue;
+        }
+        if (!next.includes(dep)) {
+          next.push(dep);
+        }
+      }
+      return next;
+    };
+
+    const updatedFeatures = new Map<FeatureId, Feature>();
+    for (const feature of this.features.values()) {
+      if (mergedIds.has(feature.id)) {
+        continue;
+      }
+      const dependsOn = feature.dependsOn.some((dep) => mergedIds.has(dep))
+        ? replaceDeps(feature.dependsOn)
+        : feature.dependsOn;
+      updatedFeatures.set(
+        feature.id,
+        dependsOn === feature.dependsOn ? feature : { ...feature, dependsOn },
+      );
+    }
+
+    updatedFeatures.set(mergedId, {
+      ...first,
+      id: mergedId,
+      name,
+      dependsOn: mergedDependsOn,
+      featureBranch: `feat-${mergedId}`,
+    });
+
+    const insertAt = Math.min(
+      ...featuresToMerge.map((feature) => feature.orderInMilestone),
+    );
+    const milestoneFeatureIds = [
+      ...[...this.features.values()]
+        .filter(
+          (feature) =>
+            feature.milestoneId === milestoneId &&
+            !mergedIds.has(feature.id) &&
+            feature.orderInMilestone < insertAt,
+        )
+        .sort((a, b) => a.orderInMilestone - b.orderInMilestone)
+        .map((feature) => feature.id),
+      mergedId,
+      ...[...this.features.values()]
+        .filter(
+          (feature) =>
+            feature.milestoneId === milestoneId &&
+            !mergedIds.has(feature.id) &&
+            feature.orderInMilestone >= insertAt,
+        )
+        .sort((a, b) => a.orderInMilestone - b.orderInMilestone)
+        .map((feature) => feature.id),
+    ];
+
+    milestoneFeatureIds.forEach((featureId, index) => {
+      const feature = updatedFeatures.get(featureId);
+      if (!feature) return;
+      updatedFeatures.set(featureId, { ...feature, orderInMilestone: index });
+    });
+
+    const orderedMergedTaskIds = featuresToMerge
+      .slice()
+      .sort((a, b) => a.orderInMilestone - b.orderInMilestone)
+      .flatMap((feature) =>
+        [...this.tasks.values()]
+          .filter((task) => task.featureId === feature.id)
+          .sort((a, b) => a.orderInFeature - b.orderInFeature)
+          .map((task) => task.id),
+      );
+    const mergedTaskOrder = new Map<TaskId, number>(
+      orderedMergedTaskIds.map((taskId, index) => [taskId, index]),
+    );
+
+    const updatedTasks = [...this.tasks.values()].map((task) => {
+      if (!mergedIds.has(task.featureId)) {
+        return task;
+      }
+      return {
+        ...task,
+        featureId: mergedId,
+        orderInFeature: mergedTaskOrder.get(task.id) ?? task.orderInFeature,
+      };
+    });
+
+    this.commitValidatedSnapshot({
+      milestones: [...this.milestones.values()],
+      features: [...updatedFeatures.values()],
+      tasks: updatedTasks,
+    });
+
+    const mergedFeature = this.features.get(mergedId);
+    if (!mergedFeature) {
+      throw new GraphValidationError(
+        `Merged feature "${mergedId}" was not created`,
+      );
+    }
+    return mergedFeature;
   }
 
   cancelFeature(featureId: FeatureId, cascade?: boolean): void {
@@ -1175,8 +1522,53 @@ export class InMemoryFeatureGraph implements FeatureGraph {
     }
   }
 
-  enqueueFeatureMerge(_featureId: FeatureId): void {
-    throw new Error('Not implemented.');
+  enqueueFeatureMerge(featureId: FeatureId): void {
+    const feature = this.features.get(featureId);
+    if (!feature) {
+      throw new GraphValidationError(`Feature "${featureId}" does not exist`);
+    }
+
+    if (feature.workControl !== 'awaiting_merge') {
+      throw new GraphValidationError(
+        `Feature "${featureId}" must be in awaiting_merge work control to enqueue (currently "${feature.workControl}")`,
+      );
+    }
+
+    for (const depId of feature.dependsOn) {
+      const dep = this.features.get(depId);
+      if (!dep || dep.collabControl !== 'merged') {
+        throw new GraphValidationError(
+          `Feature "${featureId}" depends on "${depId}" which is not merged (collabControl: "${dep?.collabControl ?? 'missing'}")`,
+        );
+      }
+    }
+
+    let maxEntrySeq = 0;
+    for (const queued of this.features.values()) {
+      if ((queued.mergeTrainEntrySeq ?? 0) > maxEntrySeq) {
+        maxEntrySeq = queued.mergeTrainEntrySeq ?? 0;
+      }
+    }
+
+    const updated: Feature = {
+      ...feature,
+      collabControl: 'merge_queued',
+      mergeTrainEnteredAt: Date.now(),
+      mergeTrainEntrySeq: maxEntrySeq + 1,
+      mergeTrainReentryCount: feature.mergeTrainReentryCount ?? 0,
+    };
+
+    const result = validateFeatureCollabTransition(
+      feature.collabControl,
+      updated.collabControl,
+      updated.workControl,
+      updated.status,
+    );
+    if (!result.valid) {
+      throw new GraphValidationError(result.reason);
+    }
+
+    this.features.set(featureId, updated);
   }
 
   advanceTaskStatus(taskId: TaskId, to?: TaskStatus): void {

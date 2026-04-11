@@ -716,6 +716,276 @@ describe('InMemoryFeatureGraph', () => {
     expect(ready[0]?.id).toBe('t-3');
   });
 
+  // ── splitFeature / mergeFeatures / enqueueFeatureMerge ───────────
+
+  it('splitFeature replaces a feature with split children, reassigns tasks, and redirects deps', () => {
+    const g = createGraphWithMilestone();
+    g.createFeature({
+      id: 'f-dep',
+      milestoneId: 'm-1',
+      name: 'Dependency',
+      description: 'd',
+    });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'Source',
+      description: 'd',
+      dependsOn: ['f-dep'],
+    });
+    g.createFeature({
+      id: 'f-after',
+      milestoneId: 'm-1',
+      name: 'Dependent',
+      description: 'd',
+      dependsOn: ['f-1'],
+    });
+    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+    g.createTask({ id: 't-2', featureId: 'f-1', description: 'T2' });
+
+    const split = g.splitFeature('f-1', [
+      {
+        id: 'f-2',
+        name: 'Part A',
+        description: 'da',
+        taskIds: ['t-1'],
+      },
+      {
+        id: 'f-3',
+        name: 'Part B',
+        description: 'db',
+        taskIds: ['t-2'],
+      },
+    ]);
+
+    expect(split.map((feature) => feature.id).sort()).toEqual(['f-2', 'f-3']);
+    expect(g.features.has('f-1')).toBe(false);
+    expect(g.features.get('f-2')?.milestoneId).toBe('m-1');
+    expect(g.features.get('f-3')?.milestoneId).toBe('m-1');
+    expect(g.features.get('f-2')?.dependsOn).toEqual(['f-dep']);
+    expect(g.features.get('f-3')?.dependsOn).toEqual(['f-dep']);
+    expect([...(g.features.get('f-after')?.dependsOn ?? []).sort()]).toEqual([
+      'f-2',
+      'f-3',
+    ]);
+    expect(g.tasks.get('t-1')?.featureId).toBe('f-2');
+    expect(g.tasks.get('t-2')?.featureId).toBe('f-3');
+  });
+
+  it('splitFeature rejects task ids that do not belong to the source feature', () => {
+    const g = createGraphWithMilestone();
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'Source',
+      description: 'd',
+    });
+    g.createFeature({
+      id: 'f-other',
+      milestoneId: 'm-1',
+      name: 'Other',
+      description: 'd',
+    });
+    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+    g.createTask({ id: 't-2', featureId: 'f-other', description: 'T2' });
+
+    expect(() =>
+      g.splitFeature('f-1', [
+        {
+          id: 'f-2',
+          name: 'Part A',
+          description: 'da',
+          taskIds: ['t-2'],
+        },
+      ]),
+    ).toThrow(GraphValidationError);
+  });
+
+  it('splitFeature rejects a feature with active tasks', () => {
+    const g = createGraphWithTask();
+    updateTask(g, 't-1', { status: 'running' });
+
+    expect(() =>
+      g.splitFeature('f-1', [
+        {
+          id: 'f-2',
+          name: 'Part A',
+          description: 'da',
+          taskIds: ['t-1'],
+        },
+      ]),
+    ).toThrow(GraphValidationError);
+  });
+
+  it('mergeFeatures combines tasks, removes internal deps, and redirects incoming deps', () => {
+    const g = createGraphWithMilestone();
+    g.createFeature({
+      id: 'f-up-1',
+      milestoneId: 'm-1',
+      name: 'Upstream 1',
+      description: 'd',
+    });
+    g.createFeature({
+      id: 'f-up-2',
+      milestoneId: 'm-1',
+      name: 'Upstream 2',
+      description: 'd',
+    });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'Feature 1',
+      description: 'd',
+      dependsOn: ['f-up-1'],
+    });
+    g.createFeature({
+      id: 'f-2',
+      milestoneId: 'm-1',
+      name: 'Feature 2',
+      description: 'd',
+      dependsOn: ['f-1', 'f-up-2'],
+    });
+    g.createFeature({
+      id: 'f-down',
+      milestoneId: 'm-1',
+      name: 'Downstream',
+      description: 'd',
+      dependsOn: ['f-1', 'f-2'],
+    });
+    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+    g.createTask({ id: 't-2', featureId: 'f-2', description: 'T2' });
+
+    const merged = g.mergeFeatures(['f-1', 'f-2'], 'Merged feature');
+
+    expect(merged.name).toBe('Merged feature');
+    expect(merged.milestoneId).toBe('m-1');
+    expect([...merged.dependsOn].sort()).toEqual(['f-up-1', 'f-up-2']);
+    expect(g.features.has('f-2')).toBe(false);
+    expect(g.features.get('f-down')?.dependsOn).toEqual([merged.id]);
+    expect(g.tasks.get('t-1')?.featureId).toBe(merged.id);
+    expect(g.tasks.get('t-2')?.featureId).toBe(merged.id);
+  });
+
+  it('mergeFeatures rejects features from different milestones', () => {
+    const g = createGraphFixture();
+    g.createMilestone({ id: 'm-1', name: 'M1', description: 'd' });
+    g.createMilestone({ id: 'm-2', name: 'M2', description: 'd' });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'Feature 1',
+      description: 'd',
+    });
+    g.createFeature({
+      id: 'f-2',
+      milestoneId: 'm-2',
+      name: 'Feature 2',
+      description: 'd',
+    });
+
+    expect(() => g.mergeFeatures(['f-1', 'f-2'], 'Merged feature')).toThrow(
+      GraphValidationError,
+    );
+  });
+
+  it('mergeFeatures rejects merges that would create a dependency cycle after redirection', () => {
+    const g = createGraphWithMilestone();
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'Feature 1',
+      description: 'd',
+    });
+    g.createFeature({
+      id: 'f-middle',
+      milestoneId: 'm-1',
+      name: 'Middle',
+      description: 'd',
+      dependsOn: ['f-1'],
+    });
+    g.createFeature({
+      id: 'f-2',
+      milestoneId: 'm-1',
+      name: 'Feature 2',
+      description: 'd',
+      dependsOn: ['f-middle'],
+    });
+
+    expect(() => g.mergeFeatures(['f-1', 'f-2'], 'Merged feature')).toThrow(
+      GraphValidationError,
+    );
+  });
+
+  it('enqueueFeatureMerge queues an awaiting_merge feature and stamps merge-train metadata', () => {
+    const g = createGraphWithMilestone();
+    g.createFeature({
+      id: 'f-dep',
+      milestoneId: 'm-1',
+      name: 'Dependency',
+      description: 'd',
+    });
+    updateFeature(g, 'f-dep', {
+      workControl: 'work_complete',
+      collabControl: 'merged',
+    });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'Feature 1',
+      description: 'd',
+      dependsOn: ['f-dep'],
+    });
+    updateFeature(g, 'f-1', {
+      workControl: 'awaiting_merge',
+      collabControl: 'branch_open',
+    });
+
+    g.enqueueFeatureMerge('f-1');
+
+    const queued = g.features.get('f-1');
+    expect(queued?.collabControl).toBe('merge_queued');
+    expect(queued?.mergeTrainEnteredAt).toBeTypeOf('number');
+    expect(queued?.mergeTrainEntrySeq).toBe(1);
+    expect(queued?.mergeTrainReentryCount).toBe(0);
+  });
+
+  it('enqueueFeatureMerge rejects features not in awaiting_merge work control', () => {
+    const g = createGraphWithFeature();
+    updateFeature(g, 'f-1', {
+      workControl: 'executing',
+      collabControl: 'branch_open',
+    });
+
+    expect(() => g.enqueueFeatureMerge('f-1')).toThrow(GraphValidationError);
+  });
+
+  it('enqueueFeatureMerge rejects features whose dependencies are not merged', () => {
+    const g = createGraphWithMilestone();
+    g.createFeature({
+      id: 'f-dep',
+      milestoneId: 'm-1',
+      name: 'Dependency',
+      description: 'd',
+    });
+    updateFeature(g, 'f-dep', {
+      workControl: 'executing',
+      collabControl: 'branch_open',
+    });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'Feature 1',
+      description: 'd',
+      dependsOn: ['f-dep'],
+    });
+    updateFeature(g, 'f-1', {
+      workControl: 'awaiting_merge',
+      collabControl: 'branch_open',
+    });
+
+    expect(() => g.enqueueFeatureMerge('f-1')).toThrow(GraphValidationError);
+  });
+
   // ── cancelFeature ─────────────────────────────────────────────────
 
   it('cancelFeature cancels feature and its tasks', () => {
