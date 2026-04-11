@@ -3,6 +3,7 @@ import type {
   TaskResumeReason,
   TaskSuspendReason,
 } from '@core/types/index';
+import type { WorkerContext } from '@runtime/context/index';
 import type {
   DispatchTaskResult,
   RuntimePort,
@@ -10,26 +11,33 @@ import type {
   TaskControlResult,
   TaskExecutionRunRef,
   TaskRuntimeDispatch,
+  WorkerToOrchestratorMessage,
 } from '@runtime/contracts';
-import type { SessionHarness } from '@runtime/harness/index';
+import type { SessionHandle, SessionHarness } from '@runtime/harness/index';
+
+interface LiveSession {
+  ref: TaskExecutionRunRef;
+  handle: SessionHandle;
+}
+
+export type TaskCompleteCallback = (
+  message: WorkerToOrchestratorMessage,
+) => void;
 
 export class LocalWorkerPool implements RuntimePort {
-  private readonly liveRuns = new Map<string, TaskExecutionRunRef>();
+  private readonly liveRuns = new Map<string, LiveSession>();
 
   constructor(
     private readonly harness: SessionHarness,
     private readonly maxConcurrency: number,
+    private readonly onTaskComplete?: TaskCompleteCallback,
   ) {}
 
   async dispatchTask(
     task: Task,
     dispatch: TaskRuntimeDispatch,
+    context: WorkerContext = { strategy: 'shared-summary' },
   ): Promise<DispatchTaskResult> {
-    this.liveRuns.set(task.id, {
-      taskId: task.id,
-      agentRunId: dispatch.agentRunId,
-    });
-
     if (dispatch.mode === 'resume') {
       const resumeResult = await this.harness.resume(task, {
         taskId: task.id,
@@ -38,7 +46,6 @@ export class LocalWorkerPool implements RuntimePort {
       });
 
       if (resumeResult.kind === 'not_resumable') {
-        this.liveRuns.delete(task.id);
         return {
           kind: 'not_resumable',
           taskId: task.id,
@@ -48,6 +55,13 @@ export class LocalWorkerPool implements RuntimePort {
         };
       }
 
+      const session: LiveSession = {
+        ref: { taskId: task.id, agentRunId: dispatch.agentRunId },
+        handle: resumeResult.handle,
+      };
+      this.liveRuns.set(task.id, session);
+      this.registerWorkerHandler(task.id, session);
+
       return {
         kind: 'resumed',
         taskId: task.id,
@@ -56,9 +70,14 @@ export class LocalWorkerPool implements RuntimePort {
       };
     }
 
-    const handle = await this.harness.start(task, {
-      strategy: 'shared-summary',
-    });
+    const handle = await this.harness.start(task, context);
+
+    const session: LiveSession = {
+      ref: { taskId: task.id, agentRunId: dispatch.agentRunId },
+      handle,
+    };
+    this.liveRuns.set(task.id, session);
+    this.registerWorkerHandler(task.id, session);
 
     return {
       kind: 'started',
@@ -70,57 +89,110 @@ export class LocalWorkerPool implements RuntimePort {
 
   steerTask(
     taskId: string,
-    _directive: RuntimeSteeringDirective,
+    directive: RuntimeSteeringDirective,
   ): Promise<TaskControlResult> {
-    return Promise.resolve(this.resolveTaskControl(taskId));
+    const session = this.liveRuns.get(taskId);
+    if (session === undefined) {
+      return Promise.resolve({ kind: 'not_running', taskId });
+    }
+
+    session.handle.send({
+      type: 'steer',
+      taskId,
+      agentRunId: session.ref.agentRunId,
+      directive,
+    });
+
+    return Promise.resolve({
+      kind: 'delivered',
+      taskId,
+      agentRunId: session.ref.agentRunId,
+    });
   }
 
   suspendTask(
     taskId: string,
-    _reason: TaskSuspendReason,
-    _files?: string[],
+    reason: TaskSuspendReason,
+    files: string[] = [],
   ): Promise<TaskControlResult> {
-    return Promise.resolve(this.resolveTaskControl(taskId));
+    const session = this.liveRuns.get(taskId);
+    if (session === undefined) {
+      return Promise.resolve({ kind: 'not_running', taskId });
+    }
+
+    session.handle.send({
+      type: 'suspend',
+      taskId,
+      agentRunId: session.ref.agentRunId,
+      reason,
+      files,
+    });
+
+    return Promise.resolve({
+      kind: 'delivered',
+      taskId,
+      agentRunId: session.ref.agentRunId,
+    });
   }
 
   resumeTask(
     taskId: string,
-    _reason: TaskResumeReason,
+    reason: TaskResumeReason,
   ): Promise<TaskControlResult> {
-    return Promise.resolve(this.resolveTaskControl(taskId));
+    const session = this.liveRuns.get(taskId);
+    if (session === undefined) {
+      return Promise.resolve({ kind: 'not_running', taskId });
+    }
+
+    session.handle.send({
+      type: 'resume',
+      taskId,
+      agentRunId: session.ref.agentRunId,
+      reason,
+    });
+
+    return Promise.resolve({
+      kind: 'delivered',
+      taskId,
+      agentRunId: session.ref.agentRunId,
+    });
   }
 
   abortTask(taskId: string): Promise<TaskControlResult> {
-    const result = this.resolveTaskControl(taskId);
-    if (result.kind === 'delivered') {
-      this.liveRuns.delete(taskId);
+    const session = this.liveRuns.get(taskId);
+    if (session === undefined) {
+      return Promise.resolve({ kind: 'not_running', taskId });
     }
-    return Promise.resolve(result);
+
+    session.handle.abort();
+    this.liveRuns.delete(taskId);
+
+    return Promise.resolve({
+      kind: 'delivered',
+      taskId,
+      agentRunId: session.ref.agentRunId,
+    });
   }
 
   idleWorkerCount(): number {
     return Math.max(0, this.maxConcurrency - this.liveRuns.size);
   }
 
-  stopAll(): Promise<void> {
-    this.liveRuns.clear();
-    void this.harness;
-    return Promise.resolve();
+  async stopAll(): Promise<void> {
+    for (const [taskId, session] of this.liveRuns) {
+      session.handle.abort();
+      this.liveRuns.delete(taskId);
+    }
   }
 
-  private resolveTaskControl(taskId: string): TaskControlResult {
-    const liveRun = this.liveRuns.get(taskId);
-    if (liveRun === undefined) {
-      return {
-        kind: 'not_running',
-        taskId,
-      };
-    }
-
-    return {
-      kind: 'delivered',
-      taskId,
-      agentRunId: liveRun.agentRunId,
-    };
+  private registerWorkerHandler(taskId: string, session: LiveSession): void {
+    session.handle.onWorkerMessage((message: WorkerToOrchestratorMessage) => {
+      if (message.type === 'result' || message.type === 'error') {
+        this.liveRuns.delete(taskId);
+        this.onTaskComplete?.(message);
+      } else {
+        this.onTaskComplete?.(message);
+      }
+    });
   }
 }

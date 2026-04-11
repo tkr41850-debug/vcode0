@@ -18,4 +18,8 @@ export type {
   SessionHandle,
   SessionHarness,
 } from '@runtime/harness';
-export type { IpcTransport } from '@runtime/ipc';
+export type { ChildIpcTransport, IpcTransport } from '@runtime/ipc';
+export type { ModelBridgeConfig } from '@runtime/routing/model-bridge';
+export { resolveModel } from '@runtime/routing/model-bridge';
+export type { SessionStore } from '@runtime/sessions';
+export { FileSessionStore } from '@runtime/sessions';
