@@ -1,15 +1,21 @@
 import type { AppMode } from '@core/types';
 import type { OrchestratorPorts } from '@orchestrator/ports';
+import { RecoveryService } from '@orchestrator/services/index';
 
 export class GvcApplication {
-  constructor(private readonly ports: OrchestratorPorts) {}
+  private readonly recovery: RecoveryService;
 
-  start(_mode: AppMode = 'interactive'): Promise<void> {
-    return this.ports.ui.show();
+  constructor(private readonly ports: OrchestratorPorts) {
+    this.recovery = new RecoveryService(ports);
   }
 
-  stop(): Promise<void> {
+  async start(_mode: AppMode = 'interactive'): Promise<void> {
+    await this.recovery.recoverOrphanedRuns();
+    await this.ports.ui.show();
+  }
+
+  async stop(): Promise<void> {
+    await this.ports.runtime.stopAll();
     this.ports.ui.dispose();
-    return Promise.resolve();
   }
 }
