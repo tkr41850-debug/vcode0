@@ -1,7 +1,6 @@
 export type {
   FeatureBranchHandle,
   FeatureBranchRebaseResult,
-  FeatureMergeRequest,
   GitConflictContext,
   GitOperationResult,
   GitPort,

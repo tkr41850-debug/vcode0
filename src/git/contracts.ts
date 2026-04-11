@@ -122,7 +122,7 @@ export interface GitPort {
   createFeatureBranch(feature: Feature): Promise<FeatureBranchHandle>;
   createTaskWorktree(task: Task, feature: Feature): Promise<TaskWorktreeHandle>;
   mergeTaskWorktree(task: Task, result: TaskResult): Promise<void>;
-  enqueueFeatureMerge(request: FeatureMergeRequest): Promise<void>;
+  mergeFeatureBranch(request: FeatureMergeRequest): Promise<void>;
   rebaseTaskWorktree(
     task: Task,
     feature: Feature,
