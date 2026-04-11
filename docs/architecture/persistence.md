@@ -50,7 +50,7 @@ CREATE TABLE tasks (
   feature_id TEXT NOT NULL REFERENCES features(id),
   order_in_feature INTEGER NOT NULL DEFAULT 0,
   description TEXT NOT NULL,
-  weight REAL DEFAULT 1.0,
+  weight TEXT,
   status TEXT NOT NULL DEFAULT 'pending',
   collab_status TEXT NOT NULL DEFAULT 'none',
   worker_id TEXT,

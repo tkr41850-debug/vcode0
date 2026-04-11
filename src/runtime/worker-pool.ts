@@ -16,7 +16,10 @@ import type { SessionHarness } from '@runtime/harness/index';
 export class LocalWorkerPool implements RuntimePort {
   private readonly liveRuns = new Map<string, TaskExecutionRunRef>();
 
-  constructor(private readonly harness: SessionHarness) {}
+  constructor(
+    private readonly harness: SessionHarness,
+    private readonly maxConcurrency: number,
+  ) {}
 
   async dispatchTask(
     task: Task,
@@ -93,6 +96,10 @@ export class LocalWorkerPool implements RuntimePort {
       this.liveRuns.delete(taskId);
     }
     return Promise.resolve(result);
+  }
+
+  idleWorkerCount(): number {
+    return Math.max(0, this.maxConcurrency - this.liveRuns.size);
   }
 
   stopAll(): Promise<void> {

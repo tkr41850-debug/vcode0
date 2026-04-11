@@ -123,6 +123,7 @@ export interface RuntimePort {
     reason: TaskResumeReason,
   ): Promise<TaskControlResult>;
   abortTask(taskId: string): Promise<TaskControlResult>;
+  idleWorkerCount(): number;
   stopAll(): Promise<void>;
 }
 

@@ -2,11 +2,15 @@ import type {
   AgentRun,
   EventRecord,
   Feature,
+  FeatureId,
   Milestone,
+  MilestoneId,
   Task,
+  TaskId,
 } from '@core/types/index';
 import type {
   AgentRunQuery,
+  DependencyEdge,
   EventQuery,
   Store,
   StoreGraphState,
@@ -20,11 +24,28 @@ export class SqliteStore implements Store {
       features: [],
       tasks: [],
       agentRuns: [],
+      dependencies: [],
     });
   }
 
   saveGraphState(_state: StoreGraphState): Promise<void> {
     return Promise.resolve();
+  }
+
+  getMilestone(_id: MilestoneId): Promise<Milestone | undefined> {
+    return Promise.resolve(undefined);
+  }
+
+  getFeature(_id: FeatureId): Promise<Feature | undefined> {
+    return Promise.resolve(undefined);
+  }
+
+  getTask(_id: TaskId): Promise<Task | undefined> {
+    return Promise.resolve(undefined);
+  }
+
+  getAgentRun(_id: string): Promise<AgentRun | undefined> {
+    return Promise.resolve(undefined);
   }
 
   listMilestones(): Promise<Milestone[]> {
@@ -43,12 +64,40 @@ export class SqliteStore implements Store {
     return Promise.resolve([]);
   }
 
+  listEvents(_query?: EventQuery): Promise<EventRecord[]> {
+    return Promise.resolve([]);
+  }
+
+  updateMilestone(_id: MilestoneId, _patch: Partial<Milestone>): Promise<void> {
+    return Promise.resolve();
+  }
+
+  updateFeature(_id: FeatureId, _patch: Partial<Feature>): Promise<void> {
+    return Promise.resolve();
+  }
+
+  updateTask(_id: TaskId, _patch: Partial<Task>): Promise<void> {
+    return Promise.resolve();
+  }
+
+  createAgentRun(_run: AgentRun): Promise<void> {
+    return Promise.resolve();
+  }
+
   updateAgentRun(_runId: string, _patch: Partial<AgentRun>): Promise<void> {
     return Promise.resolve();
   }
 
-  listEvents(_query?: EventQuery): Promise<EventRecord[]> {
+  listDependencies(): Promise<DependencyEdge[]> {
     return Promise.resolve([]);
+  }
+
+  saveDependency(_edge: DependencyEdge): Promise<void> {
+    return Promise.resolve();
+  }
+
+  removeDependency(_edge: DependencyEdge): Promise<void> {
+    return Promise.resolve();
   }
 
   appendEvent(_event: EventRecord): Promise<void> {

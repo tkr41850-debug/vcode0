@@ -267,7 +267,7 @@ async function schedulerLoop(
 }
 ```
 
-This pseudocode illustrates the intended tick model. Variable names like `runs`, `run`, and `idleWorkerCount` represent concepts whose exact API homes will be decided during the persistence (#104) and agent (#105) interface discussions. The actual implementation will be a `SchedulerLoop` class with an `enqueue()` method for posting events and `run()`/`stop()` for lifecycle control.
+This pseudocode illustrates the intended tick model. API homes for the pseudocode variables: `runs` → `Store.listAgentRuns()` / `Store.getAgentRun()`, `run` creation → `Store.createAgentRun()`, run updates → `Store.updateAgentRun()`, and `idleWorkerCount` → `RuntimePort.idleWorkerCount()`. The actual implementation will be a `SchedulerLoop` class with an `enqueue()` method for posting events and `run()`/`stop()` for lifecycle control.
 
 Planner note: this works best when prerequisite-shaping tasks
 (schemas, interfaces, shared contracts,

@@ -11,6 +11,7 @@ import type {
   TaskId,
   TaskStatus,
   TaskSuspendReason,
+  TaskWeight,
   TestPolicy,
   UnitStatus,
 } from '@core/types/index';
@@ -52,7 +53,7 @@ export interface TaskRow {
   feature_id: FeatureId;
   order_in_feature: number;
   description: string;
-  weight: string | null;
+  weight: TaskWeight | null;
   status: TaskStatus;
   collab_status: TaskCollabControl;
   worker_id: string | null;
