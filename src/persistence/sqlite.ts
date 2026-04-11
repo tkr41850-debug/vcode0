@@ -322,6 +322,29 @@ export class SqliteStore implements Store {
           insertTask.run(this.taskToRow(task, timestamp));
         }
 
+        const insertDependency = this.db.prepare(
+          `INSERT OR REPLACE INTO dependencies (from_id, to_id, dep_type)
+           VALUES (@from_id, @to_id, @dep_type)`,
+        );
+        for (const feature of graphState.features) {
+          for (const dependsOnId of feature.dependsOn) {
+            insertDependency.run({
+              from_id: feature.id,
+              to_id: dependsOnId,
+              dep_type: 'feature',
+            });
+          }
+        }
+        for (const task of graphState.tasks) {
+          for (const dependsOnId of task.dependsOn) {
+            insertDependency.run({
+              from_id: task.id,
+              to_id: dependsOnId,
+              dep_type: 'task',
+            });
+          }
+        }
+
         this.pruneDanglingDependencies();
         this.pruneDanglingAgentRuns();
       },
