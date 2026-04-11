@@ -145,6 +145,15 @@ export interface TaskResult {
   filesChanged: string[];
 }
 
+export interface FeaturePhaseResult {
+  summary: string;
+}
+
+export interface FeaturePhaseRunContext {
+  agentRunId: string;
+  sessionId?: string;
+}
+
 export interface Milestone {
   id: MilestoneId;
   name: string;

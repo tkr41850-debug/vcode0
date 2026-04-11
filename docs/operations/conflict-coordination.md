@@ -159,16 +159,18 @@ Cross-feature overlap is handled more conservatively than same-feature file lock
 #### Runtime Coordination Algorithm
 
 1. Detect an overlap incident between two features using normalized project-root-relative file paths.
-2. Choose one **primary** and one **secondary** feature for that pair.
-3. Pause only the secondary feature's tasks that touch the overlapped paths.
-4. Persist `collab_status = "suspended"`, `suspend_reason = "cross_feature_overlap"`, `suspended_files = [...]`, and `blocked_by_feature_id = <primary feature id>` on each paused task.
-5. Release active path locks when a paused task exits execute mode; reservations remain as planning metadata.
-6. Let the primary feature continue.
-7. If the secondary feature stays blocked for too long, raise a warning.
-8. After the primary feature merges into `main`, rebase the secondary feature branch onto updated `main`.
-9. If that succeeds, notify paused secondary tasks, clear `blocked_by_feature_id`, and resume.
-10. If the feature-branch rebase fails, create integration repair work on the secondary feature branch and keep affected tasks paused until it lands.
+2. The `ConflictCoordinator` receives the overlap incident and both features, applies the cross-feature priority policy (below) to choose **primary** and **secondary**.
+3. Add a runtime feature dependency: `addDependency(secondary, primary)`. This blocks all secondary feature work through the existing DAG scheduling — `readyFeatures()` will not return the secondary until the primary completes.
+4. Suspend all running secondary tasks via `suspendTask()`, transitioning task collab to `suspended` with `suspend_reason = "cross_feature_overlap"` and `blocked_by_feature_id = <primary feature id>`.
+5. Release active path locks for suspended tasks; reservations remain as planning metadata.
+6. Let the primary feature continue normally.
+7. If the secondary feature stays blocked for too long (`Date.now() - task.suspendedAt > threshold`), raise a warning via the existing warnings framework.
+8. After the primary feature merges into `main`, the dependency is satisfied. On the next scheduler tick, the secondary appears in the ready frontier. Before dispatching secondary tasks, the scheduler checks whether the feature branch needs rebasing onto updated `main`.
+9. If the rebase succeeds, remove the runtime dependency, clear `blocked_by_feature_id` on affected tasks, and resume normal scheduling.
+10. If the feature-branch rebase fails, create integration repair work on the secondary feature branch. Tasks remain suspended until repair lands.
 11. If rebase plus verification succeeds, continue normally; otherwise escalate to replanning.
+
+The baseline uses **per-feature blocking** (all secondary work paused) rather than per-task suspension (only overlapping tasks paused). This is simpler and safer — rebasing the feature branch with no active tasks avoids mid-flight worktree issues, and recovery on rebase failure is straightforward since no tasks need retroactive suspension. The parallelism cost is bounded because cross-feature overlap should be uncommon when reservation-based scheduling penalties are working. See [per-task cross-feature suspension](../feature-candidates/per-task-cross-feature-suspension.md) for the finer-grained alternative.
 
 ## Cross-Feature Priority Policy
 
@@ -190,7 +192,7 @@ Baseline derived ranks:
 
 ## Persistence Notes
 
-Suspension fields live on task rows and back `suspended` / `conflict` collaboration state. For cross-feature blocking, `blocked_by_feature_id` makes the current primary-secondary relationship reconstructable from task rows. The event log remains a debugging and audit surface, not the primary source of current coordination truth.
+Cross-feature blocking is expressed as a runtime feature dependency in the graph plus `blocked_by_feature_id` on suspended task rows. The dependency edge is the scheduling authority; task-level fields are for reconstruction and UI display. Suspension fields (`suspendedAt`, `suspendReason`, `suspendedFiles`, `blockedByFeatureId`) live on task rows and back `suspended` collaboration state. The event log remains a debugging and audit surface, not the primary source of current coordination truth.
 
 ## Related
 

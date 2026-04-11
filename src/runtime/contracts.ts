@@ -32,6 +32,7 @@ export type DispatchTaskResult =
       kind: 'started';
       taskId: string;
       agentRunId: string;
+      sessionId: string;
     }
   | {
       kind: 'resumed';
@@ -87,6 +88,11 @@ export interface RuntimeUsageDelta {
   usd: number;
   rawUsage?: unknown;
 }
+
+export type ApprovalPayload =
+  | { kind: 'replan_proposal'; summary: string; proposedMutations: string[] }
+  | { kind: 'destructive_action'; description: string; affectedPaths: string[] }
+  | { kind: 'custom'; label: string; detail: string };
 
 export type ApprovalDecision =
   | { kind: 'approved' }
@@ -203,7 +209,7 @@ export type WorkerToOrchestratorMessage =
       type: 'request_approval';
       taskId: string;
       agentRunId: string;
-      payloadJson: string;
+      payload: ApprovalPayload;
     }
   | {
       type: 'assistant_output';
