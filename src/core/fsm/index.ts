@@ -63,9 +63,12 @@ const FAILURE_STATUSES = new Set<UnitStatus>(['failed']);
 /**
  * Validates a workControl transition given the current status and collabControl.
  *
- * Repair attempt counting is the caller's responsibility. This guard validates
- * structural legality only — the caller must check whether repair attempts are
- * exhausted before proposing a transition to executing_repair.
+ * Caller responsibilities (this guard validates structural legality only):
+ * - Repair attempt counting: check attempts < MAX_REPAIR_ATTEMPTS before
+ *   proposing a transition to executing_repair.
+ * - Replan cycle tracking: after replanning→executing, a subsequent failure
+ *   should be a hard stop (surface to user), not another repair/replan cycle.
+ *   The FSM has no history — the caller must enforce the one-replan limit.
  */
 export function validateFeatureWorkTransition(
   current: FeatureWorkControl,
@@ -147,6 +150,9 @@ export function validateFeatureWorkTransition(
   ) {
     return { valid: true };
   }
+
+  // replanning/failed is an intentional dead end — no outbound workControl
+  // transition exists. The feature requires user intervention to proceed.
 
   return {
     valid: false,
@@ -402,6 +408,14 @@ export function validateTaskCollabTransition(
     return {
       valid: false,
       reason: `no-op task collab transition: ${current}`,
+    };
+  }
+
+  // Cancelled tasks cannot have collab changed
+  if (taskStatus === 'cancelled') {
+    return {
+      valid: false,
+      reason: 'cannot transition collab on a cancelled task',
     };
   }
 
