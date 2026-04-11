@@ -1,3 +1,13 @@
+import {
+  FEATURE_COLLAB_SUCCESS_SUCCESSOR,
+  FEATURE_WORK_SUCCESS_SUCCESSOR,
+  TASK_COLLAB_SUCCESS_SUCCESSOR,
+  TASK_STATUS_SUCCESS_SUCCESSOR,
+  validateFeatureCollabTransition,
+  validateFeatureWorkTransition,
+  validateTaskCollabTransition,
+  validateTaskStatusTransition,
+} from '@core/fsm/index';
 import type {
   Feature,
   FeatureCollabControl,
@@ -141,6 +151,7 @@ export class InMemoryFeatureGraph implements FeatureGraph {
 
   private _featureSuccessors = new Map<FeatureId, Set<FeatureId>>();
   private _taskSuccessors = new Map<TaskId, Set<TaskId>>();
+  private _taskIdCounter = 0;
 
   constructor(initial?: GraphSnapshot) {
     if (initial) {
@@ -149,6 +160,7 @@ export class InMemoryFeatureGraph implements FeatureGraph {
       for (const t of initial.tasks) this.tasks.set(t.id, t);
       this.validateInvariants();
       this.rebuildAdjacencyIndexes();
+      this.initTaskIdCounter();
     }
   }
 
@@ -176,6 +188,17 @@ export class InMemoryFeatureGraph implements FeatureGraph {
         set.add(t.id);
       }
     }
+  }
+
+  private initTaskIdCounter(): void {
+    let max = 0;
+    for (const tid of this.tasks.keys()) {
+      const num = Number.parseInt(tid.slice(2), 10);
+      if (!Number.isNaN(num) && num > max) {
+        max = num;
+      }
+    }
+    this._taskIdCounter = max;
   }
 
   private validateInvariants(): void {
@@ -859,32 +882,201 @@ export class InMemoryFeatureGraph implements FeatureGraph {
     throw new Error('Not implemented.');
   }
 
-  cancelFeature(_featureId: FeatureId, _cascade?: boolean): void {
-    throw new Error('Not implemented.');
+  cancelFeature(featureId: FeatureId, cascade?: boolean): void {
+    const feature = this.features.get(featureId);
+    if (!feature) {
+      throw new GraphValidationError(`Feature "${featureId}" does not exist`);
+    }
+
+    // Cancel the feature
+    this.features.set(featureId, {
+      ...feature,
+      collabControl: 'cancelled',
+    });
+
+    // Cancel all tasks belonging to this feature
+    for (const [tid, task] of this.tasks) {
+      if (
+        task.featureId === featureId &&
+        task.status !== 'done' &&
+        task.status !== 'cancelled'
+      ) {
+        this.tasks.set(tid, { ...task, status: 'cancelled' });
+      }
+    }
+
+    // Cascade to transitive dependents if requested
+    if (cascade) {
+      const successors = this._featureSuccessors.get(featureId);
+      if (successors) {
+        for (const succId of successors) {
+          const succ = this.features.get(succId);
+          if (succ && succ.collabControl !== 'cancelled') {
+            this.cancelFeature(succId, true);
+          }
+        }
+      }
+    }
   }
 
-  changeMilestone(_featureId: FeatureId, _newMilestoneId: MilestoneId): void {
-    throw new Error('Not implemented.');
+  changeMilestone(featureId: FeatureId, newMilestoneId: MilestoneId): void {
+    const feature = this.features.get(featureId);
+    if (!feature) {
+      throw new GraphValidationError(`Feature "${featureId}" does not exist`);
+    }
+    if (!this.milestones.has(newMilestoneId)) {
+      throw new GraphValidationError(
+        `Milestone "${newMilestoneId}" does not exist`,
+      );
+    }
+
+    // Compute new orderInMilestone
+    let orderInMilestone = 0;
+    for (const f of this.features.values()) {
+      if (f.milestoneId === newMilestoneId && f.id !== featureId) {
+        orderInMilestone++;
+      }
+    }
+
+    this.features.set(featureId, {
+      ...feature,
+      milestoneId: newMilestoneId,
+      orderInMilestone,
+    });
   }
 
-  editFeature(_featureId: FeatureId, _patch: FeatureEditPatch): Feature {
-    throw new Error('Not implemented.');
+  editFeature(featureId: FeatureId, patch: FeatureEditPatch): Feature {
+    const feature = this.features.get(featureId);
+    if (!feature) {
+      throw new GraphValidationError(`Feature "${featureId}" does not exist`);
+    }
+    if (feature.collabControl === 'cancelled') {
+      throw new GraphValidationError(
+        `Cannot edit cancelled feature "${featureId}"`,
+      );
+    }
+    if (
+      feature.workControl === 'work_complete' &&
+      feature.collabControl === 'merged'
+    ) {
+      throw new GraphValidationError(
+        `Cannot edit completed feature "${featureId}"`,
+      );
+    }
+
+    const updated: Feature = { ...feature };
+    if (patch.name !== undefined) {
+      updated.name = patch.name;
+    }
+    if (patch.description !== undefined) {
+      updated.description = patch.description;
+    }
+    this.features.set(featureId, updated);
+    return updated;
   }
 
-  addTask(_opts: AddTaskOptions): Task {
-    throw new Error('Not implemented.');
+  addTask(opts: AddTaskOptions): Task {
+    // Generate next task ID
+    this._taskIdCounter++;
+    const id: TaskId = `t-${this._taskIdCounter}`;
+
+    const createOpts: CreateTaskOptions = {
+      id,
+      featureId: opts.featureId,
+      description: opts.description,
+    };
+    if (opts.deps !== undefined) {
+      createOpts.dependsOn = opts.deps;
+    }
+    if (opts.weight !== undefined) {
+      createOpts.weight = opts.weight;
+    }
+    if (opts.reservedWritePaths !== undefined) {
+      createOpts.reservedWritePaths = opts.reservedWritePaths;
+    }
+    return this.createTask(createOpts);
   }
 
-  removeTask(_taskId: TaskId): void {
-    throw new Error('Not implemented.');
+  removeTask(taskId: TaskId): void {
+    const task = this.tasks.get(taskId);
+    if (!task) {
+      throw new GraphValidationError(`Task "${taskId}" does not exist`);
+    }
+    if (task.status !== 'pending') {
+      throw new GraphValidationError(
+        `Cannot remove task "${taskId}" with status "${task.status}" (must be pending)`,
+      );
+    }
+
+    // Clean up dependsOn references in other tasks
+    for (const [tid, t] of this.tasks) {
+      if (t.dependsOn.includes(taskId)) {
+        this.tasks.set(tid, {
+          ...t,
+          dependsOn: t.dependsOn.filter((d) => d !== taskId),
+        });
+      }
+    }
+
+    // Clean up adjacency indexes
+    const successors = this._taskSuccessors.get(taskId);
+    if (successors) {
+      this._taskSuccessors.delete(taskId);
+    }
+    for (const dep of task.dependsOn) {
+      const set = this._taskSuccessors.get(dep);
+      if (set) {
+        set.delete(taskId);
+      }
+    }
+
+    this.tasks.delete(taskId);
   }
 
-  reorderTasks(_featureId: FeatureId, _taskIds: TaskId[]): void {
-    throw new Error('Not implemented.');
+  reorderTasks(featureId: FeatureId, taskIds: TaskId[]): void {
+    if (!this.features.has(featureId)) {
+      throw new GraphValidationError(`Feature "${featureId}" does not exist`);
+    }
+
+    // Collect existing tasks for this feature
+    const featureTaskIds: TaskId[] = [];
+    for (const t of this.tasks.values()) {
+      if (t.featureId === featureId) {
+        featureTaskIds.push(t.id);
+      }
+    }
+
+    // Validate complete set
+    if (taskIds.length !== featureTaskIds.length) {
+      throw new GraphValidationError(
+        `reorderTasks requires all ${featureTaskIds.length} tasks for feature "${featureId}", got ${taskIds.length}`,
+      );
+    }
+    const provided = new Set(taskIds);
+    for (const tid of featureTaskIds) {
+      if (!provided.has(tid)) {
+        throw new GraphValidationError(
+          `reorderTasks missing task "${tid}" for feature "${featureId}"`,
+        );
+      }
+    }
+
+    // Apply new order
+    for (let i = 0; i < taskIds.length; i++) {
+      const tid = taskIds[i];
+      if (!tid) continue;
+      const task = this.tasks.get(tid);
+      if (!task) continue;
+      this.tasks.set(tid, { ...task, orderInFeature: i });
+    }
   }
 
-  reweight(_taskId: TaskId, _weight: TaskWeight): void {
-    throw new Error('Not implemented.');
+  reweight(taskId: TaskId, weight: TaskWeight): void {
+    const task = this.tasks.get(taskId);
+    if (!task) {
+      throw new GraphValidationError(`Task "${taskId}" does not exist`);
+    }
+    this.tasks.set(taskId, { ...task, weight });
   }
 
   queueMilestone(milestoneId: MilestoneId): void {
@@ -948,38 +1140,158 @@ export class InMemoryFeatureGraph implements FeatureGraph {
     throw new Error('Not implemented.');
   }
 
-  advanceTaskStatus(_taskId: TaskId, _to?: TaskStatus): void {
-    throw new Error('Not implemented.');
+  advanceTaskStatus(taskId: TaskId, to?: TaskStatus): void {
+    const task = this.tasks.get(taskId);
+    if (!task) {
+      throw new GraphValidationError(`Task "${taskId}" does not exist`);
+    }
+
+    const target = to ?? TASK_STATUS_SUCCESS_SUCCESSOR.get(task.status);
+    if (target === undefined) {
+      throw new GraphValidationError(
+        `No auto-advance successor for task status "${task.status}"`,
+      );
+    }
+
+    const result = validateTaskStatusTransition(
+      task.status,
+      target,
+      task.collabControl,
+    );
+    if (!result.valid) {
+      throw new GraphValidationError(result.reason);
+    }
+
+    this.tasks.set(taskId, { ...task, status: target });
   }
 
-  advanceTaskCollab(_taskId: TaskId, _to?: TaskCollabControl): void {
-    throw new Error('Not implemented.');
+  advanceTaskCollab(taskId: TaskId, to?: TaskCollabControl): void {
+    const task = this.tasks.get(taskId);
+    if (!task) {
+      throw new GraphValidationError(`Task "${taskId}" does not exist`);
+    }
+
+    const target = to ?? TASK_COLLAB_SUCCESS_SUCCESSOR.get(task.collabControl);
+    if (target === undefined) {
+      throw new GraphValidationError(
+        `No auto-advance successor for task collab control "${task.collabControl}"`,
+      );
+    }
+
+    const result = validateTaskCollabTransition(
+      task.collabControl,
+      target,
+      task.status,
+    );
+    if (!result.valid) {
+      throw new GraphValidationError(result.reason);
+    }
+
+    this.tasks.set(taskId, { ...task, collabControl: target });
   }
 
-  completeTask(_taskId: TaskId, _result: TaskResult): void {
-    throw new Error('Not implemented.');
+  completeTask(taskId: TaskId, result: TaskResult): void {
+    const task = this.tasks.get(taskId);
+    if (!task) {
+      throw new GraphValidationError(`Task "${taskId}" does not exist`);
+    }
+
+    this.tasks.set(taskId, {
+      ...task,
+      status: 'done',
+      collabControl: 'merged',
+      result,
+    });
   }
 
   suspendTask(
-    _taskId: TaskId,
-    _reason: TaskSuspendReason,
-    _files?: string[],
+    taskId: TaskId,
+    reason: TaskSuspendReason,
+    files?: string[],
   ): void {
-    throw new Error('Not implemented.');
+    const task = this.tasks.get(taskId);
+    if (!task) {
+      throw new GraphValidationError(`Task "${taskId}" does not exist`);
+    }
+
+    const updated: Task = {
+      ...task,
+      collabControl: 'suspended',
+      suspendReason: reason,
+      suspendedAt: Date.now(),
+    };
+    if (files !== undefined) {
+      updated.suspendedFiles = files;
+    }
+    this.tasks.set(taskId, updated);
   }
 
-  resumeTask(_taskId: TaskId): void {
-    throw new Error('Not implemented.');
+  resumeTask(taskId: TaskId): void {
+    const task = this.tasks.get(taskId);
+    if (!task) {
+      throw new GraphValidationError(`Task "${taskId}" does not exist`);
+    }
+
+    const updated: Task = {
+      ...task,
+      collabControl: 'branch_open',
+    };
+    // Clear suspend fields by reconstructing without them
+    delete updated.suspendReason;
+    delete updated.suspendedAt;
+    delete updated.suspendedFiles;
+    this.tasks.set(taskId, updated);
   }
 
-  advanceWorkControl(_featureId: FeatureId, _to?: FeatureWorkControl): void {
-    throw new Error('Not implemented.');
+  advanceWorkControl(featureId: FeatureId, to?: FeatureWorkControl): void {
+    const feature = this.features.get(featureId);
+    if (!feature) {
+      throw new GraphValidationError(`Feature "${featureId}" does not exist`);
+    }
+
+    const target =
+      to ?? FEATURE_WORK_SUCCESS_SUCCESSOR.get(feature.workControl);
+    if (target === undefined) {
+      throw new GraphValidationError(
+        `No auto-advance successor for work control "${feature.workControl}"`,
+      );
+    }
+
+    const result = validateFeatureWorkTransition(
+      feature.workControl,
+      target,
+      feature.collabControl,
+    );
+    if (!result.valid) {
+      throw new GraphValidationError(result.reason);
+    }
+
+    this.features.set(featureId, { ...feature, workControl: target });
   }
 
-  advanceCollabControl(
-    _featureId: FeatureId,
-    _to?: FeatureCollabControl,
-  ): void {
-    throw new Error('Not implemented.');
+  advanceCollabControl(featureId: FeatureId, to?: FeatureCollabControl): void {
+    const feature = this.features.get(featureId);
+    if (!feature) {
+      throw new GraphValidationError(`Feature "${featureId}" does not exist`);
+    }
+
+    const target =
+      to ?? FEATURE_COLLAB_SUCCESS_SUCCESSOR.get(feature.collabControl);
+    if (target === undefined) {
+      throw new GraphValidationError(
+        `No auto-advance successor for collab control "${feature.collabControl}"`,
+      );
+    }
+
+    const result = validateFeatureCollabTransition(
+      feature.collabControl,
+      target,
+      feature.workControl,
+    );
+    if (!result.valid) {
+      throw new GraphValidationError(result.reason);
+    }
+
+    this.features.set(featureId, { ...feature, collabControl: target });
   }
 }

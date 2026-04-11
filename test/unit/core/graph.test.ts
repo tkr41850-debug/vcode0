@@ -1032,4 +1032,527 @@ describe('InMemoryFeatureGraph', () => {
     expect(t.status).toBe('pending');
     expect(t.collabControl).toBe('none');
   });
+
+  // ── cancelFeature ─────────────────────────────────────────────────
+
+  it('cancelFeature cancels feature and its tasks', () => {
+    const g = createGraphFixture();
+    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'F1',
+      description: 'd',
+    });
+    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+    g.createTask({ id: 't-2', featureId: 'f-1', description: 'T2' });
+
+    g.cancelFeature('f-1');
+
+    expect(g.features.get('f-1')?.collabControl).toBe('cancelled');
+    expect(g.tasks.get('t-1')?.status).toBe('cancelled');
+    expect(g.tasks.get('t-2')?.status).toBe('cancelled');
+  });
+
+  it('cancelFeature with cascade cancels transitive dependents', () => {
+    const g = createGraphFixture();
+    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'F1',
+      description: 'd',
+    });
+    g.createFeature({
+      id: 'f-2',
+      milestoneId: 'm-1',
+      name: 'F2',
+      description: 'd',
+      dependsOn: ['f-1'],
+    });
+    g.createFeature({
+      id: 'f-3',
+      milestoneId: 'm-1',
+      name: 'F3',
+      description: 'd',
+      dependsOn: ['f-2'],
+    });
+
+    g.cancelFeature('f-1', true);
+
+    expect(g.features.get('f-1')?.collabControl).toBe('cancelled');
+    expect(g.features.get('f-2')?.collabControl).toBe('cancelled');
+    expect(g.features.get('f-3')?.collabControl).toBe('cancelled');
+  });
+
+  it('cancelFeature without cascade does not cancel dependents', () => {
+    const g = createGraphFixture();
+    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'F1',
+      description: 'd',
+    });
+    g.createFeature({
+      id: 'f-2',
+      milestoneId: 'm-1',
+      name: 'F2',
+      description: 'd',
+      dependsOn: ['f-1'],
+    });
+
+    g.cancelFeature('f-1');
+
+    expect(g.features.get('f-1')?.collabControl).toBe('cancelled');
+    expect(g.features.get('f-2')?.collabControl).toBe('none');
+  });
+
+  it('cancelFeature rejects nonexistent feature', () => {
+    const g = createGraphFixture();
+    expect(() => g.cancelFeature('f-999')).toThrow(GraphValidationError);
+  });
+
+  // ── changeMilestone ───────────────────────────────────────────────
+
+  it('changeMilestone moves feature to another milestone', () => {
+    const g = createGraphFixture();
+    g.createMilestone({ id: 'm-1', name: 'M1', description: 'd' });
+    g.createMilestone({ id: 'm-2', name: 'M2', description: 'd' });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'F1',
+      description: 'd',
+    });
+
+    g.changeMilestone('f-1', 'm-2');
+
+    expect(g.features.get('f-1')?.milestoneId).toBe('m-2');
+  });
+
+  it('changeMilestone rejects nonexistent milestone', () => {
+    const g = createGraphFixture();
+    g.createMilestone({ id: 'm-1', name: 'M1', description: 'd' });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'F1',
+      description: 'd',
+    });
+
+    expect(() => g.changeMilestone('f-1', 'm-999')).toThrow(
+      GraphValidationError,
+    );
+  });
+
+  // ── editFeature ───────────────────────────────────────────────────
+
+  it('editFeature updates name and description', () => {
+    const g = createGraphFixture();
+    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'Old',
+      description: 'old desc',
+    });
+
+    const updated = g.editFeature('f-1', {
+      name: 'New',
+      description: 'new desc',
+    });
+
+    expect(updated.name).toBe('New');
+    expect(updated.description).toBe('new desc');
+    expect(g.features.get('f-1')?.name).toBe('New');
+  });
+
+  it('editFeature rejects editing cancelled feature', () => {
+    const g = createGraphFixture();
+    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'F',
+      description: 'd',
+    });
+    const f = g.features.get('f-1');
+    if (!f) throw new Error('expected feature');
+    g.features.set('f-1', { ...f, collabControl: 'cancelled' });
+
+    expect(() => g.editFeature('f-1', { name: 'X' })).toThrow(
+      GraphValidationError,
+    );
+  });
+
+  // ── addTask (auto-ID) ────────────────────────────────────────────
+
+  it('addTask generates incrementing task IDs', () => {
+    const g = createGraphFixture();
+    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'F',
+      description: 'd',
+    });
+
+    const t1 = g.addTask({ featureId: 'f-1', description: 'T1' });
+    const t2 = g.addTask({ featureId: 'f-1', description: 'T2' });
+
+    expect(t1.id).toMatch(/^t-/);
+    expect(t2.id).toMatch(/^t-/);
+    expect(t1.id).not.toBe(t2.id);
+  });
+
+  // ── removeTask ────────────────────────────────────────────────────
+
+  it('removeTask removes a pending task', () => {
+    const g = createGraphFixture();
+    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'F',
+      description: 'd',
+    });
+    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+
+    g.removeTask('t-1');
+
+    expect(g.tasks.has('t-1')).toBe(false);
+  });
+
+  it('removeTask rejects non-pending task', () => {
+    const g = createGraphFixture();
+    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'F',
+      description: 'd',
+    });
+    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+
+    const t = g.tasks.get('t-1');
+    if (!t) throw new Error('expected task');
+    g.tasks.set('t-1', { ...t, status: 'running' });
+
+    expect(() => g.removeTask('t-1')).toThrow(GraphValidationError);
+  });
+
+  it('removeTask cleans up dependsOn references', () => {
+    const g = createGraphFixture();
+    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'F',
+      description: 'd',
+    });
+    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+    g.createTask({
+      id: 't-2',
+      featureId: 'f-1',
+      description: 'T2',
+      dependsOn: ['t-1'],
+    });
+
+    g.removeTask('t-1');
+
+    expect(g.tasks.get('t-2')?.dependsOn).toEqual([]);
+  });
+
+  // ── reorderTasks ──────────────────────────────────────────────────
+
+  it('reorderTasks updates orderInFeature', () => {
+    const g = createGraphFixture();
+    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'F',
+      description: 'd',
+    });
+    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+    g.createTask({ id: 't-2', featureId: 'f-1', description: 'T2' });
+    g.createTask({ id: 't-3', featureId: 'f-1', description: 'T3' });
+
+    g.reorderTasks('f-1', ['t-3', 't-1', 't-2']);
+
+    expect(g.tasks.get('t-3')?.orderInFeature).toBe(0);
+    expect(g.tasks.get('t-1')?.orderInFeature).toBe(1);
+    expect(g.tasks.get('t-2')?.orderInFeature).toBe(2);
+  });
+
+  it('reorderTasks rejects incomplete task set', () => {
+    const g = createGraphFixture();
+    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'F',
+      description: 'd',
+    });
+    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+    g.createTask({ id: 't-2', featureId: 'f-1', description: 'T2' });
+
+    expect(() => g.reorderTasks('f-1', ['t-1'])).toThrow(GraphValidationError);
+  });
+
+  // ── reweight ──────────────────────────────────────────────────────
+
+  it('reweight updates task weight', () => {
+    const g = createGraphFixture();
+    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'F',
+      description: 'd',
+    });
+    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+
+    g.reweight('t-1', 'heavy');
+
+    expect(g.tasks.get('t-1')?.weight).toBe('heavy');
+  });
+
+  it('reweight rejects nonexistent task', () => {
+    const g = createGraphFixture();
+    expect(() => g.reweight('t-999', 'small')).toThrow(GraphValidationError);
+  });
+
+  // ── Lifecycle transitions (Phase 5) ───────────────────────────────
+
+  it('advanceTaskStatus transitions pending to ready', () => {
+    const g = createGraphFixture();
+    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'F',
+      description: 'd',
+    });
+    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+
+    g.advanceTaskStatus('t-1');
+
+    expect(g.tasks.get('t-1')?.status).toBe('ready');
+  });
+
+  it('advanceTaskStatus transitions with explicit to', () => {
+    const g = createGraphFixture();
+    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'F',
+      description: 'd',
+    });
+    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+
+    g.advanceTaskStatus('t-1', 'ready');
+
+    expect(g.tasks.get('t-1')?.status).toBe('ready');
+  });
+
+  it('advanceTaskStatus rejects invalid transition', () => {
+    const g = createGraphFixture();
+    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'F',
+      description: 'd',
+    });
+    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+
+    // pending -> done is not valid
+    expect(() => g.advanceTaskStatus('t-1', 'done')).toThrow(
+      GraphValidationError,
+    );
+  });
+
+  it('advanceTaskCollab transitions none to branch_open', () => {
+    const g = createGraphFixture();
+    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'F',
+      description: 'd',
+    });
+    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+
+    g.advanceTaskCollab('t-1');
+
+    expect(g.tasks.get('t-1')?.collabControl).toBe('branch_open');
+  });
+
+  it('completeTask sets status done and collabControl merged', () => {
+    const g = createGraphFixture();
+    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'F',
+      description: 'd',
+    });
+    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+
+    // Advance to running first
+    const t = g.tasks.get('t-1');
+    if (!t) throw new Error('expected task');
+    g.tasks.set('t-1', {
+      ...t,
+      status: 'running',
+      collabControl: 'branch_open',
+    });
+
+    g.completeTask('t-1', { summary: 'done', filesChanged: [] });
+
+    expect(g.tasks.get('t-1')?.status).toBe('done');
+    expect(g.tasks.get('t-1')?.collabControl).toBe('merged');
+    expect(g.tasks.get('t-1')?.result).toEqual({
+      summary: 'done',
+      filesChanged: [],
+    });
+  });
+
+  it('suspendTask sets collabControl to suspended', () => {
+    const g = createGraphFixture();
+    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'F',
+      description: 'd',
+    });
+    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+
+    const t = g.tasks.get('t-1');
+    if (!t) throw new Error('expected task');
+    g.tasks.set('t-1', { ...t, collabControl: 'branch_open' });
+
+    g.suspendTask('t-1', 'same_feature_overlap', ['file.ts']);
+
+    expect(g.tasks.get('t-1')?.collabControl).toBe('suspended');
+    expect(g.tasks.get('t-1')?.suspendReason).toBe('same_feature_overlap');
+    expect(g.tasks.get('t-1')?.suspendedFiles).toEqual(['file.ts']);
+  });
+
+  it('resumeTask sets collabControl back to branch_open', () => {
+    const g = createGraphFixture();
+    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'F',
+      description: 'd',
+    });
+    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+
+    const t = g.tasks.get('t-1');
+    if (!t) throw new Error('expected task');
+    g.tasks.set('t-1', {
+      ...t,
+      collabControl: 'suspended',
+      suspendReason: 'same_feature_overlap',
+    });
+
+    g.resumeTask('t-1');
+
+    expect(g.tasks.get('t-1')?.collabControl).toBe('branch_open');
+  });
+
+  it('advanceWorkControl transitions discussing to researching', () => {
+    const g = createGraphFixture();
+    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'F',
+      description: 'd',
+    });
+
+    g.advanceWorkControl('f-1');
+
+    expect(g.features.get('f-1')?.workControl).toBe('researching');
+  });
+
+  it('advanceWorkControl rejects invalid transition', () => {
+    const g = createGraphFixture();
+    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'F',
+      description: 'd',
+    });
+
+    // discussing -> feature_ci is invalid
+    expect(() => g.advanceWorkControl('f-1', 'feature_ci')).toThrow(
+      GraphValidationError,
+    );
+  });
+
+  it('advanceWorkControl blocks feature_ci when collabControl is cancelled', () => {
+    const g = createGraphFixture();
+    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'F',
+      description: 'd',
+    });
+
+    const f = g.features.get('f-1');
+    if (!f) throw new Error('expected feature');
+    g.features.set('f-1', {
+      ...f,
+      workControl: 'executing',
+      collabControl: 'cancelled',
+    });
+
+    expect(() => g.advanceWorkControl('f-1', 'feature_ci')).toThrow(
+      GraphValidationError,
+    );
+  });
+
+  it('advanceCollabControl transitions none to branch_open', () => {
+    const g = createGraphFixture();
+    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'F',
+      description: 'd',
+    });
+
+    g.advanceCollabControl('f-1');
+
+    expect(g.features.get('f-1')?.collabControl).toBe('branch_open');
+  });
+
+  it('advanceCollabControl rejects merge_queued unless workControl is awaiting_merge', () => {
+    const g = createGraphFixture();
+    g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'F',
+      description: 'd',
+    });
+
+    const f = g.features.get('f-1');
+    if (!f) throw new Error('expected feature');
+    g.features.set('f-1', { ...f, collabControl: 'branch_open' });
+
+    // workControl is still 'discussing', not 'awaiting_merge'
+    expect(() => g.advanceCollabControl('f-1', 'merge_queued')).toThrow(
+      GraphValidationError,
+    );
+  });
 });
