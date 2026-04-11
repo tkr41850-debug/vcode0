@@ -140,6 +140,6 @@ High-level test scenarios live in `specs/test_*.md` as markdown specs before con
 - Read `ARCHITECTURE.md` first for the big picture
 - Start with `docs/README.md`, then consult the relevant section README or topic page for subsystem details
 - Follow the existing TS path alias patterns when adding new modules
-- Keep architectural boundaries clean (core should not depend on runtime/persistence/git/tui)
+- Keep architectural boundaries clean (core should not depend on runtime/persistence/tui)
 - Use the faux provider pattern for integration tests
 - Document architectural decisions in `docs/` rather than inline comments
