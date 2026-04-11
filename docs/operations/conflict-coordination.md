@@ -187,12 +187,12 @@ Ranking order:
 
 Baseline derived ranks:
 
-- `collabRank`: `integrating=3`, `merge_queued=2`, `branch_open=1`, `none=0`, `conflict=-1`
+- `collabRank`: `integrating=3`, `merge_queued=2`, `branch_open=1`, `none=0`, `conflict=-1`, `merged=-2`, `cancelled=-2`
 - `workRank`: `awaiting_merge=5`, `verifying=4`, `feature_ci=3`, `executing_repair=2`, `executing=1`, `planning|researching|discussing=0`, `replanning=-1`, `summarizing|work_complete=-1`
 
 ## Persistence Notes
 
-Cross-feature blocking is expressed as a runtime feature dependency in the graph plus `blocked_by_feature_id` on suspended task rows. The dependency edge is the scheduling authority; task-level fields are for reconstruction and UI display. Suspension fields (`suspendedAt`, `suspendReason`, `suspendedFiles`, `blockedByFeatureId`) live on task rows and back `suspended` collaboration state. The event log remains a debugging and audit surface, not the primary source of current coordination truth.
+Cross-feature blocking is expressed as a runtime feature dependency in the graph plus `blockedByFeatureId` on suspended task rows. The dependency edge is the scheduling authority; task-level fields are for reconstruction and UI display. Suspension fields (`suspendedAt`, `suspendReason`, `suspendedFiles`, `blockedByFeatureId`) live on task rows and back `suspended` collaboration state. The event log remains a debugging and audit surface, not the primary source of current coordination truth.
 
 ## Related
 

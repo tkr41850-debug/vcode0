@@ -40,10 +40,24 @@ describe('validateFeatureWorkTransition', () => {
   it.each([
     ['executing_repair', 'executing', 'done', 'branch_open'],
     ['executing_repair', 'feature_ci', 'done', 'branch_open'],
-    ['executing_repair', 'verifying', 'done', 'branch_open'],
   ] as const)('repair succeeded → return: %s -> %s (status=%s)', (from, to, status, collab) => {
     expect(validateFeatureWorkTransition(from, to, status, collab)).toEqual({
       valid: true,
+    });
+  });
+
+  it('repair cannot skip feature_ci and return directly to verifying', () => {
+    expect(
+      validateFeatureWorkTransition(
+        'executing_repair',
+        'verifying',
+        'done',
+        'branch_open',
+      ),
+    ).toEqual({
+      valid: false,
+      reason:
+        'illegal workControl transition: executing_repair(done) → verifying',
     });
   });
 

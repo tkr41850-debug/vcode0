@@ -123,11 +123,13 @@ export function validateFeatureWorkTransition(
     return { valid: true };
   }
 
-  // Repair succeeded → return to the phase that failed.
-  // Caller tracks which phase triggered repair and proposes the correct target.
+  // Repair succeeded → return to executing or feature_ci.
+  // Repair always re-enters through feature_ci (not verifying directly),
+  // because CI must re-validate after any code change. If the original
+  // failure was in executing, return to executing to finish remaining work.
   if (
     current === 'executing_repair' &&
-    REPAIRABLE_PHASES.has(proposed) &&
+    (proposed === 'executing' || proposed === 'feature_ci') &&
     status === 'done'
   ) {
     return { valid: true };
