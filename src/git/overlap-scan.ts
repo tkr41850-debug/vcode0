@@ -31,7 +31,7 @@ function parseTaskId(
 }
 
 export class OverlapScanner {
-  async scanFeatureOverlap(feature: Feature): Promise<OverlapIncident[]> {
+  scanFeatureOverlap(feature: Feature): Promise<OverlapIncident[]> {
     const worktreesDir = join(process.cwd(), '.gvc0', 'worktrees');
     const branchPrefix = `${feature.featureBranch}-task-`;
     const overlapsByFile = new Map<string, Set<TaskId>>();
@@ -59,7 +59,7 @@ export class OverlapScanner {
       .sort();
 
     if (files.length === 0) {
-      return [];
+      return Promise.resolve([]);
     }
 
     const taskIds = new Set<TaskId>();
@@ -69,13 +69,13 @@ export class OverlapScanner {
       }
     }
 
-    return [
+    return Promise.resolve([
       {
         featureId: feature.id,
         taskIds: [...taskIds].sort(),
         files,
         suspendReason: 'same_feature_overlap',
       },
-    ];
+    ]);
   }
 }

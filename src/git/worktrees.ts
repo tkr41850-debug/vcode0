@@ -50,7 +50,7 @@ function deriveTaskId(
 }
 
 export class TaskWorktreeManager {
-  async createTaskWorktree(
+  createTaskWorktree(
     task: Task,
     feature: Feature,
   ): Promise<TaskWorktreeHandle> {
@@ -69,16 +69,16 @@ export class TaskWorktreeManager {
       feature.featureBranch,
     );
 
-    return {
+    return Promise.resolve({
       taskId: task.id,
       featureId: feature.id,
       branchName,
       worktreePath,
       parentBranch: feature.featureBranch,
-    };
+    });
   }
 
-  async mergeTaskWorktree(task: Task, result: TaskResult): Promise<void> {
+  mergeTaskWorktree(task: Task, result: TaskResult): Promise<void> {
     const branchName =
       task.worktreeBranch ?? `feat-${task.featureId}-task-${task.id}`;
     const parentBranch = deriveParentBranch(task);
@@ -94,13 +94,14 @@ export class TaskWorktreeManager {
       git(parentWorktreePath, 'diff', '--cached', '--name-only').length > 0;
 
     if (!hasStagedChanges) {
-      return;
+      return Promise.resolve();
     }
 
     git(parentWorktreePath, 'commit', '-m', result.summary);
+    return Promise.resolve();
   }
 
-  async rebaseTaskWorktree(
+  rebaseTaskWorktree(
     task: Task,
     feature: Feature,
   ): Promise<TaskWorktreeRebaseResult> {
@@ -110,13 +111,13 @@ export class TaskWorktreeManager {
 
     try {
       git(absoluteWorktreePath, 'rebase', feature.featureBranch);
-      return {
-        kind: 'rebased',
+      return Promise.resolve({
+        kind: 'rebased' as const,
         taskId: task.id,
         featureId: feature.id,
         branchName,
         worktreePath,
-      };
+      });
     } catch (error) {
       const conflictedFiles = listConflictedFiles(absoluteWorktreePath);
       if (conflictedFiles.length === 0) {
@@ -138,15 +139,15 @@ export class TaskWorktreeManager {
         gitConflictContext.reservedWritePaths = task.reservedWritePaths;
       }
 
-      return {
-        kind: 'conflicted',
+      return Promise.resolve({
+        kind: 'conflicted' as const,
         taskId: task.id,
         featureId: feature.id,
         branchName,
         worktreePath,
         conflictedFiles,
         gitConflictContext,
-      };
+      });
     }
   }
 }

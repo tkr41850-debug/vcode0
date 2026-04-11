@@ -4,29 +4,19 @@ export interface Component {
 }
 
 export class DagView implements Component {
-  private dirty = true;
-
   render(_width: number): string[] {
-    this.dirty = false;
     return ['[DAG]'];
   }
 
-  invalidate(): void {
-    this.dirty = true;
-  }
+  invalidate(): void {}
 }
 
 export class StatusBar implements Component {
-  private dirty = true;
-
   render(_width: number): string[] {
-    this.dirty = false;
     return ['[Status]'];
   }
 
-  invalidate(): void {
-    this.dirty = true;
-  }
+  invalidate(): void {}
 }
 
 export class AgentMonitorOverlay implements Component {

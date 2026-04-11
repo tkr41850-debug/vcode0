@@ -58,7 +58,8 @@ export class SchedulerLoop {
 
     // Drain enqueued events
     while (this.events.length > 0) {
-      const event = this.events.shift()!;
+      const event = this.events.shift();
+      if (!event) break;
       if (event.type === 'shutdown') {
         return;
       }

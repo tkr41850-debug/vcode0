@@ -40,14 +40,14 @@ function createMockHarness(): SessionHarness {
   };
 
   return {
-    async start() {
-      return handle;
+    start() {
+      return Promise.resolve(handle);
     },
-    async resume(_task, run) {
-      return {
+    resume(_task, run) {
+      return Promise.resolve({
         kind: 'resumed' as const,
         handle: { ...handle, sessionId: run.sessionId },
-      };
+      });
     },
   };
 }
@@ -57,7 +57,7 @@ describe('WorkerRuntime', () => {
     it('starts a session via harness and emits progress', async () => {
       const transport = createMockTransport();
       const harness = createMockHarness();
-      const runtime = new WorkerRuntime(transport, harness);
+      const _runtime = new WorkerRuntime(transport, harness);
 
       const task = createTaskFixture({ id: 't-1' });
       transport.deliver({
@@ -84,7 +84,7 @@ describe('WorkerRuntime', () => {
     it('resumes a session via harness', async () => {
       const transport = createMockTransport();
       const harness = createMockHarness();
-      const runtime = new WorkerRuntime(transport, harness);
+      const _runtime = new WorkerRuntime(transport, harness);
 
       const task = createTaskFixture({ id: 't-1' });
       transport.deliver({
@@ -112,7 +112,7 @@ describe('WorkerRuntime', () => {
     it('aborts the active session for a running task', async () => {
       const transport = createMockTransport();
       const harness = createMockHarness();
-      const runtime = new WorkerRuntime(transport, harness);
+      const _runtime = new WorkerRuntime(transport, harness);
 
       const task = createTaskFixture({ id: 't-1' });
       // Start a task first
@@ -146,7 +146,7 @@ describe('WorkerRuntime', () => {
     it('forwards manual input to the active session', async () => {
       const transport = createMockTransport();
       const harness = createMockHarness();
-      const runtime = new WorkerRuntime(transport, harness);
+      const _runtime = new WorkerRuntime(transport, harness);
 
       const task = createTaskFixture({ id: 't-1' });
       transport.deliver({

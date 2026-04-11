@@ -1,9 +1,4 @@
-import type {
-  AgentRun,
-  BudgetState,
-  Feature,
-  GvcConfig,
-} from '@core/types/index';
+import type { AgentRun, GvcConfig } from '@core/types/index';
 import type {
   DependencyEdge,
   OrchestratorPorts,
@@ -16,6 +11,8 @@ import {
   VerificationService,
 } from '@orchestrator/services/index';
 import { describe, expect, it, vi } from 'vitest';
+
+/* eslint-disable @typescript-eslint/require-await, @typescript-eslint/unbound-method */
 
 import { createFeatureFixture } from '../../helpers/graph-builders.js';
 

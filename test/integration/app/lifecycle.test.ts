@@ -9,15 +9,44 @@ import { describe, expect, it, vi } from 'vitest';
 /* eslint-disable @typescript-eslint/require-await, @typescript-eslint/unbound-method */
 
 import { GvcApplication } from '../../../src/app/index.js';
+import {
+  createFeatureFixture,
+  createMilestoneFixture,
+  createTaskFixture,
+} from '../../helpers/graph-builders.js';
 
 function createMockStore(overrides: Partial<Store> = {}): Store {
   return {
     loadRecoveryState: vi.fn(
       async (): Promise<StoreRecoveryState> => ({
-        milestones: [],
-        features: [],
-        tasks: [],
-        agentRuns: [],
+        milestones: [createMilestoneFixture({ id: 'm-1', name: 'MVP' })],
+        features: [
+          createFeatureFixture({
+            id: 'f-1',
+            milestoneId: 'm-1',
+            name: 'Auth',
+          }),
+        ],
+        tasks: [
+          createTaskFixture({
+            id: 't-1',
+            featureId: 'f-1',
+            description: 'Login',
+          }),
+        ],
+        agentRuns: [
+          {
+            id: 'run-orphan',
+            scopeType: 'task',
+            scopeId: 't-1',
+            phase: 'execute',
+            runStatus: 'running',
+            owner: 'system',
+            attention: 'none',
+            restartCount: 0,
+            maxRetries: 3,
+          },
+        ],
         dependencies: [],
       }),
     ),
@@ -44,11 +73,9 @@ function createMockStore(overrides: Partial<Store> = {}): Store {
   };
 }
 
-function createMockPorts(
-  overrides: Partial<OrchestratorPorts> = {},
-): OrchestratorPorts {
+function createMockPorts(store: Store): OrchestratorPorts {
   return {
-    store: createMockStore(),
+    store,
     git: {} as OrchestratorPorts['git'],
     runtime: {
       dispatchTask: vi.fn(),
@@ -66,45 +93,49 @@ function createMockPorts(
       dispose: vi.fn(),
     },
     config: { tokenProfile: 'balanced' },
-    ...overrides,
   };
 }
 
-describe('GvcApplication', () => {
-  it('shows the UI on start', async () => {
-    const ports = createMockPorts();
+describe('GvcApplication lifecycle (integration)', () => {
+  it('recovers orphaned runs and shows UI on start', async () => {
+    const store = createMockStore();
+    const ports = createMockPorts(store);
     const app = new GvcApplication(ports);
 
     await app.start();
 
+    // Recovery should have loaded state
+    expect(store.loadRecoveryState).toHaveBeenCalled();
+    // Orphaned running run should be marked failed
+    expect(store.updateAgentRun).toHaveBeenCalledWith('run-orphan', {
+      runStatus: 'failed',
+    });
+    // UI should be shown
     expect(ports.ui.show).toHaveBeenCalled();
   });
 
-  it('disposes the UI on stop', async () => {
-    const ports = createMockPorts();
-    const app = new GvcApplication(ports);
-
-    await app.stop();
-
-    expect(ports.ui.dispose).toHaveBeenCalled();
-  });
-
-  it('runs recovery on start', async () => {
+  it('stops runtime and disposes UI on stop', async () => {
     const store = createMockStore();
-    const ports = createMockPorts({ store });
+    const ports = createMockPorts(store);
     const app = new GvcApplication(ports);
 
     await app.start();
-
-    expect(store.loadRecoveryState).toHaveBeenCalled();
-  });
-
-  it('stops the runtime on stop', async () => {
-    const ports = createMockPorts();
-    const app = new GvcApplication(ports);
-
     await app.stop();
 
     expect(ports.runtime.stopAll).toHaveBeenCalled();
+    expect(ports.ui.dispose).toHaveBeenCalled();
+  });
+
+  it('full start-stop cycle does not throw', async () => {
+    const store = createMockStore();
+    const ports = createMockPorts(store);
+    const app = new GvcApplication(ports);
+
+    await app.start('auto');
+    await app.stop();
+
+    // Verify the full lifecycle completed
+    expect(store.loadRecoveryState).toHaveBeenCalledTimes(1);
+    expect(ports.runtime.stopAll).toHaveBeenCalledTimes(1);
   });
 });

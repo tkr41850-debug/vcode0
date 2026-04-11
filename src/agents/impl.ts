@@ -18,7 +18,7 @@ export function createPlannerAgent(options: AgentImplOptions): PlannerAgent {
   const { prompts } = options;
 
   return {
-    async discussFeature(
+    discussFeature(
       feature: Feature,
       _run: FeaturePhaseRunContext,
     ): Promise<FeaturePhaseResult> {
@@ -26,10 +26,10 @@ export function createPlannerAgent(options: AgentImplOptions): PlannerAgent {
         featureName: feature.name,
         featureDescription: feature.description,
       });
-      return { summary: `Discussed: ${prompt.slice(0, 80)}` };
+      return Promise.resolve({ summary: `Discussed: ${prompt.slice(0, 80)}` });
     },
 
-    async researchFeature(
+    researchFeature(
       feature: Feature,
       _run: FeaturePhaseRunContext,
     ): Promise<FeaturePhaseResult> {
@@ -37,10 +37,12 @@ export function createPlannerAgent(options: AgentImplOptions): PlannerAgent {
         featureName: feature.name,
         featureDescription: feature.description,
       });
-      return { summary: `Researched: ${prompt.slice(0, 80)}` };
+      return Promise.resolve({
+        summary: `Researched: ${prompt.slice(0, 80)}`,
+      });
     },
 
-    async planFeature(
+    planFeature(
       feature: Feature,
       _run: FeaturePhaseRunContext,
     ): Promise<FeaturePhaseResult> {
@@ -48,27 +50,32 @@ export function createPlannerAgent(options: AgentImplOptions): PlannerAgent {
         featureName: feature.name,
         featureDescription: feature.description,
       });
-      return { summary: `Planned: ${prompt.slice(0, 80)}` };
+      return Promise.resolve({ summary: `Planned: ${prompt.slice(0, 80)}` });
     },
 
-    async verifyFeature(
+    verifyFeature(
       feature: Feature,
       _run: FeaturePhaseRunContext,
     ): Promise<VerificationSummary> {
       prompts.get('verify').render({
         featureName: feature.name,
       });
-      return { ok: true, summary: `Verified feature ${feature.name}` };
+      return Promise.resolve({
+        ok: true,
+        summary: `Verified feature ${feature.name}`,
+      });
     },
 
-    async summarizeFeature(
+    summarizeFeature(
       feature: Feature,
       _run: FeaturePhaseRunContext,
     ): Promise<FeaturePhaseResult> {
       prompts.get('summarize').render({
         featureName: feature.name,
       });
-      return { summary: `Summarized feature ${feature.name}` };
+      return Promise.resolve({
+        summary: `Summarized feature ${feature.name}`,
+      });
     },
   };
 }
@@ -79,7 +86,7 @@ export function createReplannerAgent(
   const { prompts } = options;
 
   return {
-    async replanFeature(
+    replanFeature(
       feature: Feature,
       reason: string,
       _run: FeaturePhaseRunContext,
@@ -88,7 +95,9 @@ export function createReplannerAgent(
         featureName: feature.name,
         reason,
       });
-      return { summary: `Replanned: ${prompt.slice(0, 80)}` };
+      return Promise.resolve({
+        summary: `Replanned: ${prompt.slice(0, 80)}`,
+      });
     },
   };
 }

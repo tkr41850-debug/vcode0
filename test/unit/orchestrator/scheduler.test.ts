@@ -1,19 +1,15 @@
-import type { FeatureGraph } from '@core/graph/index';
 import type {
   DependencyEdge,
   OrchestratorPorts,
   Store,
   StoreRecoveryState,
 } from '@orchestrator/ports/index';
-import type { SchedulerEvent } from '@orchestrator/scheduler/index';
 import { describe, expect, it, vi } from 'vitest';
 
+/* eslint-disable @typescript-eslint/require-await, @typescript-eslint/unbound-method */
+
 import { SchedulerLoop } from '../../../src/orchestrator/scheduler/index.js';
-import {
-  createFeatureFixture,
-  createGraphWithFeature,
-  createTaskFixture,
-} from '../../helpers/graph-builders.js';
+import { createGraphWithFeature } from '../../helpers/graph-builders.js';
 
 function createMockStore(overrides: Partial<Store> = {}): Store {
   return {

@@ -25,10 +25,10 @@ export class RecoveryService {
 export class VerificationService {
   constructor(private readonly ports: OrchestratorPorts) {}
 
-  async verifyFeature(_feature: Feature): Promise<VerificationSummary> {
+  verifyFeature(_feature: Feature): Promise<VerificationSummary> {
     const featureConfig = this.ports.config.verification?.feature;
     if (!featureConfig) {
-      return { ok: true };
+      return Promise.resolve({ ok: true });
     }
 
     const failedChecks: string[] = [];
@@ -44,10 +44,10 @@ export class VerificationService {
     }
 
     if (failedChecks.length > 0) {
-      return { ok: false, failedChecks };
+      return Promise.resolve({ ok: false, failedChecks });
     }
 
-    return { ok: true };
+    return Promise.resolve({ ok: true });
   }
 }
 
@@ -65,7 +65,7 @@ export class BudgetService {
     }
 
     const runs = await this.ports.store.listAgentRuns();
-    let totalUsd = 0;
+    const totalUsd = 0;
     const perTaskUsd: Record<string, number> = {};
 
     for (const run of runs) {

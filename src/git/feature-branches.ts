@@ -14,6 +14,7 @@ function git(cwd: string, ...args: string[]): string {
 }
 
 export class FeatureBranchManager {
+  // eslint-disable-next-line @typescript-eslint/require-await
   async createFeatureBranch(feature: Feature): Promise<FeatureBranchHandle> {
     const worktreePath = `.gvc0/worktrees/${feature.featureBranch}`;
     const absoluteWorktreePath = join(process.cwd(), worktreePath);

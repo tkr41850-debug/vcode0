@@ -1,4 +1,4 @@
-import type { PromptLibrary, PromptTemplateName } from '@agents/prompts';
+import type { PromptTemplateName } from '@agents/prompts';
 import { describe, expect, it } from 'vitest';
 
 import { createPromptLibrary } from '../../../src/agents/prompts/library.js';

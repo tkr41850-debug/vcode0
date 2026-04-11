@@ -167,8 +167,9 @@ export class SqliteStore implements Store {
 
     const runner = new MigrationRunner(BASELINE_MIGRATIONS);
     this.ready = runner.run({
-      execute: async (sql: string) => {
+      execute: (sql: string): Promise<void> => {
         this.db.exec(sql);
+        return Promise.resolve();
       },
     });
   }

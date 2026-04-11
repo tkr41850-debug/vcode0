@@ -2,11 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { TuiApp } from '../../../src/tui/app.js';
 import { CommandRegistry } from '../../../src/tui/commands/index.js';
-import {
-  AgentMonitorOverlay,
-  DagView,
-  StatusBar,
-} from '../../../src/tui/components/index.js';
+import { DagView, StatusBar } from '../../../src/tui/components/index.js';
 import { TuiViewModelBuilder } from '../../../src/tui/view-model/index.js';
 import {
   createFeatureFixture,

@@ -20,28 +20,26 @@ function listConflictedFiles(cwd: string): string[] {
 }
 
 export class RebaseService {
-  async rebaseFeatureBranch(
-    feature: Feature,
-  ): Promise<FeatureBranchRebaseResult> {
+  rebaseFeatureBranch(feature: Feature): Promise<FeatureBranchRebaseResult> {
     const worktreePath = `.gvc0/worktrees/${feature.featureBranch}`;
     const absoluteWorktreePath = join(process.cwd(), worktreePath);
 
     try {
       git(absoluteWorktreePath, 'rebase', MAIN_BRANCH);
-      return {
-        kind: 'rebased',
+      return Promise.resolve({
+        kind: 'rebased' as const,
         featureId: feature.id,
         branchName: feature.featureBranch,
         worktreePath,
-      };
+      });
     } catch (error) {
       const conflictedFiles = listConflictedFiles(absoluteWorktreePath);
       if (conflictedFiles.length === 0) {
         throw error;
       }
 
-      return {
-        kind: 'repair_required',
+      return Promise.resolve({
+        kind: 'repair_required' as const,
         featureId: feature.id,
         branchName: feature.featureBranch,
         worktreePath,
@@ -55,7 +53,7 @@ export class RebaseService {
           files: conflictedFiles,
           conflictedFiles,
         },
-      };
+      });
     }
   }
 }

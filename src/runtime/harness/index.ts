@@ -44,11 +44,11 @@ export class PiSdkHarness implements SessionHarness {
     this.streamFn = options.streamFn;
   }
 
-  async start(_task: Task, _context: WorkerContext): Promise<SessionHandle> {
+  start(_task: Task, _context: WorkerContext): Promise<SessionHandle> {
     const sessionId = randomUUID();
     const agent = this.createAgent({ sessionId });
 
-    return {
+    return Promise.resolve({
       sessionId,
       abort() {
         agent.abort();
@@ -56,16 +56,16 @@ export class PiSdkHarness implements SessionHarness {
       sendInput(text: string) {
         return agent.prompt(text);
       },
-    };
+    });
   }
 
-  async resume(
+  resume(
     _task: Task,
     run: ResumableTaskExecutionRunRef,
   ): Promise<ResumeSessionResult> {
     const agent = this.createAgent({ sessionId: run.sessionId });
 
-    return {
+    return Promise.resolve({
       kind: 'resumed',
       handle: {
         sessionId: run.sessionId,
@@ -76,7 +76,7 @@ export class PiSdkHarness implements SessionHarness {
           return agent.prompt(text);
         },
       },
-    };
+    });
   }
 
   private createAgent(options: Partial<AgentOptions>): Agent {

@@ -15,14 +15,14 @@ function createMockHarness(
   };
 
   return {
-    async start() {
-      return handle;
+    start() {
+      return Promise.resolve(handle);
     },
-    async resume(_task, run) {
-      return {
+    resume(_task, run) {
+      return Promise.resolve({
         kind: 'resumed' as const,
         handle: { ...handle, sessionId: run.sessionId },
-      };
+      });
     },
     ...overrides,
   };
@@ -79,12 +79,12 @@ describe('LocalWorkerPool', () => {
 
     it('returns not_resumable when harness cannot resume', async () => {
       const harness = createMockHarness({
-        async resume(_task: unknown, run: ResumableTaskExecutionRunRef) {
-          return {
+        resume(_task: unknown, run: ResumableTaskExecutionRunRef) {
+          return Promise.resolve({
             kind: 'not_resumable' as const,
             sessionId: run.sessionId,
             reason: 'session_not_found' as const,
-          };
+          });
         },
       });
       const pool = new LocalWorkerPool(harness, 4);

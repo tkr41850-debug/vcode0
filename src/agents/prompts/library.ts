@@ -14,6 +14,7 @@ function makeTemplate(
 function str(v: unknown): string {
   if (typeof v === 'string') return v;
   if (Array.isArray(v)) return v.map(String).join('\n');
+  // eslint-disable-next-line @typescript-eslint/no-base-to-string
   return String(v ?? '');
 }
 

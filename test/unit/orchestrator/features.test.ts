@@ -13,6 +13,8 @@ import type {
 } from '@orchestrator/ports/index';
 import { describe, expect, it, vi } from 'vitest';
 
+/* eslint-disable @typescript-eslint/require-await, @typescript-eslint/unbound-method */
+
 import { FeatureLifecycleCoordinator } from '../../../src/orchestrator/features/index.js';
 import { createFeatureFixture } from '../../helpers/graph-builders.js';
 
@@ -177,6 +179,7 @@ describe('FeatureLifecycleCoordinator', () => {
       expect(store.updateFeature).toHaveBeenCalledWith(
         'f-1',
         expect.objectContaining({
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
           mergeTrainEnteredAt: expect.any(Number),
         }),
       );
