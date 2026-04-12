@@ -19,6 +19,12 @@ export interface ComposeOptions {
   config?: GvcConfig;
   /** Override the UI port (default: TuiApp backed by the real store). */
   ui?: UiPort;
+  /**
+   * Override the agent port. Defaults to {@link StubAgentPort}; entry points
+   * that have a real model + API key (see `src/app.ts`) inject a
+   * {@link PiAgentPort} here.
+   */
+  agents?: AgentPort;
 }
 
 /**
@@ -40,7 +46,7 @@ export function composeApplication(
     git: new LocalGitPort(),
     runtime: new ProcessWorkerPool(),
     // StubAgentPort implements both PlannerAgent and ReplannerAgent surfaces.
-    agents: new StubAgentPort() as unknown as AgentPort,
+    agents: options.agents ?? (new StubAgentPort() as unknown as AgentPort),
     ui: options.ui ?? new TuiApp({ store }),
     config: options.config ?? DEFAULT_CONFIG,
   };

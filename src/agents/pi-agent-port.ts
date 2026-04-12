@@ -13,6 +13,12 @@ export interface PiAgentPortOptions {
   model: Model<string>;
   prompts: PromptLibrary;
   systemPrompt?: string;
+  /**
+   * Optional API key forwarded to the underlying pi-agent-core Agent via its
+   * `getApiKey` hook. When omitted, the Agent falls back to its default
+   * provider resolution (env vars / OAuth tokens).
+   */
+  apiKey?: string;
 }
 
 const DEFAULT_SYSTEM_PROMPT =
@@ -29,11 +35,15 @@ export class PiAgentPort implements AgentPort {
   private readonly model: Model<string>;
   private readonly prompts: PromptLibrary;
   private readonly systemPrompt: string;
+  private readonly apiKey?: string;
 
   constructor(options: PiAgentPortOptions) {
     this.model = options.model;
     this.prompts = options.prompts;
     this.systemPrompt = options.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
+    if (options.apiKey !== undefined) {
+      this.apiKey = options.apiKey;
+    }
   }
 
   discussFeature(
@@ -111,11 +121,13 @@ export class PiAgentPort implements AgentPort {
   }
 
   private async runAgent(userPrompt: string): Promise<string> {
+    const apiKey = this.apiKey;
     const agent = new Agent({
       initialState: {
         systemPrompt: this.systemPrompt,
         model: this.model,
       },
+      ...(apiKey !== undefined ? { getApiKey: () => apiKey } : {}),
       convertToLlm: (messages) =>
         messages.filter(
           (m) =>
