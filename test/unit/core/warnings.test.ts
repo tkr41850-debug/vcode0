@@ -114,12 +114,12 @@ describe('WarningEvaluator', () => {
       expect(warnings).toHaveLength(0);
     });
 
-    it('emits feature_churn warning when consecutiveFailures is at threshold', () => {
+    it('emits task_failure_loop warning when consecutiveFailures is at threshold', () => {
       const task = createTaskFixture({ consecutiveFailures: 3 });
       const now = 2000;
       const warnings = evaluator.evaluateTask(task, now);
       expect(warnings).toHaveLength(1);
-      expect(warnings[0]?.category).toBe('feature_churn');
+      expect(warnings[0]?.category).toBe('task_failure_loop');
       expect(warnings[0]?.entityId).toBe('t-1');
       expect(warnings[0]?.occurredAt).toBe(2000);
       expect(warnings[0]?.message).toContain('3');

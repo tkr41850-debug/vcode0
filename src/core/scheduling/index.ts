@@ -428,18 +428,15 @@ export class CriticalPathScheduler {
       });
     }
 
-    // Collect ready feature phases (pre-execution and post-execution features
-    // whose deps are satisfied)
+    // Collect dispatchable feature phases (graph filters to pre/post
+    // execution phases whose deps are satisfied).
     for (const feature of graph.readyFeatures()) {
-      const category = featurePhaseCategory(feature.workControl);
-      if (category === 'pre' || category === 'post') {
-        units.push({
-          kind: 'feature_phase' as const,
-          feature,
-          phase: workControlToAgentRunPhase(feature.workControl),
-          readyAt: readySince?.get(feature.id) ?? now,
-        });
-      }
+      units.push({
+        kind: 'feature_phase' as const,
+        feature,
+        phase: workControlToAgentRunPhase(feature.workControl),
+        readyAt: readySince?.get(feature.id) ?? now,
+      });
     }
 
     // Build reservation overlap set for penalty computation

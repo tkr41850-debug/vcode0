@@ -120,6 +120,20 @@ export class GraphValidationError extends Error {
   }
 }
 
+/**
+ * Feature workControl phases that can be dispatched as a feature phase agent
+ * run. Executing-tier phases (`executing`, `feature_ci`, `verifying`,
+ * `executing_repair`) are driven by tasks, not dispatched as feature phases.
+ */
+const DISPATCHABLE_FEATURE_PHASES: ReadonlySet<FeatureWorkControl> = new Set([
+  'discussing',
+  'researching',
+  'planning',
+  'replanning',
+  'awaiting_merge',
+  'summarizing',
+]);
+
 export interface FeatureGraph {
   readonly milestones: Map<MilestoneId, Milestone>;
   readonly features: Map<FeatureId, Feature>;
@@ -445,18 +459,33 @@ export class InMemoryFeatureGraph implements FeatureGraph {
     };
   }
 
+  /**
+   * Features currently dispatchable as a feature phase: in a pre-execution
+   * phase (discussing/researching/planning/replanning) or a post-execution
+   * phase (awaiting_merge/summarizing), with all feature dependencies merged,
+   * not cancelled, and not in a collab state that blocks dispatch (conflict).
+   *
+   * Features in executing phases (executing/feature_ci/verifying/
+   * executing_repair) are driven by their tasks, not dispatched as feature
+   * phases, and are excluded here.
+   */
   readyFeatures(): Feature[] {
     const result: Feature[] = [];
     for (const f of this.features.values()) {
-      // Exclude done features
-      if (f.workControl === 'work_complete' && f.collabControl === 'merged') {
+      if (!DISPATCHABLE_FEATURE_PHASES.has(f.workControl)) {
         continue;
       }
-      // Exclude cancelled features
-      if (f.collabControl === 'cancelled') {
+      // Exclude collab states where merge-train or conflict handling owns
+      // the feature and the normal scheduler must not dispatch it.
+      if (
+        f.collabControl === 'cancelled' ||
+        f.collabControl === 'merged' ||
+        f.collabControl === 'conflict' ||
+        f.collabControl === 'merge_queued' ||
+        f.collabControl === 'integrating'
+      ) {
         continue;
       }
-      // Check all deps are done
       let allDepsDone = true;
       for (const depId of f.dependsOn) {
         const dep = this.features.get(depId);
@@ -476,19 +505,25 @@ export class InMemoryFeatureGraph implements FeatureGraph {
     return result;
   }
 
+  /**
+   * Tasks currently dispatchable: status === 'ready', collab state does not
+   * block dispatch (suspended/conflict), owning feature is not cancelled, and
+   * all task dependencies are `done`. Pending tasks are not returned — they
+   * must be promoted to `ready` before dispatch.
+   */
   readyTasks(): Task[] {
     const result: Task[] = [];
     for (const t of this.tasks.values()) {
-      // Only pending or ready tasks
-      if (t.status !== 'pending' && t.status !== 'ready') {
+      if (t.status !== 'ready') {
         continue;
       }
-      // Owning feature must not be cancelled
+      if (t.collabControl === 'suspended' || t.collabControl === 'conflict') {
+        continue;
+      }
       const feature = this.features.get(t.featureId);
       if (!feature || feature.collabControl === 'cancelled') {
         continue;
       }
-      // Check all deps are done
       let allDepsDone = true;
       for (const depId of t.dependsOn) {
         const dep = this.tasks.get(depId);

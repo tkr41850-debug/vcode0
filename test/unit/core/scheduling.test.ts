@@ -29,7 +29,21 @@ const noopRunReader: ExecutionRunReader = {
   },
 };
 
+/**
+ * Promote every `pending` task to `ready`. Scheduling tests don't model the
+ * planner's pending→ready promotion, so we apply it before dispatch so the
+ * scheduler sees the same set the tests conceptually set up.
+ */
+function promotePendingTasks(g: InMemoryFeatureGraph): void {
+  for (const [id, t] of g.tasks) {
+    if (t.status === 'pending') {
+      updateTask(g, id, { status: 'ready' });
+    }
+  }
+}
+
 function runScheduler(g: InMemoryFeatureGraph): SchedulableUnit[] {
+  promotePendingTasks(g);
   const combined = buildCombinedGraph(g);
   const metrics = computeGraphMetrics(combined);
   const scheduler = new CriticalPathScheduler();
@@ -733,6 +747,7 @@ describe('CriticalPathScheduler.prioritizeReadyWork', () => {
       ['t-z', 100],
       ['t-a', 200],
     ]);
+    promotePendingTasks(g);
     const combined = buildCombinedGraph(g);
     const metrics = computeGraphMetrics(combined);
     const scheduler = new CriticalPathScheduler();

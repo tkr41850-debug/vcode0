@@ -1,10 +1,16 @@
 import type { BudgetState, Feature, Task } from '@core/types';
 
 export type WarningCategory =
+  /** Global budget usage crosses its configured warn threshold. */
   | 'budget_pressure'
+  /** A verification check (task, feature, or merge-train) exceeds its duration threshold. */
   | 'slow_verification'
+  /** A secondary feature has been blocked behind a primary feature for too long. */
   | 'long_feature_blocking'
-  | 'feature_churn';
+  /** A feature repeatedly re-enters the merge train or cycles through repair. */
+  | 'feature_churn'
+  /** A single task has failed repeatedly (Stage 1: stuck-task / repeated failure loop). */
+  | 'task_failure_loop';
 
 export interface WarningSignal {
   category: WarningCategory;
@@ -72,7 +78,7 @@ export class WarningEvaluator {
 
     if (consecutiveFailures >= this.thresholds.taskFailureThreshold) {
       warnings.push({
-        category: 'feature_churn',
+        category: 'task_failure_loop',
         entityId: task.id,
         message: `Task ${task.id} has ${consecutiveFailures} consecutive failures`,
         occurredAt: now ?? Date.now(),

@@ -655,24 +655,61 @@ describe('InMemoryFeatureGraph', () => {
     expect(g.readyFeatures()).toHaveLength(0);
   });
 
+  it('readyFeatures excludes features in executing phases (task-driven)', () => {
+    const g = createGraphWithFeature();
+    for (const wc of [
+      'executing',
+      'feature_ci',
+      'verifying',
+      'executing_repair',
+    ] as const) {
+      updateFeature(g, 'f-1', { workControl: wc });
+      expect(g.readyFeatures()).toHaveLength(0);
+    }
+  });
+
+  it('readyFeatures includes features in post-execution phases', () => {
+    const g = createGraphWithFeature();
+    for (const wc of ['awaiting_merge', 'summarizing'] as const) {
+      updateFeature(g, 'f-1', { workControl: wc });
+      expect(g.readyFeatures()).toHaveLength(1);
+    }
+  });
+
+  it('readyFeatures excludes features in conflict collab state', () => {
+    const g = createGraphWithFeature();
+    updateFeature(g, 'f-1', { collabControl: 'conflict' });
+
+    expect(g.readyFeatures()).toHaveLength(0);
+  });
+
   // ── readyTasks ────────────────────────────────────────────────────
 
-  it('readyTasks returns tasks with no deps in pending status', () => {
+  it('readyTasks returns tasks with no deps in ready status', () => {
     const g = createGraphWithTask();
+    updateTask(g, 't-1', { status: 'ready' });
 
     const ready = g.readyTasks();
     expect(ready).toHaveLength(1);
     expect(ready[0]?.id).toBe('t-1');
   });
 
+  it('readyTasks excludes pending tasks (must be promoted to ready first)', () => {
+    const g = createGraphWithTask();
+    // Default status is 'pending' — not dispatchable.
+    expect(g.readyTasks()).toHaveLength(0);
+  });
+
   it('readyTasks excludes tasks with unsatisfied deps', () => {
     const g = createGraphWithTask();
+    updateTask(g, 't-1', { status: 'ready' });
     g.createTask({
       id: 't-2',
       featureId: 'f-1',
       description: 'T2',
       dependsOn: ['t-1'],
     });
+    updateTask(g, 't-2', { status: 'ready' });
 
     const ready = g.readyTasks();
     expect(ready).toHaveLength(1);
@@ -687,6 +724,7 @@ describe('InMemoryFeatureGraph', () => {
       description: 'T2',
       dependsOn: ['t-1'],
     });
+    updateTask(g, 't-2', { status: 'ready' });
 
     // Mark t-1 as done
     updateTask(g, 't-1', { status: 'done' });
@@ -698,6 +736,7 @@ describe('InMemoryFeatureGraph', () => {
 
   it('readyTasks excludes tasks on cancelled feature', () => {
     const g = createGraphWithTask();
+    updateTask(g, 't-1', { status: 'ready' });
     updateFeature(g, 'f-1', { collabControl: 'cancelled' });
 
     expect(g.readyTasks()).toHaveLength(0);
@@ -710,10 +749,25 @@ describe('InMemoryFeatureGraph', () => {
 
     updateTask(g, 't-1', { status: 'running' });
     updateTask(g, 't-2', { status: 'done' });
+    updateTask(g, 't-3', { status: 'ready' });
 
     const ready = g.readyTasks();
     expect(ready).toHaveLength(1);
     expect(ready[0]?.id).toBe('t-3');
+  });
+
+  it('readyTasks excludes suspended tasks', () => {
+    const g = createGraphWithTask();
+    updateTask(g, 't-1', { status: 'ready', collabControl: 'suspended' });
+
+    expect(g.readyTasks()).toHaveLength(0);
+  });
+
+  it('readyTasks excludes tasks in conflict collab state', () => {
+    const g = createGraphWithTask();
+    updateTask(g, 't-1', { status: 'ready', collabControl: 'conflict' });
+
+    expect(g.readyTasks()).toHaveLength(0);
   });
 
   // ── cancelFeature ─────────────────────────────────────────────────

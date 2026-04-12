@@ -19,10 +19,10 @@ Capture the contract of `FeatureGraph` as the authoritative mutable DAG surface 
 - And the graph remains in its previously valid state
 - And no partial dependency, task, or feature edits leak through
 
-### Readiness views are derived from the current DAG
+### Readiness views return dispatchable work
 - Given some features or tasks still have unresolved dependencies while others are clear to run
 - When `readyFeatures()` or `readyTasks()` is evaluated
-- Then each method returns only the units currently unblocked by the graph
+- Then each method returns only units currently dispatchable: graph dependencies satisfied, the unit is in a dispatchable state (for features: a pre/post-execution phase not owned by the merge train or conflict handling; for tasks: `status === 'ready'` and not suspended/conflicted), and the owning feature is not cancelled
 - And those views update after graph mutations rather than remaining stale snapshots
 
 ### Graph metrics are derived by the scheduling module

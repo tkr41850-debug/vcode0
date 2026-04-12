@@ -49,8 +49,8 @@ interface FeatureGraph {
   snapshot(): GraphSnapshot;
 
   // Core queries
-  readyFeatures(): Feature[];           // unblocked features (deps done, not cancelled/complete)
-  readyTasks(): Task[];                 // unblocked tasks (deps done, feature not cancelled)
+  readyFeatures(): Feature[];           // dispatchable feature phases (pre/post execution, deps merged, not owned by merge-train/conflict)
+  readyTasks(): Task[];                 // dispatchable tasks (status=ready, deps done, not suspended/conflict, feature not cancelled)
   queuedMilestones(): Milestone[];      // ordered user steering queue
   isComplete(): boolean;                // all features completed and merged
   // Critical path lives in core/scheduling (buildCombinedGraph + computeGraphMetrics)
