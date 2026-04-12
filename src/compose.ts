@@ -1,5 +1,49 @@
-import type { GvcApplication } from '@app/index';
+import type { AgentPort } from '@agents';
+import { GvcApplication } from '@app/index';
+import {
+  StubAgentPort,
+  StubGitPort,
+  StubRuntimePort,
+  StubUiPort,
+} from '@app/stub-ports';
+import type { GvcConfig } from '@core/types/index';
+import type { OrchestratorPorts } from '@orchestrator/ports/index';
+import { SqliteStore } from '@persistence/sqlite';
 
-export function composeApplication(): GvcApplication {
-  throw new Error('Not implemented.');
+const DEFAULT_CONFIG: GvcConfig = {
+  tokenProfile: 'balanced',
+};
+
+export interface ComposeOptions {
+  /** Override the SQLite database path (default: .gvc0/state.db in cwd). */
+  dbPath?: string;
+  /** Override the orchestrator config (default: balanced token profile). */
+  config?: GvcConfig;
+}
+
+/**
+ * Build a fully-wired {@link GvcApplication}. During the bootstrap phases
+ * several ports are deliberately stubbed and will throw {@link
+ * import('@app/errors').NotYetWiredError} when their methods are touched. Each
+ * subsequent phase replaces one stub with a real implementation.
+ */
+export function composeApplication(
+  options: ComposeOptions = {},
+): GvcApplication {
+  const store =
+    options.dbPath !== undefined
+      ? new SqliteStore(options.dbPath)
+      : new SqliteStore();
+
+  const ports: OrchestratorPorts = {
+    store,
+    git: new StubGitPort(),
+    runtime: new StubRuntimePort(),
+    // StubAgentPort implements both PlannerAgent and ReplannerAgent surfaces.
+    agents: new StubAgentPort() as unknown as AgentPort,
+    ui: new StubUiPort(),
+    config: options.config ?? DEFAULT_CONFIG,
+  };
+
+  return new GvcApplication(ports);
 }
