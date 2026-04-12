@@ -1,7 +1,6 @@
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { NotYetWiredError } from '@app/errors';
 import { GvcApplication } from '@app/index';
 import { StubUiPort } from '@app/stub-ports';
 import { composeApplication } from '@root/compose';
@@ -60,24 +59,13 @@ describe('composeApplication() bootstrap', () => {
     expect(ports.git.constructor.name).toBe('LocalGitPort');
   });
 
-  it('stub runtime port throws NotYetWiredError on dispatch but stops cleanly', async () => {
+  it('wires ProcessWorkerPool as the runtime port', () => {
     const app = composeApplication({ ui: new StubUiPort() });
     const ports = (
       app as unknown as {
-        ports: {
-          runtime: {
-            dispatchTask: (...args: unknown[]) => Promise<unknown>;
-            stopAll: () => Promise<void>;
-          };
-        };
+        ports: { runtime: { constructor: { name: string } } };
       }
     ).ports;
-    await expect(
-      ports.runtime.dispatchTask({} as never, {
-        mode: 'start',
-        agentRunId: 'r-1',
-      }),
-    ).rejects.toBeInstanceOf(NotYetWiredError);
-    await expect(ports.runtime.stopAll()).resolves.toBeUndefined();
+    expect(ports.runtime.constructor.name).toBe('ProcessWorkerPool');
   });
 });
