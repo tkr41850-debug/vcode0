@@ -16,7 +16,9 @@ import type {
   TaskAgentRun,
   VerificationSummary,
 } from '@core/types/index';
+import { FeatureLifecycleCoordinator } from '@orchestrator/features/index';
 import type { OrchestratorPorts } from '@orchestrator/ports/index';
+import { SummaryCoordinator } from '@orchestrator/summaries/index';
 import type {
   DispatchTaskResult,
   TaskRuntimeDispatch,
@@ -48,12 +50,17 @@ export type SchedulerEvent =
 export class SchedulerLoop {
   private readonly events: SchedulerEvent[] = [];
   private readonly readySince = new Map<string, number>();
+  private readonly features: FeatureLifecycleCoordinator;
+  private readonly summaries: SummaryCoordinator;
   private intervalId: ReturnType<typeof setInterval> | undefined;
 
   constructor(
     private readonly graph: FeatureGraph,
     private readonly ports: OrchestratorPorts,
-  ) {}
+  ) {
+    this.features = new FeatureLifecycleCoordinator(graph);
+    this.summaries = new SummaryCoordinator(graph, ports.config.tokenProfile);
+  }
 
   enqueue(event: SchedulerEvent): void {
     this.events.push(event);
@@ -89,64 +96,105 @@ export class SchedulerLoop {
       }
     }
 
+    this.summaries.reconcilePostMerge();
+    this.features.beginNextIntegration();
     await this.dispatchReadyWork(now);
     this.ports.ui.refresh();
   }
 
   protected async handleEvent(event: SchedulerEvent): Promise<void> {
-    if (event.type !== 'worker_message') {
+    if (event.type === 'worker_message') {
+      const message = event.message;
+      const run = this.ports.store.getAgentRun(message.agentRunId);
+      if (run?.scopeType !== 'task') {
+        return;
+      }
+
+      if (message.type === 'result') {
+        this.graph.transitionTask(run.scopeId, {
+          status: 'done',
+          result: message.result,
+        });
+        this.ports.store.updateAgentRun(run.id, {
+          runStatus: 'completed',
+          owner: 'system',
+          ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
+        });
+        return;
+      }
+
+      if (message.type === 'error') {
+        this.graph.transitionTask(run.scopeId, {
+          status: 'ready',
+        });
+        this.ports.store.updateAgentRun(run.id, {
+          runStatus: 'retry_await',
+          owner: 'system',
+          retryAt: Date.now() + 1000,
+          ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
+        });
+        return;
+      }
+
+      if (message.type === 'request_help') {
+        this.ports.store.updateAgentRun(run.id, {
+          runStatus: 'await_response',
+          owner: 'manual',
+          payloadJson: JSON.stringify({ query: message.query }),
+          ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
+        });
+        return;
+      }
+
+      if (message.type === 'request_approval') {
+        this.ports.store.updateAgentRun(run.id, {
+          runStatus: 'await_approval',
+          owner: 'manual',
+          payloadJson: JSON.stringify(message.payload),
+          ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
+        });
+      }
       return;
     }
 
-    const message = event.message;
-    const run = this.ports.store.getAgentRun(message.agentRunId);
-    if (run?.scopeType !== 'task') {
+    if (event.type === 'feature_phase_complete') {
+      const run = this.ports.store.getAgentRun(
+        `run-feature:${event.featureId}:${event.phase}`,
+      );
+      if (run !== undefined) {
+        this.ports.store.updateAgentRun(run.id, {
+          runStatus: 'completed',
+          owner: 'system',
+          ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
+        });
+      }
+
+      if (event.phase === 'summarize') {
+        this.summaries.completeSummary(event.featureId, event.summary);
+        return;
+      }
+
+      this.features.completePhase(
+        event.featureId,
+        event.phase,
+        event.verification,
+      );
       return;
     }
 
-    if (message.type === 'result') {
-      this.graph.transitionTask(run.scopeId, {
-        status: 'done',
-        result: message.result,
-      });
-      this.ports.store.updateAgentRun(run.id, {
-        runStatus: 'completed',
-        owner: 'system',
-        ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
-      });
+    if (event.type === 'feature_phase_error') {
+      const run = this.ports.store.getAgentRun(
+        `run-feature:${event.featureId}:${event.phase}`,
+      );
+      if (run !== undefined) {
+        this.ports.store.updateAgentRun(run.id, {
+          runStatus: 'retry_await',
+          owner: 'system',
+          retryAt: Date.now() + 1000,
+          ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
+        });
+      }
       return;
-    }
-
-    if (message.type === 'error') {
-      this.graph.transitionTask(run.scopeId, {
-        status: 'ready',
-      });
-      this.ports.store.updateAgentRun(run.id, {
-        runStatus: 'retry_await',
-        owner: 'system',
-        retryAt: Date.now() + 1000,
-        ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
-      });
-      return;
-    }
-
-    if (message.type === 'request_help') {
-      this.ports.store.updateAgentRun(run.id, {
-        runStatus: 'await_response',
-        owner: 'manual',
-        payloadJson: JSON.stringify({ query: message.query }),
-        ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
-      });
-      return;
-    }
-
-    if (message.type === 'request_approval') {
-      this.ports.store.updateAgentRun(run.id, {
-        runStatus: 'await_approval',
-        owner: 'manual',
-        payloadJson: JSON.stringify(message.payload),
-        ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
-      });
     }
   }
 

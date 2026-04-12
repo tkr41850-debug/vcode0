@@ -68,6 +68,7 @@ export interface SplitSpec {
 export interface FeatureEditPatch {
   name?: string;
   description?: string;
+  summary?: string;
 }
 
 /** Merge-train metadata update — undefined values clear the field. */
@@ -461,9 +462,9 @@ export class InMemoryFeatureGraph implements FeatureGraph {
 
   /**
    * Features currently dispatchable as a feature phase: in a pre-execution
-   * phase (discussing/researching/planning/replanning) or a post-execution
-   * phase (awaiting_merge/summarizing), with all feature dependencies merged,
-   * not cancelled, and not in a collab state that blocks dispatch (conflict).
+   * phase (discussing/researching/planning/replanning) or the post-merge
+   * summarizing phase, with all feature dependencies merged, not cancelled,
+   * and not in a collab state that blocks dispatch.
    *
    * Features in executing phases (executing/feature_ci/verifying/
    * executing_repair) are driven by their tasks, not dispatched as feature
@@ -479,10 +480,10 @@ export class InMemoryFeatureGraph implements FeatureGraph {
       // the feature and the normal scheduler must not dispatch it.
       if (
         f.collabControl === 'cancelled' ||
-        f.collabControl === 'merged' ||
         f.collabControl === 'conflict' ||
         f.collabControl === 'merge_queued' ||
-        f.collabControl === 'integrating'
+        f.collabControl === 'integrating' ||
+        (f.collabControl === 'merged' && f.workControl !== 'summarizing')
       ) {
         continue;
       }
@@ -1048,6 +1049,9 @@ export class InMemoryFeatureGraph implements FeatureGraph {
     }
     if (patch.description !== undefined) {
       updated.description = patch.description;
+    }
+    if (patch.summary !== undefined) {
+      updated.summary = patch.summary;
     }
     this.features.set(featureId, updated);
     return updated;

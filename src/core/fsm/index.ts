@@ -114,6 +114,20 @@ export function validateFeatureWorkTransition(
     return { valid: true };
   }
 
+  if (
+    current === 'awaiting_merge' &&
+    proposed === 'work_complete' &&
+    status === 'done'
+  ) {
+    if (collabControl !== 'merged') {
+      return {
+        valid: false,
+        reason: 'awaiting_merge → work_complete requires collabControl=merged',
+      };
+    }
+    return { valid: true };
+  }
+
   // Failure → repair (caller checks attempt count)
   if (
     proposed === 'executing_repair' &&

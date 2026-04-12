@@ -1,5 +1,6 @@
 import type { PlannerAgent, ReplannerAgent } from '@agents/index';
 import { InMemoryFeatureGraph } from '@core/graph/index';
+import { deriveSummaryAvailability } from '@core/state';
 import type {
   AgentRun,
   AgentRunPhase,
@@ -28,6 +29,10 @@ import type { RuntimePort } from '@runtime/contracts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 class ExposedSchedulerLoop extends SchedulerLoop {
+  async tickForTest(now: number): Promise<void> {
+    return super.tick(now);
+  }
+
   async dispatchReadyWorkForTest(now: number): Promise<void> {
     return super.dispatchReadyWork(now);
   }
@@ -201,13 +206,17 @@ function createUiMock(order: string[]): UiPort & {
   };
 }
 
-function createConfig(): GvcConfig {
+function createConfig(overrides: Partial<GvcConfig> = {}): GvcConfig {
   return {
     tokenProfile: 'balanced',
+    ...overrides,
   };
 }
 
-function createPorts(order: string[]): {
+function createPorts(
+  order: string[],
+  configOverrides: Partial<GvcConfig> = {},
+): {
   ports: OrchestratorPorts;
   runtime: RuntimePort & { stopAll: ReturnType<typeof vi.fn> };
   ui: UiPort & { refresh: ReturnType<typeof vi.fn> };
@@ -221,7 +230,7 @@ function createPorts(order: string[]): {
       runtime,
       agents: createAgentMock(),
       ui,
-      config: createConfig(),
+      config: createConfig(configOverrides),
     },
     runtime,
     ui,
@@ -1169,6 +1178,47 @@ describe('SchedulerLoop', () => {
     );
   });
 
+  it('dispatches summarize feature phases after merge in non-budget mode', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order, { tokenProfile: 'balanced' });
+    const summarizeFeature = vi.spyOn(ports.agents, 'summarizeFeature');
+    const graph = new InMemoryFeatureGraph({
+      milestones: [
+        {
+          id: 'm-1',
+          name: 'Milestone 1',
+          description: 'desc',
+          status: 'pending',
+          order: 0,
+        },
+      ],
+      features: [
+        {
+          id: 'f-1',
+          milestoneId: 'm-1',
+          orderInMilestone: 0,
+          name: 'Feature 1',
+          description: 'desc',
+          dependsOn: [],
+          status: 'done',
+          workControl: 'awaiting_merge',
+          collabControl: 'merged',
+          featureBranch: 'feat-feature-1-1',
+        },
+      ],
+      tasks: [],
+    });
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+
+    await loop.tickForTest(100);
+
+    expect(summarizeFeature).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'f-1' }),
+      { agentRunId: 'run-feature:f-1:summarize' },
+    );
+  });
+
   it('enqueues feature_phase_complete after successful feature-phase work', async () => {
     const order: string[] = [];
     const { ports } = createPorts(order);
@@ -1298,5 +1348,499 @@ describe('SchedulerLoop', () => {
     await loop.dispatchReadyWorkForTest(100);
 
     expect(planFeature).not.toHaveBeenCalled();
+  });
+
+  it('advances planning completion into executing and completes the run', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
+    const graph = new InMemoryFeatureGraph({
+      milestones: [
+        {
+          id: 'm-1',
+          name: 'Milestone 1',
+          description: 'desc',
+          status: 'pending',
+          order: 0,
+        },
+      ],
+      features: [
+        {
+          id: 'f-1',
+          milestoneId: 'm-1',
+          orderInMilestone: 0,
+          name: 'Feature 1',
+          description: 'desc',
+          dependsOn: [],
+          status: 'in_progress',
+          workControl: 'planning',
+          collabControl: 'none',
+          featureBranch: 'feat-feature-1-1',
+        },
+      ],
+      tasks: [],
+    });
+    ports.store.createAgentRun(makeFeaturePhaseRun('plan'));
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+
+    await loop.handleEventForTest({
+      type: 'feature_phase_complete',
+      featureId: 'f-1',
+      phase: 'plan',
+      summary: 'planned',
+    });
+
+    expect(graph.features.get('f-1')).toEqual(
+      expect.objectContaining({
+        workControl: 'executing',
+        status: 'pending',
+        collabControl: 'none',
+      }),
+    );
+    expect(updateAgentRun).toHaveBeenCalledWith('run-feature:f-1:plan', {
+      runStatus: 'completed',
+      owner: 'system',
+    });
+  });
+
+  it('moves verify success to awaiting_merge and merge_queued', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
+    const graph = new InMemoryFeatureGraph({
+      milestones: [
+        {
+          id: 'm-1',
+          name: 'Milestone 1',
+          description: 'desc',
+          status: 'pending',
+          order: 0,
+        },
+      ],
+      features: [
+        {
+          id: 'f-1',
+          milestoneId: 'm-1',
+          orderInMilestone: 0,
+          name: 'Feature 1',
+          description: 'desc',
+          dependsOn: [],
+          status: 'in_progress',
+          workControl: 'verifying',
+          collabControl: 'branch_open',
+          featureBranch: 'feat-feature-1-1',
+        },
+      ],
+      tasks: [],
+    });
+    ports.store.createAgentRun(makeFeaturePhaseRun('verify'));
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+
+    await loop.handleEventForTest({
+      type: 'feature_phase_complete',
+      featureId: 'f-1',
+      phase: 'verify',
+      summary: 'verified',
+      verification: { ok: true, summary: 'verified' },
+    });
+
+    expect(graph.features.get('f-1')).toEqual(
+      expect.objectContaining({
+        workControl: 'awaiting_merge',
+        status: 'pending',
+        collabControl: 'merge_queued',
+        mergeTrainEntrySeq: 1,
+      }),
+    );
+    expect(updateAgentRun).toHaveBeenCalledWith('run-feature:f-1:verify', {
+      runStatus: 'completed',
+      owner: 'system',
+    });
+  });
+
+  it('moves verify failure into executing_repair', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const graph = new InMemoryFeatureGraph({
+      milestones: [
+        {
+          id: 'm-1',
+          name: 'Milestone 1',
+          description: 'desc',
+          status: 'pending',
+          order: 0,
+        },
+      ],
+      features: [
+        {
+          id: 'f-1',
+          milestoneId: 'm-1',
+          orderInMilestone: 0,
+          name: 'Feature 1',
+          description: 'desc',
+          dependsOn: [],
+          status: 'in_progress',
+          workControl: 'verifying',
+          collabControl: 'branch_open',
+          featureBranch: 'feat-feature-1-1',
+        },
+      ],
+      tasks: [],
+    });
+    ports.store.createAgentRun(makeFeaturePhaseRun('verify'));
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+
+    await loop.handleEventForTest({
+      type: 'feature_phase_complete',
+      featureId: 'f-1',
+      phase: 'verify',
+      summary: 'failed checks',
+      verification: { ok: false, summary: 'failed checks' },
+    });
+
+    expect(graph.features.get('f-1')).toEqual(
+      expect.objectContaining({
+        workControl: 'executing_repair',
+        status: 'pending',
+        collabControl: 'branch_open',
+      }),
+    );
+  });
+
+  it('rejects verify completion when verification payload is missing', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const graph = new InMemoryFeatureGraph({
+      milestones: [
+        {
+          id: 'm-1',
+          name: 'Milestone 1',
+          description: 'desc',
+          status: 'pending',
+          order: 0,
+        },
+      ],
+      features: [
+        {
+          id: 'f-1',
+          milestoneId: 'm-1',
+          orderInMilestone: 0,
+          name: 'Feature 1',
+          description: 'desc',
+          dependsOn: [],
+          status: 'in_progress',
+          workControl: 'verifying',
+          collabControl: 'branch_open',
+          featureBranch: 'feat-feature-1-1',
+        },
+      ],
+      tasks: [],
+    });
+    ports.store.createAgentRun(makeFeaturePhaseRun('verify'));
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+
+    await expect(
+      loop.handleEventForTest({
+        type: 'feature_phase_complete',
+        featureId: 'f-1',
+        phase: 'verify',
+        summary: 'verified',
+      }),
+    ).rejects.toThrow('verify completion requires verification summary');
+  });
+
+  it('moves merged features into summarizing on the next tick in non-budget mode', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order, { tokenProfile: 'balanced' });
+    vi.spyOn(ports.runtime, 'idleWorkerCount').mockReturnValue(0);
+    const graph = new InMemoryFeatureGraph({
+      milestones: [
+        {
+          id: 'm-1',
+          name: 'Milestone 1',
+          description: 'desc',
+          status: 'pending',
+          order: 0,
+        },
+      ],
+      features: [
+        {
+          id: 'f-1',
+          milestoneId: 'm-1',
+          orderInMilestone: 0,
+          name: 'Feature 1',
+          description: 'desc',
+          dependsOn: [],
+          status: 'done',
+          workControl: 'awaiting_merge',
+          collabControl: 'merged',
+          featureBranch: 'feat-feature-1-1',
+        },
+      ],
+      tasks: [],
+    });
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+
+    await loop.tickForTest(100);
+
+    expect(graph.features.get('f-1')).toEqual(
+      expect.objectContaining({
+        workControl: 'summarizing',
+        status: 'pending',
+        collabControl: 'merged',
+      }),
+    );
+    const feature = graph.features.get('f-1');
+    expect(feature).toBeDefined();
+    expect(deriveSummaryAvailability(feature as Feature)).toBe('waiting');
+  });
+
+  it('skips summarizing in budget mode after merge', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order, { tokenProfile: 'budget' });
+    const graph = new InMemoryFeatureGraph({
+      milestones: [
+        {
+          id: 'm-1',
+          name: 'Milestone 1',
+          description: 'desc',
+          status: 'pending',
+          order: 0,
+        },
+      ],
+      features: [
+        {
+          id: 'f-1',
+          milestoneId: 'm-1',
+          orderInMilestone: 0,
+          name: 'Feature 1',
+          description: 'desc',
+          dependsOn: [],
+          status: 'done',
+          workControl: 'awaiting_merge',
+          collabControl: 'merged',
+          featureBranch: 'feat-feature-1-1',
+        },
+      ],
+      tasks: [],
+    });
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+
+    await loop.tickForTest(100);
+
+    expect(graph.features.get('f-1')).toEqual(
+      expect.objectContaining({
+        workControl: 'work_complete',
+        status: 'done',
+        collabControl: 'merged',
+      }),
+    );
+    const feature = graph.features.get('f-1');
+    expect(feature).toBeDefined();
+    expect(feature?.summary).toBeUndefined();
+    expect(deriveSummaryAvailability(feature as Feature)).toBe('skipped');
+  });
+
+  it('persists summary text and reaches work_complete after summarize completion', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
+    const graph = new InMemoryFeatureGraph({
+      milestones: [
+        {
+          id: 'm-1',
+          name: 'Milestone 1',
+          description: 'desc',
+          status: 'pending',
+          order: 0,
+        },
+      ],
+      features: [
+        {
+          id: 'f-1',
+          milestoneId: 'm-1',
+          orderInMilestone: 0,
+          name: 'Feature 1',
+          description: 'desc',
+          dependsOn: [],
+          status: 'in_progress',
+          workControl: 'summarizing',
+          collabControl: 'merged',
+          featureBranch: 'feat-feature-1-1',
+        },
+      ],
+      tasks: [],
+    });
+    ports.store.createAgentRun(makeFeaturePhaseRun('summarize'));
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+
+    await loop.handleEventForTest({
+      type: 'feature_phase_complete',
+      featureId: 'f-1',
+      phase: 'summarize',
+      summary: 'final summary',
+    });
+
+    expect(graph.features.get('f-1')).toEqual(
+      expect.objectContaining({
+        workControl: 'work_complete',
+        status: 'done',
+        collabControl: 'merged',
+        summary: 'final summary',
+      }),
+    );
+    const feature = graph.features.get('f-1');
+    expect(feature).toBeDefined();
+    expect(deriveSummaryAvailability(feature as Feature)).toBe('available');
+    expect(updateAgentRun).toHaveBeenCalledWith('run-feature:f-1:summarize', {
+      runStatus: 'completed',
+      owner: 'system',
+    });
+  });
+
+  it('rejects empty summarize completion because normal summarize must write text', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const graph = new InMemoryFeatureGraph({
+      milestones: [
+        {
+          id: 'm-1',
+          name: 'Milestone 1',
+          description: 'desc',
+          status: 'pending',
+          order: 0,
+        },
+      ],
+      features: [
+        {
+          id: 'f-1',
+          milestoneId: 'm-1',
+          orderInMilestone: 0,
+          name: 'Feature 1',
+          description: 'desc',
+          dependsOn: [],
+          status: 'in_progress',
+          workControl: 'summarizing',
+          collabControl: 'merged',
+          featureBranch: 'feat-feature-1-1',
+        },
+      ],
+      tasks: [],
+    });
+    ports.store.createAgentRun(makeFeaturePhaseRun('summarize'));
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+
+    await expect(
+      loop.handleEventForTest({
+        type: 'feature_phase_complete',
+        featureId: 'f-1',
+        phase: 'summarize',
+        summary: '',
+      }),
+    ).rejects.toThrow('summarize completion requires summary text');
+  });
+
+  it('begins integrating the next merge-queued feature on tick', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const graph = new InMemoryFeatureGraph({
+      milestones: [
+        {
+          id: 'm-1',
+          name: 'Milestone 1',
+          description: 'desc',
+          status: 'pending',
+          order: 0,
+        },
+      ],
+      features: [
+        {
+          id: 'f-1',
+          milestoneId: 'm-1',
+          orderInMilestone: 0,
+          name: 'Feature 1',
+          description: 'desc',
+          dependsOn: [],
+          status: 'pending',
+          workControl: 'awaiting_merge',
+          collabControl: 'merge_queued',
+          featureBranch: 'feat-feature-1-1',
+          mergeTrainEntrySeq: 1,
+          mergeTrainReentryCount: 0,
+        },
+      ],
+      tasks: [],
+    });
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+
+    await loop.tickForTest(100);
+
+    expect(graph.features.get('f-1')).toEqual(
+      expect.objectContaining({
+        collabControl: 'integrating',
+        status: 'in_progress',
+        workControl: 'awaiting_merge',
+      }),
+    );
+  });
+
+  it('puts feature-phase errors into retry_await on the shared run plane', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
+    const graph = new InMemoryFeatureGraph({
+      milestones: [
+        {
+          id: 'm-1',
+          name: 'Milestone 1',
+          description: 'desc',
+          status: 'pending',
+          order: 0,
+        },
+      ],
+      features: [
+        {
+          id: 'f-1',
+          milestoneId: 'm-1',
+          orderInMilestone: 0,
+          name: 'Feature 1',
+          description: 'desc',
+          dependsOn: [],
+          status: 'in_progress',
+          workControl: 'planning',
+          collabControl: 'none',
+          featureBranch: 'feat-feature-1-1',
+        },
+      ],
+      tasks: [],
+    });
+    ports.store.createAgentRun(makeFeaturePhaseRun('plan'));
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+
+    await loop.handleEventForTest({
+      type: 'feature_phase_error',
+      featureId: 'f-1',
+      phase: 'plan',
+      error: 'boom',
+    });
+
+    expect(updateAgentRun).toHaveBeenCalledWith(
+      'run-feature:f-1:plan',
+      expect.objectContaining({
+        runStatus: 'retry_await',
+        owner: 'system',
+        retryAt: expect.any(Number),
+      }),
+    );
   });
 });
