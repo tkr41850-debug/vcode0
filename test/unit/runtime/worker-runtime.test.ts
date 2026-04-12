@@ -45,14 +45,16 @@ function createMockHarness(
   const h = handle ?? createMockHandle();
   const harness = {
     lastStartContext: undefined as WorkerContext | undefined,
-    start: vi.fn(async (_task: Task, context: WorkerContext) => {
+    start: vi.fn((_task: Task, context: WorkerContext) => {
       harness.lastStartContext = context;
-      return h;
+      return Promise.resolve(h);
     }),
-    resume: vi.fn(async () => ({
-      kind: 'resumed' as const,
-      handle: h,
-    })),
+    resume: vi.fn(() =>
+      Promise.resolve({
+        kind: 'resumed' as const,
+        handle: h,
+      }),
+    ),
   };
   return harness;
 }
@@ -152,11 +154,13 @@ describe('LocalWorkerPool', () => {
 
     it('returns not_resumable when harness cannot resume', async () => {
       const harness = createMockHarness();
-      harness.resume = vi.fn(async () => ({
-        kind: 'not_resumable' as const,
-        sessionId: 'sess-gone',
-        reason: 'session_not_found' as const,
-      }));
+      harness.resume = vi.fn(() =>
+        Promise.resolve({
+          kind: 'not_resumable' as const,
+          sessionId: 'sess-gone',
+          reason: 'session_not_found' as const,
+        }),
+      );
       const pool = new LocalWorkerPool(harness, 4);
 
       const result = await pool.dispatchTask(makeTask(), {
@@ -273,6 +277,7 @@ describe('LocalWorkerPool', () => {
 
       const result = await pool.abortTask('t-task-1');
       expect(result.kind).toBe('delivered');
+      // eslint-disable-next-line @typescript-eslint/unbound-method -- reading a vi.fn() mock, not calling the method
       expect(handle.abort).toHaveBeenCalled();
       expect(pool.idleWorkerCount()).toBe(4);
     });
@@ -331,7 +336,9 @@ describe('LocalWorkerPool', () => {
 
       await pool.stopAll();
 
+      // eslint-disable-next-line @typescript-eslint/unbound-method -- reading a vi.fn() mock, not calling the method
       expect(handleA.abort).toHaveBeenCalled();
+      // eslint-disable-next-line @typescript-eslint/unbound-method -- reading a vi.fn() mock, not calling the method
       expect(handleB.abort).toHaveBeenCalled();
       expect(pool.idleWorkerCount()).toBe(4);
     });

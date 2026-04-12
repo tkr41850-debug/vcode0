@@ -18,6 +18,7 @@ export interface OverlapIncident {
 export class ConflictCoordinator {
   constructor(private readonly ports: OrchestratorPorts) {}
 
+  // eslint-disable-next-line @typescript-eslint/require-await -- stub; git rebase awaits land with the real implementation
   async handleSameFeatureOverlap(
     _feature: Feature,
     incident: OverlapIncident,
@@ -37,6 +38,7 @@ export class ConflictCoordinator {
     }
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await -- stub; git rebase awaits land with the real implementation
   async handleCrossFeatureOverlap(
     _primary: Feature,
     _secondary: Feature,

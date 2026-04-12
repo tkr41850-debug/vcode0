@@ -31,6 +31,7 @@ transport.onMessage((message: OrchestratorToWorkerMessage) => {
 
     runtime = new WorkerRuntime(transport, sessionStore, {
       modelId: 'claude-sonnet-4-20250514',
+      projectRoot: process.env.GVC0_PROJECT_ROOT ?? process.cwd(),
       getApiKey: (provider: string) => {
         if (provider === 'anthropic') return process.env.ANTHROPIC_API_KEY;
         if (provider === 'openai') return process.env.OPENAI_API_KEY;

@@ -1,13 +1,14 @@
-import type { Task } from '@core/types/index';
-import type {
-  AgentEvent,
-  AgentMessage,
-  AgentTool,
-} from '@mariozechner/pi-agent-core';
+import type { IpcBridge } from '@agents/worker';
+import { buildWorkerToolset } from '@agents/worker';
+import type { Task, TaskResult } from '@core/types/index';
+import type { AgentEvent, AgentMessage } from '@mariozechner/pi-agent-core';
 import { Agent } from '@mariozechner/pi-agent-core';
 import type { AssistantMessage } from '@mariozechner/pi-ai';
 import type { WorkerContext } from '@runtime/context/index';
 import type {
+  ApprovalDecision,
+  ApprovalPayload,
+  HelpResponse,
   OrchestratorToWorkerMessage,
   RuntimeUsageDelta,
   TaskRuntimeDispatch,
@@ -15,20 +16,30 @@ import type {
 import type { ChildIpcTransport } from '@runtime/ipc/index';
 import { resolveModel } from '@runtime/routing/model-bridge';
 import type { SessionStore } from '@runtime/sessions/index';
+import { buildSystemPrompt } from '@runtime/worker/system-prompt';
 
 export interface WorkerRuntimeConfig {
   modelId: string;
+  /** Absolute path to the project root — used to locate `.gvc0/` knowledge files. */
+  projectRoot: string;
   getApiKey?: (
     provider: string,
   ) => Promise<string | undefined> | string | undefined;
 }
 
+interface PendingHelp {
+  resolve: (response: HelpResponse) => void;
+}
+
+interface PendingApproval {
+  resolve: (decision: ApprovalDecision) => void;
+}
+
 export class WorkerRuntime {
   private agent: Agent | undefined;
-  private readonly pendingResponses = new Map<
-    string,
-    { resolve: (text: string) => void }
-  >();
+  private pendingHelp: PendingHelp | undefined;
+  private pendingApproval: PendingApproval | undefined;
+  private terminalResult: TaskResult | undefined;
 
   constructor(
     private readonly transport: ChildIpcTransport,
@@ -66,7 +77,12 @@ export class WorkerRuntime {
       }
     }
 
-    const tools: AgentTool[] = [];
+    const ipcBridge = this.createIpcBridge(task.id, dispatch.agentRunId);
+    const tools = buildWorkerToolset({
+      ipc: ipcBridge,
+      workdir: process.cwd(),
+      projectRoot: this.config.projectRoot,
+    });
 
     const agentOptions: NonNullable<ConstructorParameters<typeof Agent>[0]> = {
       initialState: {
@@ -94,50 +110,49 @@ export class WorkerRuntime {
       this.handleAgentEvent(event, task.id, dispatch.agentRunId),
     );
 
+    let runError: unknown;
     try {
       if (dispatch.mode === 'resume' && messages.length > 0) {
         await this.agent.continue();
       } else {
         await this.agent.prompt(task.description);
       }
-
-      const usage = aggregateUsage(
-        this.agent.state.messages,
-        model.provider,
-        model.id,
-      );
-
-      await this.sessionStore.save(sessionId, this.agent.state.messages);
-
-      this.transport.send({
-        type: 'result',
-        taskId: task.id,
-        agentRunId: dispatch.agentRunId,
-        result: {
-          summary: extractSummary(this.agent.state.messages),
-          filesChanged: [],
-        },
-        usage,
-      });
     } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message : String(err);
+      runError = err;
+    }
 
-      if (this.agent !== undefined) {
-        await this.sessionStore.save(sessionId, this.agent.state.messages);
-      }
+    const finalMessages = this.agent.state.messages;
+    const { usage, summary } = summarizeRun(
+      finalMessages,
+      model.provider,
+      model.id,
+    );
+    await this.sessionStore.save(sessionId, finalMessages);
 
+    if (runError !== undefined) {
+      const errorMessage = formatError(runError);
       this.transport.send({
         type: 'error',
         taskId: task.id,
         agentRunId: dispatch.agentRunId,
         error: errorMessage,
-        usage: aggregateUsage(
-          this.agent?.state.messages ?? [],
-          model.provider,
-          model.id,
-        ),
+        usage,
       });
+      return;
     }
+
+    const result: TaskResult = this.terminalResult ?? {
+      summary,
+      filesChanged: [],
+    };
+
+    this.transport.send({
+      type: 'result',
+      taskId: task.id,
+      agentRunId: dispatch.agentRunId,
+      result,
+      usage,
+    });
   }
 
   handleMessage(message: OrchestratorToWorkerMessage): void {
@@ -161,38 +176,18 @@ export class WorkerRuntime {
         break;
       }
       case 'help_response': {
-        const pending = this.pendingResponses.get('help');
+        const pending = this.pendingHelp;
         if (pending !== undefined) {
-          this.pendingResponses.delete('help');
-          pending.resolve(
-            message.response.kind === 'answer'
-              ? message.response.text
-              : '[discuss]',
-          );
-        } else {
-          this.agent.followUp({
-            role: 'user',
-            content:
-              message.response.kind === 'answer'
-                ? message.response.text
-                : '[discuss]',
-            timestamp: Date.now(),
-          });
+          this.pendingHelp = undefined;
+          pending.resolve(message.response);
         }
         break;
       }
       case 'approval_decision': {
-        const pending = this.pendingResponses.get('approval');
+        const pending = this.pendingApproval;
         if (pending !== undefined) {
-          this.pendingResponses.delete('approval');
-          pending.resolve(
-            message.decision.kind === 'approved' ||
-              message.decision.kind === 'approve_always'
-              ? 'approved'
-              : message.decision.kind === 'reject'
-                ? `rejected: ${message.decision.comment ?? ''}`
-                : 'discuss',
-          );
+          this.pendingApproval = undefined;
+          pending.resolve(message.decision);
         }
         break;
       }
@@ -204,15 +199,60 @@ export class WorkerRuntime {
         });
         break;
       }
-      case 'resume': {
-        // Resume after suspend — agent will need to continue
+      case 'resume':
+      case 'run':
         break;
-      }
-      case 'run': {
-        // Initial run message handled in entry.ts, not here
-        break;
-      }
     }
+  }
+
+  private createIpcBridge(taskId: string, agentRunId: string): IpcBridge {
+    return {
+      taskId,
+      agentRunId,
+      progress: (messageText: string) => {
+        this.transport.send({
+          type: 'progress',
+          taskId,
+          agentRunId,
+          message: messageText,
+        });
+      },
+      requestHelp: (query: string) => {
+        if (this.pendingHelp !== undefined) {
+          return Promise.reject(
+            new Error('request_help already pending — only one at a time'),
+          );
+        }
+        this.transport.send({
+          type: 'request_help',
+          taskId,
+          agentRunId,
+          query,
+        });
+        return new Promise<HelpResponse>((resolve) => {
+          this.pendingHelp = { resolve };
+        });
+      },
+      requestApproval: (payload: ApprovalPayload) => {
+        if (this.pendingApproval !== undefined) {
+          return Promise.reject(
+            new Error('request_approval already pending — only one at a time'),
+          );
+        }
+        this.transport.send({
+          type: 'request_approval',
+          taskId,
+          agentRunId,
+          payload,
+        });
+        return new Promise<ApprovalDecision>((resolve) => {
+          this.pendingApproval = { resolve };
+        });
+      },
+      submitResult: (result: TaskResult) => {
+        this.terminalResult = result;
+      },
+    };
   }
 
   private handleAgentEvent(
@@ -240,7 +280,7 @@ export class WorkerRuntime {
           type: 'progress',
           taskId,
           agentRunId,
-          message: `Turn completed`,
+          message: 'Turn completed',
         });
         break;
       }
@@ -248,42 +288,6 @@ export class WorkerRuntime {
         break;
     }
   }
-}
-
-function buildSystemPrompt(task: Task, context: WorkerContext): string {
-  const parts: string[] = [];
-
-  parts.push(
-    `You are a task worker executing task ${task.id}: ${task.description}`,
-  );
-
-  if (context.planSummary !== undefined) {
-    parts.push(`\n## Plan\n${context.planSummary}`);
-  }
-
-  if (
-    context.dependencyOutputs !== undefined &&
-    context.dependencyOutputs.length > 0
-  ) {
-    parts.push('\n## Dependency Outputs');
-    for (const dep of context.dependencyOutputs) {
-      parts.push(`- ${dep.taskId} (${dep.featureName}): ${dep.summary}`);
-    }
-  }
-
-  if (context.codebaseMap !== undefined) {
-    parts.push(`\n## Codebase\n${context.codebaseMap}`);
-  }
-
-  if (context.knowledge !== undefined) {
-    parts.push(`\n## Knowledge\n${context.knowledge}`);
-  }
-
-  if (context.decisions !== undefined) {
-    parts.push(`\n## Decisions\n${context.decisions}`);
-  }
-
-  return parts.join('\n');
 }
 
 function isAssistantMessage(msg: AgentMessage): msg is AssistantMessage {
@@ -297,50 +301,56 @@ function extractText(msg: AssistantMessage): string {
     .join('');
 }
 
-function extractSummary(messages: AgentMessage[]): string {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const msg = messages[i];
-    if (msg !== undefined && isAssistantMessage(msg)) {
-      const text = extractText(msg);
-      if (text.length > 0) {
-        return text.slice(0, 500);
-      }
-    }
+function formatError(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === 'string') return err;
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return 'unknown error';
   }
-  return '';
 }
 
-function aggregateUsage(
+/**
+ * Single pass over the message history — sums usage and captures the last
+ * non-empty assistant text as the summary. Called once per run.
+ */
+function summarizeRun(
   messages: AgentMessage[],
   provider: string,
   model: string,
-): RuntimeUsageDelta {
+): { usage: RuntimeUsageDelta; summary: string } {
   let inputTokens = 0;
   let outputTokens = 0;
   let cacheReadTokens = 0;
   let cacheWriteTokens = 0;
   let totalTokens = 0;
   let usd = 0;
+  let summary = '';
 
   for (const msg of messages) {
-    if (isAssistantMessage(msg)) {
-      inputTokens += msg.usage.input;
-      outputTokens += msg.usage.output;
-      cacheReadTokens += msg.usage.cacheRead;
-      cacheWriteTokens += msg.usage.cacheWrite;
-      totalTokens += msg.usage.totalTokens;
-      usd += msg.usage.cost.total;
-    }
+    if (!isAssistantMessage(msg)) continue;
+    inputTokens += msg.usage.input;
+    outputTokens += msg.usage.output;
+    cacheReadTokens += msg.usage.cacheRead;
+    cacheWriteTokens += msg.usage.cacheWrite;
+    totalTokens += msg.usage.totalTokens;
+    usd += msg.usage.cost.total;
+    const text = extractText(msg);
+    if (text.length > 0) summary = text.slice(0, 500);
   }
 
   return {
-    provider,
-    model,
-    inputTokens,
-    outputTokens,
-    cacheReadTokens,
-    cacheWriteTokens,
-    totalTokens,
-    usd,
+    usage: {
+      provider,
+      model,
+      inputTokens,
+      outputTokens,
+      cacheReadTokens,
+      cacheWriteTokens,
+      totalTokens,
+      usd,
+    },
+    summary,
   };
 }

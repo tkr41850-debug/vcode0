@@ -1,6 +1,7 @@
 import * as child_process from 'node:child_process';
 import * as crypto from 'node:crypto';
 import * as path from 'node:path';
+import type { Readable, Writable } from 'node:stream';
 
 import type { Task } from '@core/types/index';
 import type { WorkerContext } from '@runtime/context/index';
@@ -57,14 +58,14 @@ export class PiSdkHarness implements SessionHarness {
     private readonly entryPath: string = WORKER_ENTRY,
   ) {}
 
-  async start(task: Task, context: WorkerContext): Promise<SessionHandle> {
+  start(task: Task, context: WorkerContext): Promise<SessionHandle> {
     const sessionId = crypto.randomUUID();
     const worktreePath = this.resolveWorktreePath(task);
 
     const child = this.forkWorker(worktreePath);
     const transport = new NdjsonStdioTransport({
-      stdin: child.stdin as import('node:stream').Writable,
-      stdout: child.stdout as import('node:stream').Readable,
+      stdin: child.stdin as Writable,
+      stdout: child.stdout as Readable,
     });
 
     const handle = createSessionHandle(sessionId, child, transport);
@@ -78,7 +79,7 @@ export class PiSdkHarness implements SessionHarness {
       context,
     });
 
-    return handle;
+    return Promise.resolve(handle);
   }
 
   async resume(
@@ -97,8 +98,8 @@ export class PiSdkHarness implements SessionHarness {
     const worktreePath = this.resolveWorktreePath(task);
     const child = this.forkWorker(worktreePath);
     const transport = new NdjsonStdioTransport({
-      stdin: child.stdin as import('node:stream').Writable,
-      stdout: child.stdout as import('node:stream').Readable,
+      stdin: child.stdin as Writable,
+      stdout: child.stdout as Readable,
     });
 
     const handle = createSessionHandle(run.sessionId, child, transport);
@@ -124,6 +125,10 @@ export class PiSdkHarness implements SessionHarness {
       cwd,
       stdio: ['pipe', 'pipe', 'inherit'],
       execArgv: ['--import', 'tsx'],
+      env: {
+        ...process.env,
+        GVC0_PROJECT_ROOT: this.projectRoot,
+      },
     });
 
     if (child.stdin === null || child.stdout === null) {

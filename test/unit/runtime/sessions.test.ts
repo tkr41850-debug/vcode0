@@ -49,7 +49,10 @@ describe('FileSessionStore', () => {
         path.join(tmpDir, '.gvc0', 'sessions', 'session-2.json'),
         'utf-8',
       );
-      const parsed = JSON.parse(raw);
+      const parsed = JSON.parse(raw) as {
+        version: number;
+        messages: unknown[];
+      };
 
       expect(parsed.version).toBe(1);
       expect(parsed.messages).toEqual([]);
