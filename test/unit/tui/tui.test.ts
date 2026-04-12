@@ -89,14 +89,17 @@ describe('CommandRegistry', () => {
 });
 
 describe('TuiApp', () => {
-  it('implements UiPort and can show/refresh/dispose', async () => {
-    const app = new TuiApp();
+  it('show() blocks until dispose() resolves it', async () => {
+    const frames: string[][] = [];
+    const app = new TuiApp({ writeFrame: (lines) => frames.push(lines) });
 
-    await app.show();
+    const started = app.show();
+    await new Promise((resolve) => setTimeout(resolve, 5));
     app.refresh();
     app.dispose();
+    await started;
 
-    // Should not throw
-    expect(true).toBe(true);
+    expect(frames.length).toBeGreaterThan(0);
+    expect(frames[0]!.some((line) => line.includes('DAG'))).toBe(true);
   });
 });

@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { NotYetWiredError } from '@app/errors';
 import { GvcApplication } from '@app/index';
+import { StubUiPort } from '@app/stub-ports';
 import { composeApplication } from '@root/compose';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -22,7 +23,7 @@ describe('composeApplication() bootstrap', () => {
   });
 
   it('returns a GvcApplication wired with all ports', () => {
-    const app = composeApplication();
+    const app = composeApplication({ ui: new StubUiPort() });
     expect(app).toBeInstanceOf(GvcApplication);
   });
 
@@ -34,7 +35,7 @@ describe('composeApplication() bootstrap', () => {
   });
 
   it('app.start() then app.stop() completes cleanly without spawning real work', async () => {
-    const app = composeApplication();
+    const app = composeApplication({ ui: new StubUiPort() });
 
     // start() launches the StubUiPort which blocks on show(); stop() resolves it.
     const started = app.start();
@@ -50,7 +51,7 @@ describe('composeApplication() bootstrap', () => {
   });
 
   it('stub git port throws NotYetWiredError when used', async () => {
-    const app = composeApplication();
+    const app = composeApplication({ ui: new StubUiPort() });
     // Reach into ports via cast — this is an integration check that the stub
     // is in place, not part of the public API.
     const ports = (
@@ -67,7 +68,7 @@ describe('composeApplication() bootstrap', () => {
   });
 
   it('stub runtime port throws NotYetWiredError on dispatch but stops cleanly', async () => {
-    const app = composeApplication();
+    const app = composeApplication({ ui: new StubUiPort() });
     const ports = (
       app as unknown as {
         ports: {

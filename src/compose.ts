@@ -1,14 +1,10 @@
 import type { AgentPort } from '@agents';
 import { GvcApplication } from '@app/index';
-import {
-  StubAgentPort,
-  StubGitPort,
-  StubRuntimePort,
-  StubUiPort,
-} from '@app/stub-ports';
+import { StubAgentPort, StubGitPort, StubRuntimePort } from '@app/stub-ports';
 import type { GvcConfig } from '@core/types/index';
-import type { OrchestratorPorts } from '@orchestrator/ports/index';
+import type { OrchestratorPorts, UiPort } from '@orchestrator/ports/index';
 import { SqliteStore } from '@persistence/sqlite';
+import { TuiApp } from '@tui/app';
 
 const DEFAULT_CONFIG: GvcConfig = {
   tokenProfile: 'balanced',
@@ -19,6 +15,8 @@ export interface ComposeOptions {
   dbPath?: string;
   /** Override the orchestrator config (default: balanced token profile). */
   config?: GvcConfig;
+  /** Override the UI port (default: TuiApp backed by the real store). */
+  ui?: UiPort;
 }
 
 /**
@@ -41,7 +39,7 @@ export function composeApplication(
     runtime: new StubRuntimePort(),
     // StubAgentPort implements both PlannerAgent and ReplannerAgent surfaces.
     agents: new StubAgentPort() as unknown as AgentPort,
-    ui: new StubUiPort(),
+    ui: options.ui ?? new TuiApp({ store }),
     config: options.config ?? DEFAULT_CONFIG,
   };
 
