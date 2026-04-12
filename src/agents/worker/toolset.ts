@@ -36,7 +36,7 @@ export interface WorkerToolsetDeps {
 // be assigned to `AgentTool<TSchema, any>` under `exactOptionalPropertyTypes`
 // without widening the element type here.
 // biome-ignore lint/suspicious/noExplicitAny: matches pi-sdk's own AgentTool<any>[] signature
-type WorkerTool = AgentTool<any>;
+type WorkerTool = AgentTool<any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 
 export function buildWorkerToolset(deps: WorkerToolsetDeps): WorkerTool[] {
   return [

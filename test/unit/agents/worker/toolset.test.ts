@@ -7,8 +7,8 @@ function noopBridge(): IpcBridge {
     taskId: 't-1',
     agentRunId: 'r-1',
     progress: () => {},
-    requestHelp: async () => ({ kind: 'discuss' }),
-    requestApproval: async () => ({ kind: 'approved' }),
+    requestHelp: () => Promise.resolve({ kind: 'discuss' }),
+    requestApproval: () => Promise.resolve({ kind: 'approved' }),
     submitResult: () => {},
   };
 }

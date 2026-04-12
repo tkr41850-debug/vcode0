@@ -130,8 +130,7 @@ export class WorkerRuntime {
     await this.sessionStore.save(sessionId, finalMessages);
 
     if (runError !== undefined) {
-      const errorMessage =
-        runError instanceof Error ? runError.message : String(runError);
+      const errorMessage = formatError(runError);
       this.transport.send({
         type: 'error',
         taskId: task.id,
@@ -300,6 +299,16 @@ function extractText(msg: AssistantMessage): string {
     .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
     .map((b) => b.text)
     .join('');
+}
+
+function formatError(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === 'string') return err;
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return 'unknown error';
+  }
 }
 
 /**

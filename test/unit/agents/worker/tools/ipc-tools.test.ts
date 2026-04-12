@@ -28,13 +28,15 @@ function createMockBridge(): MockBridge {
     progress(msg: string) {
       bridge._progressMessages.push(msg);
     },
-    async requestHelp(query: string) {
+    requestHelp(query: string) {
       bridge._lastHelpQuery = query;
-      return bridge._nextHelpResponse ?? { kind: 'discuss' };
+      return Promise.resolve(bridge._nextHelpResponse ?? { kind: 'discuss' });
     },
-    async requestApproval(payload: ApprovalPayload) {
+    requestApproval(payload: ApprovalPayload) {
       bridge._lastApprovalPayload = payload;
-      return bridge._nextApprovalDecision ?? { kind: 'approved' };
+      return Promise.resolve(
+        bridge._nextApprovalDecision ?? { kind: 'approved' },
+      );
     },
     submitResult(result: TaskResult) {
       bridge._lastResult = result;

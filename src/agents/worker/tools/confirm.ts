@@ -17,12 +17,12 @@ export function createConfirmTool(
     description:
       'Marker the worker uses to acknowledge it has verified its own work after submit(). Orchestrator-side squash-merge is driven by the scheduler; this tool emits a progress notification so the operator can observe the confirmation.',
     parameters,
-    execute: async () => {
+    execute: (_toolCallId) => {
       ipc.progress(`task ${ipc.taskId} confirmed`);
-      return {
+      return Promise.resolve({
         content: [{ type: 'text', text: 'confirmed' }],
         details: { taskId: ipc.taskId },
-      };
+      });
     },
   };
 }

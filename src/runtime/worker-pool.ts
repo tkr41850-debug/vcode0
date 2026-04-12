@@ -178,11 +178,12 @@ export class LocalWorkerPool implements RuntimePort {
     return Math.max(0, this.maxConcurrency - this.liveRuns.size);
   }
 
-  async stopAll(): Promise<void> {
+  stopAll(): Promise<void> {
     for (const [taskId, session] of this.liveRuns) {
       session.handle.abort();
       this.liveRuns.delete(taskId);
     }
+    return Promise.resolve();
   }
 
   private registerWorkerHandler(taskId: string, session: LiveSession): void {
