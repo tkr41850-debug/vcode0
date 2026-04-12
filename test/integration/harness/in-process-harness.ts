@@ -18,7 +18,7 @@ import { WorkerRuntime, type WorkerRuntimeConfig } from '@runtime/worker/index';
 
 import { createLoopbackTransportPair } from './loopback-transport.js';
 
-export interface InProcessHarnessConfig extends WorkerRuntimeConfig {}
+export type InProcessHarnessConfig = WorkerRuntimeConfig;
 
 /**
  * `SessionHarness` that runs `WorkerRuntime` inside the current process
@@ -112,7 +112,11 @@ export class InProcessHarness implements SessionHarness {
         // Mirror `entry.ts`: convert unexpected throws into an `error` IPC
         // frame so the caller's completion handler still fires.
         const message =
-          err instanceof Error ? err.message : String(err ?? 'unknown error');
+          err instanceof Error
+            ? err.message
+            : typeof err === 'string'
+              ? err
+              : 'unknown error';
         worker.send({
           type: 'error',
           taskId: task.id,

@@ -334,15 +334,13 @@ export class PersistentFeatureGraph implements FeatureGraph {
     const taskDeps = new Map<TaskId, TaskId[]>();
     for (const dep of depRows) {
       if (dep.dep_type === 'feature') {
-        const fromId = dep.from_id as FeatureId;
-        const arr = featureDeps.get(fromId) ?? [];
-        arr.push(dep.to_id as FeatureId);
-        featureDeps.set(fromId, arr);
+        const arr = featureDeps.get(dep.from_id) ?? [];
+        arr.push(dep.to_id);
+        featureDeps.set(dep.from_id, arr);
       } else {
-        const fromId = dep.from_id as TaskId;
-        const arr = taskDeps.get(fromId) ?? [];
-        arr.push(dep.to_id as TaskId);
-        taskDeps.set(fromId, arr);
+        const arr = taskDeps.get(dep.from_id) ?? [];
+        arr.push(dep.to_id);
+        taskDeps.set(dep.from_id, arr);
       }
     }
 

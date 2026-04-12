@@ -245,12 +245,12 @@ export function rowToAgentRun(row: AgentRunRow): AgentRun {
     ...optional('retryAt', row.retry_at),
   };
   if (row.scope_type === 'task') {
-    return { ...base, scopeType: 'task', scopeId: row.scope_id as TaskId };
+    return { ...base, scopeType: 'task', scopeId: row.scope_id };
   }
   return {
     ...base,
     scopeType: 'feature_phase',
-    scopeId: row.scope_id as FeatureId,
+    scopeId: row.scope_id,
   };
 }
 

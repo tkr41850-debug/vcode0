@@ -272,6 +272,7 @@ describe('LocalWorkerPool', () => {
   describe('abortTask', () => {
     it('aborts a running task and removes it from live runs', async () => {
       const { handle, pool } = setupPool('sess-abort');
+      const abort = handle.abort;
 
       await pool.dispatchTask(makeTask(), {
         mode: 'start',
@@ -280,7 +281,7 @@ describe('LocalWorkerPool', () => {
 
       const result = await pool.abortTask('t-task-1');
       expect(result.kind).toBe('delivered');
-      expect(handle.abort).toHaveBeenCalled();
+      expect(abort).toHaveBeenCalled();
       expect(pool.idleWorkerCount()).toBe(4);
     });
 
@@ -317,8 +318,8 @@ describe('LocalWorkerPool', () => {
     it('aborts all live sessions and empties the pool', async () => {
       const handleA = createMockHandle('sess-a');
       const handleB = createMockHandle('sess-b');
-      const abortA = handleA.abort;
-      const abortB = handleB.abort;
+      const abortA = handleA.abort.bind(handleA);
+      const abortB = handleB.abort.bind(handleB);
 
       const harness = createMockHarness(handleA);
       harness.start = vi
