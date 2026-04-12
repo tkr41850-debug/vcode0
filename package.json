@@ -3,11 +3,16 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "bin": {
+    "gvc0": "./dist/cli.js"
+  },
   "packageManager": "npm@11.6.3",
   "engines": {
     "node": ">=24"
   },
   "scripts": {
+    "tui": "tsx src/cli.ts",
+    "build": "tsc -p tsconfig.build.json",
     "check": "npm run format:check && npm run lint && npm run typecheck && npm run test",
     "fix": "npm run lint:fix",
     "format": "biome format --write .",
