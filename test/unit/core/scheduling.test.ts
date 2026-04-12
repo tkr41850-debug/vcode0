@@ -7,11 +7,12 @@ import {
   buildCombinedGraph,
   CriticalPathScheduler,
   computeGraphMetrics,
+  schedulableUnitKey,
   TASK_WEIGHT_VALUE,
   workTypeTierOf,
   workTypeTierPriority,
 } from '@core/scheduling/index';
-import type { AgentRun } from '@core/types/index';
+import type { AgentRun, AgentRunPhase } from '@core/types/index';
 import { describe, expect, it } from 'vitest';
 import { extractSchedulableIds } from '../../helpers/assertions.js';
 import {
@@ -42,12 +43,79 @@ function promotePendingTasks(g: InMemoryFeatureGraph): void {
   }
 }
 
-function runScheduler(g: InMemoryFeatureGraph): SchedulableUnit[] {
+function runScheduler(
+  g: InMemoryFeatureGraph,
+  runs: ExecutionRunReader = noopRunReader,
+  readySince?: Map<string, number>,
+  now = 0,
+): SchedulableUnit[] {
   promotePendingTasks(g);
   const combined = buildCombinedGraph(g);
   const metrics = computeGraphMetrics(combined);
   const scheduler = new CriticalPathScheduler();
-  return scheduler.prioritizeReadyWork(g, noopRunReader, metrics, 0);
+  return scheduler.prioritizeReadyWork(g, runs, metrics, now, readySince);
+}
+
+function makeTaskRun(
+  scopeId: `t-${string}`,
+  overrides: Partial<AgentRun> = {},
+): AgentRun {
+  return {
+    id: `run-${scopeId}`,
+    scopeType: 'task',
+    scopeId,
+    phase: 'execute',
+    runStatus: 'ready',
+    owner: 'system',
+    attention: 'none',
+    restartCount: 0,
+    maxRetries: 3,
+    ...overrides,
+  } as AgentRun;
+}
+
+function makeFeaturePhaseRun(
+  scopeId: `f-${string}`,
+  phase: AgentRunPhase,
+  overrides: Partial<AgentRun> = {},
+): AgentRun {
+  return {
+    id: `run-${scopeId}-${phase}`,
+    scopeType: 'feature_phase',
+    scopeId,
+    phase,
+    runStatus: 'ready',
+    owner: 'system',
+    attention: 'none',
+    restartCount: 0,
+    maxRetries: 3,
+    ...overrides,
+  } as AgentRun;
+}
+
+function createRunReader(...runs: AgentRun[]): ExecutionRunReader {
+  const byTaskId = new Map<string, AgentRun>();
+  const byFeaturePhase = new Map<string, AgentRun>();
+
+  for (const run of runs) {
+    if (run.scopeType === 'task') {
+      byTaskId.set(run.scopeId, run);
+      continue;
+    }
+    byFeaturePhase.set(`${run.scopeId}:${run.phase}`, run);
+  }
+
+  return {
+    getExecutionRun(
+      taskId: string,
+      phase?: AgentRunPhase,
+    ): AgentRun | undefined {
+      if (phase !== undefined) {
+        return byFeaturePhase.get(`${taskId}:${phase}`);
+      }
+      return byTaskId.get(taskId);
+    },
+  };
 }
 
 // ── workTypeTierOf / workTypeTierPriority ─────────────────────────────
@@ -701,11 +769,20 @@ describe('CriticalPathScheduler.prioritizeReadyWork', () => {
       description: 'retryable task',
       weight: 'medium',
     });
-    updateTask(g, 't-retry', { status: 'stuck' });
 
     g.queueMilestone('m-1');
 
-    const result = runScheduler(g);
+    const result = runScheduler(
+      g,
+      createRunReader(
+        makeTaskRun('t-retry', { runStatus: 'retry_await', retryAt: 100 }),
+      ),
+      new Map([
+        ['task:t-retry', 100],
+        ['task:t-fresh', 200],
+      ]),
+      100,
+    );
     const ids = extractSchedulableIds(result);
     expect(ids.indexOf('t-retry')).toBeLessThan(ids.indexOf('t-fresh'));
   });
@@ -744,8 +821,8 @@ describe('CriticalPathScheduler.prioritizeReadyWork', () => {
 
     // t-z became ready at time 100, t-a at time 200 — older wins
     const readySince = new Map([
-      ['t-z', 100],
-      ['t-a', 200],
+      ['task:t-z', 100],
+      ['task:t-a', 200],
     ]);
     promotePendingTasks(g);
     const combined = buildCombinedGraph(g);
@@ -799,6 +876,215 @@ describe('CriticalPathScheduler.prioritizeReadyWork', () => {
     const result = runScheduler(g);
     const ids = extractSchedulableIds(result);
     expect(ids.indexOf('t-a')).toBeLessThan(ids.indexOf('t-z'));
+  });
+
+  it('excludes task units whose runs are waiting on help, approval, or retry backoff', () => {
+    const g = createGraphWithMilestone();
+    g.createFeature({
+      id: 'f-a',
+      milestoneId: 'm-1',
+      name: 'FA',
+      description: 'desc',
+    });
+    updateFeature(g, 'f-a', { workControl: 'executing' });
+    g.createTask({
+      id: 't-ready',
+      featureId: 'f-a',
+      description: 'Ready task',
+      weight: 'medium',
+    });
+    g.createTask({
+      id: 't-help',
+      featureId: 'f-a',
+      description: 'Help task',
+      weight: 'medium',
+    });
+    g.createTask({
+      id: 't-approval',
+      featureId: 'f-a',
+      description: 'Approval task',
+      weight: 'medium',
+    });
+    g.createTask({
+      id: 't-backoff',
+      featureId: 'f-a',
+      description: 'Backoff task',
+      weight: 'medium',
+    });
+    g.createTask({
+      id: 't-retry-now',
+      featureId: 'f-a',
+      description: 'Retry now task',
+      weight: 'medium',
+    });
+
+    g.queueMilestone('m-1');
+
+    const runs = createRunReader(
+      makeTaskRun('t-help', { runStatus: 'await_response' }),
+      makeTaskRun('t-approval', { runStatus: 'await_approval' }),
+      makeTaskRun('t-backoff', { runStatus: 'retry_await', retryAt: 200 }),
+      makeTaskRun('t-retry-now', { runStatus: 'retry_await', retryAt: 100 }),
+    );
+
+    const result = runScheduler(g, runs, undefined, 100);
+    const ids = extractSchedulableIds(result);
+
+    expect(ids).toContain('t-ready');
+    expect(ids).toContain('t-retry-now');
+    expect(ids).not.toContain('t-help');
+    expect(ids).not.toContain('t-approval');
+    expect(ids).not.toContain('t-backoff');
+  });
+
+  it('excludes feature phases whose runs are waiting on help, approval, or retry backoff', () => {
+    const g = createGraphWithMilestone();
+    g.createFeature({
+      id: 'f-ready',
+      milestoneId: 'm-1',
+      name: 'Ready feature',
+      description: 'desc',
+    });
+    updateFeature(g, 'f-ready', { workControl: 'planning' });
+
+    g.createFeature({
+      id: 'f-help',
+      milestoneId: 'm-1',
+      name: 'Help feature',
+      description: 'desc',
+    });
+    updateFeature(g, 'f-help', { workControl: 'planning' });
+
+    g.createFeature({
+      id: 'f-approval',
+      milestoneId: 'm-1',
+      name: 'Approval feature',
+      description: 'desc',
+    });
+    updateFeature(g, 'f-approval', { workControl: 'planning' });
+
+    g.createFeature({
+      id: 'f-backoff',
+      milestoneId: 'm-1',
+      name: 'Backoff feature',
+      description: 'desc',
+    });
+    updateFeature(g, 'f-backoff', { workControl: 'planning' });
+
+    g.createFeature({
+      id: 'f-retry-now',
+      milestoneId: 'm-1',
+      name: 'Retry feature',
+      description: 'desc',
+    });
+    updateFeature(g, 'f-retry-now', { workControl: 'planning' });
+
+    g.queueMilestone('m-1');
+
+    const runs = createRunReader(
+      makeFeaturePhaseRun('f-help', 'plan', { runStatus: 'await_response' }),
+      makeFeaturePhaseRun('f-approval', 'plan', {
+        runStatus: 'await_approval',
+      }),
+      makeFeaturePhaseRun('f-backoff', 'plan', {
+        runStatus: 'retry_await',
+        retryAt: 200,
+      }),
+      makeFeaturePhaseRun('f-retry-now', 'plan', {
+        runStatus: 'retry_await',
+        retryAt: 100,
+      }),
+    );
+
+    const result = runScheduler(g, runs, undefined, 100);
+    const ids = extractSchedulableIds(result);
+
+    expect(ids).toContain('f-ready');
+    expect(ids).toContain('f-retry-now');
+    expect(ids).not.toContain('f-help');
+    expect(ids).not.toContain('f-approval');
+    expect(ids).not.toContain('f-backoff');
+  });
+
+  it('keys feature-phase readiness age by unit identity rather than feature id', () => {
+    const g = createGraphWithMilestone();
+    g.createFeature({
+      id: 'f-plan-a',
+      milestoneId: 'm-1',
+      name: 'Planning feature A',
+      description: 'desc',
+    });
+    updateFeature(g, 'f-plan-a', { workControl: 'planning' });
+
+    g.createFeature({
+      id: 'f-plan-b',
+      milestoneId: 'm-1',
+      name: 'Planning feature B',
+      description: 'desc',
+    });
+    updateFeature(g, 'f-plan-b', { workControl: 'planning' });
+
+    g.queueMilestone('m-1');
+
+    const result = runScheduler(
+      g,
+      noopRunReader,
+      new Map([
+        ['feature:f-plan-a:plan', 200],
+        ['feature:f-plan-b:plan', 100],
+      ]),
+      300,
+    );
+
+    expect(result).toHaveLength(2);
+    expect(result[0]?.kind).toBe('feature_phase');
+    expect(result[1]?.kind).toBe('feature_phase');
+    if (
+      result[0]?.kind === 'feature_phase' &&
+      result[1]?.kind === 'feature_phase'
+    ) {
+      expect(result[0].feature.id).toBe('f-plan-b');
+      expect(result[1].feature.id).toBe('f-plan-a');
+      expect(result[0].readyAt).toBe(100);
+      expect(result[1].readyAt).toBe(200);
+    }
+  });
+
+  it('builds scheduler-local readiness keys from schedulable unit identity', () => {
+    const taskUnit: SchedulableUnit = {
+      kind: 'task',
+      task: {
+        id: 't-ready',
+        featureId: 'f-task',
+        orderInFeature: 0,
+        description: 'ready task',
+        dependsOn: [],
+        status: 'ready',
+        collabControl: 'none',
+      },
+      featureId: 'f-task',
+      readyAt: 0,
+    };
+    expect(schedulableUnitKey(taskUnit)).toBe('task:t-ready');
+
+    const featureUnit: SchedulableUnit = {
+      kind: 'feature_phase',
+      feature: {
+        id: 'f-phase',
+        milestoneId: 'm-1',
+        orderInMilestone: 0,
+        name: 'Phase feature',
+        description: 'desc',
+        dependsOn: [],
+        status: 'pending',
+        workControl: 'researching',
+        collabControl: 'none',
+        featureBranch: 'feat-phase',
+      },
+      phase: 'research',
+      readyAt: 0,
+    };
+    expect(schedulableUnitKey(featureUnit)).toBe('feature:f-phase:research');
   });
 
   it('returns feature_phase schedulable units for pre-execution features', () => {

@@ -102,9 +102,7 @@ export class WorkerRuntime {
     this.agent = new Agent(agentOptions);
 
     const sessionId =
-      dispatch.mode === 'resume'
-        ? dispatch.sessionId
-        : `session-${task.id}-${dispatch.agentRunId}`;
+      dispatch.mode === 'resume' ? dispatch.sessionId : dispatch.agentRunId;
 
     this.agent.subscribe((event: AgentEvent) =>
       this.handleAgentEvent(event, task.id, dispatch.agentRunId),

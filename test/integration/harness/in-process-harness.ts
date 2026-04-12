@@ -48,8 +48,6 @@ export class InProcessHarness implements SessionHarness {
 
   start(task: Task, context: WorkerContext): Promise<SessionHandle> {
     const sessionId = crypto.randomUUID();
-    // Mirror PiSdkHarness: the worker-side agentRunId for a fresh start is
-    // the generated session id rather than an orchestrator-supplied handle.
     const dispatch: TaskRuntimeDispatch = {
       mode: 'start',
       agentRunId: sessionId,

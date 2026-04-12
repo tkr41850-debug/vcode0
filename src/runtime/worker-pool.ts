@@ -188,11 +188,22 @@ export class LocalWorkerPool implements RuntimePort {
 
   private registerWorkerHandler(taskId: string, session: LiveSession): void {
     session.handle.onWorkerMessage((message: WorkerToOrchestratorMessage) => {
-      if (message.type === 'result' || message.type === 'error') {
+      const normalizedMessage =
+        message.agentRunId === session.ref.agentRunId
+          ? message
+          : {
+              ...message,
+              agentRunId: session.ref.agentRunId,
+            };
+
+      if (
+        normalizedMessage.type === 'result' ||
+        normalizedMessage.type === 'error'
+      ) {
         this.liveRuns.delete(taskId);
-        this.onTaskComplete?.(message);
+        this.onTaskComplete?.(normalizedMessage);
       } else {
-        this.onTaskComplete?.(message);
+        this.onTaskComplete?.(normalizedMessage);
       }
     });
   }

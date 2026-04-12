@@ -78,10 +78,6 @@ describe('worker smoke (faux provider + in-process harness)', () => {
     );
 
     expect(dispatchResult.kind).toBe('started');
-    // Harness-generated session id — this is the id the worker runtime
-    // actually stamps on its IPC frames (matches PiSdkHarness).
-    const workerAgentRunId =
-      dispatchResult.kind === 'started' ? dispatchResult.sessionId : '';
 
     await harness.drain();
 
@@ -93,7 +89,7 @@ describe('worker smoke (faux provider + in-process harness)', () => {
 
     expect(results).toHaveLength(1);
     const [result] = results;
-    expect(result?.agentRunId).toBe(workerAgentRunId);
+    expect(result?.agentRunId).toBe('run-smoke');
     expect(result?.result.summary).toContain('hello from faux');
     // No tool calls → no terminal result from `submit_result` → filesChanged
     // is the default empty list from `WorkerRuntime.run`.
@@ -110,13 +106,7 @@ describe('worker smoke (faux provider + in-process harness)', () => {
     );
     await harness.drain();
 
-    // WorkerRuntime saves under `session-${task.id}-${agentRunId}` for
-    // fresh starts — the agentRunId it sees is the harness-generated id.
-    const workerAgentRunId =
-      dispatchResult.kind === 'started' ? dispatchResult.sessionId : '';
-    const saved = await sessionStore.load(
-      `session-${task.id}-${workerAgentRunId}`,
-    );
+    const saved = await sessionStore.load(dispatchResult.sessionId);
     expect(saved).not.toBeNull();
     expect(saved?.length).toBeGreaterThan(0);
   });

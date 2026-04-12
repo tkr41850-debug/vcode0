@@ -11,7 +11,7 @@ import type {
 } from '@core/types';
 
 export interface ExecutionRunReader {
-  getExecutionRun(taskId: string): AgentRun | undefined;
+  getExecutionRun(scopeId: string, phase?: AgentRunPhase): AgentRun | undefined;
 }
 
 // Work-type tier for scheduling priority (maps to groups of AgentRunPhase)
@@ -63,6 +63,13 @@ export type SchedulableUnit =
       phase: AgentRunPhase;
       readyAt: number;
     };
+
+export function schedulableUnitKey(unit: SchedulableUnit): string {
+  if (unit.kind === 'task') {
+    return `task:${unit.task.id}`;
+  }
+  return `feature:${unit.feature.id}:${unit.phase}`;
+}
 
 // Combined graph node for cross-boundary critical path
 export interface CombinedGraphNode {
@@ -396,6 +403,21 @@ export function computeGraphMetrics(
   return { nodeMetrics };
 }
 
+function isBlockedByRun(run: AgentRun | undefined, now: number): boolean {
+  if (run === undefined) {
+    return false;
+  }
+
+  if (
+    run.runStatus === 'await_response' ||
+    run.runStatus === 'await_approval'
+  ) {
+    return true;
+  }
+
+  return run.runStatus === 'retry_await' && (run.retryAt ?? now + 1) > now;
+}
+
 // ── CriticalPathScheduler ────────────────────────────────────────────
 
 export class CriticalPathScheduler {
@@ -411,32 +433,47 @@ export class CriticalPathScheduler {
 
   prioritizeReadyWork(
     graph: FeatureGraph,
-    _runs: ExecutionRunReader,
+    runs: ExecutionRunReader,
     metrics: GraphMetrics,
     now: number,
     readySince?: Map<string, number>,
   ): SchedulableUnit[] {
     const units: SchedulableUnit[] = [];
 
-    // Collect ready tasks from the graph
+    // Collect ready tasks from the graph.
     for (const task of graph.readyTasks()) {
-      units.push({
-        kind: 'task' as const,
+      const run = runs.getExecutionRun(task.id);
+      if (isBlockedByRun(run, now)) {
+        continue;
+      }
+
+      const unit: SchedulableUnit = {
+        kind: 'task',
         task,
         featureId: task.featureId,
-        readyAt: readySince?.get(task.id) ?? now,
-      });
+        readyAt: now,
+      };
+      unit.readyAt = readySince?.get(schedulableUnitKey(unit)) ?? now;
+      units.push(unit);
     }
 
     // Collect dispatchable feature phases (graph filters to pre/post
     // execution phases whose deps are satisfied).
     for (const feature of graph.readyFeatures()) {
-      units.push({
-        kind: 'feature_phase' as const,
+      const phase = workControlToAgentRunPhase(feature.workControl);
+      const run = runs.getExecutionRun(feature.id, phase);
+      if (isBlockedByRun(run, now)) {
+        continue;
+      }
+
+      const unit: SchedulableUnit = {
+        kind: 'feature_phase',
         feature,
-        phase: workControlToAgentRunPhase(feature.workControl),
-        readyAt: readySince?.get(feature.id) ?? now,
-      });
+        phase,
+        readyAt: now,
+      };
+      unit.readyAt = readySince?.get(schedulableUnitKey(unit)) ?? now;
+      units.push(unit);
     }
 
     // Build reservation overlap set for penalty computation

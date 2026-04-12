@@ -318,8 +318,8 @@ describe('LocalWorkerPool', () => {
     it('aborts all live sessions and empties the pool', async () => {
       const handleA = createMockHandle('sess-a');
       const handleB = createMockHandle('sess-b');
-      const abortA = handleA.abort.bind(handleA);
-      const abortB = handleB.abort.bind(handleB);
+      const abortA = handleA.abort;
+      const abortB = handleB.abort;
 
       const harness = createMockHarness(handleA);
       harness.start = vi
