@@ -1,17 +1,7 @@
-import type {
-  GitConflictContext,
-  GvcConfig,
-  TaskResumeReason,
-  TaskSuspendReason,
-} from '@core/types';
-import type {
-  OrchestratorToWorkerMessage,
-  RuntimeSteeringDirective,
-} from '@runtime';
+import type { GvcConfig } from '@core/types';
 import { WorkerContextBuilder } from '@runtime/context';
-import type { SessionHandle } from '@runtime/harness';
 import { ModelRouter } from '@runtime/routing';
-import { describe, expect, expectTypeOf, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 function makeConfig(overrides: Partial<GvcConfig> = {}): GvcConfig {
   return {
@@ -31,58 +21,6 @@ function makeConfig(overrides: Partial<GvcConfig> = {}): GvcConfig {
 }
 
 describe('worker context builder', () => {
-  it('keeps provider-neutral live operations on session handles', () => {
-    expectTypeOf<SessionHandle>().toMatchTypeOf<{
-      sessionId: string;
-      abort: () => void;
-      sendInput: (text: string) => Promise<void>;
-    }>();
-  });
-
-  it('uses typed IPC steering and suspend/resume reasons', () => {
-    const steerContext: GitConflictContext = {
-      kind: 'same_feature_task_rebase',
-      featureId: 'f-feature-1',
-      taskId: 't-task-1',
-      taskBranch: 'feat-feature-feature-1-task-1',
-      rebaseTarget: 'feat-feature-feature-1',
-      pauseReason: 'same_feature_overlap',
-      files: ['src/core/types/index.ts'],
-    };
-
-    const steerDirective: RuntimeSteeringDirective = {
-      kind: 'conflict_steer',
-      timing: 'immediate',
-      gitConflictContext: steerContext,
-    };
-    const suspendReason: TaskSuspendReason = 'same_feature_overlap';
-    const resumeReason: TaskResumeReason = 'manual';
-
-    const messages: OrchestratorToWorkerMessage[] = [
-      {
-        type: 'steer',
-        taskId: 't-task-1',
-        agentRunId: 'run-1',
-        directive: steerDirective,
-      },
-      {
-        type: 'suspend',
-        taskId: 't-task-1',
-        agentRunId: 'run-1',
-        reason: suspendReason,
-        files: ['src/core/types/index.ts'],
-      },
-      {
-        type: 'resume',
-        taskId: 't-task-1',
-        agentRunId: 'run-1',
-        reason: resumeReason,
-      },
-    ];
-
-    expect(messages).toHaveLength(3);
-  });
-
   it('uses the configured lifecycle stage vocabulary', () => {
     const builder = new WorkerContextBuilder(
       makeConfig({

@@ -6,23 +6,17 @@ import { createListFilesTool } from '@agents/worker/tools/list-files';
 import { createReadFileTool } from '@agents/worker/tools/read-file';
 import { createSearchFilesTool } from '@agents/worker/tools/search-files';
 import { createWriteFileTool } from '@agents/worker/tools/write-file';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
+
+import { useTmpDir } from '../../../../helpers/tmp-dir.js';
 
 describe('worker file-ops tools', () => {
-  let tmpDir: string;
-
-  beforeEach(async () => {
-    tmpDir = await fs.mkdtemp(path.join('/tmp', 'worker-file-ops-'));
-  });
-
-  afterEach(async () => {
-    await fs.rm(tmpDir, { recursive: true, force: true });
-  });
+  const getTmpDir = useTmpDir('worker-file-ops');
 
   describe('read_file', () => {
     it('reads file contents relative to workdir', async () => {
-      await fs.writeFile(path.join(tmpDir, 'hello.txt'), 'world');
-      const tool = createReadFileTool(tmpDir);
+      await fs.writeFile(path.join(getTmpDir(), 'hello.txt'), 'world');
+      const tool = createReadFileTool(getTmpDir());
 
       const result = await tool.execute('call-1', { path: 'hello.txt' });
 
@@ -32,7 +26,7 @@ describe('worker file-ops tools', () => {
     });
 
     it('throws when the file does not exist', async () => {
-      const tool = createReadFileTool(tmpDir);
+      const tool = createReadFileTool(getTmpDir());
       await expect(
         tool.execute('call-1', { path: 'missing.txt' }),
       ).rejects.toThrow();
@@ -41,16 +35,19 @@ describe('worker file-ops tools', () => {
 
   describe('write_file', () => {
     it('creates a new file with content', async () => {
-      const tool = createWriteFileTool(tmpDir);
+      const tool = createWriteFileTool(getTmpDir());
 
       await tool.execute('call-1', { path: 'out.txt', content: 'hello' });
 
-      const written = await fs.readFile(path.join(tmpDir, 'out.txt'), 'utf-8');
+      const written = await fs.readFile(
+        path.join(getTmpDir(), 'out.txt'),
+        'utf-8',
+      );
       expect(written).toBe('hello');
     });
 
     it('creates parent directories', async () => {
-      const tool = createWriteFileTool(tmpDir);
+      const tool = createWriteFileTool(getTmpDir());
 
       await tool.execute('call-1', {
         path: 'nested/deep/file.txt',
@@ -58,19 +55,22 @@ describe('worker file-ops tools', () => {
       });
 
       const written = await fs.readFile(
-        path.join(tmpDir, 'nested/deep/file.txt'),
+        path.join(getTmpDir(), 'nested/deep/file.txt'),
         'utf-8',
       );
       expect(written).toBe('x');
     });
 
     it('overwrites an existing file', async () => {
-      await fs.writeFile(path.join(tmpDir, 'a.txt'), 'old');
-      const tool = createWriteFileTool(tmpDir);
+      await fs.writeFile(path.join(getTmpDir(), 'a.txt'), 'old');
+      const tool = createWriteFileTool(getTmpDir());
 
       await tool.execute('call-1', { path: 'a.txt', content: 'new' });
 
-      const written = await fs.readFile(path.join(tmpDir, 'a.txt'), 'utf-8');
+      const written = await fs.readFile(
+        path.join(getTmpDir(), 'a.txt'),
+        'utf-8',
+      );
       expect(written).toBe('new');
     });
   });
@@ -78,10 +78,10 @@ describe('worker file-ops tools', () => {
   describe('edit_file', () => {
     it('applies an ordered list of replacements', async () => {
       await fs.writeFile(
-        path.join(tmpDir, 'code.ts'),
+        path.join(getTmpDir(), 'code.ts'),
         'const a = 1;\nconst b = 2;\n',
       );
-      const tool = createEditFileTool(tmpDir);
+      const tool = createEditFileTool(getTmpDir());
 
       await tool.execute('call-1', {
         path: 'code.ts',
@@ -91,13 +91,16 @@ describe('worker file-ops tools', () => {
         ],
       });
 
-      const written = await fs.readFile(path.join(tmpDir, 'code.ts'), 'utf-8');
+      const written = await fs.readFile(
+        path.join(getTmpDir(), 'code.ts'),
+        'utf-8',
+      );
       expect(written).toBe('const a = 10;\nconst b = 20;\n');
     });
 
     it('throws when oldText is not found', async () => {
-      await fs.writeFile(path.join(tmpDir, 'code.ts'), 'hello');
-      const tool = createEditFileTool(tmpDir);
+      await fs.writeFile(path.join(getTmpDir(), 'code.ts'), 'hello');
+      const tool = createEditFileTool(getTmpDir());
 
       await expect(
         tool.execute('call-1', {
@@ -108,8 +111,8 @@ describe('worker file-ops tools', () => {
     });
 
     it('throws when oldText matches more than once', async () => {
-      await fs.writeFile(path.join(tmpDir, 'dup.ts'), 'foo\nfoo\n');
-      const tool = createEditFileTool(tmpDir);
+      await fs.writeFile(path.join(getTmpDir(), 'dup.ts'), 'foo\nfoo\n');
+      const tool = createEditFileTool(getTmpDir());
 
       await expect(
         tool.execute('call-1', {
@@ -122,11 +125,11 @@ describe('worker file-ops tools', () => {
 
   describe('list_files', () => {
     it('lists top-level files and directories', async () => {
-      await fs.writeFile(path.join(tmpDir, 'a.txt'), '');
-      await fs.mkdir(path.join(tmpDir, 'sub'));
-      await fs.writeFile(path.join(tmpDir, 'sub', 'b.txt'), '');
+      await fs.writeFile(path.join(getTmpDir(), 'a.txt'), '');
+      await fs.mkdir(path.join(getTmpDir(), 'sub'));
+      await fs.writeFile(path.join(getTmpDir(), 'sub', 'b.txt'), '');
 
-      const tool = createListFilesTool(tmpDir);
+      const tool = createListFilesTool(getTmpDir());
       const result = await tool.execute('call-1', {});
 
       const lines = (result.content[0] as { text: string }).text.split('\n');
@@ -136,10 +139,10 @@ describe('worker file-ops tools', () => {
     });
 
     it('recurses when recursive=true', async () => {
-      await fs.mkdir(path.join(tmpDir, 'sub'));
-      await fs.writeFile(path.join(tmpDir, 'sub', 'b.txt'), '');
+      await fs.mkdir(path.join(getTmpDir(), 'sub'));
+      await fs.writeFile(path.join(getTmpDir(), 'sub', 'b.txt'), '');
 
-      const tool = createListFilesTool(tmpDir);
+      const tool = createListFilesTool(getTmpDir());
       const result = await tool.execute('call-1', { recursive: true });
 
       const lines = (result.content[0] as { text: string }).text.split('\n');
@@ -147,10 +150,10 @@ describe('worker file-ops tools', () => {
     });
 
     it('skips ignored directories', async () => {
-      await fs.mkdir(path.join(tmpDir, 'node_modules'));
-      await fs.writeFile(path.join(tmpDir, 'node_modules', 'x.js'), '');
+      await fs.mkdir(path.join(getTmpDir(), 'node_modules'));
+      await fs.writeFile(path.join(getTmpDir(), 'node_modules', 'x.js'), '');
 
-      const tool = createListFilesTool(tmpDir);
+      const tool = createListFilesTool(getTmpDir());
       const result = await tool.execute('call-1', { recursive: true });
 
       const text = (result.content[0] as { text: string }).text;
@@ -161,12 +164,12 @@ describe('worker file-ops tools', () => {
   describe('search_files', () => {
     it('finds matching lines with path and line number', async () => {
       await fs.writeFile(
-        path.join(tmpDir, 'a.ts'),
+        path.join(getTmpDir(), 'a.ts'),
         'const foo = 1;\nconst bar = 2;\n',
       );
-      await fs.writeFile(path.join(tmpDir, 'b.ts'), 'const foo = 3;\n');
+      await fs.writeFile(path.join(getTmpDir(), 'b.ts'), 'const foo = 3;\n');
 
-      const tool = createSearchFilesTool(tmpDir);
+      const tool = createSearchFilesTool(getTmpDir());
       const result = await tool.execute('call-1', { pattern: 'foo' });
 
       const text = (result.content[0] as { text: string }).text;
@@ -176,9 +179,9 @@ describe('worker file-ops tools', () => {
     });
 
     it('truncates at maxResults', async () => {
-      await fs.writeFile(path.join(tmpDir, 'big.txt'), 'x\nx\nx\nx\nx\n');
+      await fs.writeFile(path.join(getTmpDir(), 'big.txt'), 'x\nx\nx\nx\nx\n');
 
-      const tool = createSearchFilesTool(tmpDir);
+      const tool = createSearchFilesTool(getTmpDir());
       const result = await tool.execute('call-1', {
         pattern: 'x',
         maxResults: 2,
@@ -189,7 +192,7 @@ describe('worker file-ops tools', () => {
     });
 
     it('rejects invalid regex', async () => {
-      const tool = createSearchFilesTool(tmpDir);
+      const tool = createSearchFilesTool(getTmpDir());
       await expect(
         tool.execute('call-1', { pattern: '[unclosed' }),
       ).rejects.toThrow(/invalid regex/);

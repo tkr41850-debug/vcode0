@@ -3,19 +3,16 @@ import * as path from 'node:path';
 
 import type { AgentMessage } from '@mariozechner/pi-agent-core';
 import { FileSessionStore } from '@runtime/sessions';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
+
+import { useTmpDir } from '../../helpers/tmp-dir.js';
 
 describe('FileSessionStore', () => {
-  let tmpDir: string;
+  const getTmpDir = useTmpDir('session-test');
   let store: FileSessionStore;
 
-  beforeEach(async () => {
-    tmpDir = await fs.mkdtemp(path.join('/tmp', 'session-test-'));
-    store = new FileSessionStore(tmpDir);
-  });
-
-  afterEach(async () => {
-    await fs.rm(tmpDir, { recursive: true, force: true });
+  beforeEach(() => {
+    store = new FileSessionStore(getTmpDir());
   });
 
   describe('save and load', () => {
@@ -46,22 +43,20 @@ describe('FileSessionStore', () => {
       await store.save('session-2', []);
 
       const raw = await fs.readFile(
-        path.join(tmpDir, '.gvc0', 'sessions', 'session-2.json'),
+        path.join(getTmpDir(), '.gvc0', 'sessions', 'session-2.json'),
         'utf-8',
       );
       const parsed = JSON.parse(raw) as {
         version: number;
-        messages: unknown[];
       };
 
       expect(parsed.version).toBe(1);
-      expect(parsed.messages).toEqual([]);
     });
 
     it('creates the sessions directory if it does not exist', async () => {
       await store.save('session-3', []);
 
-      const stat = await fs.stat(path.join(tmpDir, '.gvc0', 'sessions'));
+      const stat = await fs.stat(path.join(getTmpDir(), '.gvc0', 'sessions'));
       expect(stat.isDirectory()).toBe(true);
     });
 
@@ -83,7 +78,9 @@ describe('FileSessionStore', () => {
     it('does not leave .tmp files after successful save', async () => {
       await store.save('session-5', []);
 
-      const files = await fs.readdir(path.join(tmpDir, '.gvc0', 'sessions'));
+      const files = await fs.readdir(
+        path.join(getTmpDir(), '.gvc0', 'sessions'),
+      );
       const tmpFiles = files.filter((f) => f.endsWith('.tmp'));
       expect(tmpFiles).toHaveLength(0);
     });

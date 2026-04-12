@@ -48,8 +48,7 @@ describe('buildWorkerToolset', () => {
       workdir: '/tmp',
       projectRoot: '/tmp',
     };
-    const a = buildWorkerToolset(deps);
-    const b = buildWorkerToolset(deps);
-    expect(a).not.toBe(b);
+
+    expect(buildWorkerToolset(deps)).not.toBe(buildWorkerToolset(deps));
   });
 });

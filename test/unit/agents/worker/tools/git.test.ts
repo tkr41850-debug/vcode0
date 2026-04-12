@@ -4,7 +4,9 @@ import * as path from 'node:path';
 import { createGitDiffTool } from '@agents/worker/tools/git-diff';
 import { createGitStatusTool } from '@agents/worker/tools/git-status';
 import { simpleGit } from 'simple-git';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
+
+import { useTmpDir } from '../../../../helpers/tmp-dir.js';
 
 async function initRepo(dir: string): Promise<void> {
   const git = simpleGit(dir);
@@ -14,28 +16,23 @@ async function initRepo(dir: string): Promise<void> {
 }
 
 describe('worker git tools', () => {
-  let tmpDir: string;
+  const getTmpDir = useTmpDir('worker-git');
 
   beforeEach(async () => {
-    tmpDir = await fs.mkdtemp(path.join('/tmp', 'worker-git-'));
-    await initRepo(tmpDir);
-  });
-
-  afterEach(async () => {
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await initRepo(getTmpDir());
   });
 
   describe('git_status', () => {
     it('reports a clean repo', async () => {
-      const tool = createGitStatusTool(tmpDir);
+      const tool = createGitStatusTool(getTmpDir());
       const result = await tool.execute('call-1', {});
       expect(result.details.isClean).toBe(true);
     });
 
     it('reports untracked files', async () => {
-      await fs.writeFile(path.join(tmpDir, 'new.txt'), 'x');
+      await fs.writeFile(path.join(getTmpDir(), 'new.txt'), 'x');
 
-      const tool = createGitStatusTool(tmpDir);
+      const tool = createGitStatusTool(getTmpDir());
       const result = await tool.execute('call-1', {});
 
       const text = (result.content[0] as { text: string }).text;
@@ -47,14 +44,14 @@ describe('worker git tools', () => {
 
   describe('git_diff', () => {
     it('returns diff for working-tree changes against HEAD', async () => {
-      await fs.writeFile(path.join(tmpDir, 'a.txt'), 'one\n');
-      const git = simpleGit(tmpDir);
+      await fs.writeFile(path.join(getTmpDir(), 'a.txt'), 'one\n');
+      const git = simpleGit(getTmpDir());
       await git.add('.');
       await git.commit('init');
 
-      await fs.writeFile(path.join(tmpDir, 'a.txt'), 'two\n');
+      await fs.writeFile(path.join(getTmpDir(), 'a.txt'), 'two\n');
 
-      const tool = createGitDiffTool(tmpDir);
+      const tool = createGitDiffTool(getTmpDir());
       const result = await tool.execute('call-1', {});
 
       const text = (result.content[0] as { text: string }).text;

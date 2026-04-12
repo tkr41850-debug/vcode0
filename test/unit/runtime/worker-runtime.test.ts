@@ -1,4 +1,9 @@
-import type { Task, TaskId } from '@core/types';
+import type {
+  Task,
+  TaskId,
+  TaskResumeReason,
+  TaskSuspendReason,
+} from '@core/types';
 import type { WorkerContext } from '@runtime/context';
 import type {
   OrchestratorToWorkerMessage,
@@ -9,11 +14,17 @@ import type { SessionHandle, SessionHarness } from '@runtime/harness';
 import { LocalWorkerPool } from '@runtime/worker-pool';
 import { describe, expect, it, vi } from 'vitest';
 
-// ── Test Doubles ─────────────────────────────────────────────────────────────
+import { createTaskFixture } from '../../helpers/graph-builders.js';
 
 interface MockHandle extends SessionHandle {
   _sentMessages: OrchestratorToWorkerMessage[];
   _emitWorkerMessage: (msg: WorkerToOrchestratorMessage) => void;
+}
+
+interface PoolTestSetup {
+  handle: MockHandle;
+  harness: SessionHarness & { lastStartContext: WorkerContext | undefined };
+  pool: LocalWorkerPool;
 }
 
 function createMockHandle(sessionId = 'sess-1'): MockHandle {
@@ -60,25 +71,31 @@ function createMockHarness(
 }
 
 function makeTask(id: TaskId = 't-task-1'): Task {
-  return {
+  return createTaskFixture({
     id,
     featureId: 'f-feature-1',
     orderInFeature: 1,
     description: 'Test task',
-    dependsOn: [],
     status: 'running',
     collabControl: 'branch_open',
-  };
+  });
 }
 
-// ── LocalWorkerPool ──────────────────────────────────────────────────────────
+function setupPool(
+  sessionId = 'sess-1',
+  maxConcurrency = 4,
+  onTaskComplete?: (msg: WorkerToOrchestratorMessage) => void,
+): PoolTestSetup {
+  const handle = createMockHandle(sessionId);
+  const harness = createMockHarness(handle);
+  const pool = new LocalWorkerPool(harness, maxConcurrency, onTaskComplete);
+  return { handle, harness, pool };
+}
 
 describe('LocalWorkerPool', () => {
   describe('dispatchTask (start mode)', () => {
     it('starts a task and returns started result with sessionId', async () => {
-      const handle = createMockHandle('sess-new');
-      const harness = createMockHarness(handle);
-      const pool = new LocalWorkerPool(harness, 4);
+      const { pool } = setupPool('sess-new');
 
       const result = await pool.dispatchTask(makeTask(), {
         mode: 'start',
@@ -92,13 +109,12 @@ describe('LocalWorkerPool', () => {
     });
 
     it('passes context to the harness start call', async () => {
-      const harness = createMockHarness();
-      const pool = new LocalWorkerPool(harness, 4);
+      const { harness, pool } = setupPool();
 
-      const context: WorkerContext = {
+      const context = {
         strategy: 'fresh',
         planSummary: 'build stuff',
-      };
+      } satisfies WorkerContext;
 
       await pool.dispatchTask(
         makeTask(),
@@ -110,8 +126,7 @@ describe('LocalWorkerPool', () => {
     });
 
     it('defaults context to shared-summary when not provided', async () => {
-      const harness = createMockHarness();
-      const pool = new LocalWorkerPool(harness, 4);
+      const { harness, pool } = setupPool();
 
       await pool.dispatchTask(makeTask(), {
         mode: 'start',
@@ -124,8 +139,7 @@ describe('LocalWorkerPool', () => {
     });
 
     it('tracks the task in live runs after dispatch', async () => {
-      const harness = createMockHarness();
-      const pool = new LocalWorkerPool(harness, 4);
+      const { pool } = setupPool();
 
       await pool.dispatchTask(makeTask(), {
         mode: 'start',
@@ -138,9 +152,7 @@ describe('LocalWorkerPool', () => {
 
   describe('dispatchTask (resume mode)', () => {
     it('resumes a task and returns resumed result', async () => {
-      const handle = createMockHandle('sess-old');
-      const harness = createMockHarness(handle);
-      const pool = new LocalWorkerPool(harness, 4);
+      const { pool } = setupPool('sess-old');
 
       const result = await pool.dispatchTask(makeTask(), {
         mode: 'resume',
@@ -153,7 +165,7 @@ describe('LocalWorkerPool', () => {
     });
 
     it('returns not_resumable when harness cannot resume', async () => {
-      const harness = createMockHarness();
+      const { harness, pool } = setupPool();
       harness.resume = vi.fn(() =>
         Promise.resolve({
           kind: 'not_resumable' as const,
@@ -161,7 +173,6 @@ describe('LocalWorkerPool', () => {
           reason: 'session_not_found' as const,
         }),
       );
-      const pool = new LocalWorkerPool(harness, 4);
 
       const result = await pool.dispatchTask(makeTask(), {
         mode: 'resume',
@@ -178,9 +189,7 @@ describe('LocalWorkerPool', () => {
 
   describe('steerTask', () => {
     it('delivers a steering directive to a running task', async () => {
-      const handle = createMockHandle('sess-steer');
-      const harness = createMockHarness(handle);
-      const pool = new LocalWorkerPool(harness, 4);
+      const { handle, pool } = setupPool('sess-steer');
 
       await pool.dispatchTask(makeTask(), {
         mode: 'start',
@@ -200,8 +209,7 @@ describe('LocalWorkerPool', () => {
     });
 
     it('returns not_running for an unknown task', async () => {
-      const harness = createMockHarness();
-      const pool = new LocalWorkerPool(harness, 4);
+      const { pool } = setupPool();
 
       const result = await pool.steerTask('t-unknown', {
         kind: 'sync_required',
@@ -214,61 +222,56 @@ describe('LocalWorkerPool', () => {
 
   describe('suspendTask', () => {
     it('delivers suspend to a running task', async () => {
-      const handle = createMockHandle('sess-susp');
-      const harness = createMockHarness(handle);
-      const pool = new LocalWorkerPool(harness, 4);
+      const { handle, pool } = setupPool('sess-susp');
 
       await pool.dispatchTask(makeTask(), {
         mode: 'start',
         agentRunId: 'run-1',
       });
 
-      const result = await pool.suspendTask(
-        't-task-1',
-        'same_feature_overlap',
-        ['src/index.ts'],
-      );
+      const reason: TaskSuspendReason = 'same_feature_overlap';
+      const result = await pool.suspendTask('t-task-1', reason, [
+        'src/index.ts',
+      ]);
       expect(result.kind).toBe('delivered');
       expect(handle._sentMessages).toContainEqual(
         expect.objectContaining({
           type: 'suspend',
-          reason: 'same_feature_overlap',
+          reason,
           files: ['src/index.ts'],
         }),
       );
     });
 
     it('returns not_running for unknown task', async () => {
-      const pool = new LocalWorkerPool(createMockHarness(), 4);
-      const result = await pool.suspendTask('t-ghost', 'cross_feature_overlap');
+      const { pool } = setupPool();
+      const reason: TaskSuspendReason = 'cross_feature_overlap';
+      const result = await pool.suspendTask('t-ghost', reason);
       expect(result.kind).toBe('not_running');
     });
   });
 
   describe('resumeTask', () => {
     it('delivers resume to a running task', async () => {
-      const handle = createMockHandle('sess-res');
-      const harness = createMockHarness(handle);
-      const pool = new LocalWorkerPool(harness, 4);
+      const { handle, pool } = setupPool('sess-res');
 
       await pool.dispatchTask(makeTask(), {
         mode: 'start',
         agentRunId: 'run-1',
       });
 
-      const result = await pool.resumeTask('t-task-1', 'manual');
+      const reason: TaskResumeReason = 'manual';
+      const result = await pool.resumeTask('t-task-1', reason);
       expect(result.kind).toBe('delivered');
       expect(handle._sentMessages).toContainEqual(
-        expect.objectContaining({ type: 'resume', reason: 'manual' }),
+        expect.objectContaining({ type: 'resume', reason }),
       );
     });
   });
 
   describe('abortTask', () => {
     it('aborts a running task and removes it from live runs', async () => {
-      const handle = createMockHandle('sess-abort');
-      const harness = createMockHarness(handle);
-      const pool = new LocalWorkerPool(harness, 4);
+      const { handle, pool } = setupPool('sess-abort');
 
       await pool.dispatchTask(makeTask(), {
         mode: 'start',
@@ -277,13 +280,12 @@ describe('LocalWorkerPool', () => {
 
       const result = await pool.abortTask('t-task-1');
       expect(result.kind).toBe('delivered');
-      // eslint-disable-next-line @typescript-eslint/unbound-method -- reading a vi.fn() mock, not calling the method
       expect(handle.abort).toHaveBeenCalled();
       expect(pool.idleWorkerCount()).toBe(4);
     });
 
     it('returns not_running for an already-completed task', async () => {
-      const pool = new LocalWorkerPool(createMockHarness(), 4);
+      const { pool } = setupPool();
       const result = await pool.abortTask('t-gone');
       expect(result.kind).toBe('not_running');
     });
@@ -291,13 +293,12 @@ describe('LocalWorkerPool', () => {
 
   describe('idleWorkerCount', () => {
     it('returns max concurrency when no tasks are running', () => {
-      const pool = new LocalWorkerPool(createMockHarness(), 6);
+      const { pool } = setupPool('sess-1', 6);
       expect(pool.idleWorkerCount()).toBe(6);
     });
 
     it('decreases as tasks are dispatched', async () => {
-      const harness = createMockHarness();
-      const pool = new LocalWorkerPool(harness, 3);
+      const { pool } = setupPool('sess-1', 3);
 
       await pool.dispatchTask(makeTask('t-a'), {
         mode: 'start',
@@ -316,6 +317,8 @@ describe('LocalWorkerPool', () => {
     it('aborts all live sessions and empties the pool', async () => {
       const handleA = createMockHandle('sess-a');
       const handleB = createMockHandle('sess-b');
+      const abortA = handleA.abort;
+      const abortB = handleB.abort;
 
       const harness = createMockHarness(handleA);
       harness.start = vi
@@ -336,21 +339,16 @@ describe('LocalWorkerPool', () => {
 
       await pool.stopAll();
 
-      // eslint-disable-next-line @typescript-eslint/unbound-method -- reading a vi.fn() mock, not calling the method
-      expect(handleA.abort).toHaveBeenCalled();
-      // eslint-disable-next-line @typescript-eslint/unbound-method -- reading a vi.fn() mock, not calling the method
-      expect(handleB.abort).toHaveBeenCalled();
+      expect(abortA).toHaveBeenCalled();
+      expect(abortB).toHaveBeenCalled();
       expect(pool.idleWorkerCount()).toBe(4);
     });
   });
 
   describe('onTaskComplete callback', () => {
     it('fires callback on terminal result message', async () => {
-      const handle = createMockHandle('sess-cb');
-      const harness = createMockHarness(handle);
-
       const completedMessages: WorkerToOrchestratorMessage[] = [];
-      const pool = new LocalWorkerPool(harness, 4, (msg) =>
+      const { handle, pool } = setupPool('sess-cb', 4, (msg) =>
         completedMessages.push(msg),
       );
 
@@ -382,11 +380,8 @@ describe('LocalWorkerPool', () => {
     });
 
     it('fires callback on error message and cleans up', async () => {
-      const handle = createMockHandle('sess-err');
-      const harness = createMockHarness(handle);
-
       const completedMessages: WorkerToOrchestratorMessage[] = [];
-      const pool = new LocalWorkerPool(harness, 4, (msg) =>
+      const { handle, pool } = setupPool('sess-err', 4, (msg) =>
         completedMessages.push(msg),
       );
 
@@ -409,11 +404,10 @@ describe('LocalWorkerPool', () => {
     });
 
     it('fires callback for non-terminal messages without cleanup', async () => {
-      const handle = createMockHandle('sess-progress');
-      const harness = createMockHarness(handle);
-
       const messages: WorkerToOrchestratorMessage[] = [];
-      const pool = new LocalWorkerPool(harness, 4, (msg) => messages.push(msg));
+      const { handle, pool } = setupPool('sess-progress', 4, (msg) =>
+        messages.push(msg),
+      );
 
       await pool.dispatchTask(makeTask(), {
         mode: 'start',

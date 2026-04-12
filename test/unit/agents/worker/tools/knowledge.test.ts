@@ -3,28 +3,22 @@ import * as path from 'node:path';
 
 import { createAppendKnowledgeTool } from '@agents/worker/tools/append-knowledge';
 import { createRecordDecisionTool } from '@agents/worker/tools/record-decision';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
+
+import { useTmpDir } from '../../../../helpers/tmp-dir.js';
 
 describe('worker knowledge tools', () => {
-  let tmpDir: string;
-
-  beforeEach(async () => {
-    tmpDir = await fs.mkdtemp(path.join('/tmp', 'worker-knowledge-'));
-  });
-
-  afterEach(async () => {
-    await fs.rm(tmpDir, { recursive: true, force: true });
-  });
+  const getTmpDir = useTmpDir('worker-knowledge');
 
   describe('append_knowledge', () => {
     it('appends to .gvc0/KNOWLEDGE.md, creating the directory', async () => {
-      const tool = createAppendKnowledgeTool(tmpDir);
+      const tool = createAppendKnowledgeTool(getTmpDir());
 
       await tool.execute('call-1', { entry: 'always run tests' });
       await tool.execute('call-2', { entry: 'never commit secrets' });
 
       const contents = await fs.readFile(
-        path.join(tmpDir, '.gvc0', 'KNOWLEDGE.md'),
+        path.join(getTmpDir(), '.gvc0', 'KNOWLEDGE.md'),
         'utf-8',
       );
       expect(contents).toContain('always run tests');
@@ -34,7 +28,7 @@ describe('worker knowledge tools', () => {
 
   describe('record_decision', () => {
     it('appends a decision with rationale and timestamp marker', async () => {
-      const tool = createRecordDecisionTool(tmpDir);
+      const tool = createRecordDecisionTool(getTmpDir());
 
       await tool.execute('call-1', {
         decision: 'use sqlite',
@@ -42,7 +36,7 @@ describe('worker knowledge tools', () => {
       });
 
       const contents = await fs.readFile(
-        path.join(tmpDir, '.gvc0', 'DECISIONS.md'),
+        path.join(getTmpDir(), '.gvc0', 'DECISIONS.md'),
         'utf-8',
       );
       expect(contents).toContain('## use sqlite');

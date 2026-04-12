@@ -2,21 +2,15 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
 import { createRunCommandTool } from '@agents/worker/tools/run-command';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
+
+import { useTmpDir } from '../../../../helpers/tmp-dir.js';
 
 describe('run_command tool', () => {
-  let tmpDir: string;
-
-  beforeEach(async () => {
-    tmpDir = await fs.mkdtemp(path.join('/tmp', 'worker-run-command-'));
-  });
-
-  afterEach(async () => {
-    await fs.rm(tmpDir, { recursive: true, force: true });
-  });
+  const getTmpDir = useTmpDir('worker-run-command');
 
   it('captures stdout and exit 0', async () => {
-    const tool = createRunCommandTool(tmpDir);
+    const tool = createRunCommandTool(getTmpDir());
     const result = await tool.execute('call-1', { command: 'echo hello' });
 
     const text = (result.content[0] as { text: string }).text;
@@ -26,7 +20,7 @@ describe('run_command tool', () => {
   });
 
   it('captures stderr and nonzero exit', async () => {
-    const tool = createRunCommandTool(tmpDir);
+    const tool = createRunCommandTool(getTmpDir());
     const result = await tool.execute('call-1', {
       command: 'echo oops 1>&2; exit 3',
     });
@@ -38,9 +32,9 @@ describe('run_command tool', () => {
   });
 
   it('runs in the provided working directory', async () => {
-    await fs.writeFile(path.join(tmpDir, 'marker.txt'), 'here');
+    await fs.writeFile(path.join(getTmpDir(), 'marker.txt'), 'here');
 
-    const tool = createRunCommandTool(tmpDir);
+    const tool = createRunCommandTool(getTmpDir());
     const result = await tool.execute('call-1', { command: 'ls marker.txt' });
 
     const text = (result.content[0] as { text: string }).text;
@@ -48,7 +42,7 @@ describe('run_command tool', () => {
   });
 
   it('reports timeout when the command overruns', async () => {
-    const tool = createRunCommandTool(tmpDir);
+    const tool = createRunCommandTool(getTmpDir());
     const result = await tool.execute('call-1', {
       command: 'sleep 5',
       timeoutMs: 50,
