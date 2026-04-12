@@ -14,6 +14,7 @@ Start with [ARCHITECTURE.md](../../ARCHITECTURE.md) for the system-wide map, the
 - [src/runtime/README.md](../../src/runtime/README.md) — worker lifecycle, IPC, harnessing, and local execution.
 - [src/persistence/README.md](../../src/persistence/README.md) — database-backed state storage and migrations.
 - [src/agents/README.md](../../src/agents/README.md) — planner/replanner logic, prompts, and graph-mutation tools.
+- [src/agents/worker/README.md](../../src/agents/worker/README.md) — worker agent tool catalog and toolset factory.
 - [src/tui/README.md](../../src/tui/README.md) — terminal UI shell, derived view state, and TUI commands.
 
 ## When to Use These

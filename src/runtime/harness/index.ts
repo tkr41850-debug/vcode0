@@ -124,6 +124,10 @@ export class PiSdkHarness implements SessionHarness {
       cwd,
       stdio: ['pipe', 'pipe', 'inherit'],
       execArgv: ['--import', 'tsx'],
+      env: {
+        ...process.env,
+        GVC0_PROJECT_ROOT: this.projectRoot,
+      },
     });
 
     if (child.stdin === null || child.stdout === null) {

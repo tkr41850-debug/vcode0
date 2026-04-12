@@ -28,39 +28,47 @@ Illustrative `CODEBASE.md` outline:
 
 Append-only file at `.gvc0/KNOWLEDGE.md`. Workers read it at task start (injected into system prompt). Workers append to it when they discover recurring patterns, non-obvious constraints, or rules future tasks should follow.
 
+The `append_knowledge` worker tool lives in [`src/agents/worker/tools/append-knowledge.ts`](../../src/agents/worker/tools/append-knowledge.ts) and follows pi-sdk's `AgentTool` shape:
+
 ```typescript
-// Tool available to all workers
-const appendKnowledgeTool: AgentTool = {
-  name: "append_knowledge",
-  description: "Record a project rule, pattern, or lesson for future tasks.",
-  schema: Type.Object({ entry: Type.String() }), // pi-sdk tool schema shape
-  execute: async (_, { entry }) => {
-    await fs.appendFile(".gvc0/KNOWLEDGE.md", `\n- ${entry}\n`);
-    return { content: [{ type: "text", text: "Recorded." }], details: {} };
-  },
-};
+const parameters = Type.Object({
+  entry: Type.String({ description: "Markdown-formatted lesson or pattern." }),
+});
+
+export function createAppendKnowledgeTool(projectRoot: string): AgentTool {
+  return {
+    name: "append_knowledge",
+    label: "Append Knowledge",
+    description: "Append a lesson or pattern to .gvc0/KNOWLEDGE.md.",
+    parameters,
+    execute: async (_toolCallId, params) => { /* append to .gvc0/KNOWLEDGE.md */ },
+  };
+}
 ```
 
-The `Type.Object(...)` / `Type.String(...)` examples in this doc intentionally match the schema style expected by pi-sdk's agent tool definitions; gvc0 should follow that same harness/tool-contract style for first-party tools.
+The `Type.Object(...)` / `Type.String(...)` examples in this doc intentionally match the schema style expected by pi-sdk's agent tool definitions (`parameters:`, not `schema:`); gvc0 should follow that same harness/tool-contract style for first-party tools.
 
 ## Decisions Register
 
 Append-only file at `.gvc0/DECISIONS.md`. Records significant architectural decisions made during execution. Prevents parallel workers from making contradictory choices.
 
+The `record_decision` worker tool lives in [`src/agents/worker/tools/record-decision.ts`](../../src/agents/worker/tools/record-decision.ts):
+
 ```typescript
-const recordDecisionTool: AgentTool = {
-  name: "record_decision",
-  description: "Record an architectural decision that other tasks should respect.",
-  schema: Type.Object({
-    decision: Type.String(),
-    rationale: Type.String(),
-  }),
-  execute: async (_, { decision, rationale }) => {
-    const entry = `\n## ${new Date().toISOString()}\n**Decision:** ${decision}\n**Rationale:** ${rationale}\n`;
-    await fs.appendFile(".gvc0/DECISIONS.md", entry);
-    return { content: [{ type: "text", text: "Decision recorded." }], details: {} };
-  },
-};
+const parameters = Type.Object({
+  decision: Type.String({ description: "Short headline for the decision." }),
+  rationale: Type.String({ description: "Why this decision was made." }),
+});
+
+export function createRecordDecisionTool(projectRoot: string): AgentTool {
+  return {
+    name: "record_decision",
+    label: "Record Decision",
+    description: "Append an architectural decision and its rationale to .gvc0/DECISIONS.md.",
+    parameters,
+    execute: async (_toolCallId, params) => { /* append to .gvc0/DECISIONS.md */ },
+  };
+}
 ```
 
 Both files are injected into `WorkerContext` under the `standard` and `quality` token profiles by default. Whether `KNOWLEDGE.md`, `DECISIONS.md`, and `CODEBASE.md` are included for a given stage is ultimately controlled by the `context.defaults` / `context.stages[...]` config described in [Worker Model](../worker-model.md).
