@@ -170,7 +170,7 @@ type WorkerToOrchestratorMessage =
       type: "request_approval";
       taskId: string;
       agentRunId: string;
-      payloadJson: string;
+      payload: ApprovalPayload;
     }
   | {
       type: "assistant_output";
@@ -393,6 +393,8 @@ interface SessionHandle {
   sessionId: string;
   abort(): void;
   sendInput(text: string): Promise<void>;
+  send(message: OrchestratorToWorkerMessage): void;
+  onWorkerMessage(handler: (message: WorkerToOrchestratorMessage) => void): void;
 }
 
 type ResumeSessionResult =
