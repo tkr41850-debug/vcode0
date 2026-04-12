@@ -3,7 +3,8 @@ import {
   type SpawnOptions,
   spawn,
 } from 'node:child_process';
-import { join } from 'node:path';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type {
   Task,
   TaskResumeReason,
@@ -47,11 +48,17 @@ interface LiveWorker {
 }
 
 function defaultSpawnCommand(): WorkerSpawnCommand {
-  const entryPath = join(process.cwd(), 'src', 'runtime', 'worker', 'entry.ts');
+  // Resolve the worker entry and repo root relative to this source file so
+  // the pool works regardless of the caller's cwd (e.g. integration tests
+  // that chdir into a tmp directory without a local node_modules).
+  const here = dirname(fileURLToPath(import.meta.url));
+  const entryPath = resolve(here, 'worker', 'entry.ts');
+  const repoRoot = resolve(here, '..', '..');
   return {
     command: 'npx',
     args: ['tsx', entryPath],
     options: {
+      cwd: repoRoot,
       stdio: ['pipe', 'pipe', 'pipe'],
     },
   };
