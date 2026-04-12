@@ -50,21 +50,14 @@ describe('composeApplication() bootstrap', () => {
     expect(existsSync(join(tempDir, '.gvc0', 'state.db'))).toBe(true);
   });
 
-  it('stub git port throws NotYetWiredError when used', async () => {
+  it('wires LocalGitPort (git.mergeFeatureBranch is no longer stubbed)', () => {
     const app = composeApplication({ ui: new StubUiPort() });
-    // Reach into ports via cast — this is an integration check that the stub
-    // is in place, not part of the public API.
     const ports = (
       app as unknown as {
-        ports: { git: { mergeFeatureBranch: (req: unknown) => Promise<void> } };
+        ports: { git: { constructor: { name: string } } };
       }
     ).ports;
-    await expect(
-      ports.git.mergeFeatureBranch({
-        featureId: 'f-1',
-        branchName: 'feat-f-1',
-      }),
-    ).rejects.toBeInstanceOf(NotYetWiredError);
+    expect(ports.git.constructor.name).toBe('LocalGitPort');
   });
 
   it('stub runtime port throws NotYetWiredError on dispatch but stops cleanly', async () => {

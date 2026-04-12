@@ -1,7 +1,8 @@
 import type { AgentPort } from '@agents';
 import { GvcApplication } from '@app/index';
-import { StubAgentPort, StubGitPort, StubRuntimePort } from '@app/stub-ports';
+import { StubAgentPort, StubRuntimePort } from '@app/stub-ports';
 import type { GvcConfig } from '@core/types/index';
+import { LocalGitPort } from '@git/local-git-port';
 import type { OrchestratorPorts, UiPort } from '@orchestrator/ports/index';
 import { SqliteStore } from '@persistence/sqlite';
 import { TuiApp } from '@tui/app';
@@ -35,7 +36,7 @@ export function composeApplication(
 
   const ports: OrchestratorPorts = {
     store,
-    git: new StubGitPort(),
+    git: new LocalGitPort(),
     runtime: new StubRuntimePort(),
     // StubAgentPort implements both PlannerAgent and ReplannerAgent surfaces.
     agents: new StubAgentPort() as unknown as AgentPort,
