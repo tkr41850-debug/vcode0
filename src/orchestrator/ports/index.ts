@@ -19,18 +19,17 @@ export interface EventQuery {
 
 export interface Store {
   // Agent runs
-  getAgentRun(id: string): Promise<AgentRun | undefined>;
-  listAgentRuns(query?: AgentRunQuery): Promise<AgentRun[]>;
-  loadAgentRuns(): Promise<AgentRun[]>;
-  createAgentRun(run: AgentRun): Promise<void>;
+  getAgentRun(id: string): AgentRun | undefined;
+  listAgentRuns(query?: AgentRunQuery): AgentRun[];
+  createAgentRun(run: AgentRun): void;
   updateAgentRun(
     runId: string,
     patch: Partial<Omit<AgentRun, 'id' | 'scopeType' | 'scopeId'>>,
-  ): Promise<void>;
+  ): void;
 
   // Events
-  listEvents(query?: EventQuery): Promise<EventRecord[]>;
-  appendEvent(event: EventRecord): Promise<void>;
+  listEvents(query?: EventQuery): EventRecord[];
+  appendEvent(event: EventRecord): void;
 }
 
 export interface UiPort {
