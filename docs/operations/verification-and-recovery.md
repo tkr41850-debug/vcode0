@@ -228,13 +228,15 @@ Manual drop-in interaction uses the same runtime control path: the orchestrator 
 
 Replanning is triggered manually (user presses `p` on a stuck/conflicted feature) or automatically when a feature cannot integrate cleanly after repair attempts.
 
-The replanner is a pi-sdk `Agent` with the same feature-graph tools as the planner, plus read access to the current graph state and the failure context. It can:
+The replanner is a pi-sdk `Agent` with the same proposal-graph tools as the planner, plus read access to the current graph state and the failure context. It can:
 - Split the failed feature into smaller subfeatures
-- Add/remove dependencies
+- Add/remove/change dependencies
 - Edit task descriptions
 - Cancel the feature and add an alternative
 
-A replanning proposal is stored in `payload_json` and surfaced as `await_approval`. If the user approves it, the graph mutation is applied and the original stuck task returns to `ready` unless the approved plan explicitly replaces or cancels that task.
+Like planning, replanning operates on a temporary proposal graph rather than mutating the authoritative graph directly. Each tool call updates only the proposal graph and appends a tracked modification record so the resulting draft can be reviewed as both a graph snapshot and a mutation log.
+
+A replanning proposal is stored in `payload_json` and surfaced as `await_approval`. If the user approves it, the recorded graph mutation sequence is applied to the authoritative graph and the original stuck task returns to `ready` unless the approved plan explicitly replaces or cancels that task. If the user rejects it, the authoritative graph stays unchanged.
 
 ```typescript
 // Replanner prompt includes:

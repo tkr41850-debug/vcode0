@@ -2,15 +2,21 @@
 
 See [ARCHITECTURE.md](../../ARCHITECTURE.md) for the high-level architecture overview.
 
-## Planner: Tool-Call Output Format
+## Planner: Proposal-Graph Tool Model
 
 The planner is a pi-sdk `Agent` with access to the
 feature-graph mutation tools.
-It builds the DAG incrementally via tool calls rather than
-emitting a JSON blob.
+It builds a **temporary proposal graph** incrementally via tool
+calls rather than emitting a single JSON blob.
 This means the graph is validated as it's constructed
 (no cycles, referential integrity) and the planner can
-reason step-by-step.
+reason step-by-step, while the authoritative graph remains
+unchanged until a human approves the proposal.
+
+Each tool call mutates only the in-memory proposal graph and is
+recorded as an ordered graph-modification step that can later be
+reviewed, approved, or rejected. The proposal should retain both
+its resulting graph snapshot and the mutation log that produced it.
 
 ```typescript
 // Tools exposed to the planner agent
@@ -19,19 +25,27 @@ const plannerTools: AgentTool[] = [
   createFeatureTool,     // createFeature(milestoneId, name, description, dependsOn[]) → Feature
   createTaskTool,        // createTask(featureId, description, dependsOn[]) → Task
   addDependencyTool,     // addDependency(fromId, toId) → void
-  submitPlanTool,        // submit() → signals planner is done
+  removeDependencyTool,  // removeDependency(fromId, toId) → void
+  updateTaskTool,        // updateTask(id, patch) → Task
+  submitPlanTool,        // submit() → finalize proposal for approval
 ];
 ```
 
 The planner receives the spec text as its prompt
-and calls these tools to build the graph.
-The orchestrator watches the graph grow in real time
-and renders it in the TUI as it's constructed.
-When the planner calls `submit()`, planning for that feature
-closes, feature work control moves from `planning`
-to `executing`, tasks with no unmet in-feature dependencies
-become `ready`, and tasks that still depend on other
-in-feature work remain `pending` until unblocked.
+and calls these tools to build the proposal graph.
+The orchestrator watches the proposal graph evolve in real time
+and may render that draft state in the TUI, but it does not apply
+those mutations to the authoritative graph yet.
+When the planner calls `submit()`, the proposal is stored in
+`agent_runs.payload_json` and the planning run enters
+`await_approval`.
+If the user approves it, the orchestrator applies the recorded
+mutation sequence to the authoritative graph, feature work control
+moves from `planning` to `executing`, tasks with no unmet
+in-feature dependencies become `ready`, and tasks that still
+depend on other in-feature work remain `pending` until unblocked.
+If the proposal is rejected, the authoritative graph stays
+unchanged.
 
 ## Planning Heuristics
 

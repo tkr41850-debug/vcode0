@@ -160,7 +160,7 @@ Baseline JSON-in-TEXT examples:
 - `files_changed` — JSON array of changed paths for a task result/reporting context
 - `suspended_files` — JSON array of overlap paths involved in a suspension incident
 - `payload_json` — JSON object storing `request_help()`
-  queries, replanning proposals awaiting approval,
+  queries, planning/replanning proposal-graph payloads awaiting approval,
   or other run-local structured context
 - `token_usage` — JSON object for lifetime task/feature aggregates, including nested `byModel` rollups
 - `events.payload` — JSON object whose exact shape depends on the event type

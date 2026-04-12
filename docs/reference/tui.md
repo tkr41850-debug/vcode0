@@ -117,8 +117,8 @@ The main DAG tree should stay progress-focused rather than showing token totals 
 
 | Key | Action |
 |-----|--------|
-| `n` | New plan — opens spec editor overlay, runs planner on submit |
-| `a` | Add milestone — opens spec editor, planner adds to existing graph |
+| `n` | New plan — opens spec editor overlay, runs planner, then surfaces the proposal for approval |
+| `a` | Add milestone — opens spec editor, planner drafts proposal-graph changes against the current graph |
 | `g` | Queue / dequeue milestone — edit the ordered milestone steering queue or return to autonomous scheduling |
 | `space` | Start/pause auto-execution |
 | `w` | Worker picker — select a worker to focus in Agent Monitor |
