@@ -87,7 +87,7 @@ interface FeatureGraph {
 
 > **Implementation status**: The coordination model below is the agreed architectural design. Type-level contracts (`SchedulerEvent`, `SchedulableUnit`, `TransitionResult`, `CombinedGraphNode`, `GraphMetrics`) are defined. Behavior (tick loop, graph construction, transition tables, conflict detection) is not yet implemented.
 
-The orchestrator uses a **hybrid serial core with async feature phases** (Direction D). All state-mutating coordination flows through a single serial event queue, while feature-phase agent runs (planning, verifying, summarizing, replanning) execute asynchronously and post results back as events.
+The orchestrator uses a **hybrid serial core with async feature phases** (Direction D). All state-mutating coordination flows through a single serial event queue, while feature-phase agent runs (planning, verifying, summarizing, replanning) execute asynchronously and post results back as events. Those feature phases are not a separate execution plane: architecturally they share the same run/session model as task execution (`agent_runs`, `session_id`, retry/backoff, help/approval/manual waits, and recovery), even if the current concrete runtime implementation reaches them through a different adapter surface.
 
 ### Serial Event Queue
 

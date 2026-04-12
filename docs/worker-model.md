@@ -426,9 +426,14 @@ for execution runs.
 If a separate session service is ever introduced,
 it may map those IDs onto provider-specific underlying sessions
 without changing the main task schema.
-Runtime live control remains task-scoped at the orchestrator seam,
-while the runtime internally maps live task execution to
-`agentRunId` / `sessionId` state.
+At the orchestration model level, feature-level discussing,
+researching, planning, verifying, validating/summarizing, and
+replanning phases use the same run/session plane as task execution:
+they share `agent_runs`, `session_id`, retry/backoff,
+help/approval/manual-ownership waits, and startup recovery.
+The current `RuntimePort` surface is task-oriented because the
+concrete worker-pool implementation is still task-only, but that is
+an implementation detail rather than the architectural boundary.
 On startup:
 
 ```typescript

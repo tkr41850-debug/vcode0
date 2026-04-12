@@ -31,7 +31,8 @@ Capture the responsibility split across the orchestrator adapter ports so orches
 - Given the system needs feature-level discuss, research, planning, verification, summary, or replanning work
 - When the orchestrator dispatches that phase work
 - Then it uses `AgentPort`
-- And feature-phase agent responsibilities stay separate from task-runtime process control
+- And those feature phases still participate in the same run/session plane as task execution (`agent_runs`, `session_id`, retry/backoff, help/approval/manual ownership, recovery)
+- And `AgentPort` is the semantic dispatch surface for that work, not evidence of a separate execution plane
 
 ### UiPort stays presentation-only
 - Given the terminal UI must show state, refresh derived views, and dispose cleanly

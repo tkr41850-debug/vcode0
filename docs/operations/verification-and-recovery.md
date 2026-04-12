@@ -13,7 +13,7 @@ A task becoming **stuck** is a work-control problem. A task or feature entering 
 
 ## Retry: Exponential Backoff up to 1 Week
 
-Run-level retry is handled by the orchestrator for transient failures only. Task execution runs and feature-phase runs both use the same backoff model when a session crashes or the provider fails transiently. Deterministic verification failures do not use retry backoff; they create repair work or return the run to normal execution flow instead.
+Run-level retry is handled by the orchestrator for transient failures only. Task execution runs and feature-phase runs both use the same backoff model when a session crashes or the provider fails transiently. This includes feature-level discussing, researching, planning, verifying, validating/summarizing, and replanning phases. Deterministic verification failures do not use retry backoff; they create repair work or return the run to normal execution flow instead.
 
 ```typescript
 interface RetryPolicy {
