@@ -655,25 +655,27 @@ describe('InMemoryFeatureGraph', () => {
     expect(g.readyFeatures()).toHaveLength(0);
   });
 
-  it('readyFeatures excludes features in executing phases (task-driven)', () => {
+  it('readyFeatures excludes features in task-driven execution phases', () => {
     const g = createGraphWithFeature();
-    for (const wc of [
-      'executing',
-      'feature_ci',
-      'verifying',
-      'executing_repair',
-    ] as const) {
+    for (const wc of ['executing', 'feature_ci', 'executing_repair'] as const) {
       updateFeature(g, 'f-1', { workControl: wc });
       expect(g.readyFeatures()).toHaveLength(0);
     }
   });
 
-  it('readyFeatures includes features in post-execution phases', () => {
+  it('readyFeatures includes features in agent-driven verification and summary phases', () => {
     const g = createGraphWithFeature();
-    for (const wc of ['awaiting_merge', 'summarizing'] as const) {
+    for (const wc of ['verifying', 'summarizing'] as const) {
       updateFeature(g, 'f-1', { workControl: wc });
       expect(g.readyFeatures()).toHaveLength(1);
     }
+  });
+
+  it('readyFeatures excludes awaiting_merge because merge-train coordination owns it', () => {
+    const g = createGraphWithFeature();
+    updateFeature(g, 'f-1', { workControl: 'awaiting_merge' });
+
+    expect(g.readyFeatures()).toHaveLength(0);
   });
 
   it('readyFeatures excludes features in conflict collab state', () => {

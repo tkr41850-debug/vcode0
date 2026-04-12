@@ -236,7 +236,7 @@ describe('buildCombinedGraph', () => {
 
   it('creates a virtual node for a post-execution feature', () => {
     const g = createGraphWithFeature();
-    updateFeature(g, 'f-1', { workControl: 'awaiting_merge' });
+    updateFeature(g, 'f-1', { workControl: 'verifying' });
 
     const combined = buildCombinedGraph(g);
     expect(combined.nodes.size).toBe(1);
@@ -589,18 +589,17 @@ describe('CriticalPathScheduler.prioritizeReadyWork', () => {
       description: 'desc',
     });
     updateFeature(g, 'f-b', { workControl: 'verifying' });
-    g.createTask({
-      id: 't-verify',
-      featureId: 'f-b',
-      description: 'verify task',
-      weight: 'medium',
-    });
 
     g.queueMilestone('m-1');
 
     const result = runScheduler(g);
+    expect(result[0]?.kind).toBe('feature_phase');
+    if (result[0]?.kind === 'feature_phase') {
+      expect(result[0].feature.id).toBe('f-b');
+      expect(result[0].phase).toBe('verify');
+    }
     const ids = extractSchedulableIds(result);
-    expect(ids.indexOf('t-verify')).toBeLessThan(ids.indexOf('t-exec'));
+    expect(ids.indexOf('f-b')).toBeLessThan(ids.indexOf('t-exec'));
   });
 
   it('sorts by critical-path weight / maxDepth (higher first)', () => {

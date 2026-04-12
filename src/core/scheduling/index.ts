@@ -109,12 +109,11 @@ const PRE_EXECUTION_PHASES: ReadonlySet<FeatureWorkControl> = new Set([
 const EXECUTING_PHASES: ReadonlySet<FeatureWorkControl> = new Set([
   'executing',
   'feature_ci',
-  'verifying',
   'executing_repair',
 ]);
 
 const POST_EXECUTION_PHASES: ReadonlySet<FeatureWorkControl> = new Set([
-  'awaiting_merge',
+  'verifying',
   'summarizing',
 ]);
 
@@ -145,7 +144,7 @@ function workControlToAgentRunPhase(wc: FeatureWorkControl): AgentRunPhase {
     case 'verifying':
       return 'verify';
     case 'awaiting_merge':
-      return 'execute';
+      return 'summarize';
     case 'summarizing':
       return 'summarize';
     case 'work_complete':
@@ -462,7 +461,7 @@ export class CriticalPathScheduler {
     for (const feature of graph.readyFeatures()) {
       const phase = workControlToAgentRunPhase(feature.workControl);
       const run = runs.getExecutionRun(feature.id, phase);
-      if (isBlockedByRun(run, now)) {
+      if (run?.runStatus === 'running' || isBlockedByRun(run, now)) {
         continue;
       }
 
