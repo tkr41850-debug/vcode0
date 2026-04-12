@@ -1,16 +1,30 @@
-export interface FauxResponse {
-  readonly text?: string;
-  readonly toolCalls?: readonly unknown[];
+import {
+  type FauxProviderRegistration,
+  type FauxResponseStep,
+  fauxAssistantMessage,
+  fauxText,
+  fauxThinking,
+  fauxToolCall,
+  type RegisterFauxProviderOptions,
+  registerFauxProvider,
+} from '@mariozechner/pi-ai';
+
+/**
+ * Thin wrapper around pi-ai's `registerFauxProvider` for integration
+ * tests. Registration is global to the pi-ai api-registry, so callers
+ * MUST call `unregister()` in an afterEach (or similar) to avoid
+ * cross-test bleed.
+ *
+ * Use the returned `setResponses` / `appendResponses` to script a
+ * deterministic sequence of assistant turns, then run a real pi-agent
+ * `Agent` against whichever API/model slot the test registered the faux
+ * provider on.
+ */
+export function createFauxProvider(
+  options?: RegisterFauxProviderOptions,
+): FauxProviderRegistration {
+  return registerFauxProvider(options);
 }
 
-// Intended future use: deterministic faux-provider stream helpers for
-// integration tests that exercise real agent/tool loops without API calls.
-export function fauxStreamFn(): never {
-  throw new Error('Not implemented yet.');
-}
-
-export const fauxModel = {
-  create(): never {
-    throw new Error('Not implemented yet.');
-  },
-} as const;
+export type { FauxProviderRegistration, FauxResponseStep };
+export { fauxAssistantMessage, fauxText, fauxThinking, fauxToolCall };

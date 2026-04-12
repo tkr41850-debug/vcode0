@@ -4,23 +4,37 @@ See [ARCHITECTURE.md](../ARCHITECTURE.md) for the high-level architecture overvi
 
 ## Current Test Coverage
 
-Vitest now separates executable suites under `test/unit/` and `test/integration/`. The current executable coverage is still a small unit-focused seed suite centered on architecture contracts and state derivation rather than full worker/integration flows.
+Vitest separates executable suites under `test/unit/` and `test/integration/`.
 
-Current unit targets:
+Current integration targets:
 
-- `test/unit/core/state.test.ts` ↔ `src/core/state/index.ts` — summary availability, derived blocked state, feature aggregate status, and milestone status rules.
-- `test/unit/runtime/context.test.ts` ↔ `src/runtime/context/index.ts`, `src/runtime/routing/index.ts`, `src/runtime/ipc/index.ts` — worker-context assembly, routing policy, and typed IPC message contracts.
-- `test/unit/persistence/queries.test.ts` ↔ `src/persistence/queries/index.ts` — typed row boundaries and JSON serialization for TEXT-backed support fields.
+- `test/integration/merge-train.test.ts` ↔ `src/core/merge-train/index.ts`, `src/persistence/feature-graph.ts` — merge-queue serialization, dependency legality, ejection/re-entry, conflict repair, and DB rehydration.
+- `test/integration/worker-smoke.test.ts` ↔ `src/runtime/worker-pool.ts`, `src/runtime/worker/index.ts`, `src/runtime/ipc/index.ts` — end-to-end runtime plumbing through `LocalWorkerPool`, the in-process harness, and a faux-backed worker run.
 
-This is intentionally a seed suite. It validates the current contract surfaces while the broader worker/integration harness is still being scaffolded.
+Current unit targets include:
 
-## Planned Integration Harness: pi-sdk Faux Provider
+- `test/unit/core/` — FSM legality, graph mutations, scheduling, merge-train ordering, warnings, and derived state.
+- `test/unit/runtime/` — worker-context assembly, routing policy, session persistence, IPC framing, and worker-pool/runtime contracts.
+- `test/unit/persistence/` — row serialization, codecs, migrations, sqlite store behavior, and `PersistentFeatureGraph` persistence semantics.
 
-When integration tests are added, use pi-sdk's `fauxModel` with scripted `FauxResponse` sequences as the `streamFn`. That lets tests exercise real agent/tool loops with deterministic responses and no external API calls.
+The suite is still foundation-first, but integration coverage now exists for the merge-train path and for the worker runtime bootstrap.
 
-The integration harness placeholders currently live under `test/integration/harness/` and intentionally throw `new Error("Not implemented yet.")` until integration-test work begins. Shared deterministic fixture builders live under `test/helpers/`.
+## Integration Harness: pi-sdk Faux Provider
 
-Planned integration targets:
+Integration tests use pi-ai's `registerFauxProvider()` to register a deterministic provider in the global API registry, then script assistant turns with `fauxAssistantMessage()`, `fauxText()`, `fauxThinking()`, and `fauxToolCall()`. That lets tests exercise real agent/tool loops with deterministic responses and no external API calls.
+
+For worker-runtime tests, register the faux provider on a real API/model slot that `resolveModel()` can return. The current smoke test binds faux to `anthropic-messages` / `claude-sonnet-4-20250514` rather than relying on a synthetic `faux:faux-1` model id.
+
+Because faux-provider registration is global, tests must call `unregister()` in teardown to avoid cross-test bleed.
+
+The executable harness lives under `test/integration/harness/`. Shared deterministic fixture builders live under `test/helpers/`.
+
+Current integration targets:
+
+- merge-train integration, ejection, repair, and re-entry
+- worker runtime bootstrap through the in-process harness
+
+Deferred integration targets:
 
 - worker `submit()` / `confirm()` closeout flow
 - feature-branch `feature_ci` and agent-level `verifying`
@@ -28,7 +42,6 @@ Planned integration targets:
 - reservation-only overlap penalties vs runtime overlap coordination
 - same-feature suspend/resume and explicit conflict steering
 - cross-feature primary/secondary blocking and later resume
-- merge-train integration, ejection, repair, and re-entry
 - crash recovery, run wait states, and manual ownership transitions
 - warning signals for cost pressure, slow checks, and churn
 
@@ -50,15 +63,21 @@ Keep `specs/test_*.md` focused on end-to-end scenarios that are likely to become
 gvc0/
 ├── test/
 │   ├── helpers/
-│   │   └── graph-builders.ts    -- shared deterministic graph/feature/task fixtures
+│   │   └── graph-builders.ts         -- shared deterministic graph/feature/task fixtures
 │   ├── integration/
+│   │   ├── merge-train.test.ts       -- persistent merge-train integration coverage
+│   │   ├── worker-smoke.test.ts      -- faux-backed in-process worker runtime smoke test
 │   │   └── harness/
-│   │       ├── faux-stream.ts   -- placeholder faux-provider wrapper scaffold
-│   │       └── store-memory.ts  -- placeholder in-memory store scaffold
+│   │       ├── faux-stream.ts        -- thin pi-ai faux-provider wrapper + helper re-exports
+│   │       ├── in-memory-session-store.ts -- SessionStore test double
+│   │       ├── in-process-harness.ts -- SessionHarness running WorkerRuntime in-process
+│   │       ├── loopback-transport.ts -- paired in-memory IPC transport
+│   │       ├── merge-train-scenario.ts -- persistent graph merge-train fixture builder
+│   │       └── store-memory.ts       -- in-memory Store implementation for integration tests
 │   └── unit/
 │       ├── core/
 │       ├── persistence/
 │       └── runtime/
 ```
 
-The `test/integration/harness/` and `test/helpers/` files document the intended harness shape, but they are not wired into executable integration tests yet.
+`test/integration/harness/` now contains executable scaffolding used by the current integration tests rather than placeholder stubs.
