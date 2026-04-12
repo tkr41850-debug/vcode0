@@ -113,7 +113,8 @@ export class MergeTrainCoordinator {
   /**
    * Mark integration as complete.
    *
-   * Sets collabControl to 'merged' and clears all merge train fields.
+   * Sets collabControl to 'merged' and clears queue-local merge train fields
+   * while preserving lifetime re-entry history for churn warnings.
    */
   completeIntegration(featureId: FeatureId, graph: FeatureGraph): void {
     const feature = graph.features.get(featureId);
@@ -126,7 +127,6 @@ export class MergeTrainCoordinator {
       mergeTrainManualPosition: undefined,
       mergeTrainEnteredAt: undefined,
       mergeTrainEntrySeq: undefined,
-      mergeTrainReentryCount: undefined,
     });
   }
 

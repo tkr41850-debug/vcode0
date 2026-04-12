@@ -218,7 +218,7 @@ describe('MergeTrainCoordinator', () => {
 
   // ── completeIntegration ──────────────────────────────────────────
 
-  it('sets collabControl to merged and clears merge train fields', () => {
+  it('sets collabControl to merged, clears queue fields, and preserves reentry history', () => {
     const coord = new MergeTrainCoordinator();
     const feat = createFeatureFixture({
       id: 'f-1',
@@ -237,7 +237,7 @@ describe('MergeTrainCoordinator', () => {
     expect(updated).toBeDefined();
     expect(updated?.collabControl).toBe('merged');
     expectMergeTrainFieldsCleared(updated);
-    expect(updated?.mergeTrainReentryCount).toBeUndefined();
+    expect(updated?.mergeTrainReentryCount).toBe(1);
   });
 
   // ── ejectFromQueue ──────────────────────────────────────────────

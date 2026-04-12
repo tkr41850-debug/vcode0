@@ -1793,6 +1793,144 @@ describe('SchedulerLoop', () => {
     );
   });
 
+  it('completes integration and moves the merged feature into summarizing on the same tick', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order, { tokenProfile: 'balanced' });
+    vi.spyOn(ports.runtime, 'idleWorkerCount').mockReturnValue(0);
+    const graph = new InMemoryFeatureGraph({
+      milestones: [
+        {
+          id: 'm-1',
+          name: 'Milestone 1',
+          description: 'desc',
+          status: 'pending',
+          order: 0,
+        },
+      ],
+      features: [
+        {
+          id: 'f-1',
+          milestoneId: 'm-1',
+          orderInMilestone: 0,
+          name: 'Feature 1',
+          description: 'desc',
+          dependsOn: [],
+          status: 'in_progress',
+          workControl: 'awaiting_merge',
+          collabControl: 'integrating',
+          featureBranch: 'feat-feature-1-1',
+          mergeTrainManualPosition: 1,
+          mergeTrainEnteredAt: 50,
+          mergeTrainEntrySeq: 1,
+          mergeTrainReentryCount: 0,
+        },
+      ],
+      tasks: [],
+    });
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+    loop.enqueue({
+      type: 'feature_integration_complete',
+      featureId: 'f-1',
+    });
+
+    await loop.tickForTest(100);
+
+    const feature = graph.features.get('f-1');
+    expect(feature).toBeDefined();
+    expect(feature).toEqual(
+      expect.objectContaining({
+        collabControl: 'merged',
+        workControl: 'summarizing',
+        status: 'pending',
+      }),
+    );
+    expect(feature?.mergeTrainManualPosition).toBeUndefined();
+    expect(feature?.mergeTrainEnteredAt).toBeUndefined();
+    expect(feature?.mergeTrainEntrySeq).toBeUndefined();
+    expect(feature?.mergeTrainReentryCount).toBe(0);
+  });
+
+  it('ejects failed integration into conflict and starts the next queued feature', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    vi.spyOn(ports.runtime, 'idleWorkerCount').mockReturnValue(0);
+    const graph = new InMemoryFeatureGraph({
+      milestones: [
+        {
+          id: 'm-1',
+          name: 'Milestone 1',
+          description: 'desc',
+          status: 'pending',
+          order: 0,
+        },
+      ],
+      features: [
+        {
+          id: 'f-1',
+          milestoneId: 'm-1',
+          orderInMilestone: 0,
+          name: 'Feature 1',
+          description: 'desc',
+          dependsOn: [],
+          status: 'in_progress',
+          workControl: 'awaiting_merge',
+          collabControl: 'integrating',
+          featureBranch: 'feat-feature-1-1',
+          mergeTrainManualPosition: 1,
+          mergeTrainEnteredAt: 50,
+          mergeTrainEntrySeq: 1,
+          mergeTrainReentryCount: 0,
+        },
+        {
+          id: 'f-2',
+          milestoneId: 'm-1',
+          orderInMilestone: 1,
+          name: 'Feature 2',
+          description: 'desc',
+          dependsOn: [],
+          status: 'pending',
+          workControl: 'awaiting_merge',
+          collabControl: 'merge_queued',
+          featureBranch: 'feat-feature-2-1',
+          mergeTrainEntrySeq: 2,
+          mergeTrainReentryCount: 0,
+        },
+      ],
+      tasks: [],
+    });
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+    loop.enqueue({
+      type: 'feature_integration_failed',
+      featureId: 'f-1',
+      error: 'rebase failed',
+    });
+
+    await loop.tickForTest(100);
+
+    const failedFeature = graph.features.get('f-1');
+    expect(failedFeature).toBeDefined();
+    expect(failedFeature).toEqual(
+      expect.objectContaining({
+        collabControl: 'conflict',
+        workControl: 'awaiting_merge',
+        status: 'in_progress',
+        mergeTrainReentryCount: 1,
+      }),
+    );
+    expect(failedFeature?.mergeTrainManualPosition).toBeUndefined();
+    expect(failedFeature?.mergeTrainEnteredAt).toBeUndefined();
+    expect(failedFeature?.mergeTrainEntrySeq).toBeUndefined();
+    expect(graph.features.get('f-2')).toEqual(
+      expect.objectContaining({
+        collabControl: 'integrating',
+        workControl: 'awaiting_merge',
+        status: 'in_progress',
+      }),
+    );
+  });
+
   it('puts feature-phase errors into retry_await on the shared run plane', async () => {
     const order: string[] = [];
     const { ports } = createPorts(order);

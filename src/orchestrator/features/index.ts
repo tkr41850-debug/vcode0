@@ -26,6 +26,23 @@ export class FeatureLifecycleCoordinator {
     this.mergeTrain.enqueueFeatureMerge(feature.id, this.graph);
   }
 
+  completeIntegration(featureId: FeatureId): void {
+    this.mergeTrain.completeIntegration(featureId, this.graph);
+  }
+
+  failIntegration(featureId: FeatureId): void {
+    const feature = this.requireFeature(featureId);
+    const reentryCount = (feature.mergeTrainReentryCount ?? 0) + 1;
+
+    this.graph.transitionFeature(featureId, { collabControl: 'conflict' });
+    this.graph.updateMergeTrainState(featureId, {
+      mergeTrainManualPosition: undefined,
+      mergeTrainEnteredAt: undefined,
+      mergeTrainEntrySeq: undefined,
+      mergeTrainReentryCount: reentryCount,
+    });
+  }
+
   completePhase(
     featureId: FeatureId,
     phase: AgentRunPhase,

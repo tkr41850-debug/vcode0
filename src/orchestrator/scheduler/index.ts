@@ -44,6 +44,15 @@ export type SchedulerEvent =
       error: string;
     }
   | {
+      type: 'feature_integration_complete';
+      featureId: FeatureId;
+    }
+  | {
+      type: 'feature_integration_failed';
+      featureId: FeatureId;
+      error: string;
+    }
+  | {
       type: 'shutdown';
     };
 
@@ -194,6 +203,17 @@ export class SchedulerLoop {
           ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
         });
       }
+      return;
+    }
+
+    if (event.type === 'feature_integration_complete') {
+      this.features.completeIntegration(event.featureId);
+      return;
+    }
+
+    if (event.type === 'feature_integration_failed') {
+      void event.error;
+      this.features.failIntegration(event.featureId);
       return;
     }
   }
