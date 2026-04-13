@@ -1765,7 +1765,7 @@ describe('SchedulerLoop', () => {
     expect(planFeature).toHaveBeenCalledOnce();
   });
 
-  it('approves replanning proposal and makes approved work executable immediately', async () => {
+  it('approves replanning proposal, restores stuck task, and makes approved work executable immediately', async () => {
     const order: string[] = [];
     const { ports } = createPorts(order);
     const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
@@ -1793,7 +1793,17 @@ describe('SchedulerLoop', () => {
           featureBranch: 'feat-feature-1-1',
         },
       ],
-      tasks: [],
+      tasks: [
+        {
+          id: 't-stuck',
+          featureId: 'f-1',
+          orderInFeature: 0,
+          description: 'Existing stuck task',
+          dependsOn: [],
+          status: 'stuck',
+          collabControl: 'branch_open',
+        },
+      ],
     });
     ports.store.createAgentRun(
       makeFeaturePhaseRun('replan', {
@@ -1818,6 +1828,9 @@ describe('SchedulerLoop', () => {
         status: 'pending',
         collabControl: 'branch_open',
       }),
+    );
+    expect(graph.tasks.get('t-stuck')).toEqual(
+      expect.objectContaining({ status: 'ready', dependsOn: [] }),
     );
     expect(graph.tasks.get('t-1')).toEqual(
       expect.objectContaining({ status: 'ready', dependsOn: [] }),

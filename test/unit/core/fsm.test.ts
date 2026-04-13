@@ -487,6 +487,7 @@ describe('validateTaskStatusTransition', () => {
     ['running', 'failed', 'branch_open'],
     ['running', 'stuck', 'branch_open'],
     ['running', 'cancelled', 'branch_open'],
+    ['stuck', 'ready', 'branch_open'],
     ['stuck', 'running', 'branch_open'],
     ['stuck', 'failed', 'branch_open'],
     ['stuck', 'cancelled', 'branch_open'],

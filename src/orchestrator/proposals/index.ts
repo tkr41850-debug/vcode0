@@ -41,11 +41,19 @@ export function approveFeatureProposal(
   proposal: GraphProposal,
 ): ProposalApplyResult {
   const result = applyGraphProposal(graph, proposal);
-  const featureTasks = tasksForFeature(graph, featureId);
-  if (result.applied.length === 0 || featureTasks.length === 0) {
+  let featureTasks = tasksForFeature(graph, featureId);
+  if (phase === 'replan') {
+    restoreReplannedStuckTasks(graph, featureTasks, result);
+    featureTasks = tasksForFeature(graph, featureId);
+  }
+  if (featureTasks.length === 0) {
     return result;
   }
   promoteReadyTasks(graph, featureTasks);
+  featureTasks = tasksForFeature(graph, featureId);
+  if (!shouldAdvanceAfterApproval(phase, result, featureTasks)) {
+    return result;
+  }
   advanceFeatureAfterApproval(graph, featureId, phase);
   return result;
 }
@@ -66,6 +74,39 @@ function promoteReadyTasks(graph: FeatureGraph, featureTasks: readonly Task[]): 
     }
     graph.transitionTask(task.id, { status: 'ready' });
   }
+}
+
+function restoreReplannedStuckTasks(
+  graph: FeatureGraph,
+  featureTasks: readonly Task[],
+  result: ProposalApplyResult,
+): void {
+  const removedTaskIds = new Set(
+    result.applied
+      .filter((op): op is Extract<typeof op, { kind: 'remove_task' }> => op.kind === 'remove_task')
+      .map((op) => op.taskId),
+  );
+
+  for (const task of featureTasks) {
+    if (task.status !== 'stuck' || removedTaskIds.has(task.id)) {
+      continue;
+    }
+    if (!task.dependsOn.every((depId) => graph.tasks.get(depId)?.status === 'done')) {
+      continue;
+    }
+    graph.transitionTask(task.id, { status: 'ready' });
+  }
+}
+
+function shouldAdvanceAfterApproval(
+  phase: ProposalPhase,
+  result: ProposalApplyResult,
+  featureTasks: readonly Task[],
+): boolean {
+  if (phase === 'replan') {
+    return featureTasks.some((task) => task.status === 'ready');
+  }
+  return result.applied.length > 0;
 }
 
 function advanceFeatureAfterApproval(

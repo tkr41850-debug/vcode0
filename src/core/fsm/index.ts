@@ -373,7 +373,7 @@ const TASK_STATUS_TRANSITIONS = new Map<TaskStatus, ReadonlySet<TaskStatus>>([
   ['pending', new Set(['ready', 'cancelled'])],
   ['ready', new Set(['running', 'cancelled'])],
   ['running', new Set(['ready', 'done', 'failed', 'stuck', 'cancelled'])],
-  ['stuck', new Set(['running', 'failed', 'cancelled'])],
+  ['stuck', new Set(['ready', 'running', 'failed', 'cancelled'])],
   // Terminal: done, failed, cancelled
 ]);
 
