@@ -113,6 +113,82 @@ describe('PersistentFeatureGraph', () => {
       ]);
     });
 
+    it('persists removeFeature across features, tasks, and dependency rows', () => {
+      graph.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+      graph.createFeature({
+        id: 'f-1',
+        milestoneId: 'm-1',
+        name: 'F1',
+        description: 'd',
+      });
+      graph.createFeature({
+        id: 'f-2',
+        milestoneId: 'm-1',
+        name: 'F2',
+        description: 'd',
+        dependsOn: ['f-1'],
+      });
+      graph.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+      graph.createTask({
+        id: 't-2',
+        featureId: 'f-1',
+        description: 'T2',
+        dependsOn: ['t-1'],
+      });
+
+      graph.removeFeature('f-1');
+
+      const featureCount = db
+        .prepare<[string], { c: number }>(
+          'SELECT COUNT(*) AS c FROM features WHERE id = ?',
+        )
+        .get('f-1');
+      const taskCount = db
+        .prepare<[string], { c: number }>(
+          'SELECT COUNT(*) AS c FROM tasks WHERE feature_id = ?',
+        )
+        .get('f-1');
+      const depCount = db
+        .prepare<[], { c: number }>('SELECT COUNT(*) AS c FROM dependencies')
+        .get();
+
+      expect(featureCount?.c).toBe(0);
+      expect(taskCount?.c).toBe(0);
+      expect(depCount?.c).toBe(0);
+      expect(new PersistentFeatureGraph(db).features.get('f-2')?.dependsOn).toEqual([]);
+    });
+
+    it('persists editTask field updates', () => {
+      graph.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+      graph.createFeature({
+        id: 'f-1',
+        milestoneId: 'm-1',
+        name: 'F',
+        description: 'd',
+      });
+      graph.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+
+      graph.editTask('t-1', {
+        description: 'Updated task',
+        weight: 'heavy',
+        reservedWritePaths: ['src/updated.ts'],
+      });
+
+      const row = db
+        .prepare<
+          [string],
+          { description: string; weight: string | null; reserved_write_paths: string | null }
+        >(
+          'SELECT description, weight, reserved_write_paths FROM tasks WHERE id = ?',
+        )
+        .get('t-1');
+      expect(row).toEqual({
+        description: 'Updated task',
+        weight: 'heavy',
+        reserved_write_paths: JSON.stringify(['src/updated.ts']),
+      });
+    });
+
     it('persists feature transition (status change)', () => {
       graph.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
       graph.createFeature({

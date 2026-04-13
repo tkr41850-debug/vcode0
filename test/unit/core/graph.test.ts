@@ -880,6 +880,66 @@ describe('InMemoryFeatureGraph', () => {
     );
   });
 
+  it('removeFeature removes feature tasks and dependent feature edges', () => {
+    const g = createGraphWithMilestone();
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'F1',
+      description: 'd',
+    });
+    g.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+    g.createTask({
+      id: 't-2',
+      featureId: 'f-1',
+      description: 'T2',
+      dependsOn: ['t-1'],
+    });
+
+    g.removeFeature('f-1');
+
+    expect(g.features.has('f-1')).toBe(false);
+    expect(g.tasks.has('t-1')).toBe(false);
+    expect(g.tasks.has('t-2')).toBe(false);
+  });
+
+  it('editTask updates description, weight, and reservedWritePaths', () => {
+    const g = createGraphWithTask();
+
+    const updated = g.editTask('t-1', {
+      description: 'Updated task',
+      weight: 'heavy',
+      reservedWritePaths: ['src/updated.ts'],
+    });
+
+    expect(updated).toEqual(
+      expect.objectContaining({
+        description: 'Updated task',
+        weight: 'heavy',
+        reservedWritePaths: ['src/updated.ts'],
+      }),
+    );
+    expect(g.tasks.get('t-1')).toEqual(updated);
+  });
+
+  it('createFeature appends after deleted siblings', () => {
+    const g = createGraphWithMilestone();
+    g.createFeature({ id: 'f-1', milestoneId: 'm-1', name: 'F1', description: 'd' });
+    g.createFeature({ id: 'f-2', milestoneId: 'm-1', name: 'F2', description: 'd' });
+    g.createFeature({ id: 'f-3', milestoneId: 'm-1', name: 'F3', description: 'd' });
+
+    g.removeFeature('f-2');
+
+    const appended = g.createFeature({
+      id: 'f-4',
+      milestoneId: 'm-1',
+      name: 'F4',
+      description: 'd',
+    });
+
+    expect(appended.orderInMilestone).toBe(3);
+  });
+
   // ── addTask (auto-ID) ────────────────────────────────────────────
 
   it('addTask generates incrementing task IDs', () => {
@@ -903,11 +963,12 @@ describe('InMemoryFeatureGraph', () => {
     expect(g.tasks.has('t-1')).toBe(false);
   });
 
-  it('removeTask rejects non-pending task', () => {
+  it('removeTask allows removing started task directly', () => {
     const g = createGraphWithTask();
     updateTask(g, 't-1', { status: 'running' });
 
-    expect(() => g.removeTask('t-1')).toThrow(GraphValidationError);
+    expect(() => g.removeTask('t-1')).not.toThrow();
+    expect(g.tasks.has('t-1')).toBe(false);
   });
 
   it('removeTask cleans up dependsOn references', () => {
@@ -922,6 +983,18 @@ describe('InMemoryFeatureGraph', () => {
     g.removeTask('t-1');
 
     expect(g.tasks.get('t-2')?.dependsOn).toEqual([]);
+  });
+
+  it('addTask appends after deleted siblings', () => {
+    const g = createGraphWithTask();
+    g.createTask({ id: 't-2', featureId: 'f-1', description: 'T2' });
+    g.createTask({ id: 't-3', featureId: 'f-1', description: 'T3' });
+
+    g.removeTask('t-2');
+
+    const appended = g.addTask({ featureId: 'f-1', description: 'T4' });
+
+    expect(appended.orderInFeature).toBe(3);
   });
 
   // ── reorderTasks ──────────────────────────────────────────────────

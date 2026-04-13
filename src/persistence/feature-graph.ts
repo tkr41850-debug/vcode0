@@ -6,6 +6,7 @@ import type {
   DependencyOptions,
   FeatureEditPatch,
   FeatureGraph,
+  TaskEditPatch,
   FeatureTransitionPatch,
   GraphSnapshot,
   MergeTrainUpdate,
@@ -171,6 +172,10 @@ export class PersistentFeatureGraph implements FeatureGraph {
     this.mutate(() => this.inner.cancelFeature(featureId, cascade));
   }
 
+  removeFeature(featureId: FeatureId): void {
+    this.mutate(() => this.inner.removeFeature(featureId));
+  }
+
   changeMilestone(featureId: FeatureId, newMilestoneId: MilestoneId): void {
     this.mutate(() => this.inner.changeMilestone(featureId, newMilestoneId));
   }
@@ -181,6 +186,10 @@ export class PersistentFeatureGraph implements FeatureGraph {
 
   addTask(opts: AddTaskOptions): Task {
     return this.mutate(() => this.inner.addTask(opts));
+  }
+
+  editTask(taskId: TaskId, patch: TaskEditPatch): Task {
+    return this.mutate(() => this.inner.editTask(taskId, patch));
   }
 
   removeTask(taskId: TaskId): void {

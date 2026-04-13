@@ -1,76 +1,25 @@
 import type {
-  AddTaskOptions,
-  CreateFeatureOptions,
-  CreateMilestoneOptions,
-  CreateTaskOptions,
   DependencyOptions,
-  FeatureDependencyOptions,
   FeatureEditPatch,
-  SplitSpec,
-  TaskDependencyOptions,
+  TaskEditPatch,
 } from '@core/graph/index';
 import type {
   Feature,
   FeatureId,
-  Milestone,
   MilestoneId,
   Task,
-  TaskId,
-  TaskWeight,
 } from '@core/types/index';
 
-export type {
-  AddTaskOptions,
-  CreateFeatureOptions,
-  CreateMilestoneOptions,
-  CreateTaskOptions,
-  DependencyOptions,
-  FeatureDependencyOptions,
-  FeatureEditPatch,
-  SplitSpec,
-  TaskDependencyOptions,
-};
+export type { DependencyOptions, FeatureEditPatch, TaskEditPatch };
 
-export type PlannerToolName =
-  | 'createMilestone'
-  | 'createFeature'
-  | 'createTask'
-  | 'addDependency'
-  | 'submit';
-
-export type ReplannerToolName =
-  | PlannerToolName
-  | 'removeDependency'
-  | 'splitFeature'
-  | 'mergeFeatures'
-  | 'cancelFeature'
-  | 'changeMilestone'
-  | 'editFeature'
-  | 'addTask'
-  | 'removeTask'
-  | 'reorderTasks'
-  | 'reweight';
-
-export type AgentToolName = ReplannerToolName;
-
-export interface SplitFeatureOptions {
-  featureId: FeatureId;
-  splits: SplitSpec[];
-}
-
-export interface MergeFeaturesOptions {
-  featureIds: FeatureId[];
+export interface AddFeatureOptions {
+  milestoneId: MilestoneId;
   name: string;
+  description: string;
 }
 
-export interface CancelFeatureOptions {
+export interface RemoveFeatureOptions {
   featureId: FeatureId;
-  cascade?: boolean;
-}
-
-export interface ChangeMilestoneOptions {
-  featureId: FeatureId;
-  newMilestoneId: MilestoneId;
 }
 
 export interface EditFeatureOptions {
@@ -78,56 +27,61 @@ export interface EditFeatureOptions {
   patch: FeatureEditPatch;
 }
 
-export interface RemoveTaskOptions {
-  taskId: TaskId;
-}
-
-export interface ReorderTasksOptions {
+export interface AddTaskOptions {
   featureId: FeatureId;
-  taskIds: TaskId[];
+  description: string;
+  weight?: Task['weight'];
+  reservedWritePaths?: string[];
 }
 
-export interface ReweightTaskOptions {
-  taskId: TaskId;
-  weight: TaskWeight;
+export interface RemoveTaskOptions {
+  taskId: Task['id'];
 }
 
-export type SubmitPlanOptions = Record<string, never>;
+export interface EditTaskOptions {
+  taskId: Task['id'];
+  patch: TaskEditPatch;
+}
+
+export type SubmitProposalOptions = Record<string, never>;
+
+export type ProposalToolName =
+  | 'addFeature'
+  | 'removeFeature'
+  | 'editFeature'
+  | 'addTask'
+  | 'removeTask'
+  | 'editTask'
+  | 'addDependency'
+  | 'removeDependency'
+  | 'submit';
+
+export type PlannerToolName = ProposalToolName;
+export type ReplannerToolName = ProposalToolName;
+export type AgentToolName = ProposalToolName;
 
 export interface PlannerToolArgsMap {
-  createMilestone: CreateMilestoneOptions;
-  createFeature: CreateFeatureOptions;
-  createTask: CreateTaskOptions;
-  addDependency: DependencyOptions;
-  submit: SubmitPlanOptions;
-  removeDependency: DependencyOptions;
-  splitFeature: SplitFeatureOptions;
-  mergeFeatures: MergeFeaturesOptions;
-  cancelFeature: CancelFeatureOptions;
-  changeMilestone: ChangeMilestoneOptions;
+  addFeature: AddFeatureOptions;
+  removeFeature: RemoveFeatureOptions;
   editFeature: EditFeatureOptions;
   addTask: AddTaskOptions;
   removeTask: RemoveTaskOptions;
-  reorderTasks: ReorderTasksOptions;
-  reweight: ReweightTaskOptions;
+  editTask: EditTaskOptions;
+  addDependency: DependencyOptions;
+  removeDependency: DependencyOptions;
+  submit: SubmitProposalOptions;
 }
 
 export interface PlannerToolResultMap {
-  createMilestone: Milestone;
-  createFeature: Feature;
-  createTask: Task;
-  addDependency: undefined;
-  submit: undefined;
-  removeDependency: undefined;
-  splitFeature: Feature[];
-  mergeFeatures: Feature;
-  cancelFeature: undefined;
-  changeMilestone: undefined;
+  addFeature: Feature;
+  removeFeature: undefined;
   editFeature: Feature;
   addTask: Task;
   removeTask: undefined;
-  reorderTasks: undefined;
-  reweight: undefined;
+  editTask: Task;
+  addDependency: undefined;
+  removeDependency: undefined;
+  submit: undefined;
 }
 
 export type PlannerToolArgs<Name extends AgentToolName = AgentToolName> =

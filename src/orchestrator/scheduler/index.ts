@@ -7,6 +7,13 @@ import {
   type SchedulableUnit,
   schedulableUnitKey,
 } from '@core/scheduling/index';
+import {
+  approveFeatureProposal,
+  isProposalPhase,
+  parseGraphProposalPayload,
+  summarizeProposalApply,
+  type ProposalPhase,
+} from '@orchestrator/proposals/index';
 import type {
   AgentRun,
   AgentRunPhase,
@@ -36,6 +43,18 @@ export type SchedulerEvent =
       phase: AgentRunPhase;
       summary: string;
       verification?: VerificationSummary;
+    }
+  | {
+      type: 'feature_phase_approval_decision';
+      featureId: FeatureId;
+      phase: ProposalPhase;
+      decision: 'approved' | 'rejected';
+      comment?: string;
+    }
+  | {
+      type: 'feature_phase_rerun_requested';
+      featureId: FeatureId;
+      phase: ProposalPhase;
     }
   | {
       type: 'feature_phase_error';
@@ -171,6 +190,97 @@ export class SchedulerLoop {
       return;
     }
 
+    if (event.type === 'feature_phase_rerun_requested') {
+      const run = this.ports.store.getAgentRun(
+        `run-feature:${event.featureId}:${event.phase}`,
+      );
+      if (run === undefined) {
+        return;
+      }
+
+      this.ports.store.updateAgentRun(run.id, {
+        runStatus: 'ready',
+        owner: 'system',
+      });
+      this.ports.store.appendEvent({
+        eventType: 'proposal_rerun_requested',
+        entityId: event.featureId,
+        timestamp: Date.now(),
+        payload: { phase: event.phase },
+      });
+      return;
+    }
+
+    if (event.type === 'feature_phase_approval_decision') {
+      const run = this.ports.store.getAgentRun(
+        `run-feature:${event.featureId}:${event.phase}`,
+      );
+      if (run === undefined || run.runStatus !== 'await_approval') {
+        return;
+      }
+
+      if (event.decision === 'approved') {
+        try {
+          const proposal = parseGraphProposalPayload(run.payloadJson, event.phase);
+          const result = approveFeatureProposal(
+            this.graph,
+            event.featureId,
+            event.phase,
+            proposal,
+          );
+          this.ports.store.updateAgentRun(run.id, {
+            runStatus: 'completed',
+            owner: 'system',
+            ...(run.payloadJson !== undefined ? { payloadJson: run.payloadJson } : {}),
+            ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
+          });
+          this.ports.store.appendEvent({
+            eventType: 'proposal_applied',
+            entityId: event.featureId,
+            timestamp: Date.now(),
+            payload: {
+              phase: event.phase,
+              ...summarizeProposalApply(result),
+            },
+          });
+        } catch (error) {
+          this.ports.store.updateAgentRun(run.id, {
+            runStatus: 'completed',
+            owner: 'manual',
+            ...(run.payloadJson !== undefined ? { payloadJson: run.payloadJson } : {}),
+            ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
+          });
+          this.ports.store.appendEvent({
+            eventType: 'proposal_apply_failed',
+            entityId: event.featureId,
+            timestamp: Date.now(),
+            payload: {
+              phase: event.phase,
+              error: error instanceof Error ? error.message : String(error),
+            },
+          });
+        }
+        return;
+      }
+
+      this.ports.store.updateAgentRun(run.id, {
+        runStatus: 'completed',
+        owner: 'manual',
+        ...(run.payloadJson !== undefined ? { payloadJson: run.payloadJson } : {}),
+        ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
+      });
+      this.ports.store.appendEvent({
+        eventType: 'proposal_rejected',
+        entityId: event.featureId,
+        timestamp: Date.now(),
+        payload: {
+          phase: event.phase,
+          ...(event.comment !== undefined ? { comment: event.comment } : {}),
+        },
+      });
+      return;
+    }
+
     if (event.type === 'feature_phase_complete') {
       const run = this.ports.store.getAgentRun(
         `run-feature:${event.featureId}:${event.phase}`,
@@ -252,8 +362,9 @@ export class SchedulerLoop {
         continue;
       }
 
-      await this.dispatchFeaturePhaseUnit(unit.feature, unit.phase);
-      dispatched++;
+      if (await this.dispatchFeaturePhaseUnit(unit.feature, unit.phase)) {
+        dispatched++;
+      }
     }
   }
 
@@ -393,8 +504,12 @@ export class SchedulerLoop {
   private async dispatchFeaturePhaseUnit(
     feature: Feature,
     phase: AgentRunPhase,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const run = this.ensureFeaturePhaseRun(feature, phase);
+    if (isProposalPhase(phase) && run.runStatus === 'completed') {
+      return false;
+    }
+
     this.markFeaturePhaseRunning(feature);
     this.ports.store.updateAgentRun(run.id, {
       runStatus: 'running',
@@ -415,7 +530,7 @@ export class SchedulerLoop {
             phase,
             summary: result.summary,
           });
-          return;
+          return true;
         }
         case 'research': {
           const result = await this.ports.agents.researchFeature(
@@ -428,20 +543,19 @@ export class SchedulerLoop {
             phase,
             summary: result.summary,
           });
-          return;
+          return true;
         }
         case 'plan': {
           const result = await this.ports.agents.planFeature(
             feature,
             runContext,
           );
-          await this.handleEvent({
-            type: 'feature_phase_complete',
-            featureId: feature.id,
-            phase,
-            summary: result.summary,
+          this.ports.store.updateAgentRun(run.id, {
+            runStatus: 'await_approval',
+            owner: 'manual',
+            payloadJson: JSON.stringify(result.proposal),
           });
-          return;
+          return true;
         }
         case 'feature_ci': {
           const verification =
@@ -453,7 +567,7 @@ export class SchedulerLoop {
             summary: verification.summary ?? '',
             verification,
           });
-          return;
+          return true;
         }
         case 'verify': {
           const verification = await this.ports.agents.verifyFeature(
@@ -467,7 +581,7 @@ export class SchedulerLoop {
             summary: verification.summary ?? '',
             verification,
           });
-          return;
+          return true;
         }
         case 'summarize': {
           const result = await this.ports.agents.summarizeFeature(
@@ -480,7 +594,7 @@ export class SchedulerLoop {
             phase,
             summary: result.summary,
           });
-          return;
+          return true;
         }
         case 'replan': {
           const result = await this.ports.agents.replanFeature(
@@ -488,16 +602,15 @@ export class SchedulerLoop {
             'scheduler',
             runContext,
           );
-          await this.handleEvent({
-            type: 'feature_phase_complete',
-            featureId: feature.id,
-            phase,
-            summary: result.summary,
+          this.ports.store.updateAgentRun(run.id, {
+            runStatus: 'await_approval',
+            owner: 'manual',
+            payloadJson: JSON.stringify(result.proposal),
           });
-          return;
+          return true;
         }
         case 'execute':
-          return;
+          return true;
       }
     } catch (error) {
       await this.handleEvent({
@@ -506,6 +619,7 @@ export class SchedulerLoop {
         phase,
         error: error instanceof Error ? error.message : String(error),
       });
+      return true;
     }
   }
 

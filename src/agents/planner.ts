@@ -1,3 +1,4 @@
+import type { ProposalPhaseResult } from '@agents/proposal';
 import type {
   Feature,
   FeaturePhaseResult,
@@ -17,7 +18,7 @@ export interface PlannerAgent {
   planFeature(
     feature: Feature,
     run: FeaturePhaseRunContext,
-  ): Promise<FeaturePhaseResult>;
+  ): Promise<ProposalPhaseResult>;
   verifyFeature(
     feature: Feature,
     run: FeaturePhaseRunContext,

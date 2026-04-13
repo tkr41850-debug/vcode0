@@ -74,6 +74,12 @@ export interface FeatureEditPatch {
   summary?: string;
 }
 
+export interface TaskEditPatch {
+  description?: string;
+  weight?: TaskWeight;
+  reservedWritePaths?: string[];
+}
+
 /** Merge-train metadata update — undefined values clear the field. */
 export interface MergeTrainUpdate {
   mergeTrainManualPosition?: number | undefined;
@@ -163,9 +169,11 @@ export interface FeatureGraph {
   splitFeature(id: FeatureId, splits: SplitSpec[]): Feature[];
   mergeFeatures(featureIds: FeatureId[], name: string): Feature;
   cancelFeature(featureId: FeatureId, cascade?: boolean): void;
+  removeFeature(featureId: FeatureId): void;
   changeMilestone(featureId: FeatureId, newMilestoneId: MilestoneId): void;
   editFeature(featureId: FeatureId, patch: FeatureEditPatch): Feature;
   addTask(opts: AddTaskOptions): Task;
+  editTask(taskId: TaskId, patch: TaskEditPatch): Task;
   removeTask(taskId: TaskId): void;
   reorderTasks(featureId: FeatureId, taskIds: TaskId[]): void;
   reweight(taskId: TaskId, weight: TaskWeight): void;
@@ -639,13 +647,17 @@ export class InMemoryFeatureGraph implements FeatureGraph {
       }
     }
 
-    // Compute orderInMilestone
-    let orderInMilestone = 0;
+    // Compute append-to-end order even after deletions.
+    let maxOrderInMilestone = -1;
     for (const f of this.features.values()) {
-      if (f.milestoneId === opts.milestoneId) {
-        orderInMilestone++;
+      if (
+        f.milestoneId === opts.milestoneId &&
+        f.orderInMilestone > maxOrderInMilestone
+      ) {
+        maxOrderInMilestone = f.orderInMilestone;
       }
     }
+    const orderInMilestone = maxOrderInMilestone + 1;
 
     const feature: Feature = {
       id: opts.id,
@@ -751,13 +763,14 @@ export class InMemoryFeatureGraph implements FeatureGraph {
       }
     }
 
-    // Compute orderInFeature
-    let orderInFeature = 0;
+    // Compute append-to-end order even after deletions.
+    let maxOrderInFeature = -1;
     for (const t of this.tasks.values()) {
-      if (t.featureId === opts.featureId) {
-        orderInFeature++;
+      if (t.featureId === opts.featureId && t.orderInFeature > maxOrderInFeature) {
+        maxOrderInFeature = t.orderInFeature;
       }
     }
+    const orderInFeature = maxOrderInFeature + 1;
 
     const task: Task = {
       id: opts.id,
@@ -1006,6 +1019,69 @@ export class InMemoryFeatureGraph implements FeatureGraph {
     }
   }
 
+  removeFeature(featureId: FeatureId): void {
+    const feature = this.features.get(featureId);
+    if (!feature) {
+      throw new GraphValidationError(`Feature "${featureId}" does not exist`);
+    }
+
+    const featureTaskIds = new Set<TaskId>();
+    for (const task of this.tasks.values()) {
+      if (task.featureId === featureId) {
+        featureTaskIds.add(task.id);
+      }
+    }
+
+    for (const [id, dependent] of this.features) {
+      if (!dependent.dependsOn.includes(featureId)) {
+        continue;
+      }
+      this.features.set(id, {
+        ...dependent,
+        dependsOn: dependent.dependsOn.filter((depId) => depId !== featureId),
+      });
+    }
+
+    for (const depId of feature.dependsOn) {
+      const successors = this._featureSuccessors.get(depId);
+      successors?.delete(featureId);
+      if (successors?.size === 0) {
+        this._featureSuccessors.delete(depId);
+      }
+    }
+    this._featureSuccessors.delete(featureId);
+
+    for (const taskId of featureTaskIds) {
+      const task = this.tasks.get(taskId);
+      if (task === undefined) {
+        continue;
+      }
+
+      for (const depId of task.dependsOn) {
+        const successors = this._taskSuccessors.get(depId);
+        successors?.delete(taskId);
+        if (successors?.size === 0) {
+          this._taskSuccessors.delete(depId);
+        }
+      }
+
+      for (const [otherTaskId, otherTask] of this.tasks) {
+        if (!otherTask.dependsOn.includes(taskId)) {
+          continue;
+        }
+        this.tasks.set(otherTaskId, {
+          ...otherTask,
+          dependsOn: otherTask.dependsOn.filter((dep) => dep !== taskId),
+        });
+      }
+
+      this._taskSuccessors.delete(taskId);
+      this.tasks.delete(taskId);
+    }
+
+    this.features.delete(featureId);
+  }
+
   changeMilestone(featureId: FeatureId, newMilestoneId: MilestoneId): void {
     const feature = this.features.get(featureId);
     if (!feature) {
@@ -1065,9 +1141,36 @@ export class InMemoryFeatureGraph implements FeatureGraph {
     return updated;
   }
 
+  editTask(taskId: TaskId, patch: TaskEditPatch): Task {
+    const task = this.tasks.get(taskId);
+    if (!task) {
+      throw new GraphValidationError(`Task "${taskId}" does not exist`);
+    }
+
+    const updated: Task = { ...task };
+    if (patch.description !== undefined) {
+      updated.description = patch.description;
+    }
+    if (patch.weight !== undefined) {
+      updated.weight = patch.weight;
+    }
+    if (patch.reservedWritePaths !== undefined) {
+      updated.reservedWritePaths = patch.reservedWritePaths;
+    }
+    this.tasks.set(taskId, updated);
+    return updated;
+  }
+
   addTask(opts: AddTaskOptions): Task {
-    // Generate next task ID
-    this._taskIdCounter++;
+    // Generate next task ID above all existing numeric ids, even after hydration or deletions.
+    let nextId = this._taskIdCounter;
+    for (const tid of this.tasks.keys()) {
+      const numeric = Number.parseInt(tid.slice(2), 10);
+      if (!Number.isNaN(numeric) && numeric > nextId) {
+        nextId = numeric;
+      }
+    }
+    this._taskIdCounter = nextId + 1;
     const id: TaskId = `t-${this._taskIdCounter}`;
 
     const createOpts: CreateTaskOptions = {
@@ -1094,11 +1197,6 @@ export class InMemoryFeatureGraph implements FeatureGraph {
     const task = this.tasks.get(taskId);
     if (!task) {
       throw new GraphValidationError(`Task "${taskId}" does not exist`);
-    }
-    if (task.status !== 'pending') {
-      throw new GraphValidationError(
-        `Cannot remove task "${taskId}" with status "${task.status}" (must be pending)`,
-      );
     }
 
     // Clean up dependsOn references in other tasks

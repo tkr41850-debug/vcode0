@@ -1,5 +1,6 @@
 import type { PlannerAgent, ReplannerAgent } from '@agents/index';
 import { InMemoryFeatureGraph } from '@core/graph/index';
+import type { GraphProposal } from '@core/proposals/index';
 import { deriveSummaryAvailability } from '@core/state';
 import type {
   AgentRun,
@@ -173,6 +174,36 @@ function createRuntimeMock(order: string[]): RuntimePort & {
   };
 }
 
+function makeProposal(mode: 'plan' | 'replan' = 'plan'): GraphProposal {
+  return {
+    version: 1,
+    mode,
+    aliases: {
+      '#1': 't-1',
+      '#2': 't-2',
+    },
+    ops: [
+      {
+        kind: 'add_task',
+        taskId: 't-1',
+        featureId: 'f-1',
+        description: 'Draft task 1',
+      },
+      {
+        kind: 'add_task',
+        taskId: 't-2',
+        featureId: 'f-1',
+        description: 'Draft task 2',
+      },
+      {
+        kind: 'add_dependency',
+        fromId: 't-2',
+        toId: 't-1',
+      },
+    ],
+  };
+}
+
 function createAgentMock(): PlannerAgent & ReplannerAgent {
   const featureResult: FeaturePhaseResult = { summary: 'ok' };
   const verificationResult: VerificationSummary = { ok: true };
@@ -182,8 +213,10 @@ function createAgentMock(): PlannerAgent & ReplannerAgent {
       featureResult,
     researchFeature: async (_feature: Feature, _run: FeaturePhaseRunContext) =>
       featureResult,
-    planFeature: async (_feature: Feature, _run: FeaturePhaseRunContext) =>
-      featureResult,
+    planFeature: async (_feature: Feature, _run: FeaturePhaseRunContext) => ({
+      summary: 'ok',
+      proposal: makeProposal('plan'),
+    }),
     verifyFeature: async (_feature: Feature, _run: FeaturePhaseRunContext) =>
       verificationResult,
     summarizeFeature: async (_feature: Feature, _run: FeaturePhaseRunContext) =>
@@ -192,7 +225,10 @@ function createAgentMock(): PlannerAgent & ReplannerAgent {
       _feature: Feature,
       _reason: string,
       _run: FeaturePhaseRunContext,
-    ) => featureResult,
+    ) => ({
+      summary: 'ok',
+      proposal: makeProposal('replan'),
+    }),
   };
 }
 
@@ -1190,7 +1226,7 @@ describe('SchedulerLoop', () => {
     });
   });
 
-  it('dispatches a planning feature phase on the shared run plane', async () => {
+  it('dispatches planning on shared run plane and stores submitted proposal for approval', async () => {
     const order: string[] = [];
     const { ports } = createPorts(order);
     const createAgentRun = vi.spyOn(ports.store, 'createAgentRun');
@@ -1240,9 +1276,14 @@ describe('SchedulerLoop', () => {
       expect.objectContaining({ id: 'f-1' }),
       { agentRunId: 'run-feature:f-1:plan' },
     );
-    expect(updateAgentRun).toHaveBeenCalledWith('run-feature:f-1:plan', {
+    expect(updateAgentRun).toHaveBeenNthCalledWith(1, 'run-feature:f-1:plan', {
       runStatus: 'running',
       owner: 'system',
+    });
+    expect(updateAgentRun).toHaveBeenNthCalledWith(2, 'run-feature:f-1:plan', {
+      runStatus: 'await_approval',
+      owner: 'manual',
+      payloadJson: JSON.stringify(makeProposal('plan')),
     });
   });
 
@@ -1436,7 +1477,7 @@ describe('SchedulerLoop', () => {
     );
   });
 
-  it('enqueues feature_phase_complete after successful feature-phase work', async () => {
+  it('does not emit feature_phase_complete when plan submits proposal for approval', async () => {
     const order: string[] = [];
     const { ports } = createPorts(order);
     const graph = new InMemoryFeatureGraph({
@@ -1470,12 +1511,7 @@ describe('SchedulerLoop', () => {
 
     await loop.dispatchReadyWorkForTest(100);
 
-    expect(loop.handledEvents).toContainEqual({
-      type: 'feature_phase_complete',
-      featureId: 'f-1',
-      phase: 'plan',
-      summary: 'ok',
-    });
+    expect(loop.handledEvents).toEqual([]);
   });
 
   it('enqueues feature_phase_error after failed feature-phase work', async () => {
@@ -1567,7 +1603,308 @@ describe('SchedulerLoop', () => {
     expect(planFeature).not.toHaveBeenCalled();
   });
 
-  it('advances planning completion into executing and completes the run', async () => {
+  it('approves planning proposal, applies ops, readies root tasks, and completes run', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
+    const appendEvent = vi.spyOn(ports.store, 'appendEvent');
+    const graph = new InMemoryFeatureGraph({
+      milestones: [
+        {
+          id: 'm-1',
+          name: 'Milestone 1',
+          description: 'desc',
+          status: 'pending',
+          order: 0,
+        },
+      ],
+      features: [
+        {
+          id: 'f-1',
+          milestoneId: 'm-1',
+          orderInMilestone: 0,
+          name: 'Feature 1',
+          description: 'desc',
+          dependsOn: [],
+          status: 'in_progress',
+          workControl: 'planning',
+          collabControl: 'none',
+          featureBranch: 'feat-feature-1-1',
+        },
+      ],
+      tasks: [],
+    });
+    ports.store.createAgentRun(
+      makeFeaturePhaseRun('plan', {
+        runStatus: 'await_approval',
+        owner: 'manual',
+        payloadJson: JSON.stringify(makeProposal('plan')),
+      }),
+    );
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+
+    await loop.handleEventForTest({
+      type: 'feature_phase_approval_decision',
+      featureId: 'f-1',
+      phase: 'plan',
+      decision: 'approved',
+    });
+
+    expect(graph.features.get('f-1')).toEqual(
+      expect.objectContaining({
+        workControl: 'executing',
+        status: 'pending',
+        collabControl: 'none',
+      }),
+    );
+    expect(graph.tasks.get('t-1')).toEqual(
+      expect.objectContaining({ status: 'ready', dependsOn: [] }),
+    );
+    expect(graph.tasks.get('t-2')).toEqual(
+      expect.objectContaining({ status: 'pending', dependsOn: ['t-1'] }),
+    );
+    expect(updateAgentRun).toHaveBeenCalledWith('run-feature:f-1:plan', {
+      runStatus: 'completed',
+      owner: 'system',
+      payloadJson: JSON.stringify(makeProposal('plan')),
+    });
+    expect(appendEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'proposal_applied',
+        entityId: 'f-1',
+      }),
+    );
+  });
+
+  it('rejects planning proposal, leaves graph unchanged, blocks auto-redispatch, and allows explicit rerun', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
+    const appendEvent = vi.spyOn(ports.store, 'appendEvent');
+    const planFeature = vi.spyOn(ports.agents, 'planFeature');
+    const graph = new InMemoryFeatureGraph({
+      milestones: [
+        {
+          id: 'm-1',
+          name: 'Milestone 1',
+          description: 'desc',
+          status: 'pending',
+          order: 0,
+        },
+      ],
+      features: [
+        {
+          id: 'f-1',
+          milestoneId: 'm-1',
+          orderInMilestone: 0,
+          name: 'Feature 1',
+          description: 'desc',
+          dependsOn: [],
+          status: 'in_progress',
+          workControl: 'planning',
+          collabControl: 'none',
+          featureBranch: 'feat-feature-1-1',
+        },
+      ],
+      tasks: [],
+    });
+    ports.store.createAgentRun(
+      makeFeaturePhaseRun('plan', {
+        runStatus: 'await_approval',
+        owner: 'manual',
+        payloadJson: JSON.stringify(makeProposal('plan')),
+      }),
+    );
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+
+    await loop.handleEventForTest({
+      type: 'feature_phase_approval_decision',
+      featureId: 'f-1',
+      phase: 'plan',
+      decision: 'rejected',
+      comment: 'not now',
+    });
+
+    expect(graph.features.get('f-1')).toEqual(
+      expect.objectContaining({
+        workControl: 'planning',
+        status: 'in_progress',
+      }),
+    );
+    expect(graph.tasks.size).toBe(0);
+    expect(updateAgentRun).toHaveBeenCalledWith('run-feature:f-1:plan', {
+      runStatus: 'completed',
+      owner: 'manual',
+      payloadJson: JSON.stringify(makeProposal('plan')),
+    });
+    expect(appendEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'proposal_rejected',
+        entityId: 'f-1',
+      }),
+    );
+
+    planFeature.mockClear();
+    await loop.dispatchReadyWorkForTest(100);
+    expect(planFeature).not.toHaveBeenCalled();
+
+    await loop.handleEventForTest({
+      type: 'feature_phase_rerun_requested',
+      featureId: 'f-1',
+      phase: 'plan',
+    });
+    expect(updateAgentRun).toHaveBeenCalledWith('run-feature:f-1:plan', {
+      runStatus: 'ready',
+      owner: 'system',
+    });
+
+    planFeature.mockClear();
+    await loop.dispatchReadyWorkForTest(100);
+    expect(planFeature).toHaveBeenCalledOnce();
+  });
+
+  it('approves replanning proposal and makes approved work executable immediately', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
+    const graph = new InMemoryFeatureGraph({
+      milestones: [
+        {
+          id: 'm-1',
+          name: 'Milestone 1',
+          description: 'desc',
+          status: 'pending',
+          order: 0,
+        },
+      ],
+      features: [
+        {
+          id: 'f-1',
+          milestoneId: 'm-1',
+          orderInMilestone: 0,
+          name: 'Feature 1',
+          description: 'desc',
+          dependsOn: [],
+          status: 'in_progress',
+          workControl: 'replanning',
+          collabControl: 'branch_open',
+          featureBranch: 'feat-feature-1-1',
+        },
+      ],
+      tasks: [],
+    });
+    ports.store.createAgentRun(
+      makeFeaturePhaseRun('replan', {
+        runStatus: 'await_approval',
+        owner: 'manual',
+        payloadJson: JSON.stringify(makeProposal('replan')),
+      }),
+    );
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+
+    await loop.handleEventForTest({
+      type: 'feature_phase_approval_decision',
+      featureId: 'f-1',
+      phase: 'replan',
+      decision: 'approved',
+    });
+
+    expect(graph.features.get('f-1')).toEqual(
+      expect.objectContaining({
+        workControl: 'executing',
+        status: 'pending',
+        collabControl: 'branch_open',
+      }),
+    );
+    expect(graph.tasks.get('t-1')).toEqual(
+      expect.objectContaining({ status: 'ready', dependsOn: [] }),
+    );
+    expect(graph.tasks.get('t-2')).toEqual(
+      expect.objectContaining({ status: 'pending', dependsOn: ['t-1'] }),
+    );
+    expect(updateAgentRun).toHaveBeenCalledWith('run-feature:f-1:replan', {
+      runStatus: 'completed',
+      owner: 'system',
+      payloadJson: JSON.stringify(makeProposal('replan')),
+    });
+  });
+
+  it('records proposal_apply_failed when approval payload is invalid', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
+    const appendEvent = vi.spyOn(ports.store, 'appendEvent');
+    const graph = new InMemoryFeatureGraph({
+      milestones: [
+        {
+          id: 'm-1',
+          name: 'Milestone 1',
+          description: 'desc',
+          status: 'pending',
+          order: 0,
+        },
+      ],
+      features: [
+        {
+          id: 'f-1',
+          milestoneId: 'm-1',
+          orderInMilestone: 0,
+          name: 'Feature 1',
+          description: 'desc',
+          dependsOn: [],
+          status: 'in_progress',
+          workControl: 'planning',
+          collabControl: 'none',
+          featureBranch: 'feat-feature-1-1',
+        },
+      ],
+      tasks: [],
+    });
+    ports.store.createAgentRun(
+      makeFeaturePhaseRun('plan', {
+        runStatus: 'await_approval',
+        owner: 'manual',
+        payloadJson: '{bad-json',
+      }),
+    );
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+
+    await loop.handleEventForTest({
+      type: 'feature_phase_approval_decision',
+      featureId: 'f-1',
+      phase: 'plan',
+      decision: 'approved',
+    });
+
+    expect(graph.tasks.size).toBe(0);
+    expect(graph.features.get('f-1')).toEqual(
+      expect.objectContaining({
+        workControl: 'planning',
+        status: 'in_progress',
+      }),
+    );
+    expect(updateAgentRun).toHaveBeenCalledWith('run-feature:f-1:plan', {
+      runStatus: 'completed',
+      owner: 'manual',
+      payloadJson: '{bad-json',
+    });
+    expect(appendEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'proposal_apply_failed',
+        entityId: 'f-1',
+        payload: expect.objectContaining({
+          phase: 'plan',
+          error: expect.stringContaining('JSON'),
+        }),
+      }),
+    );
+  });
+
+  it('keeps feature in planning when approved proposal applies no ops', async () => {
     const order: string[] = [];
     const { ports } = createPorts(order);
     const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
@@ -1597,28 +1934,110 @@ describe('SchedulerLoop', () => {
       ],
       tasks: [],
     });
-    ports.store.createAgentRun(makeFeaturePhaseRun('plan'));
+    const noOpProposal: GraphProposal = {
+      version: 1,
+      mode: 'plan',
+      aliases: {},
+      ops: [
+        {
+          kind: 'remove_task',
+          taskId: 't-missing',
+        },
+      ],
+    };
+    ports.store.createAgentRun(
+      makeFeaturePhaseRun('plan', {
+        runStatus: 'await_approval',
+        owner: 'manual',
+        payloadJson: JSON.stringify(noOpProposal),
+      }),
+    );
 
     const loop = new ExposedSchedulerLoop(graph, ports);
 
     await loop.handleEventForTest({
-      type: 'feature_phase_complete',
+      type: 'feature_phase_approval_decision',
       featureId: 'f-1',
       phase: 'plan',
-      summary: 'planned',
+      decision: 'approved',
     });
 
     expect(graph.features.get('f-1')).toEqual(
       expect.objectContaining({
-        workControl: 'executing',
-        status: 'pending',
-        collabControl: 'none',
+        workControl: 'planning',
+        status: 'in_progress',
       }),
     );
+    expect(graph.tasks.size).toBe(0);
     expect(updateAgentRun).toHaveBeenCalledWith('run-feature:f-1:plan', {
       runStatus: 'completed',
       owner: 'system',
+      payloadJson: JSON.stringify(noOpProposal),
     });
+  });
+
+  it('records proposal_apply_failed when proposal op shape is invalid', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const appendEvent = vi.spyOn(ports.store, 'appendEvent');
+    const graph = new InMemoryFeatureGraph({
+      milestones: [
+        {
+          id: 'm-1',
+          name: 'Milestone 1',
+          description: 'desc',
+          status: 'pending',
+          order: 0,
+        },
+      ],
+      features: [
+        {
+          id: 'f-1',
+          milestoneId: 'm-1',
+          orderInMilestone: 0,
+          name: 'Feature 1',
+          description: 'desc',
+          dependsOn: [],
+          status: 'in_progress',
+          workControl: 'planning',
+          collabControl: 'none',
+          featureBranch: 'feat-feature-1-1',
+        },
+      ],
+      tasks: [],
+    });
+    ports.store.createAgentRun(
+      makeFeaturePhaseRun('plan', {
+        runStatus: 'await_approval',
+        owner: 'manual',
+        payloadJson: JSON.stringify({
+          version: 1,
+          mode: 'plan',
+          aliases: {},
+          ops: [{ kind: 'drop_database' }],
+        }),
+      }),
+    );
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+
+    await loop.handleEventForTest({
+      type: 'feature_phase_approval_decision',
+      featureId: 'f-1',
+      phase: 'plan',
+      decision: 'approved',
+    });
+
+    expect(appendEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'proposal_apply_failed',
+        entityId: 'f-1',
+        payload: expect.objectContaining({
+          phase: 'plan',
+          error: 'invalid proposal payload',
+        }),
+      }),
+    );
   });
 
   it('moves feature_ci success into verifying', async () => {

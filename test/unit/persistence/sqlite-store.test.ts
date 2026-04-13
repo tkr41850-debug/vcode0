@@ -69,6 +69,38 @@ describe('SqliteStore', () => {
       expect(store.getAgentRun(run.id)).toEqual(run);
     });
 
+    it('round-trips a feature-phase proposal payload in payloadJson', () => {
+      const payloadJson = JSON.stringify({
+        version: 1,
+        mode: 'plan',
+        aliases: { '#1': 'f-new' },
+        ops: [
+          {
+            kind: 'add_feature',
+            featureId: 'f-new',
+            milestoneId: 'm-1',
+            name: 'New feature',
+            description: 'draft',
+          },
+        ],
+      });
+      const run: AgentRun = {
+        id: 'run-feat-plan-1',
+        scopeType: 'feature_phase',
+        scopeId: 'f-1',
+        phase: 'plan',
+        runStatus: 'await_approval',
+        owner: 'manual',
+        attention: 'none',
+        restartCount: 0,
+        maxRetries: 3,
+        payloadJson,
+      };
+      store.createAgentRun(run);
+
+      expect(store.getAgentRun(run.id)).toEqual(run);
+    });
+
     it('updates fields via updateAgentRun', () => {
       const run = makeTaskRun();
       store.createAgentRun(run);

@@ -1,7 +1,9 @@
 import type { PlannerAgent } from '@agents/planner';
+import type { ProposalAgent, ProposalPhaseResult } from '@agents/proposal';
 import type { ReplannerAgent } from '@agents/replanner';
 
 export type { PlannerAgent } from '@agents/planner';
+export type { ProposalAgent, ProposalPhaseResult } from '@agents/proposal';
 export type {
   PromptLibrary,
   PromptTemplate,
@@ -9,18 +11,13 @@ export type {
 } from '@agents/prompts';
 export type { ReplannerAgent } from '@agents/replanner';
 export type {
+  AddFeatureOptions,
   AddTaskOptions,
   AgentToolName,
-  CancelFeatureOptions,
-  ChangeMilestoneOptions,
-  CreateFeatureOptions,
-  CreateMilestoneOptions,
-  CreateTaskOptions,
   DependencyOptions,
   EditFeatureOptions,
-  FeatureDependencyOptions,
+  EditTaskOptions,
   FeatureEditPatch,
-  MergeFeaturesOptions,
   PlannerToolArgs,
   PlannerToolArgsMap,
   PlannerToolDefinition,
@@ -28,14 +25,12 @@ export type {
   PlannerToolResult,
   PlannerToolResultMap,
   PlannerToolset,
+  ProposalToolName,
+  RemoveFeatureOptions,
   RemoveTaskOptions,
-  ReorderTasksOptions,
   ReplannerToolName,
-  ReweightTaskOptions,
-  SplitFeatureOptions,
-  SplitSpec,
-  SubmitPlanOptions,
-  TaskDependencyOptions,
+  SubmitProposalOptions,
+  TaskEditPatch,
 } from '@agents/tools';
 
 export interface AgentPort extends PlannerAgent, ReplannerAgent {}
