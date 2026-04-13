@@ -11,6 +11,7 @@ import type {
   FeatureWorkControl,
   Milestone,
   MilestoneId,
+  RepairSource,
   Task,
   TaskCollabControl,
   TaskId,
@@ -47,6 +48,7 @@ export interface CreateTaskOptions {
   dependsOn?: TaskId[];
   weight?: TaskWeight;
   reservedWritePaths?: string[];
+  repairSource?: RepairSource;
 }
 
 export interface AddTaskOptions {
@@ -55,6 +57,7 @@ export interface AddTaskOptions {
   deps?: TaskId[];
   weight?: TaskWeight;
   reservedWritePaths?: string[];
+  repairSource?: RepairSource;
 }
 
 /** Spec for a sub-feature produced by splitFeature (pre-planning only — no tasks exist yet). */
@@ -122,14 +125,16 @@ export class GraphValidationError extends Error {
 }
 
 /**
- * Feature workControl phases that can be dispatched as a feature phase agent
- * run. Executing-tier phases (`executing`, `feature_ci`, `verifying`,
- * `executing_repair`) are driven by tasks, not dispatched as feature phases.
+ * Feature workControl phases that can be dispatched as a feature-phase unit.
+ * Pre-execution planning phases plus post-execution verification/summarizing
+ * phases dispatch here. Task-driven execution phases (`executing`,
+ * `executing_repair`) are excluded.
  */
 const DISPATCHABLE_FEATURE_PHASES: ReadonlySet<FeatureWorkControl> = new Set([
   'discussing',
   'researching',
   'planning',
+  'feature_ci',
   'verifying',
   'replanning',
   'summarizing',
@@ -461,14 +466,14 @@ export class InMemoryFeatureGraph implements FeatureGraph {
   }
 
   /**
-   * Features currently dispatchable as a feature phase: in a pre-execution
-   * phase (discussing/researching/planning/replanning) or the post-merge
-   * summarizing phase, with all feature dependencies merged, not cancelled,
-   * and not in a collab state that blocks dispatch.
+   * Features currently dispatchable as a feature-phase unit: in a
+   * pre-execution planning phase or a post-execution verification/summarizing
+   * phase (`feature_ci`, `verifying`, `summarizing`), with all feature
+   * dependencies merged, not cancelled, and not in a collab state that blocks
+   * dispatch.
    *
-   * Features in executing phases (executing/feature_ci/verifying/
-   * executing_repair) are driven by their tasks, not dispatched as feature
-   * phases, and are excluded here.
+   * Features in task-driven execution phases (`executing`,
+   * `executing_repair`) are excluded here.
    */
   readyFeatures(): Feature[] {
     const result: Feature[] = [];
@@ -769,6 +774,9 @@ export class InMemoryFeatureGraph implements FeatureGraph {
     }
     if (opts.reservedWritePaths !== undefined) {
       task.reservedWritePaths = opts.reservedWritePaths;
+    }
+    if (opts.repairSource !== undefined) {
+      task.repairSource = opts.repairSource;
     }
 
     // Apply atomically
@@ -1075,6 +1083,9 @@ export class InMemoryFeatureGraph implements FeatureGraph {
     }
     if (opts.reservedWritePaths !== undefined) {
       createOpts.reservedWritePaths = opts.reservedWritePaths;
+    }
+    if (opts.repairSource !== undefined) {
+      createOpts.repairSource = opts.repairSource;
     }
     return this.createTask(createOpts);
   }

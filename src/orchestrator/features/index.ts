@@ -1,9 +1,12 @@
+import { MAX_REPAIR_ATTEMPTS } from '@core/fsm/index';
 import type { FeatureGraph } from '@core/graph/index';
 import { MergeTrainCoordinator } from '@core/merge-train/index';
 import type {
   AgentRunPhase,
   Feature,
   FeatureId,
+  Task,
+  TaskId,
   VerificationSummary,
 } from '@core/types/index';
 
@@ -21,6 +24,24 @@ export class FeatureLifecycleCoordinator {
   }
 
   runFeatureCi(_feature: Feature): void {}
+
+  onTaskLanded(taskId: TaskId): void {
+    const task = this.requireTask(taskId);
+    const feature = this.requireFeature(task.featureId);
+    if (
+      feature.workControl !== 'executing' &&
+      feature.workControl !== 'executing_repair'
+    ) {
+      return;
+    }
+
+    if (!this.allFeatureTasksLanded(feature.id)) {
+      return;
+    }
+
+    this.markPhaseDone(feature.id);
+    this.advancePhase(feature.id, 'feature_ci');
+  }
 
   markAwaitingMerge(feature: Feature): void {
     this.mergeTrain.enqueueFeatureMerge(feature.id, this.graph);
@@ -62,13 +83,33 @@ export class FeatureLifecycleCoordinator {
         this.markPhaseDone(featureId);
         this.advancePhase(featureId, 'executing');
         return;
+      case 'feature_ci':
+        if (verification === undefined) {
+          throw new Error(
+            'feature_ci completion requires verification summary',
+          );
+        }
+        if (verification.ok === false) {
+          this.failPreQueueVerification(
+            featureId,
+            'feature CI',
+            verification.summary,
+          );
+          return;
+        }
+        this.markPhaseDone(featureId);
+        this.advancePhase(featureId, 'verifying');
+        return;
       case 'verify':
         if (verification === undefined) {
           throw new Error('verify completion requires verification summary');
         }
         if (verification.ok === false) {
-          this.markPhaseFailed(featureId);
-          this.advancePhase(featureId, 'executing_repair');
+          this.failPreQueueVerification(
+            featureId,
+            'feature verification',
+            verification.summary,
+          );
           return;
         }
         this.markPhaseDone(featureId);
@@ -80,7 +121,6 @@ export class FeatureLifecycleCoordinator {
         this.advancePhase(featureId, 'planning');
         return;
       case 'execute':
-      case 'feature_ci':
       case 'summarize':
         return;
     }
@@ -126,6 +166,59 @@ export class FeatureLifecycleCoordinator {
     }
   }
 
+  private failPreQueueVerification(
+    featureId: FeatureId,
+    label: string,
+    summary?: string,
+  ): void {
+    const repairCount = this.countRepairTasks(featureId);
+    this.markPhaseFailed(featureId);
+
+    if (repairCount >= MAX_REPAIR_ATTEMPTS) {
+      this.advancePhase(featureId, 'executing_repair');
+      this.markPhaseFailed(featureId);
+      this.advancePhase(featureId, 'replanning');
+      return;
+    }
+
+    this.advancePhase(featureId, 'executing_repair');
+
+    const detail = summary?.trim();
+    const repairTask = this.graph.addTask({
+      featureId,
+      description:
+        detail && detail.length > 0
+          ? `Repair ${label.toLowerCase()} issues: ${detail}`
+          : `Repair ${label.toLowerCase()} issues`,
+      repairSource: label === 'feature CI' ? 'feature_ci' : 'verify',
+    });
+    this.graph.transitionTask(repairTask.id, { status: 'ready' });
+  }
+
+  private allFeatureTasksLanded(featureId: FeatureId): boolean {
+    let sawTask = false;
+    for (const task of this.graph.tasks.values()) {
+      if (task.featureId !== featureId) {
+        continue;
+      }
+      sawTask = true;
+      if (task.status !== 'done' || task.collabControl !== 'merged') {
+        return false;
+      }
+    }
+    return sawTask;
+  }
+
+  private countRepairTasks(featureId: FeatureId): number {
+    let count = 0;
+    for (const task of this.graph.tasks.values()) {
+      if (task.featureId === featureId && task.repairSource !== undefined) {
+        count++;
+      }
+    }
+    return count;
+  }
+
   private advancePhase(
     featureId: FeatureId,
     workControl: Feature['workControl'],
@@ -142,5 +235,13 @@ export class FeatureLifecycleCoordinator {
       throw new Error(`feature "${featureId}" does not exist`);
     }
     return feature;
+  }
+
+  private requireTask(taskId: TaskId): Task {
+    const task = this.graph.tasks.get(taskId);
+    if (task === undefined) {
+      throw new Error(`task "${taskId}" does not exist`);
+    }
+    return task;
   }
 }

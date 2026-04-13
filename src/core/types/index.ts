@@ -50,6 +50,8 @@ export type TestPolicy = 'loose' | 'strict';
 
 export type TaskWeight = 'trivial' | 'small' | 'medium' | 'heavy';
 
+export type RepairSource = 'feature_ci' | 'verify' | 'integration';
+
 export type TaskSuspendReason =
   | 'same_feature_overlap'
   | 'cross_feature_overlap';
@@ -191,6 +193,7 @@ export interface Task {
   dependsOn: TaskId[];
   status: TaskStatus;
   collabControl: TaskCollabControl;
+  repairSource?: RepairSource;
   workerId?: string;
   worktreeBranch?: string;
   taskTestPolicy?: TestPolicy;

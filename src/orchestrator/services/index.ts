@@ -1,5 +1,8 @@
 import type { Feature, VerificationSummary } from '@core/types/index';
-import type { OrchestratorPorts } from '@orchestrator/ports/index';
+import type {
+  OrchestratorPorts,
+  VerificationPort,
+} from '@orchestrator/ports/index';
 
 export class RecoveryService {
   constructor(private readonly ports: OrchestratorPorts) {}
@@ -10,7 +13,7 @@ export class RecoveryService {
   }
 }
 
-export class VerificationService {
+export class VerificationService implements VerificationPort {
   constructor(private readonly ports: OrchestratorPorts) {}
 
   verifyFeature(_feature: Feature): Promise<VerificationSummary> {

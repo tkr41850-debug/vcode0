@@ -91,6 +91,7 @@ describe('worker smoke (faux provider + in-process harness)', () => {
     const [result] = results;
     expect(result?.agentRunId).toBe('run-smoke');
     expect(result?.result.summary).toContain('hello from faux');
+    expect(result?.completionKind).toBe('implicit');
     // No tool calls → no terminal result from `submit_result` → filesChanged
     // is the default empty list from `WorkerRuntime.run`.
     expect(result?.result.filesChanged).toEqual([]);

@@ -192,6 +192,7 @@ export type WorkerToOrchestratorMessage =
       agentRunId: string;
       result: TaskResult;
       usage: RuntimeUsageDelta;
+      completionKind?: 'submitted' | 'implicit';
     }
   | {
       type: 'error';

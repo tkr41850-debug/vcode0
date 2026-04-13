@@ -120,10 +120,15 @@ export class SchedulerLoop {
       }
 
       if (message.type === 'result') {
+        const taskLanded = message.completionKind === 'submitted';
         this.graph.transitionTask(run.scopeId, {
           status: 'done',
+          ...(taskLanded ? { collabControl: 'merged' as const } : {}),
           result: message.result,
         });
+        if (taskLanded) {
+          this.features.onTaskLanded(run.scopeId);
+        }
         this.ports.store.updateAgentRun(run.id, {
           runStatus: 'completed',
           owner: 'system',
@@ -438,6 +443,18 @@ export class SchedulerLoop {
           });
           return;
         }
+        case 'feature_ci': {
+          const verification =
+            await this.ports.verification.verifyFeature(feature);
+          await this.handleEvent({
+            type: 'feature_phase_complete',
+            featureId: feature.id,
+            phase,
+            summary: verification.summary ?? '',
+            verification,
+          });
+          return;
+        }
         case 'verify': {
           const verification = await this.ports.agents.verifyFeature(
             feature,
@@ -480,7 +497,6 @@ export class SchedulerLoop {
           return;
         }
         case 'execute':
-        case 'feature_ci':
           return;
       }
     } catch (error) {

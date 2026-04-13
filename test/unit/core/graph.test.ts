@@ -657,15 +657,15 @@ describe('InMemoryFeatureGraph', () => {
 
   it('readyFeatures excludes features in task-driven execution phases', () => {
     const g = createGraphWithFeature();
-    for (const wc of ['executing', 'feature_ci', 'executing_repair'] as const) {
+    for (const wc of ['executing', 'executing_repair'] as const) {
       updateFeature(g, 'f-1', { workControl: wc });
       expect(g.readyFeatures()).toHaveLength(0);
     }
   });
 
-  it('readyFeatures includes features in agent-driven verification and summary phases', () => {
+  it('readyFeatures includes features in verification and summary phases', () => {
     const g = createGraphWithFeature();
-    for (const wc of ['verifying', 'summarizing'] as const) {
+    for (const wc of ['feature_ci', 'verifying', 'summarizing'] as const) {
       updateFeature(g, 'f-1', { workControl: wc });
       expect(g.readyFeatures()).toHaveLength(1);
     }

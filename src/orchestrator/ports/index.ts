@@ -1,5 +1,11 @@
 import type { AgentPort } from '@agents';
-import type { AgentRun, EventRecord, GvcConfig } from '@core/types/index';
+import type {
+  AgentRun,
+  EventRecord,
+  Feature,
+  GvcConfig,
+  VerificationSummary,
+} from '@core/types/index';
 import type { RuntimePort } from '@runtime';
 
 export interface AgentRunQuery {
@@ -38,10 +44,15 @@ export interface UiPort {
   dispose(): void;
 }
 
+export interface VerificationPort {
+  verifyFeature(feature: Feature): Promise<VerificationSummary>;
+}
+
 export interface OrchestratorPorts {
   store: Store;
   runtime: RuntimePort;
   agents: AgentPort;
+  verification: VerificationPort;
   ui: UiPort;
   config: GvcConfig;
 }

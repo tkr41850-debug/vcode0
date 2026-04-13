@@ -20,11 +20,13 @@ import type {
   OrchestratorPorts,
   Store,
   UiPort,
+  VerificationPort,
 } from '@orchestrator/ports/index';
 import {
   type SchedulerEvent,
   SchedulerLoop,
 } from '@orchestrator/scheduler/index';
+import { VerificationService } from '@orchestrator/services/index';
 import type { RuntimePort } from '@runtime/contracts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -225,13 +227,27 @@ function createPorts(
   const ui = createUiMock(order);
 
   return {
-    ports: {
-      store: createStoreMock(),
-      runtime,
-      agents: createAgentMock(),
-      ui,
-      config: createConfig(configOverrides),
-    },
+    ports: (() => {
+      const base = {
+        store: createStoreMock(),
+        runtime,
+        agents: createAgentMock(),
+        ui,
+        config: createConfig(configOverrides),
+      };
+      let verification: VerificationPort;
+      const ports = {
+        ...base,
+        get verification() {
+          return verification;
+        },
+      } as OrchestratorPorts;
+      verification = new VerificationService(ports);
+      return {
+        ...base,
+        verification,
+      };
+    })(),
     runtime,
     ui,
   };
@@ -772,7 +788,7 @@ describe('SchedulerLoop', () => {
     );
   });
 
-  it('completes a task run and task on worker result', async () => {
+  it('completes a task run, marks the task merged, and advances the feature to feature_ci after the last task lands', async () => {
     const order: string[] = [];
     const { ports } = createPorts(order);
     const graph = new InMemoryFeatureGraph({
@@ -793,9 +809,9 @@ describe('SchedulerLoop', () => {
           name: 'Feature 1',
           description: 'desc',
           dependsOn: [],
-          status: 'pending',
+          status: 'in_progress',
           workControl: 'executing',
-          collabControl: 'none',
+          collabControl: 'branch_open',
           featureBranch: 'feat-feature-1-1',
         },
       ],
@@ -840,17 +856,25 @@ describe('SchedulerLoop', () => {
           totalTokens: 3,
           usd: 0,
         },
+        completionKind: 'submitted',
       },
     });
 
     expect(graph.tasks.get('t-1')).toEqual(
       expect.objectContaining({
         status: 'done',
-        collabControl: 'branch_open',
+        collabControl: 'merged',
         result: {
           summary: 'done',
           filesChanged: ['src/a.ts'],
         },
+      }),
+    );
+    expect(graph.features.get('f-1')).toEqual(
+      expect.objectContaining({
+        workControl: 'feature_ci',
+        status: 'pending',
+        collabControl: 'branch_open',
       }),
     );
     expect(updateAgentRun).toHaveBeenCalledWith('run-task:t-1', {
@@ -858,6 +882,91 @@ describe('SchedulerLoop', () => {
       owner: 'system',
       sessionId: 'sess-1',
     });
+  });
+
+  it('does not treat implicit worker exit as a landed task', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const graph = new InMemoryFeatureGraph({
+      milestones: [
+        {
+          id: 'm-1',
+          name: 'Milestone 1',
+          description: 'desc',
+          status: 'pending',
+          order: 0,
+        },
+      ],
+      features: [
+        {
+          id: 'f-1',
+          milestoneId: 'm-1',
+          orderInMilestone: 0,
+          name: 'Feature 1',
+          description: 'desc',
+          dependsOn: [],
+          status: 'in_progress',
+          workControl: 'executing',
+          collabControl: 'branch_open',
+          featureBranch: 'feat-feature-1-1',
+        },
+      ],
+      tasks: [
+        {
+          id: 't-1',
+          featureId: 'f-1',
+          orderInFeature: 0,
+          description: 'Task 1',
+          dependsOn: [],
+          status: 'running',
+          collabControl: 'branch_open',
+        },
+      ],
+    });
+    ports.store.createAgentRun(
+      makeTaskRun({
+        id: 'run-task:t-1',
+        runStatus: 'running',
+        sessionId: 'sess-1',
+      }),
+    );
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+
+    await loop.handleEventForTest({
+      type: 'worker_message',
+      message: {
+        type: 'result',
+        taskId: 't-1',
+        agentRunId: 'run-task:t-1',
+        result: {
+          summary: 'assistant stopped',
+          filesChanged: [],
+        },
+        usage: {
+          provider: 'test',
+          model: 'fake',
+          inputTokens: 1,
+          outputTokens: 2,
+          totalTokens: 3,
+          usd: 0,
+        },
+        completionKind: 'implicit',
+      },
+    });
+
+    expect(graph.tasks.get('t-1')).toEqual(
+      expect.objectContaining({
+        status: 'done',
+        collabControl: 'branch_open',
+      }),
+    );
+    expect(graph.features.get('f-1')).toEqual(
+      expect.objectContaining({
+        workControl: 'executing',
+        collabControl: 'branch_open',
+      }),
+    );
   });
 
   it('puts a transient worker error into retry_await and returns the task to ready', async () => {
@@ -1137,6 +1246,114 @@ describe('SchedulerLoop', () => {
     });
   });
 
+  it('dispatches feature_ci through the verification service before agent-level verifying', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const verifyFeatureBranch = vi.spyOn(ports.verification, 'verifyFeature');
+    const graph = new InMemoryFeatureGraph({
+      milestones: [
+        {
+          id: 'm-1',
+          name: 'Milestone 1',
+          description: 'desc',
+          status: 'pending',
+          order: 0,
+        },
+      ],
+      features: [
+        {
+          id: 'f-1',
+          milestoneId: 'm-1',
+          orderInMilestone: 0,
+          name: 'Feature 1',
+          description: 'desc',
+          dependsOn: [],
+          status: 'pending',
+          workControl: 'feature_ci',
+          collabControl: 'branch_open',
+          featureBranch: 'feat-feature-1-1',
+        },
+      ],
+      tasks: [
+        {
+          id: 't-1',
+          featureId: 'f-1',
+          orderInFeature: 0,
+          description: 'Task 1',
+          dependsOn: [],
+          status: 'done',
+          collabControl: 'merged',
+        },
+      ],
+    });
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+
+    await loop.dispatchReadyWorkForTest(100);
+
+    expect(verifyFeatureBranch).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'f-1' }),
+    );
+  });
+
+  it('moves feature_ci into retry_await when the verification service throws', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    vi.spyOn(ports.verification, 'verifyFeature').mockRejectedValueOnce(
+      new Error('feature checks failed to run'),
+    );
+    const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
+    const graph = new InMemoryFeatureGraph({
+      milestones: [
+        {
+          id: 'm-1',
+          name: 'Milestone 1',
+          description: 'desc',
+          status: 'pending',
+          order: 0,
+        },
+      ],
+      features: [
+        {
+          id: 'f-1',
+          milestoneId: 'm-1',
+          orderInMilestone: 0,
+          name: 'Feature 1',
+          description: 'desc',
+          dependsOn: [],
+          status: 'pending',
+          workControl: 'feature_ci',
+          collabControl: 'branch_open',
+          featureBranch: 'feat-feature-1-1',
+        },
+      ],
+      tasks: [
+        {
+          id: 't-1',
+          featureId: 'f-1',
+          orderInFeature: 0,
+          description: 'Task 1',
+          dependsOn: [],
+          status: 'done',
+          collabControl: 'merged',
+        },
+      ],
+    });
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+
+    await loop.dispatchReadyWorkForTest(100);
+
+    expect(updateAgentRun).toHaveBeenCalledWith(
+      'run-feature:f-1:feature_ci',
+      expect.objectContaining({
+        runStatus: 'retry_await',
+        owner: 'system',
+        retryAt: expect.any(Number),
+      }),
+    );
+  });
+
   it('dispatches verify feature phases through the agent port', async () => {
     const order: string[] = [];
     const { ports } = createPorts(order);
@@ -1161,7 +1378,7 @@ describe('SchedulerLoop', () => {
           dependsOn: [],
           status: 'pending',
           workControl: 'verifying',
-          collabControl: 'none',
+          collabControl: 'branch_open',
           featureBranch: 'feat-feature-1-1',
         },
       ],
@@ -1404,6 +1621,71 @@ describe('SchedulerLoop', () => {
     });
   });
 
+  it('moves feature_ci success into verifying', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
+    const graph = new InMemoryFeatureGraph({
+      milestones: [
+        {
+          id: 'm-1',
+          name: 'Milestone 1',
+          description: 'desc',
+          status: 'pending',
+          order: 0,
+        },
+      ],
+      features: [
+        {
+          id: 'f-1',
+          milestoneId: 'm-1',
+          orderInMilestone: 0,
+          name: 'Feature 1',
+          description: 'desc',
+          dependsOn: [],
+          status: 'in_progress',
+          workControl: 'feature_ci',
+          collabControl: 'branch_open',
+          featureBranch: 'feat-feature-1-1',
+        },
+      ],
+      tasks: [
+        {
+          id: 't-1',
+          featureId: 'f-1',
+          orderInFeature: 0,
+          description: 'Task 1',
+          dependsOn: [],
+          status: 'done',
+          collabControl: 'merged',
+        },
+      ],
+    });
+    ports.store.createAgentRun(makeFeaturePhaseRun('feature_ci'));
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+
+    await loop.handleEventForTest({
+      type: 'feature_phase_complete',
+      featureId: 'f-1',
+      phase: 'feature_ci',
+      summary: 'green',
+      verification: { ok: true, summary: 'green' },
+    });
+
+    expect(graph.features.get('f-1')).toEqual(
+      expect.objectContaining({
+        workControl: 'verifying',
+        status: 'pending',
+        collabControl: 'branch_open',
+      }),
+    );
+    expect(updateAgentRun).toHaveBeenCalledWith('run-feature:f-1:feature_ci', {
+      runStatus: 'completed',
+      owner: 'system',
+    });
+  });
+
   it('moves verify success to awaiting_merge and merge_queued', async () => {
     const order: string[] = [];
     const { ports } = createPorts(order);
@@ -1460,7 +1742,79 @@ describe('SchedulerLoop', () => {
     });
   });
 
-  it('moves verify failure into executing_repair', async () => {
+  it('moves feature_ci failure into executing_repair and creates a ready repair task', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const graph = new InMemoryFeatureGraph({
+      milestones: [
+        {
+          id: 'm-1',
+          name: 'Milestone 1',
+          description: 'desc',
+          status: 'pending',
+          order: 0,
+        },
+      ],
+      features: [
+        {
+          id: 'f-1',
+          milestoneId: 'm-1',
+          orderInMilestone: 0,
+          name: 'Feature 1',
+          description: 'desc',
+          dependsOn: [],
+          status: 'in_progress',
+          workControl: 'feature_ci',
+          collabControl: 'branch_open',
+          featureBranch: 'feat-feature-1-1',
+        },
+      ],
+      tasks: [
+        {
+          id: 't-1',
+          featureId: 'f-1',
+          orderInFeature: 0,
+          description: 'Task 1',
+          dependsOn: [],
+          status: 'done',
+          collabControl: 'merged',
+        },
+      ],
+    });
+    ports.store.createAgentRun(makeFeaturePhaseRun('feature_ci'));
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+
+    await loop.handleEventForTest({
+      type: 'feature_phase_complete',
+      featureId: 'f-1',
+      phase: 'feature_ci',
+      summary: 'tests failed',
+      verification: { ok: false, summary: 'tests failed' },
+    });
+
+    expect(graph.features.get('f-1')).toEqual(
+      expect.objectContaining({
+        workControl: 'executing_repair',
+        status: 'pending',
+        collabControl: 'branch_open',
+      }),
+    );
+    const repairTasks = [...graph.tasks.values()].filter(
+      (task) => task.featureId === 'f-1' && task.id !== 't-1',
+    );
+    expect(repairTasks).toHaveLength(1);
+    expect(repairTasks[0]).toEqual(
+      expect.objectContaining({
+        status: 'ready',
+        collabControl: 'none',
+        description: expect.stringContaining('Repair feature ci issues'),
+        repairSource: 'feature_ci',
+      }),
+    );
+  });
+
+  it('moves verify failure into executing_repair and creates a ready repair task', async () => {
     const order: string[] = [];
     const { ports } = createPorts(order);
     const graph = new InMemoryFeatureGraph({
@@ -1508,6 +1862,204 @@ describe('SchedulerLoop', () => {
         collabControl: 'branch_open',
       }),
     );
+    const repairTasks = [...graph.tasks.values()];
+    expect(repairTasks).toHaveLength(1);
+    expect(repairTasks[0]).toEqual(
+      expect.objectContaining({
+        status: 'ready',
+        description: expect.stringContaining(
+          'Repair feature verification issues',
+        ),
+        repairSource: 'verify',
+      }),
+    );
+  });
+
+  it('does not count ordinary repair-named tasks as repair attempts', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const graph = new InMemoryFeatureGraph({
+      milestones: [
+        {
+          id: 'm-1',
+          name: 'Milestone 1',
+          description: 'desc',
+          status: 'pending',
+          order: 0,
+        },
+      ],
+      features: [
+        {
+          id: 'f-1',
+          milestoneId: 'm-1',
+          orderInMilestone: 0,
+          name: 'Feature 1',
+          description: 'desc',
+          dependsOn: [],
+          status: 'in_progress',
+          workControl: 'verifying',
+          collabControl: 'branch_open',
+          featureBranch: 'feat-feature-1-1',
+        },
+      ],
+      tasks: [
+        {
+          id: 't-1',
+          featureId: 'f-1',
+          orderInFeature: 0,
+          description: 'Repair login flow',
+          dependsOn: [],
+          status: 'done',
+          collabControl: 'merged',
+        },
+      ],
+    });
+    ports.store.createAgentRun(makeFeaturePhaseRun('verify'));
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+
+    await loop.handleEventForTest({
+      type: 'feature_phase_complete',
+      featureId: 'f-1',
+      phase: 'verify',
+      summary: 'failed checks',
+      verification: { ok: false, summary: 'failed checks' },
+    });
+
+    expect(graph.features.get('f-1')).toEqual(
+      expect.objectContaining({
+        workControl: 'executing_repair',
+        status: 'pending',
+        collabControl: 'branch_open',
+      }),
+    );
+    const repairTasks = [...graph.tasks.values()].filter(
+      (task) => task.repairSource !== undefined,
+    );
+    expect(repairTasks).toHaveLength(1);
+    expect(repairTasks[0]).toEqual(
+      expect.objectContaining({
+        repairSource: 'verify',
+        description: expect.stringContaining(
+          'Repair feature verification issues',
+        ),
+      }),
+    );
+  });
+
+  it('escalates repeated pre-queue verification failure to replanning', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const graph = new InMemoryFeatureGraph({
+      milestones: [
+        {
+          id: 'm-1',
+          name: 'Milestone 1',
+          description: 'desc',
+          status: 'pending',
+          order: 0,
+        },
+      ],
+      features: [
+        {
+          id: 'f-1',
+          milestoneId: 'm-1',
+          orderInMilestone: 0,
+          name: 'Feature 1',
+          description: 'desc',
+          dependsOn: [],
+          status: 'in_progress',
+          workControl: 'verifying',
+          collabControl: 'branch_open',
+          featureBranch: 'feat-feature-1-1',
+        },
+      ],
+      tasks: [
+        {
+          id: 't-1',
+          featureId: 'f-1',
+          orderInFeature: 0,
+          description: 'Repair feature verification issues: previous failure',
+          dependsOn: [],
+          status: 'done',
+          collabControl: 'merged',
+          repairSource: 'verify',
+        },
+      ],
+    });
+    ports.store.createAgentRun(makeFeaturePhaseRun('verify'));
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+
+    await loop.handleEventForTest({
+      type: 'feature_phase_complete',
+      featureId: 'f-1',
+      phase: 'verify',
+      summary: 'failed again',
+      verification: { ok: false, summary: 'failed again' },
+    });
+
+    expect(graph.features.get('f-1')).toEqual(
+      expect.objectContaining({
+        workControl: 'replanning',
+        status: 'pending',
+        collabControl: 'branch_open',
+      }),
+    );
+    expect([...graph.tasks.values()]).toHaveLength(1);
+  });
+
+  it('rejects feature_ci completion when verification payload is missing', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const graph = new InMemoryFeatureGraph({
+      milestones: [
+        {
+          id: 'm-1',
+          name: 'Milestone 1',
+          description: 'desc',
+          status: 'pending',
+          order: 0,
+        },
+      ],
+      features: [
+        {
+          id: 'f-1',
+          milestoneId: 'm-1',
+          orderInMilestone: 0,
+          name: 'Feature 1',
+          description: 'desc',
+          dependsOn: [],
+          status: 'in_progress',
+          workControl: 'feature_ci',
+          collabControl: 'branch_open',
+          featureBranch: 'feat-feature-1-1',
+        },
+      ],
+      tasks: [
+        {
+          id: 't-1',
+          featureId: 'f-1',
+          orderInFeature: 0,
+          description: 'Task 1',
+          dependsOn: [],
+          status: 'done',
+          collabControl: 'merged',
+        },
+      ],
+    });
+    ports.store.createAgentRun(makeFeaturePhaseRun('feature_ci'));
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+
+    await expect(
+      loop.handleEventForTest({
+        type: 'feature_phase_complete',
+        featureId: 'f-1',
+        phase: 'feature_ci',
+        summary: 'green',
+      }),
+    ).rejects.toThrow('feature_ci completion requires verification summary');
   });
 
   it('rejects verify completion when verification payload is missing', async () => {
@@ -1551,6 +2103,165 @@ describe('SchedulerLoop', () => {
         summary: 'verified',
       }),
     ).rejects.toThrow('verify completion requires verification summary');
+  });
+
+  it('does not rerun feature_ci while a repair task remains incomplete', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const verifyFeatureBranch = vi.spyOn(ports.verification, 'verifyFeature');
+    const graph = new InMemoryFeatureGraph({
+      milestones: [
+        {
+          id: 'm-1',
+          name: 'Milestone 1',
+          description: 'desc',
+          status: 'pending',
+          order: 0,
+        },
+      ],
+      features: [
+        {
+          id: 'f-1',
+          milestoneId: 'm-1',
+          orderInMilestone: 0,
+          name: 'Feature 1',
+          description: 'desc',
+          dependsOn: [],
+          status: 'pending',
+          workControl: 'executing_repair',
+          collabControl: 'branch_open',
+          featureBranch: 'feat-feature-1-1',
+        },
+      ],
+      tasks: [
+        {
+          id: 't-1',
+          featureId: 'f-1',
+          orderInFeature: 0,
+          description: 'Original task',
+          dependsOn: [],
+          status: 'done',
+          collabControl: 'merged',
+        },
+        {
+          id: 't-2',
+          featureId: 'f-1',
+          orderInFeature: 1,
+          description: 'Repair task',
+          dependsOn: [],
+          status: 'ready',
+          collabControl: 'none',
+        },
+      ],
+    });
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+
+    await loop.tickForTest(100);
+
+    expect(graph.features.get('f-1')).toEqual(
+      expect.objectContaining({
+        workControl: 'executing_repair',
+        collabControl: 'branch_open',
+      }),
+    );
+    expect(verifyFeatureBranch).not.toHaveBeenCalled();
+  });
+
+  it('returns executing_repair to feature_ci after the repair task lands', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const graph = new InMemoryFeatureGraph({
+      milestones: [
+        {
+          id: 'm-1',
+          name: 'Milestone 1',
+          description: 'desc',
+          status: 'pending',
+          order: 0,
+        },
+      ],
+      features: [
+        {
+          id: 'f-1',
+          milestoneId: 'm-1',
+          orderInMilestone: 0,
+          name: 'Feature 1',
+          description: 'desc',
+          dependsOn: [],
+          status: 'in_progress',
+          workControl: 'executing_repair',
+          collabControl: 'branch_open',
+          featureBranch: 'feat-feature-1-1',
+        },
+      ],
+      tasks: [
+        {
+          id: 't-1',
+          featureId: 'f-1',
+          orderInFeature: 0,
+          description: 'Original task',
+          dependsOn: [],
+          status: 'done',
+          collabControl: 'merged',
+        },
+        {
+          id: 't-2',
+          featureId: 'f-1',
+          orderInFeature: 1,
+          description: 'Repair task',
+          dependsOn: [],
+          status: 'running',
+          collabControl: 'branch_open',
+        },
+      ],
+    });
+    ports.store.createAgentRun(
+      makeTaskRun({
+        id: 'run-task:t-2',
+        scopeId: 't-2',
+        runStatus: 'running',
+        sessionId: 'sess-2',
+      }),
+    );
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+
+    await loop.handleEventForTest({
+      type: 'worker_message',
+      message: {
+        type: 'result',
+        taskId: 't-2',
+        agentRunId: 'run-task:t-2',
+        result: {
+          summary: 'repaired',
+          filesChanged: ['src/fix.ts'],
+        },
+        usage: {
+          provider: 'test',
+          model: 'fake',
+          inputTokens: 1,
+          outputTokens: 2,
+          totalTokens: 3,
+          usd: 0,
+        },
+        completionKind: 'submitted',
+      },
+    });
+
+    expect(graph.features.get('f-1')).toEqual(
+      expect.objectContaining({
+        workControl: 'feature_ci',
+        status: 'pending',
+        collabControl: 'branch_open',
+      }),
+    );
+    expect(graph.tasks.get('t-2')).toEqual(
+      expect.objectContaining({
+        status: 'done',
+        collabControl: 'merged',
+      }),
+    );
   });
 
   it('moves merged features into summarizing on the next tick in non-budget mode', async () => {

@@ -150,6 +150,8 @@ export class WorkerRuntime {
       agentRunId: dispatch.agentRunId,
       result,
       usage,
+      completionKind:
+        this.terminalResult !== undefined ? 'submitted' : 'implicit',
     });
   }
 

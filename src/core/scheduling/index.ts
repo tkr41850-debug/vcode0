@@ -108,11 +108,11 @@ const PRE_EXECUTION_PHASES: ReadonlySet<FeatureWorkControl> = new Set([
 
 const EXECUTING_PHASES: ReadonlySet<FeatureWorkControl> = new Set([
   'executing',
-  'feature_ci',
   'executing_repair',
 ]);
 
 const POST_EXECUTION_PHASES: ReadonlySet<FeatureWorkControl> = new Set([
+  'feature_ci',
   'verifying',
   'summarizing',
 ]);
