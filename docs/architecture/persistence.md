@@ -185,10 +185,14 @@ Outside the database:
 - do not use `.ndjson` inside SQLite TEXT cells; a DB row already provides the record boundary
 
 `agent_runs.session_id` is the authoritative resumable session
-pointer for both task execution runs and feature-phase runs.
+pointer for task execution runs.
 `tasks.session_id` remains the task-facing compatibility field
 for execution runs, but the shared run table is the long-term
 source of truth for pause/resume/manual ownership behavior.
+Feature-phase runs still persist run state in `agent_runs`, but the
+current baseline assumes planner/replanner conversation state is
+persisted to disk by the phase implementation itself rather than by a
+centralized shared session store.
 
 `tasks.token_usage` and `features.token_usage` should store
 normalized lifetime aggregates rather than only the latest call.

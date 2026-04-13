@@ -42,11 +42,11 @@ Capture restart behavior when work is in flight.
 - Then the run remains `await_approval`
 - And it stays blocked pending approval
 
-### Feature-phase run resumes from agent run session id
+### Feature-phase run resumes from persisted conversation state
 - Given the orchestrator restarts while a resumable feature-phase run was `running`
-- And `agent_runs.session_id` is present
+- And the planner or replanner has persisted its conversation state to disk
 - When recovery runs
-- Then the orchestrator resumes that feature-phase run from `agent_runs.session_id`
+- Then the orchestrator resumes that feature-phase run from the persisted conversation state
 
 ### Agent run session id is the authoritative recovery pointer
 - Given both `agent_runs.session_id` and `tasks.session_id` exist for task execution state

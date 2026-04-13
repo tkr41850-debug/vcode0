@@ -18,32 +18,32 @@ Capture the runtime coordination protocol for cross-feature overlap before final
 - Then it compares explicit dependency predecessor first
 - And then nearer-to-merge state, older branch-open time, downstream blocking count, changed-line count, and finally lexical feature id
 
-### Only secondary tasks on overlapped paths are paused
+### Whole secondary feature is paused
 - Given a primary and secondary feature have been selected
 - When the orchestrator pauses work for runtime overlap
-- Then only the secondary feature's tasks that touch the overlapped paths are paused
-- And unrelated secondary tasks may continue
+- Then all running tasks in the secondary feature are paused
+- And the secondary feature remains blocked behind the primary until rebase or repair completes
 
 ### Long secondary blocking emits a warning
-- Given affected secondary tasks remain blocked behind a primary feature for more than 8 hours
+- Given a secondary feature remains blocked behind a primary feature for more than 8 hours
 - When the orchestrator evaluates blocked-feature warnings
 - Then the orchestrator emits a long-block warning
-- And only the affected secondary tasks remain paused until the primary path is resolved
+- And the secondary feature remains paused until the primary path is resolved
 
 ### Secondary feature rebases after primary lands
 - Given the primary feature has merged into `main`
 - When the orchestrator resumes the blocked secondary side
 - Then it rebases the secondary feature branch onto the updated `main`
-- And only then considers resuming affected secondary tasks
+- And only then considers resuming suspended secondary tasks
 
-### Successful feature-branch rebase resumes affected tasks
+### Successful feature-branch rebase resumes suspended tasks
 - Given the secondary feature branch rebases cleanly after the primary lands
-- When paused secondary tasks are resumed
-- Then they rebase their task worktrees onto the updated secondary feature branch
+- When the orchestrator resumes the secondary feature
+- Then suspended secondary tasks rebase their task worktrees onto the updated secondary feature branch
 - And future active path locks are reacquired lazily on later writes
 
-### Failed feature-branch rebase creates repair work and keeps tasks paused
+### Failed feature-branch rebase creates repair work and keeps secondary paused
 - Given the secondary feature branch cannot be rebased cleanly after the primary lands
 - When the orchestrator processes that failure
 - Then it creates integration repair work on the secondary feature branch
-- And affected secondary tasks remain paused until that repair lands
+- And secondary feature tasks remain paused until that repair lands

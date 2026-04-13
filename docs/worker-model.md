@@ -420,7 +420,7 @@ A `ClaudeCodeHarness` that wraps Claude Code sessions as worker backends is a [f
 
 Session IDs are stored as orchestrator-owned opaque references.
 `agent_runs.session_id` is the authoritative resumable pointer
-for both task execution runs and feature-phase runs;
+for task execution runs;
 `tasks.session_id` remains the task-facing compatibility field
 for execution runs.
 If a separate session service is ever introduced,
@@ -429,8 +429,13 @@ without changing the main task schema.
 At the orchestration model level, feature-level discussing,
 researching, planning, verifying, validating/summarizing, and
 replanning phases use the same run/session plane as task execution:
-they share `agent_runs`, `session_id`, retry/backoff,
+they share `agent_runs`, retry/backoff,
 help/approval/manual-ownership waits, and startup recovery.
+For the current baseline, assume planner/replanner conversation state
+is persisted to disk by the phase implementation itself so a feature-phase
+run can resume from that persisted conversation state after restart.
+A future centralized conversation/session persistence layer is a separate
+feature candidate rather than baseline architecture.
 The current `RuntimePort` surface is task-oriented because the
 concrete worker-pool implementation is still task-only, but that is
 an implementation detail rather than the architectural boundary.

@@ -23,7 +23,7 @@ Use this page as the canonical scenario index. For testing strategy and faux-pro
 ## Conflict / Overlap
 
 - [test_conflict_steering](./test_conflict_steering.md) — upstream updates escalate from awareness to sync recommendation, required sync, and explicit conflict steering.
-- [test_cross_feature_overlap_runtime](./test_cross_feature_overlap_runtime.md) — runtime cross-feature overlap selects primary/secondary ownership, pauses affected secondary work, and resumes after rebase.
+- [test_cross_feature_overlap_runtime](./test_cross_feature_overlap_runtime.md) — runtime cross-feature overlap selects primary/secondary ownership, blocks the whole secondary feature, and resumes after rebase.
 - [test_fs_lock_detection](./test_fs_lock_detection.md) — same-feature overlap triggers suspension.
 - [test_fs_lock_resume](./test_fs_lock_resume.md) — suspended tasks either resume cleanly or receive exact conflict steering against the updated feature branch.
 
