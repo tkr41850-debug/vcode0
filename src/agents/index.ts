@@ -1,14 +1,24 @@
 import type { PlannerAgent } from '@agents/planner';
-import type { ProposalAgent, ProposalPhaseResult } from '@agents/proposal';
 import type { ReplannerAgent } from '@agents/replanner';
 
 export type { PlannerAgent } from '@agents/planner';
-export type { ProposalAgent, ProposalPhaseResult } from '@agents/proposal';
 export type {
   PromptLibrary,
   PromptTemplate,
   PromptTemplateName,
 } from '@agents/prompts';
+export {
+  createPromptLibrary,
+  discussPromptTemplate,
+  planPromptTemplate,
+  promptLibrary,
+  promptTemplates,
+  replanPromptTemplate,
+  researchPromptTemplate,
+  summarizePromptTemplate,
+  verifyPromptTemplate,
+} from '@agents/prompts';
+export type { ProposalAgent, ProposalPhaseResult } from '@agents/proposal';
 export type { ReplannerAgent } from '@agents/replanner';
 export type {
   AddFeatureOptions,

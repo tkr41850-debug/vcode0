@@ -6,6 +6,10 @@ Use for feature-level semantic verification after implementation work.
 Goal: determine whether assembled feature outcome actually satisfies intended success criteria and whether work should advance, repair, or replan.
 This is not generic style review.
 
+## Live Source
+
+- Canonical source: `src/agents/prompts/verify.ts`
+
 ## Prompt
 
 ```text

@@ -1,46 +1,122 @@
 import type { Task } from '@core/types/index';
 import type { WorkerContext } from '@runtime/context/index';
 
-/**
- * Build the system prompt handed to the pi-sdk `Agent` for a task run.
- *
- * Lives in the runtime layer because it is assembled from runtime-owned
- * `WorkerContext` inputs (plan summary, dependency outputs, codebase map,
- * knowledge, decisions) and submitted directly to the harness. The worker
- * agent's tool catalog lives under `@agents/worker`.
- */
-export function buildSystemPrompt(task: Task, context: WorkerContext): string {
-  const parts: string[] = [];
+const EXECUTE_TASK_PROMPT = `You are gvc0 task execution agent.
 
-  parts.push(
-    `You are a task worker executing task ${task.id}: ${task.description}`,
-  );
+Task plan is authoritative contract for what must be built and verified, but local code reality wins over stale assumptions.
+Verify referenced files and surrounding code before changing anything.
+Do not do broad re-research or spontaneous re-planning.
+Minor local adaptation is allowed. Fundamental plan invalidation is blocker.
 
-  if (context.planSummary !== undefined) {
-    parts.push(`\n## Plan\n${context.planSummary}`);
+Execution rules:
+- follow task contract closely
+- build real behavior, not fake success paths
+- write or update tests as part of implementation
+- preserve or add observability for non-trivial runtime changes
+- verify must-haves with concrete checks
+- summarize exactly what changed and what evidence passed
+
+Debugging rules:
+- form hypothesis before fixing
+- change one variable at a time
+- read full relevant functions and imports
+- distinguish facts from assumptions
+- if repeated fixes fail, stop and reset mental model
+
+Blocker rules:
+- ordinary bugs or local mismatches are not blockers
+- blocker means remaining plan no longer holds because of missing capability, wrong seam, invalid assumption, or architectural mismatch
+- when blocker found, explain it clearly for downstream replan
+
+Output should include:
+- what was implemented
+- files changed
+- verification evidence
+- decisions or knowledge worth carrying forward
+- blocker summary if plan was invalidated
+
+Do not:
+- reopen architecture without evidence
+- broaden scope because nearby work looks tempting
+- skip verification because change seems obvious`;
+
+function renderSection(
+  title: string,
+  body: string | undefined,
+): string | undefined {
+  if (body === undefined || body.trim().length === 0) {
+    return undefined;
+  }
+
+  return `## ${title}\n${body}`;
+}
+
+function renderTaskSection(task: Task): string {
+  const bullets = [
+    `- ID: ${task.id}`,
+    `- Feature: ${task.featureId}`,
+    `- Description: ${task.description}`,
+    `- Status: ${task.status}`,
+    `- Collaboration: ${task.collabControl}`,
+  ];
+
+  if (task.weight !== undefined) {
+    bullets.push(`- Weight: ${task.weight}`);
+  }
+
+  if (task.taskTestPolicy !== undefined) {
+    bullets.push(`- Test policy: ${task.taskTestPolicy}`);
   }
 
   if (
-    context.dependencyOutputs !== undefined &&
-    context.dependencyOutputs.length > 0
+    task.reservedWritePaths !== undefined &&
+    task.reservedWritePaths.length > 0
   ) {
-    parts.push('\n## Dependency Outputs');
-    for (const dep of context.dependencyOutputs) {
-      parts.push(`- ${dep.taskId} (${dep.featureName}): ${dep.summary}`);
-    }
+    bullets.push(
+      `- Reserved write paths: ${task.reservedWritePaths.join(', ')}`,
+    );
   }
 
-  if (context.codebaseMap !== undefined) {
-    parts.push(`\n## Codebase\n${context.codebaseMap}`);
+  return `## Task\n${bullets.join('\n')}`;
+}
+
+function renderDependencyOutputs(context: WorkerContext): string | undefined {
+  if (
+    context.dependencyOutputs === undefined ||
+    context.dependencyOutputs.length === 0
+  ) {
+    return undefined;
   }
 
-  if (context.knowledge !== undefined) {
-    parts.push(`\n## Knowledge\n${context.knowledge}`);
-  }
+  const lines = context.dependencyOutputs.map((dep) => {
+    const files =
+      dep.filesChanged.length > 0
+        ? `\n  Files: ${dep.filesChanged.join(', ')}`
+        : '';
+    return `- ${dep.taskId} (${dep.featureName}): ${dep.summary}${files}`;
+  });
 
-  if (context.decisions !== undefined) {
-    parts.push(`\n## Decisions\n${context.decisions}`);
-  }
+  return renderSection('Dependency Outputs', lines.join('\n'));
+}
 
-  return parts.join('\n');
+/**
+ * Build system prompt handed to pi-sdk `Agent` for task run.
+ *
+ * Lives in runtime layer because it is assembled from runtime-owned
+ * `WorkerContext` inputs (plan summary, dependency outputs, codebase map,
+ * knowledge, decisions) and submitted directly to harness. Worker
+ * agent's tool catalog lives under `@agents/worker`.
+ */
+export function buildSystemPrompt(task: Task, context: WorkerContext): string {
+  return [
+    EXECUTE_TASK_PROMPT,
+    renderTaskSection(task),
+    renderSection('Plan', context.planSummary),
+    renderDependencyOutputs(context),
+    renderSection('Codebase', context.codebaseMap),
+    renderSection('Knowledge', context.knowledge),
+    renderSection('Decisions', context.decisions),
+  ]
+    .filter((section): section is string => section !== undefined)
+    .join('\n\n');
 }

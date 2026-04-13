@@ -1,0 +1,118 @@
+import {
+  createPromptLibrary,
+  type PromptTemplateName,
+  promptLibrary,
+  promptTemplates,
+} from '@agents/prompts';
+import { describe, expect, it } from 'vitest';
+
+import { createFeatureFixture } from '../../../helpers/graph-builders.js';
+
+function buildInput() {
+  return {
+    feature: createFeatureFixture({
+      id: 'f-live-prompts',
+      name: 'Live prompts',
+      description: 'Convert docs into canonical prompt source',
+      status: 'in_progress',
+      workControl: 'planning',
+      collabControl: 'branch_open',
+      featureBranch: 'feat-live-prompts-f-live-prompts',
+      dependsOn: ['f-foundation'],
+    }),
+    run: {
+      agentRunId: 'run-123',
+      sessionId: 'sess-456',
+    },
+    requestedOutcome: 'Turn prompt docs into live source',
+    discussionSummary: 'Need live prompts, not doc-only references.',
+    researchSummary:
+      'Prompt seam exists under src/agents/prompts and runtime worker prompt.',
+    proposalSummary: 'Shared planning doctrine; execute stays runtime-owned.',
+    blockerSummary: 'Planner host still incomplete, so keep scope prompt-only.',
+    verificationExpectations:
+      'Run prompt unit tests, runtime prompt tests, and typecheck.',
+    constraints: 'Do not build full planner host in same change.',
+    decisions: 'Keep execute-task prompt under @runtime.',
+    successCriteria: 'Canonical prompt source exists for every phase.',
+    executionEvidence: 'Prompt modules added and docs updated.',
+    verificationResults: 'Targeted prompt tests pass.',
+    integratedOutcome:
+      'Feature-phase prompt library now renders live source text.',
+    verificationSummary:
+      'Prompt rendering and runtime prompt assembly verified.',
+    executionSummary:
+      'Added prompt modules, runtime doctrine, and prompt tests.',
+    followUpNotes: 'Upstream references stay docs-only.',
+    importantFiles: [
+      'src/agents/prompts/index.ts',
+      'src/runtime/worker/system-prompt.ts',
+    ],
+    codebaseMap:
+      'src/agents/prompts for feature phases; src/runtime/worker for execute.',
+    externalIntegrations: 'None.',
+    replanReason: 'Dependency seam changed after execution evidence.',
+  } satisfies Record<string, unknown>;
+}
+
+describe('promptLibrary', () => {
+  it('returns prompt template for every prompt name', () => {
+    const input = buildInput();
+    const names: PromptTemplateName[] = [
+      'discuss',
+      'research',
+      'plan',
+      'verify',
+      'summarize',
+      'replan',
+    ];
+
+    for (const name of names) {
+      const template = promptLibrary.get(name);
+      expect(template.name).toBe(name);
+      expect(template.render(input)).toContain('## Feature');
+    }
+  });
+
+  it('supports prompt template overrides', () => {
+    const custom = createPromptLibrary({
+      plan: {
+        name: 'plan',
+        render: () => 'custom plan prompt',
+      },
+    });
+
+    expect(custom.get('plan').render({})).toBe('custom plan prompt');
+    expect(custom.get('verify')).toBe(promptTemplates.verify);
+  });
+
+  it('renders shared planning doctrine with plan and replan specific framing', () => {
+    const input = buildInput();
+
+    const planPrompt = promptTemplates.plan.render(input);
+    const replanPrompt = promptTemplates.replan.render(input);
+
+    expect(planPrompt).toContain("You are gvc0's feature planning agent.");
+    expect(replanPrompt).toContain("You are gvc0's feature planning agent.");
+    expect(planPrompt).toContain('## Planning Mode');
+    expect(planPrompt).toContain('Initial planning mode.');
+    expect(planPrompt).not.toContain(
+      'Reason: Dependency seam changed after execution evidence.',
+    );
+    expect(replanPrompt).toContain('Replanning mode.');
+    expect(replanPrompt).toContain(
+      'Reason: Dependency seam changed after execution evidence.',
+    );
+    expect(replanPrompt).toContain('### Blockers or Discoveries');
+  });
+
+  it('renders summarize prompt with durable downstream sections', () => {
+    const prompt = promptTemplates.summarize.render(buildInput());
+
+    expect(prompt).toContain("You are gvc0's feature summarization agent.");
+    expect(prompt).toContain('## Summary Inputs');
+    expect(prompt).toContain('### Integrated Outcome');
+    expect(prompt).toContain('## Important Files');
+    expect(prompt).toContain('src/runtime/worker/system-prompt.ts');
+  });
+});

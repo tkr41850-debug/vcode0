@@ -6,6 +6,10 @@ Use for both initial planning and replanning.
 Goal: choose one coherent approach, sequence work by proof and risk, and turn feature context plus research into concrete proposed work.
 `replan` should use same prompt family with different input context.
 
+## Live Source
+
+- Canonical sources: `src/agents/prompts/plan.ts` (`plan` and `replan`)
+
 ## Prompt
 
 ```text

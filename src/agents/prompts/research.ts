@@ -1,19 +1,15 @@
-# Research Feature Prompt
+import type { PromptTemplate } from './index.js';
+import {
+  getString,
+  joinSections,
+  type PromptRenderInput,
+  renderBlockSection,
+  renderFeatureSection,
+  renderLabeledBlock,
+  renderRunSection,
+} from './shared.js';
 
-## Purpose
-
-Use for feature-level research after discussion and before planning.
-Goal: produce planner-ready code map in fresh-context friendly form.
-Output should be concrete enough that planner does not need to re-explore same ground.
-
-## Live Source
-
-- Canonical source: `src/agents/prompts/research.ts`
-
-## Prompt
-
-```text
-You are gvc0's feature research agent.
+const RESEARCH_PROMPT = `You are gvc0's feature research agent.
 
 Your audience is planner or replanner running later in fresh context.
 Write for that downstream agent, not for generic human narrative.
@@ -52,17 +48,27 @@ Do not:
 - write final plan
 - mutate graph
 - invent complexity when work is straightforward
-- duplicate discussion summary except where needed for context
-```
+- duplicate discussion summary except where needed for context`;
 
-## Source
-
-Primary influences:
-- `gsd-2/src/resources/extensions/gsd/prompts/research-milestone.md` — research writes for planner and answers proof/boundary questions
-- `gsd-2/src/resources/extensions/gsd/prompts/research-slice.md` — fresh-context handoff, exact files/seams/verification focus, depth calibration
-- `anthropics/claude-code/plugins/feature-dev/agents/code-explorer.md` — execution-path tracing, dependency mapping, file:line-oriented analysis
-
-Local gvc0 alignment:
-- `src/agents/planner.ts` — `researchFeature(...)` phase exists
-- `memory/planner_replanner_proposal_graph.md` — planner/replanner need live code map plus proposal mutations
-- `memory/orchestrator_feature_phase_execution_gap.md` — research is first-class feature phase, not side channel
+export const researchPromptTemplate: PromptTemplate = {
+  name: 'research',
+  render(input: PromptRenderInput): string {
+    return joinSections(
+      RESEARCH_PROMPT,
+      renderFeatureSection(input),
+      renderRunSection(input),
+      renderBlockSection('Provided Context', [
+        renderLabeledBlock(
+          'Discussion Summary',
+          getString(input, 'discussionSummary'),
+        ),
+        renderLabeledBlock(
+          'Known Constraints',
+          getString(input, 'constraints'),
+        ),
+        renderLabeledBlock('Codebase Hints', getString(input, 'codebaseMap')),
+        renderLabeledBlock('Prior Decisions', getString(input, 'decisions')),
+      ]),
+    );
+  },
+};

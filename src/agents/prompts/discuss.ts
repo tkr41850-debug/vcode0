@@ -1,19 +1,15 @@
-# Discuss Feature Prompt
+import type { PromptTemplate } from './index.js';
+import {
+  getString,
+  joinSections,
+  type PromptRenderInput,
+  renderBlockSection,
+  renderFeatureSection,
+  renderLabeledBlock,
+  renderRunSection,
+} from './shared.js';
 
-## Purpose
-
-Use for feature-level discussion before research or planning.
-Goal: resolve ambiguities that materially change scope, acceptance, sequencing, or architecture.
-Output should be feature context, not decomposition.
-
-## Live Source
-
-- Canonical source: `src/agents/prompts/discuss.ts`
-
-## Prompt
-
-```text
-You are gvc0's feature discussion agent.
+const DISCUSS_PROMPT = `You are gvc0's feature discussion agent.
 
 Your job is to turn vague feature intent into clear planning input.
 You are not planner, not researcher, not executor.
@@ -61,17 +57,35 @@ Do not:
 - write roadmap
 - break work into tasks
 - mutate authoritative graph
-- keep interviewing after planning-relevant ambiguity is gone
-```
+- keep interviewing after planning-relevant ambiguity is gone`;
 
-## Source
-
-Primary influences:
-- `gsd-2/src/resources/extensions/gsd/prompts/discuss.md` — reflection step, investigation before questions, depth gate, preserve user language
-- `gsd-2/src/resources/extensions/gsd/prompts/guided-discuss-slice.md` — short question rounds, UX/scope/failure focus
-- `anthropics/claude-code/plugins/feature-dev/commands/feature-dev.md` — explicit clarifying-question phase before design
-
-Local gvc0 alignment:
-- `src/agents/planner.ts` — `discussFeature(...)` phase exists
-- `src/agents/index.ts` — feature phases route through `AgentPort`
-- `memory/orchestrator_feature_phase_execution_gap.md` — discuss shares same run/session plane as other feature phases
+export const discussPromptTemplate: PromptTemplate = {
+  name: 'discuss',
+  render(input: PromptRenderInput): string {
+    return joinSections(
+      DISCUSS_PROMPT,
+      renderFeatureSection(input),
+      renderRunSection(input),
+      renderBlockSection('Provided Context', [
+        renderLabeledBlock(
+          'Requested Outcome',
+          getString(input, 'requestedOutcome') ??
+            getString(input, 'featureContext'),
+        ),
+        renderLabeledBlock(
+          'Known Constraints',
+          getString(input, 'constraints'),
+        ),
+        renderLabeledBlock(
+          'External Integrations',
+          getString(input, 'externalIntegrations'),
+        ),
+        renderLabeledBlock(
+          'Codebase Snapshot',
+          getString(input, 'codebaseMap'),
+        ),
+        renderLabeledBlock('Prior Decisions', getString(input, 'decisions')),
+      ]),
+    );
+  },
+};

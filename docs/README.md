@@ -6,7 +6,7 @@ Use these entry points depending on what you need:
 - [Architecture Topics](./architecture/README.md) — canonical model and architecture details.
 - [Operations Topics](./operations/README.md) — verification, recovery, conflict coordination, warnings, and testing strategy.
 - [Reference Topics](./reference/README.md) — TUI behavior, knowledge-file artifacts, the Codebase Map docs page, and source-area READMEs.
-- [Agent Prompts](./agent-prompts/README.md) — draft prompt references for discuss, research, plan, execute, and verify agents.
+- [Agent Prompts](./agent-prompts/README.md) — live-source prompt references for discuss, research, plan, execute, verify, and summarize agents, plus copied upstream references.
 - [Scenario Specs](../specs/README.md) — grouped markdown scenario inventory for later executable tests.
 
 ## Suggested Reading Paths

@@ -6,6 +6,10 @@ Use for task-level worker execution.
 Goal: implement planned work against real local code, verify it, and report clear evidence or blockers.
 This is runtime-owned worker prompt, not feature-phase planning prompt.
 
+## Live Source
+
+- Canonical source: `src/runtime/worker/system-prompt.ts`
+
 ## Prompt
 
 ```text
