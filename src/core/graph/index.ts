@@ -766,7 +766,10 @@ export class InMemoryFeatureGraph implements FeatureGraph {
     // Compute append-to-end order even after deletions.
     let maxOrderInFeature = -1;
     for (const t of this.tasks.values()) {
-      if (t.featureId === opts.featureId && t.orderInFeature > maxOrderInFeature) {
+      if (
+        t.featureId === opts.featureId &&
+        t.orderInFeature > maxOrderInFeature
+      ) {
         maxOrderInFeature = t.orderInFeature;
       }
     }

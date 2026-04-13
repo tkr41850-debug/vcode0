@@ -64,12 +64,19 @@ function tasksForFeature(graph: FeatureGraph, featureId: FeatureId): Task[] {
     .sort((a, b) => a.orderInFeature - b.orderInFeature);
 }
 
-function promoteReadyTasks(graph: FeatureGraph, featureTasks: readonly Task[]): void {
+function promoteReadyTasks(
+  graph: FeatureGraph,
+  featureTasks: readonly Task[],
+): void {
   for (const task of featureTasks) {
     if (task.status !== 'pending' || task.collabControl !== 'none') {
       continue;
     }
-    if (!task.dependsOn.every((depId) => graph.tasks.get(depId)?.status === 'done')) {
+    if (
+      !task.dependsOn.every(
+        (depId) => graph.tasks.get(depId)?.status === 'done',
+      )
+    ) {
       continue;
     }
     graph.transitionTask(task.id, { status: 'ready' });
@@ -83,7 +90,10 @@ function restoreReplannedStuckTasks(
 ): void {
   const removedTaskIds = new Set(
     result.applied
-      .filter((op): op is Extract<typeof op, { kind: 'remove_task' }> => op.kind === 'remove_task')
+      .filter(
+        (op): op is Extract<typeof op, { kind: 'remove_task' }> =>
+          op.kind === 'remove_task',
+      )
       .map((op) => op.taskId),
   );
 
@@ -91,7 +101,11 @@ function restoreReplannedStuckTasks(
     if (task.status !== 'stuck' || removedTaskIds.has(task.id)) {
       continue;
     }
-    if (!task.dependsOn.every((depId) => graph.tasks.get(depId)?.status === 'done')) {
+    if (
+      !task.dependsOn.every(
+        (depId) => graph.tasks.get(depId)?.status === 'done',
+      )
+    ) {
       continue;
     }
     graph.transitionTask(task.id, { status: 'ready' });
@@ -132,7 +146,9 @@ function advanceFeatureAfterApproval(
   });
 }
 
-export function summarizeProposalApply(result: ProposalApplyResult): Record<string, unknown> {
+export function summarizeProposalApply(
+  result: ProposalApplyResult,
+): Record<string, unknown> {
   return {
     mode: result.proposal.mode,
     appliedCount: result.applied.length,
@@ -157,6 +173,8 @@ export function rootTasksForFeature(
   featureId: FeatureId,
 ): Task[] {
   return [...graph.tasks.values()]
-    .filter((task) => task.featureId === featureId && task.dependsOn.length === 0)
+    .filter(
+      (task) => task.featureId === featureId && task.dependsOn.length === 0,
+    )
     .sort((a, b) => a.orderInFeature - b.orderInFeature);
 }

@@ -3,12 +3,7 @@ import type {
   FeatureEditPatch,
   TaskEditPatch,
 } from '@core/graph/index';
-import type {
-  Feature,
-  FeatureId,
-  MilestoneId,
-  Task,
-} from '@core/types/index';
+import type { Feature, FeatureId, MilestoneId, Task } from '@core/types/index';
 
 export type { DependencyOptions, FeatureEditPatch, TaskEditPatch };
 

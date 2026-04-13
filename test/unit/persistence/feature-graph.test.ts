@@ -155,7 +155,9 @@ describe('PersistentFeatureGraph', () => {
       expect(featureCount?.c).toBe(0);
       expect(taskCount?.c).toBe(0);
       expect(depCount?.c).toBe(0);
-      expect(new PersistentFeatureGraph(db).features.get('f-2')?.dependsOn).toEqual([]);
+      expect(
+        new PersistentFeatureGraph(db).features.get('f-2')?.dependsOn,
+      ).toEqual([]);
     });
 
     it('persists editTask field updates', () => {
@@ -177,7 +179,11 @@ describe('PersistentFeatureGraph', () => {
       const row = db
         .prepare<
           [string],
-          { description: string; weight: string | null; reserved_write_paths: string | null }
+          {
+            description: string;
+            weight: string | null;
+            reserved_write_paths: string | null;
+          }
         >(
           'SELECT description, weight, reserved_write_paths FROM tasks WHERE id = ?',
         )

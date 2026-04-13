@@ -924,9 +924,24 @@ describe('InMemoryFeatureGraph', () => {
 
   it('createFeature appends after deleted siblings', () => {
     const g = createGraphWithMilestone();
-    g.createFeature({ id: 'f-1', milestoneId: 'm-1', name: 'F1', description: 'd' });
-    g.createFeature({ id: 'f-2', milestoneId: 'm-1', name: 'F2', description: 'd' });
-    g.createFeature({ id: 'f-3', milestoneId: 'm-1', name: 'F3', description: 'd' });
+    g.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'F1',
+      description: 'd',
+    });
+    g.createFeature({
+      id: 'f-2',
+      milestoneId: 'm-1',
+      name: 'F2',
+      description: 'd',
+    });
+    g.createFeature({
+      id: 'f-3',
+      milestoneId: 'm-1',
+      name: 'F3',
+      description: 'd',
+    });
 
     g.removeFeature('f-2');
 

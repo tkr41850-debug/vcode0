@@ -10,7 +10,11 @@ import { describe, expect, it } from 'vitest';
 
 function createGraph(): InMemoryFeatureGraph {
   const graph = new InMemoryFeatureGraph();
-  graph.createMilestone({ id: 'm-1', name: 'Milestone 1', description: 'desc' });
+  graph.createMilestone({
+    id: 'm-1',
+    name: 'Milestone 1',
+    description: 'desc',
+  });
   return graph;
 }
 
@@ -92,8 +96,14 @@ describe('applyGraphProposal', () => {
     );
     expect(result.applied).toHaveLength(2);
     expect(result.skipped).toEqual([
-      expect.objectContaining({ opIndex: 1, reason: expect.stringContaining('does not exist') }),
-      expect.objectContaining({ opIndex: 3, reason: expect.stringContaining('does not exist') }),
+      expect.objectContaining({
+        opIndex: 1,
+        reason: expect.stringContaining('does not exist'),
+      }),
+      expect.objectContaining({
+        opIndex: 3,
+        reason: expect.stringContaining('does not exist'),
+      }),
     ]);
     expect(result.summary).toContain('2 applied');
     expect(result.summary).toContain('2 skipped');
@@ -191,7 +201,10 @@ describe('applyGraphProposal', () => {
     const result = applyGraphProposal(graph, proposal);
 
     expect(warnings).toEqual([
-      expect.objectContaining({ code: 'remove_started_feature', entityId: 'f-1' }),
+      expect.objectContaining({
+        code: 'remove_started_feature',
+        entityId: 'f-1',
+      }),
     ]);
     expect(result.applied).toHaveLength(0);
     expect(result.skipped).toEqual([

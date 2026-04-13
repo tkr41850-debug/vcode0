@@ -1,4 +1,8 @@
-import type { FeatureGraph, FeatureEditPatch, TaskEditPatch } from '@core/graph/index';
+import type {
+  FeatureGraph,
+  FeatureEditPatch,
+  TaskEditPatch,
+} from '@core/graph/index';
 import { GraphValidationError } from '@core/graph/index';
 import type {
   Feature,
@@ -121,7 +125,10 @@ export function isGraphProposal(value: unknown): value is GraphProposal {
 export class GraphProposalBuilder {
   private readonly ops: GraphProposalOp[] = [];
   private readonly aliases = new Map<ProposalAlias, FeatureId | TaskId>();
-  private readonly reverseAliases = new Map<FeatureId | TaskId, ProposalAlias>();
+  private readonly reverseAliases = new Map<
+    FeatureId | TaskId,
+    ProposalAlias
+  >();
   private nextAlias = 1;
 
   constructor(private readonly mode: GraphProposalMode) {}
@@ -479,14 +486,16 @@ function isGraphProposalOp(value: unknown): value is GraphProposalOp {
 function featurePatchIsValid(patch: Record<string, unknown>): boolean {
   return (
     (patch.name === undefined || typeof patch.name === 'string') &&
-    (patch.description === undefined || typeof patch.description === 'string') &&
+    (patch.description === undefined ||
+      typeof patch.description === 'string') &&
     (patch.summary === undefined || typeof patch.summary === 'string')
   );
 }
 
 function taskPatchIsValid(patch: Record<string, unknown>): boolean {
   return (
-    (patch.description === undefined || typeof patch.description === 'string') &&
+    (patch.description === undefined ||
+      typeof patch.description === 'string') &&
     (patch.weight === undefined || isTaskWeight(patch.weight)) &&
     stringArrayOrUndefined(patch.reservedWritePaths)
   );

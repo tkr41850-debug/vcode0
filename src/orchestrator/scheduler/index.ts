@@ -221,7 +221,10 @@ export class SchedulerLoop {
 
       if (event.decision === 'approved') {
         try {
-          const proposal = parseGraphProposalPayload(run.payloadJson, event.phase);
+          const proposal = parseGraphProposalPayload(
+            run.payloadJson,
+            event.phase,
+          );
           const result = approveFeatureProposal(
             this.graph,
             event.featureId,
@@ -231,8 +234,12 @@ export class SchedulerLoop {
           this.ports.store.updateAgentRun(run.id, {
             runStatus: 'completed',
             owner: 'system',
-            ...(run.payloadJson !== undefined ? { payloadJson: run.payloadJson } : {}),
-            ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
+            ...(run.payloadJson !== undefined
+              ? { payloadJson: run.payloadJson }
+              : {}),
+            ...(run.sessionId !== undefined
+              ? { sessionId: run.sessionId }
+              : {}),
           });
           this.ports.store.appendEvent({
             eventType: 'proposal_applied',
@@ -247,8 +254,12 @@ export class SchedulerLoop {
           this.ports.store.updateAgentRun(run.id, {
             runStatus: 'completed',
             owner: 'manual',
-            ...(run.payloadJson !== undefined ? { payloadJson: run.payloadJson } : {}),
-            ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
+            ...(run.payloadJson !== undefined
+              ? { payloadJson: run.payloadJson }
+              : {}),
+            ...(run.sessionId !== undefined
+              ? { sessionId: run.sessionId }
+              : {}),
           });
           this.ports.store.appendEvent({
             eventType: 'proposal_apply_failed',
@@ -266,7 +277,9 @@ export class SchedulerLoop {
       this.ports.store.updateAgentRun(run.id, {
         runStatus: 'completed',
         owner: 'manual',
-        ...(run.payloadJson !== undefined ? { payloadJson: run.payloadJson } : {}),
+        ...(run.payloadJson !== undefined
+          ? { payloadJson: run.payloadJson }
+          : {}),
         ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
       });
       this.ports.store.appendEvent({
