@@ -21,6 +21,11 @@ export interface OverlapIncident {
 }
 
 export class ConflictCoordinator {
+  private readonly crossFeatureDependencies = new Map<
+    FeatureId,
+    Set<FeatureId>
+  >();
+
   constructor(
     private readonly ports: OrchestratorPorts,
     private readonly graph?: FeatureGraph,
@@ -82,6 +87,7 @@ export class ConflictCoordinator {
       from: secondary.id,
       to: primary.id,
     });
+    this.trackCrossFeatureDependency(primary.id, secondary.id);
 
     for (const task of tasks) {
       if (task.featureId !== secondary.id || task.status !== 'running') {
@@ -97,6 +103,53 @@ export class ConflictCoordinator {
 
       await this.ports.runtime.suspendTask(task.id, 'cross_feature_overlap');
     }
+  }
+
+  async releaseCrossFeatureOverlap(primaryFeatureId: FeatureId): Promise<void> {
+    if (this.graph === undefined) {
+      this.crossFeatureDependencies.delete(primaryFeatureId);
+      return;
+    }
+
+    const blockedFeatureIds = new Set<FeatureId>(
+      this.crossFeatureDependencies.get(primaryFeatureId) ?? [],
+    );
+
+    for (const task of this.graph.tasks.values()) {
+      if (
+        task.collabControl === 'suspended' &&
+        task.blockedByFeatureId === primaryFeatureId
+      ) {
+        blockedFeatureIds.add(task.featureId);
+      }
+    }
+
+    for (const blockedFeatureId of blockedFeatureIds) {
+      const blockedFeature = this.graph.features.get(blockedFeatureId);
+      if (blockedFeature?.dependsOn.includes(primaryFeatureId) === true) {
+        this.graph.removeDependency({
+          from: blockedFeatureId,
+          to: primaryFeatureId,
+        });
+      }
+
+      for (const task of this.graph.tasks.values()) {
+        if (
+          task.featureId !== blockedFeatureId ||
+          task.collabControl !== 'suspended' ||
+          task.blockedByFeatureId !== primaryFeatureId
+        ) {
+          continue;
+        }
+
+        this.graph.transitionTask(task.id, {
+          collabControl: 'branch_open',
+        });
+        await this.ports.runtime.resumeTask(task.id, 'cross_feature_rebase');
+      }
+    }
+
+    this.crossFeatureDependencies.delete(primaryFeatureId);
   }
 
   private async reconcileSuspendedTask(
@@ -160,6 +213,22 @@ export class ConflictCoordinator {
           : {}),
       },
     };
+  }
+
+  private trackCrossFeatureDependency(
+    primaryFeatureId: FeatureId,
+    secondaryFeatureId: FeatureId,
+  ): void {
+    const blocked = this.crossFeatureDependencies.get(primaryFeatureId);
+    if (blocked !== undefined) {
+      blocked.add(secondaryFeatureId);
+      return;
+    }
+
+    this.crossFeatureDependencies.set(
+      primaryFeatureId,
+      new Set([secondaryFeatureId]),
+    );
   }
 }
 

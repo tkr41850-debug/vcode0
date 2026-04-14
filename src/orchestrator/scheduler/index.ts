@@ -16,6 +16,7 @@ import type {
   TaskAgentRun,
   VerificationSummary,
 } from '@core/types/index';
+import { ConflictCoordinator } from '@orchestrator/conflicts/index';
 import { FeatureLifecycleCoordinator } from '@orchestrator/features/index';
 import type { OrchestratorPorts } from '@orchestrator/ports/index';
 import {
@@ -79,6 +80,7 @@ export class SchedulerLoop {
   private readonly events: SchedulerEvent[] = [];
   private readonly readySince = new Map<string, number>();
   private readonly features: FeatureLifecycleCoordinator;
+  private readonly conflicts: ConflictCoordinator;
   private readonly summaries: SummaryCoordinator;
   private intervalId: ReturnType<typeof setInterval> | undefined;
 
@@ -87,6 +89,7 @@ export class SchedulerLoop {
     private readonly ports: OrchestratorPorts,
   ) {
     this.features = new FeatureLifecycleCoordinator(graph);
+    this.conflicts = new ConflictCoordinator(ports, graph);
     this.summaries = new SummaryCoordinator(graph, ports.config.tokenProfile);
   }
 
@@ -351,6 +354,7 @@ export class SchedulerLoop {
 
     if (event.type === 'feature_integration_complete') {
       this.features.completeIntegration(event.featureId);
+      await this.conflicts.releaseCrossFeatureOverlap(event.featureId);
       return;
     }
 

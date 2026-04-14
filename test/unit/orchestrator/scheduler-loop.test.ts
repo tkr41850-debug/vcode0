@@ -3059,6 +3059,86 @@ describe('SchedulerLoop', () => {
     expect(feature?.mergeTrainReentryCount).toBe(0);
   });
 
+  it('releases cross-feature blocked tasks when primary integration completes', async () => {
+    const order: string[] = [];
+    const { ports, runtime } = createPorts(order, { tokenProfile: 'balanced' });
+    vi.spyOn(ports.runtime, 'idleWorkerCount').mockReturnValue(0);
+    const resumeTask = vi.spyOn(runtime, 'resumeTask');
+    const graph = new InMemoryFeatureGraph({
+      milestones: [
+        {
+          id: 'm-1',
+          name: 'Milestone 1',
+          description: 'desc',
+          status: 'pending',
+          order: 0,
+        },
+      ],
+      features: [
+        {
+          id: 'f-1',
+          milestoneId: 'm-1',
+          orderInMilestone: 0,
+          name: 'Feature 1',
+          description: 'desc',
+          dependsOn: [],
+          status: 'in_progress',
+          workControl: 'awaiting_merge',
+          collabControl: 'integrating',
+          featureBranch: 'feat-feature-1-1',
+          mergeTrainManualPosition: 1,
+          mergeTrainEnteredAt: 50,
+          mergeTrainEntrySeq: 1,
+          mergeTrainReentryCount: 0,
+        },
+        {
+          id: 'f-2',
+          milestoneId: 'm-1',
+          orderInMilestone: 1,
+          name: 'Feature 2',
+          description: 'desc',
+          dependsOn: ['f-1'],
+          status: 'in_progress',
+          workControl: 'executing',
+          collabControl: 'branch_open',
+          featureBranch: 'feat-feature-2-1',
+        },
+      ],
+      tasks: [
+        {
+          id: 't-2',
+          featureId: 'f-2',
+          orderInFeature: 0,
+          description: 'Task 2',
+          dependsOn: [],
+          status: 'running',
+          collabControl: 'suspended',
+          blockedByFeatureId: 'f-1',
+          suspendReason: 'cross_feature_overlap',
+          suspendedAt: 75,
+        },
+      ],
+    });
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+    loop.enqueue({
+      type: 'feature_integration_complete',
+      featureId: 'f-1',
+    });
+
+    await loop.tickForTest(100);
+
+    expect(graph.features.get('f-2')?.dependsOn).not.toContain('f-1');
+    expect(graph.tasks.get('t-2')).toMatchObject({
+      status: 'running',
+      collabControl: 'branch_open',
+    });
+    expect(graph.tasks.get('t-2')?.blockedByFeatureId).toBeUndefined();
+    expect(graph.tasks.get('t-2')?.suspendReason).toBeUndefined();
+    expect(graph.tasks.get('t-2')?.suspendedAt).toBeUndefined();
+    expect(resumeTask).toHaveBeenCalledWith('t-2', 'cross_feature_rebase');
+  });
+
   it('ejects failed integration into conflict and starts the next queued feature', async () => {
     const order: string[] = [];
     const { ports } = createPorts(order);

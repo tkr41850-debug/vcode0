@@ -354,4 +354,54 @@ describe('ConflictCoordinator', () => {
       'cross_feature_overlap',
     );
   });
+
+  it('releases cross-feature dependency and resumes blocked tasks', async () => {
+    const root = getTmpDir();
+    const ports = createPorts(root);
+    const graph = createGraph();
+    updateTask(graph, 't-feature-2-running', {
+      status: 'running',
+      collabControl: 'branch_open',
+    });
+    const coordinator = new ConflictCoordinator(ports, graph);
+    const primary = graph.features.get('f-feature-1');
+    const secondary = graph.features.get('f-feature-2');
+    const runningTask = graph.tasks.get('t-feature-2-running');
+
+    expect(primary).toBeDefined();
+    expect(secondary).toBeDefined();
+    expect(runningTask).toBeDefined();
+
+    if (
+      primary === undefined ||
+      secondary === undefined ||
+      runningTask === undefined
+    ) {
+      throw new Error('missing graph fixture state');
+    }
+
+    await coordinator.handleCrossFeatureOverlap(primary, secondary, [
+      runningTask,
+    ]);
+    await coordinator.releaseCrossFeatureOverlap(primary.id);
+
+    expect(graph.features.get('f-feature-2')?.dependsOn).not.toContain(
+      'f-feature-1',
+    );
+    expect(graph.tasks.get('t-feature-2-running')).toMatchObject({
+      collabControl: 'branch_open',
+      status: 'running',
+    });
+    expect(
+      graph.tasks.get('t-feature-2-running')?.blockedByFeatureId,
+    ).toBeUndefined();
+    expect(
+      graph.tasks.get('t-feature-2-running')?.suspendReason,
+    ).toBeUndefined();
+    expect(graph.tasks.get('t-feature-2-running')?.suspendedAt).toBeUndefined();
+    expect(ports.runtime.resumeTask).toHaveBeenCalledWith(
+      't-feature-2-running',
+      'cross_feature_rebase',
+    );
+  });
 });
