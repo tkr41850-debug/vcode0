@@ -1,6 +1,12 @@
 import type { IpcBridge } from '@agents/worker';
 import { buildWorkerToolset } from '@agents/worker';
-import type { Task, TaskResult } from '@core/types/index';
+import type {
+  GitConflictContext,
+  Task,
+  TaskResult,
+  TaskResumeReason,
+  TaskSuspendReason,
+} from '@core/types/index';
 import type { AgentEvent, AgentMessage } from '@mariozechner/pi-agent-core';
 import { Agent } from '@mariozechner/pi-agent-core';
 import type { AssistantMessage } from '@mariozechner/pi-ai';
@@ -35,11 +41,17 @@ interface PendingApproval {
   resolve: (decision: ApprovalDecision) => void;
 }
 
+interface SuspensionState {
+  reason: TaskSuspendReason;
+  files: string[];
+}
+
 export class WorkerRuntime {
   private agent: Agent | undefined;
   private pendingHelp: PendingHelp | undefined;
   private pendingApproval: PendingApproval | undefined;
   private terminalResult: TaskResult | undefined;
+  private suspended: SuspensionState | undefined;
 
   constructor(
     private readonly transport: ChildIpcTransport,
@@ -162,13 +174,31 @@ export class WorkerRuntime {
       case 'steer': {
         this.agent.steer({
           role: 'user',
-          content: `[steering:${message.directive.kind}] ${message.directive.timing}`,
+          content: formatSteeringMessage(message.directive),
           timestamp: Date.now(),
         });
         break;
       }
       case 'suspend': {
-        this.agent.abort();
+        this.suspended = {
+          reason: message.reason,
+          files: [...message.files],
+        };
+        this.agent.followUp({
+          role: 'user',
+          content: formatSuspendMessage(message.reason, message.files),
+          timestamp: Date.now(),
+        });
+        break;
+      }
+      case 'resume': {
+        const suspended = this.suspended;
+        this.suspended = undefined;
+        this.agent.followUp({
+          role: 'user',
+          content: formatResumeMessage(message.reason, suspended),
+          timestamp: Date.now(),
+        });
         break;
       }
       case 'abort': {
@@ -199,7 +229,6 @@ export class WorkerRuntime {
         });
         break;
       }
-      case 'resume':
       case 'run':
         break;
     }
@@ -292,6 +321,99 @@ export class WorkerRuntime {
 
 function isAssistantMessage(msg: AgentMessage): msg is AssistantMessage {
   return (msg as AssistantMessage).role === 'assistant';
+}
+
+function formatSteeringMessage(directive: {
+  kind: 'sync_recommended' | 'sync_required' | 'conflict_steer';
+  timing: 'next_checkpoint' | 'immediate';
+  gitConflictContext?: GitConflictContext;
+}): string {
+  const header = `[steering:${directive.kind}] ${directive.timing}`;
+  if (directive.kind !== 'conflict_steer') {
+    return header;
+  }
+
+  return `${header}\n${formatConflictContext(directive.gitConflictContext)}`;
+}
+
+function formatSuspendMessage(
+  reason: TaskSuspendReason,
+  files: string[],
+): string {
+  const suffix =
+    files.length > 0 ? `\nfiles: ${files.join(', ')}` : '\nfiles: none';
+  return `[suspend:${reason}] pause current work until resume${suffix}`;
+}
+
+function formatResumeMessage(
+  reason: TaskResumeReason,
+  suspended?: SuspensionState,
+): string {
+  const prior =
+    suspended === undefined
+      ? ''
+      : `\nprior_suspend: ${suspended.reason}\nfiles: ${suspended.files.join(', ') || 'none'}`;
+  return `[resume:${reason}] continue from latest branch state${prior}`;
+}
+
+function formatConflictContext(
+  context: GitConflictContext | undefined,
+): string {
+  if (context === undefined) {
+    return 'conflict_context: unavailable';
+  }
+
+  const lines = [
+    `conflict_kind: ${context.kind}`,
+    `feature_id: ${context.featureId}`,
+    `files: ${context.files.join(', ') || 'none'}`,
+  ];
+
+  if (context.conflictedFiles !== undefined) {
+    lines.push(
+      `conflicted_files: ${context.conflictedFiles.join(', ') || 'none'}`,
+    );
+  }
+  if (context.kind === 'same_feature_task_rebase') {
+    lines.push(`task_id: ${context.taskId}`);
+    lines.push(`task_branch: ${context.taskBranch}`);
+    lines.push(`rebase_target: ${context.rebaseTarget}`);
+    lines.push(`pause_reason: ${context.pauseReason}`);
+    if (context.dominantTaskId !== undefined) {
+      lines.push(`dominant_task_id: ${context.dominantTaskId}`);
+    }
+    if (context.dominantTaskSummary !== undefined) {
+      lines.push(`dominant_task_summary: ${context.dominantTaskSummary}`);
+    }
+    if (context.dominantTaskFilesChanged !== undefined) {
+      lines.push(
+        `dominant_task_files_changed: ${context.dominantTaskFilesChanged.join(', ') || 'none'}`,
+      );
+    }
+    if (context.reservedWritePaths !== undefined) {
+      lines.push(
+        `reserved_write_paths: ${context.reservedWritePaths.join(', ') || 'none'}`,
+      );
+    }
+  } else {
+    lines.push(`blocked_by_feature_id: ${context.blockedByFeatureId}`);
+    lines.push(`target_branch: ${context.targetBranch}`);
+    lines.push(`pause_reason: ${context.pauseReason}`);
+  }
+
+  if (context.dependencyOutputs !== undefined) {
+    lines.push(`dependency_outputs_count: ${context.dependencyOutputs.length}`);
+  }
+  if (context.lastVerification !== undefined) {
+    lines.push(`last_verification_ok: ${context.lastVerification.ok}`);
+    if (context.lastVerification.summary !== undefined) {
+      lines.push(
+        `last_verification_summary: ${context.lastVerification.summary}`,
+      );
+    }
+  }
+
+  return lines.join('\n');
 }
 
 function extractText(msg: AssistantMessage): string {

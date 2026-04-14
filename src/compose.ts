@@ -9,7 +9,10 @@ import type {
   VerificationPort,
 } from '@orchestrator/ports/index';
 import { SchedulerLoop } from '@orchestrator/scheduler/index';
-import { VerificationService } from '@orchestrator/services/index';
+import {
+  RecoveryService,
+  VerificationService,
+} from '@orchestrator/services/index';
 import { openDatabase } from '@persistence/db';
 import { PersistentFeatureGraph } from '@persistence/feature-graph';
 import { SqliteStore } from '@persistence/sqlite-store';
@@ -64,9 +67,11 @@ export async function composeApplication(): Promise<GvcApplication> {
 
   verification = new VerificationService(ports, projectRoot);
   scheduler = new SchedulerLoop(graph, ports);
+  const recovery = new RecoveryService(ports, graph, projectRoot);
 
   const lifecycle: ApplicationLifecycle = {
     start: async () => {
+      await recovery.recoverOrphanedRuns();
       await scheduler?.run();
     },
     stop: async () => {

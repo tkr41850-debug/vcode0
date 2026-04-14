@@ -1148,6 +1148,53 @@ describe('InMemoryFeatureGraph', () => {
     expect(g.tasks.get('t-1')?.suspendedFiles).toBeUndefined();
   });
 
+  it('transitionTask records cross-feature blocker while suspended', () => {
+    const g = createGraphWithTask();
+    updateTask(g, 't-1', {
+      status: 'running',
+      collabControl: 'branch_open',
+    });
+    g.createMilestone({ id: 'm-2', name: 'M2', description: 'd' });
+    g.createFeature({
+      id: 'f-2',
+      milestoneId: 'm-2',
+      name: 'Feature 2',
+      description: 'desc',
+    });
+
+    g.transitionTask('t-1', {
+      collabControl: 'suspended',
+      suspendReason: 'cross_feature_overlap',
+      suspendedAt: 1000,
+      suspendedFiles: ['file.ts'],
+      blockedByFeatureId: 'f-2',
+    });
+
+    expect(g.tasks.get('t-1')?.collabControl).toBe('suspended');
+    expect(g.tasks.get('t-1')?.suspendReason).toBe('cross_feature_overlap');
+    expect(g.tasks.get('t-1')?.blockedByFeatureId).toBe('f-2');
+  });
+
+  it('transitionTask clears cross-feature blocker when resuming', () => {
+    const g = createGraphWithTask();
+    updateTask(g, 't-1', {
+      status: 'running',
+      collabControl: 'suspended',
+      suspendReason: 'cross_feature_overlap',
+      suspendedAt: 1000,
+      suspendedFiles: ['file.ts'],
+      blockedByFeatureId: 'f-2',
+    });
+
+    g.transitionTask('t-1', { collabControl: 'branch_open' });
+
+    expect(g.tasks.get('t-1')?.collabControl).toBe('branch_open');
+    expect(g.tasks.get('t-1')?.blockedByFeatureId).toBeUndefined();
+    expect(g.tasks.get('t-1')?.suspendReason).toBeUndefined();
+    expect(g.tasks.get('t-1')?.suspendedAt).toBeUndefined();
+    expect(g.tasks.get('t-1')?.suspendedFiles).toBeUndefined();
+  });
+
   it('transitionFeature advances discussing to researching', () => {
     const g = createGraphWithFeature();
     updateFeature(g, 'f-1', { status: 'done', collabControl: 'branch_open' });

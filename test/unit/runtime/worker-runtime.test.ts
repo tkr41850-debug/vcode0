@@ -1,4 +1,5 @@
 import type {
+  GitConflictContext,
   Task,
   TaskId,
   TaskResumeReason,
@@ -11,6 +12,9 @@ import type {
   WorkerToOrchestratorMessage,
 } from '@runtime/contracts';
 import type { SessionHandle, SessionHarness } from '@runtime/harness';
+import type { ChildIpcTransport } from '@runtime/ipc';
+import type { SessionStore } from '@runtime/sessions';
+import { WorkerRuntime } from '@runtime/worker';
 import { LocalWorkerPool } from '@runtime/worker-pool';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -90,6 +94,30 @@ function setupPool(
   const harness = createMockHarness(handle);
   const pool = new LocalWorkerPool(harness, maxConcurrency, onTaskComplete);
   return { handle, harness, pool };
+}
+
+function createTransportMock(): ChildIpcTransport {
+  return {
+    send: vi.fn(),
+    onMessage: vi.fn(),
+    close: vi.fn(),
+  };
+}
+
+function createSessionStoreMock(): SessionStore {
+  return {
+    save: vi.fn().mockResolvedValue(undefined),
+    load: vi.fn().mockResolvedValue(null),
+    delete: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
+function createAgentStub() {
+  return {
+    steer: vi.fn(),
+    followUp: vi.fn(),
+    abort: vi.fn(),
+  };
 }
 
 describe('LocalWorkerPool', () => {
@@ -427,5 +455,142 @@ describe('LocalWorkerPool', () => {
       expect(messages).toHaveLength(1);
       expect(pool.idleWorkerCount()).toBe(3);
     });
+  });
+});
+
+describe('WorkerRuntime.handleMessage', () => {
+  it('formats conflict steering with git conflict context', () => {
+    const transport = createTransportMock();
+    const sessionStore = createSessionStoreMock();
+    const runtime = new WorkerRuntime(transport, sessionStore, {
+      modelId: 'claude-sonnet-4-20250514',
+      projectRoot: '/tmp/project',
+    });
+    const agent = createAgentStub();
+    Object.assign(runtime, { agent });
+
+    const gitConflictContext: GitConflictContext = {
+      kind: 'same_feature_task_rebase',
+      featureId: 'f-feature-1',
+      taskId: 't-task-1',
+      taskBranch: 'feat-f-feature-1-task-t-task-1',
+      rebaseTarget: 'feat-f-feature-1',
+      pauseReason: 'same_feature_overlap',
+      files: ['src/a.ts', 'src/b.ts'],
+      conflictedFiles: ['src/a.ts'],
+      dominantTaskId: 't-task-2',
+      dominantTaskSummary: 'landed dominant task',
+      dominantTaskFilesChanged: ['src/a.ts'],
+      reservedWritePaths: ['src/a.ts'],
+    };
+
+    runtime.handleMessage({
+      type: 'steer',
+      taskId: 't-task-1',
+      agentRunId: 'run-1',
+      directive: {
+        kind: 'conflict_steer',
+        timing: 'immediate',
+        gitConflictContext,
+      },
+    });
+
+    expect(agent.steer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        role: 'user',
+        content: expect.stringContaining(
+          'conflict_kind: same_feature_task_rebase',
+        ),
+      }),
+    );
+    expect(agent.steer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.stringContaining('conflicted_files: src/a.ts'),
+      }),
+    );
+  });
+
+  it('queues suspend as follow-up instead of aborting agent', () => {
+    const transport = createTransportMock();
+    const sessionStore = createSessionStoreMock();
+    const runtime = new WorkerRuntime(transport, sessionStore, {
+      modelId: 'claude-sonnet-4-20250514',
+      projectRoot: '/tmp/project',
+    });
+    const agent = createAgentStub();
+    Object.assign(runtime, { agent });
+
+    runtime.handleMessage({
+      type: 'suspend',
+      taskId: 't-task-1',
+      agentRunId: 'run-1',
+      reason: 'same_feature_overlap',
+      files: ['src/a.ts'],
+    });
+
+    expect(agent.abort).not.toHaveBeenCalled();
+    expect(agent.followUp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        role: 'user',
+        content: expect.stringContaining('[suspend:same_feature_overlap]'),
+      }),
+    );
+  });
+
+  it('queues resume as follow-up with prior suspend context', () => {
+    const transport = createTransportMock();
+    const sessionStore = createSessionStoreMock();
+    const runtime = new WorkerRuntime(transport, sessionStore, {
+      modelId: 'claude-sonnet-4-20250514',
+      projectRoot: '/tmp/project',
+    });
+    const agent = createAgentStub();
+    Object.assign(runtime, { agent });
+
+    runtime.handleMessage({
+      type: 'suspend',
+      taskId: 't-task-1',
+      agentRunId: 'run-1',
+      reason: 'same_feature_overlap',
+      files: ['src/a.ts'],
+    });
+    runtime.handleMessage({
+      type: 'resume',
+      taskId: 't-task-1',
+      agentRunId: 'run-1',
+      reason: 'same_feature_rebase',
+    });
+
+    expect(agent.followUp).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        role: 'user',
+        content: expect.stringContaining('[resume:same_feature_rebase]'),
+      }),
+    );
+    expect(agent.followUp).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        content: expect.stringContaining('prior_suspend: same_feature_overlap'),
+      }),
+    );
+  });
+
+  it('keeps abort terminal', () => {
+    const transport = createTransportMock();
+    const sessionStore = createSessionStoreMock();
+    const runtime = new WorkerRuntime(transport, sessionStore, {
+      modelId: 'claude-sonnet-4-20250514',
+      projectRoot: '/tmp/project',
+    });
+    const agent = createAgentStub();
+    Object.assign(runtime, { agent });
+
+    runtime.handleMessage({
+      type: 'abort',
+      taskId: 't-task-1',
+      agentRunId: 'run-1',
+    });
+
+    expect(agent.abort).toHaveBeenCalledTimes(1);
+    expect(agent.followUp).not.toHaveBeenCalled();
   });
 });

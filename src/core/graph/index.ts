@@ -121,6 +121,7 @@ export interface TaskTransitionPatch {
   suspendReason?: TaskSuspendReason;
   suspendedAt?: number;
   suspendedFiles?: string[];
+  blockedByFeatureId?: FeatureId;
 }
 
 export class GraphValidationError extends Error {
@@ -1396,12 +1397,16 @@ export class InMemoryFeatureGraph implements FeatureGraph {
     if (patch.suspendedFiles !== undefined) {
       updated.suspendedFiles = patch.suspendedFiles;
     }
+    if (patch.blockedByFeatureId !== undefined) {
+      updated.blockedByFeatureId = patch.blockedByFeatureId;
+    }
 
     // Clear suspend fields when resuming (collabControl leaving suspended)
     if (task.collabControl === 'suspended' && proposedCollab !== 'suspended') {
       delete updated.suspendReason;
       delete updated.suspendedAt;
       delete updated.suspendedFiles;
+      delete updated.blockedByFeatureId;
     }
 
     this.tasks.set(taskId, updated);
