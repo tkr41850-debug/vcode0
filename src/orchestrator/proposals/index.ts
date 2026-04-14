@@ -1,10 +1,10 @@
+import type { FeatureGraph } from '@core/graph/index';
 import {
   applyGraphProposal,
-  isGraphProposal,
   type GraphProposal,
+  isGraphProposal,
   type ProposalApplyResult,
 } from '@core/proposals/index';
-import type { FeatureGraph } from '@core/graph/index';
 import type { AgentRunPhase, FeatureId, Task } from '@core/types/index';
 
 export type ProposalPhase = Extract<AgentRunPhase, 'plan' | 'replan'>;

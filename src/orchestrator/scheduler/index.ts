@@ -7,13 +7,6 @@ import {
   type SchedulableUnit,
   schedulableUnitKey,
 } from '@core/scheduling/index';
-import {
-  approveFeatureProposal,
-  isProposalPhase,
-  parseGraphProposalPayload,
-  summarizeProposalApply,
-  type ProposalPhase,
-} from '@orchestrator/proposals/index';
 import type {
   AgentRun,
   AgentRunPhase,
@@ -25,6 +18,13 @@ import type {
 } from '@core/types/index';
 import { FeatureLifecycleCoordinator } from '@orchestrator/features/index';
 import type { OrchestratorPorts } from '@orchestrator/ports/index';
+import {
+  approveFeatureProposal,
+  isProposalPhase,
+  type ProposalPhase,
+  parseGraphProposalPayload,
+  summarizeProposalApply,
+} from '@orchestrator/proposals/index';
 import { SummaryCoordinator } from '@orchestrator/summaries/index';
 import type {
   DispatchTaskResult,
@@ -530,7 +530,10 @@ export class SchedulerLoop {
     });
 
     try {
-      const runContext = { agentRunId: run.id };
+      const runContext = {
+        agentRunId: run.id,
+        ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
+      };
       switch (phase) {
         case 'discuss': {
           const result = await this.ports.agents.discussFeature(

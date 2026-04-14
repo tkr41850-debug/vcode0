@@ -1287,6 +1287,56 @@ describe('SchedulerLoop', () => {
     });
   });
 
+  it('passes existing feature-phase sessionId back into resumed planning runs', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const planFeature = vi.spyOn(ports.agents, 'planFeature');
+    ports.store.createAgentRun(
+      makeFeaturePhaseRun('plan', {
+        runStatus: 'ready',
+        sessionId: 'sess-existing',
+      }),
+    );
+    const graph = new InMemoryFeatureGraph({
+      milestones: [
+        {
+          id: 'm-1',
+          name: 'Milestone 1',
+          description: 'desc',
+          status: 'pending',
+          order: 0,
+        },
+      ],
+      features: [
+        {
+          id: 'f-1',
+          milestoneId: 'm-1',
+          orderInMilestone: 0,
+          name: 'Feature 1',
+          description: 'desc',
+          dependsOn: [],
+          status: 'pending',
+          workControl: 'planning',
+          collabControl: 'none',
+          featureBranch: 'feat-feature-1-1',
+        },
+      ],
+      tasks: [],
+    });
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+
+    await loop.dispatchReadyWorkForTest(100);
+
+    expect(planFeature).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'f-1' }),
+      {
+        agentRunId: 'run-feature:f-1:plan',
+        sessionId: 'sess-existing',
+      },
+    );
+  });
+
   it('dispatches feature_ci through the verification service before agent-level verifying', async () => {
     const order: string[] = [];
     const { ports } = createPorts(order);

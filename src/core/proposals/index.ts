@@ -1,6 +1,6 @@
 import type {
-  FeatureGraph,
   FeatureEditPatch,
+  FeatureGraph,
   TaskEditPatch,
 } from '@core/graph/index';
 import { GraphValidationError } from '@core/graph/index';

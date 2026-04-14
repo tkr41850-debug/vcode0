@@ -1,8 +1,8 @@
 import { InMemoryFeatureGraph } from '@core/graph/index';
 import {
-  GraphProposalBuilder,
   applyGraphProposal,
   collectProposalWarnings,
+  GraphProposalBuilder,
   isGraphProposal,
   resolveProposalAlias,
 } from '@core/proposals/index';

@@ -6,11 +6,11 @@ import type {
   DependencyOptions,
   FeatureEditPatch,
   FeatureGraph,
-  TaskEditPatch,
   FeatureTransitionPatch,
   GraphSnapshot,
   MergeTrainUpdate,
   SplitSpec,
+  TaskEditPatch,
   TaskTransitionPatch,
 } from '@core/graph/index';
 import { InMemoryFeatureGraph } from '@core/graph/index';
