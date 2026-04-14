@@ -2107,6 +2107,7 @@ describe('SchedulerLoop', () => {
     const order: string[] = [];
     const { ports } = createPorts(order);
     const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
+    const appendEvent = vi.spyOn(ports.store, 'appendEvent');
     const graph = new InMemoryFeatureGraph({
       milestones: [
         {
@@ -2166,6 +2167,20 @@ describe('SchedulerLoop', () => {
       runStatus: 'completed',
       owner: 'system',
     });
+    expect(appendEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'feature_phase_completed',
+        entityId: 'f-1',
+        payload: expect.objectContaining({
+          phase: 'feature_ci',
+          summary: 'green',
+          extra: expect.objectContaining({
+            ok: true,
+            summary: 'green',
+          }),
+        }),
+      }),
+    );
   });
 
   it('moves verify success to awaiting_merge and merge_queued', async () => {

@@ -179,4 +179,106 @@ describe('feature-phase agent flow', () => {
       sessionStore.load('run-feature:f-1:plan'),
     ).resolves.not.toBeNull();
   });
+
+  it('dispatches summarize with task file evidence after merge', async () => {
+    faux.setResponses([
+      fauxAssistantMessage([fauxText('Merged feature summary.')]),
+    ]);
+
+    const graph = new InMemoryFeatureGraph({
+      milestones: [
+        {
+          id: 'm-1',
+          name: 'Milestone 1',
+          description: 'desc',
+          status: 'pending',
+          order: 0,
+        },
+      ],
+      features: [
+        {
+          id: 'f-1',
+          milestoneId: 'm-1',
+          orderInMilestone: 0,
+          name: 'Feature 1',
+          description: 'Implement feature 1',
+          dependsOn: [],
+          status: 'in_progress',
+          workControl: 'summarizing',
+          collabControl: 'merged',
+          featureBranch: 'feat-feature-1-1',
+        },
+      ],
+      tasks: [
+        {
+          id: 't-1',
+          featureId: 'f-1',
+          orderInFeature: 0,
+          description: 'Task 1',
+          dependsOn: [],
+          status: 'done',
+          collabControl: 'merged',
+          result: {
+            summary: 'Implemented core flow',
+            filesChanged: ['src/feature.ts', 'src/verify.ts'],
+          },
+        },
+      ],
+    });
+    const store = new InMemoryStore();
+    store.appendEvent({
+      eventType: 'feature_phase_completed',
+      entityId: 'f-1',
+      timestamp: Date.now(),
+      payload: {
+        phase: 'feature_ci',
+        summary: 'feature ci green',
+        extra: { ok: true, summary: 'feature ci green' },
+      },
+    });
+    const sessionStore = new InMemorySessionStore();
+    const config = createConfig();
+    const agents = new PiFeatureAgentRuntime({
+      modelId: 'claude-sonnet-4-6',
+      config,
+      promptLibrary,
+      graph,
+      store,
+      sessionStore,
+    });
+    const verification: VerificationPort = {
+      verifyFeature: async () => ({ ok: true, summary: 'ok' }),
+    };
+    const ports: OrchestratorPorts = {
+      store,
+      runtime: createRuntimeStub(),
+      agents,
+      verification,
+      ui: createUiStub(),
+      config,
+    };
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+
+    await loop.dispatchReadyWorkForTest(100);
+
+    expect(graph.features.get('f-1')).toEqual(
+      expect.objectContaining({
+        workControl: 'work_complete',
+        status: 'done',
+        collabControl: 'merged',
+        summary: 'Merged feature summary.',
+      }),
+    );
+    expect(store.listEvents({ entityId: 'f-1' })).toContainEqual(
+      expect.objectContaining({
+        eventType: 'feature_phase_completed',
+        payload: expect.objectContaining({
+          phase: 'summarize',
+          summary: 'Merged feature summary.',
+          sessionId: 'run-feature:f-1:summarize',
+        }),
+      }),
+    );
+  });
 });

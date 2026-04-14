@@ -306,6 +306,21 @@ export class SchedulerLoop {
         });
       }
 
+      if (event.phase === 'feature_ci') {
+        this.ports.store.appendEvent({
+          eventType: 'feature_phase_completed',
+          entityId: event.featureId,
+          timestamp: Date.now(),
+          payload: {
+            phase: event.phase,
+            summary: event.summary,
+            ...(event.verification !== undefined
+              ? { extra: event.verification }
+              : {}),
+          },
+        });
+      }
+
       if (event.phase === 'summarize') {
         this.summaries.completeSummary(event.featureId, event.summary);
         return;

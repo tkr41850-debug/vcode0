@@ -11,10 +11,12 @@ import {
 import type { FeatureGraph } from '@core/graph/index';
 import type {
   AgentRun,
+  EventRecord,
   Feature,
   FeaturePhaseResult,
   FeaturePhaseRunContext,
   GvcConfig,
+  Task,
   VerificationSummary,
 } from '@core/types/index';
 import type { AgentMessage } from '@mariozechner/pi-agent-core';
@@ -177,6 +179,9 @@ export class PiFeatureAgentRuntime implements AgentPort {
   }: PhaseContextInput): string {
     const template = this.deps.promptLibrary.get(phaseToTemplateName(phase));
     const events = this.deps.store.listEvents({ entityId: feature.id });
+    const tasks = [...this.deps.graph.tasks.values()]
+      .filter((task) => task.featureId === feature.id)
+      .sort((a, b) => a.orderInFeature - b.orderInFeature);
     const runs = this.deps.store.listAgentRuns({
       scopeType: 'feature_phase',
       scopeId: feature.id,
@@ -187,18 +192,25 @@ export class PiFeatureAgentRuntime implements AgentPort {
         (candidate) =>
           candidate.phase === 'plan' || candidate.phase === 'replan',
       );
+    const summaryContext = buildSummaryContext(events, tasks);
 
     return template.render({
       feature,
       run,
       requestedOutcome: feature.description,
       featureContext: feature.description,
-      discussionSummary: summarizeEvents(events, [
-        'feature_phase_completed',
-        'proposal_rejected',
-        'proposal_rerun_requested',
-      ]),
-      researchSummary: summarizeEvents(events, ['feature_phase_completed']),
+      discussionSummary:
+        phase === 'summarize'
+          ? summaryContext.discussionSummary
+          : summarizeEvents(events, [
+              'feature_phase_completed',
+              'proposal_rejected',
+              'proposal_rerun_requested',
+            ]),
+      researchSummary:
+        phase === 'summarize'
+          ? summaryContext.researchSummary
+          : summarizeEvents(events, ['feature_phase_completed']),
       proposalSummary: lastProposalRun?.payloadJson,
       blockerSummary: summarizeEvents(events, ['proposal_apply_failed']),
       verificationExpectations:
@@ -211,17 +223,38 @@ export class PiFeatureAgentRuntime implements AgentPort {
           : undefined,
       decisions: summarizeEvents(events, ['proposal_applied']),
       successCriteria: feature.description,
-      executionEvidence: feature.summary,
-      verificationResults: summarizeEvents(events, ['feature_phase_completed']),
-      integratedOutcome: feature.summary,
-      verificationSummary: summarizeEvents(events, ['feature_phase_completed']),
-      executionSummary: summarizeEvents(events, ['feature_phase_completed']),
+      executionEvidence:
+        phase === 'summarize'
+          ? summaryContext.executionEvidence
+          : feature.summary,
+      verificationResults:
+        phase === 'summarize'
+          ? summaryContext.verificationSummary
+          : summarizeEvents(events, ['feature_phase_completed']),
+      integratedOutcome:
+        phase === 'summarize'
+          ? summaryContext.integratedOutcome
+          : feature.summary,
+      verificationSummary:
+        phase === 'summarize'
+          ? summaryContext.verificationSummary
+          : summarizeEvents(events, ['feature_phase_completed']),
+      executionSummary:
+        phase === 'summarize'
+          ? summaryContext.executionSummary
+          : summarizeEvents(events, ['feature_phase_completed']),
       followUpNotes: summarizeEvents(events, [
         'proposal_rejected',
         'proposal_apply_failed',
       ]),
-      importantFiles: collectImportantFiles(events),
-      codebaseMap: renderCodebaseMap(feature),
+      importantFiles:
+        phase === 'summarize'
+          ? summaryContext.importantFiles
+          : collectImportantFiles(events),
+      codebaseMap: renderCodebaseMap(
+        feature,
+        phase === 'summarize' ? undefined : feature.summary,
+      ),
       externalIntegrations: undefined,
       replanReason: reason,
       reason,
@@ -338,33 +371,35 @@ function phaseToTemplateName(phase: AgentRun['phase']): PromptTemplateName {
 }
 
 function summarizeEvents(
-  events: readonly { eventType: string; payload?: Record<string, unknown> }[],
+  events: readonly EventRecord[],
   types: readonly string[],
+  options: {
+    phases?: readonly AgentRun['phase'][];
+    summaryPath?: readonly string[];
+  } = {},
 ): string | undefined {
-  const matching = events.filter((event) => types.includes(event.eventType));
+  const matching = events.filter((event) => {
+    if (!types.includes(event.eventType)) {
+      return false;
+    }
+    if (options.phases === undefined) {
+      return true;
+    }
+    const phase = readPayloadPhase(event.payload);
+    return phase !== undefined && options.phases.includes(phase);
+  });
   if (matching.length === 0) {
     return undefined;
   }
 
   return matching
-    .map((event) => {
-      const summary =
-        typeof event.payload?.summary === 'string'
-          ? event.payload.summary
-          : typeof event.payload?.error === 'string'
-            ? event.payload.error
-            : typeof event.payload?.comment === 'string'
-              ? event.payload.comment
-              : undefined;
-      return summary !== undefined
-        ? `${event.eventType}: ${summary}`
-        : event.eventType;
-    })
+    .map((event) => formatEventSummary(event, options.summaryPath))
+    .filter((summary): summary is string => summary !== undefined)
     .join('\n');
 }
 
 function collectImportantFiles(
-  events: readonly { payload?: Record<string, unknown> }[],
+  events: readonly EventRecord[],
 ): string[] | undefined {
   const files = new Set<string>();
   for (const event of events) {
@@ -381,11 +416,174 @@ function collectImportantFiles(
   return files.size > 0 ? [...files] : undefined;
 }
 
-function renderCodebaseMap(feature: Feature): string {
+function buildSummaryContext(
+  events: readonly EventRecord[],
+  tasks: readonly Task[],
+): {
+  discussionSummary?: string;
+  researchSummary?: string;
+  executionEvidence?: string;
+  integratedOutcome?: string;
+  verificationSummary?: string;
+  executionSummary?: string;
+  importantFiles?: string[];
+} {
+  const discussionSummary = summarizeEvents(
+    events,
+    ['feature_phase_completed'],
+    {
+      phases: ['discuss'],
+    },
+  );
+  const researchSummary = summarizeEvents(events, ['feature_phase_completed'], {
+    phases: ['research'],
+  });
+  const verificationSummary = [
+    summarizeEvents(events, ['feature_phase_completed'], {
+      phases: ['feature_ci'],
+      summaryPath: ['extra', 'summary'],
+    }),
+    summarizeEvents(events, ['feature_phase_completed'], {
+      phases: ['verify'],
+      summaryPath: ['extra', 'summary'],
+    }),
+  ]
+    .filter((value): value is string => value !== undefined && value.length > 0)
+    .join('\n');
+  const executionHighlights = collectTaskSummaries(tasks);
+  const importantFiles = collectTaskFiles(tasks);
+  const integratedOutcome = [executionHighlights, verificationSummary]
+    .filter((value): value is string => value !== undefined && value.length > 0)
+    .join('\n\n');
+
+  return {
+    ...(discussionSummary !== undefined ? { discussionSummary } : {}),
+    ...(researchSummary !== undefined ? { researchSummary } : {}),
+    ...(executionHighlights !== undefined
+      ? {
+          executionEvidence: executionHighlights,
+          executionSummary: executionHighlights,
+        }
+      : {}),
+    ...(integratedOutcome.length > 0 ? { integratedOutcome } : {}),
+    ...(verificationSummary.length > 0 ? { verificationSummary } : {}),
+    ...(importantFiles !== undefined ? { importantFiles } : {}),
+  };
+}
+
+function collectTaskSummaries(tasks: readonly Task[]): string | undefined {
+  const summaries = tasks
+    .map((task) => {
+      const summary = task.result?.summary?.trim();
+      if (summary === undefined || summary.length === 0) {
+        return undefined;
+      }
+      return `${task.id}: ${summary}`;
+    })
+    .filter((summary): summary is string => summary !== undefined);
+
+  return summaries.length > 0 ? summaries.join('\n') : undefined;
+}
+
+function collectTaskFiles(tasks: readonly Task[]): string[] | undefined {
+  const files = new Set<string>();
+  for (const task of tasks) {
+    for (const file of task.result?.filesChanged ?? []) {
+      const trimmed = file.trim();
+      if (trimmed.length > 0) {
+        files.add(trimmed);
+      }
+    }
+  }
+  return files.size > 0 ? [...files] : undefined;
+}
+
+function readPayloadPhase(
+  payload?: Record<string, unknown>,
+): AgentRun['phase'] | undefined {
+  const phase = payload?.phase;
+  switch (phase) {
+    case 'execute':
+    case 'discuss':
+    case 'research':
+    case 'plan':
+    case 'feature_ci':
+    case 'verify':
+    case 'summarize':
+    case 'replan':
+      return phase;
+    default:
+      return undefined;
+  }
+}
+
+function formatEventSummary(
+  event: EventRecord,
+  summaryPath?: readonly string[],
+): string | undefined {
+  const payloadSummary =
+    summaryPath === undefined
+      ? readSummaryValue(event.payload)
+      : readNestedString(event.payload, summaryPath);
+  const summary =
+    payloadSummary ??
+    (typeof event.payload?.error === 'string'
+      ? event.payload.error
+      : typeof event.payload?.comment === 'string'
+        ? event.payload.comment
+        : undefined);
+  return summary !== undefined
+    ? `${event.eventType}: ${summary}`
+    : event.eventType;
+}
+
+function readSummaryValue(
+  payload?: Record<string, unknown>,
+): string | undefined {
+  if (payload === undefined) {
+    return undefined;
+  }
+  if (typeof payload.summary === 'string') {
+    return payload.summary;
+  }
+  const extra = payload.extra;
+  if (typeof extra !== 'object' || extra === null || Array.isArray(extra)) {
+    return undefined;
+  }
+  const extraRecord = extra as Record<string, unknown>;
+  return typeof extraRecord.summary === 'string'
+    ? extraRecord.summary
+    : undefined;
+}
+
+function readNestedString(
+  value: unknown,
+  path: readonly string[],
+): string | undefined {
+  let current: unknown = value;
+  for (const key of path) {
+    if (
+      typeof current !== 'object' ||
+      current === null ||
+      Array.isArray(current)
+    ) {
+      return undefined;
+    }
+    current = (current as Record<string, unknown>)[key];
+  }
+  return typeof current === 'string' && current.length > 0
+    ? current
+    : undefined;
+}
+
+function renderCodebaseMap(
+  feature: Feature,
+  summary: string | undefined = feature.summary,
+): string {
   return [
     `Feature branch: ${feature.featureBranch}`,
     `Current phase: ${feature.workControl}`,
-    `Feature summary: ${feature.summary ?? 'none yet'}`,
+    `Feature summary: ${summary ?? 'none yet'}`,
   ].join('\n');
 }
 
