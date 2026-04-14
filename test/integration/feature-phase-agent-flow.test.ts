@@ -182,6 +182,13 @@ describe('feature-phase agent flow', () => {
 
   it('dispatches summarize with task file evidence after merge', async () => {
     faux.setResponses([
+      fauxAssistantMessage(
+        [
+          fauxToolCall('getChangedFiles', {}),
+          fauxToolCall('listFeatureEvents', { phase: 'feature_ci' }),
+        ],
+        { stopReason: 'toolUse' },
+      ),
       fauxAssistantMessage([fauxText('Merged feature summary.')]),
     ]);
 
@@ -277,6 +284,117 @@ describe('feature-phase agent flow', () => {
           phase: 'summarize',
           summary: 'Merged feature summary.',
           sessionId: 'run-feature:f-1:summarize',
+        }),
+      }),
+    );
+  });
+
+  it('dispatches verify with structured repair-needed verdict into repair flow', async () => {
+    faux.setResponses([
+      fauxAssistantMessage(
+        [
+          fauxToolCall('listFeatureEvents', { phase: 'feature_ci' }),
+          fauxToolCall('submitVerify', {
+            outcome: 'repair_needed',
+            summary: 'Repair needed: integrated flow not proven.',
+            failedChecks: ['integrated flow not proven'],
+            repairFocus: ['add proof for integrated flow'],
+          }),
+        ],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage([fauxText('Verification complete.')]),
+    ]);
+
+    const graph = new InMemoryFeatureGraph({
+      milestones: [
+        {
+          id: 'm-1',
+          name: 'Milestone 1',
+          description: 'desc',
+          status: 'pending',
+          order: 0,
+        },
+      ],
+      features: [
+        {
+          id: 'f-1',
+          milestoneId: 'm-1',
+          orderInMilestone: 0,
+          name: 'Feature 1',
+          description: 'Implement feature 1',
+          dependsOn: [],
+          status: 'in_progress',
+          workControl: 'verifying',
+          collabControl: 'branch_open',
+          featureBranch: 'feat-feature-1-1',
+        },
+      ],
+      tasks: [],
+    });
+    const store = new InMemoryStore();
+    store.appendEvent({
+      eventType: 'feature_phase_completed',
+      entityId: 'f-1',
+      timestamp: Date.now(),
+      payload: {
+        phase: 'feature_ci',
+        summary: 'feature ci green',
+        extra: { ok: true, summary: 'feature ci green' },
+      },
+    });
+    const sessionStore = new InMemorySessionStore();
+    const config = createConfig();
+    const agents = new PiFeatureAgentRuntime({
+      modelId: 'claude-sonnet-4-6',
+      config,
+      promptLibrary,
+      graph,
+      store,
+      sessionStore,
+    });
+    const verification: VerificationPort = {
+      verifyFeature: async () => ({ ok: true, summary: 'ok' }),
+    };
+    const ports: OrchestratorPorts = {
+      store,
+      runtime: createRuntimeStub(),
+      agents,
+      verification,
+      ui: createUiStub(),
+      config,
+    };
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+
+    await loop.dispatchReadyWorkForTest(100);
+
+    expect(graph.features.get('f-1')).toEqual(
+      expect.objectContaining({
+        workControl: 'executing_repair',
+        status: 'pending',
+        collabControl: 'branch_open',
+      }),
+    );
+    expect([...graph.tasks.values()]).toContainEqual(
+      expect.objectContaining({
+        status: 'ready',
+        repairSource: 'verify',
+        description: expect.stringContaining(
+          'Repair feature verification issues: Repair needed: integrated flow not proven.',
+        ),
+      }),
+    );
+    expect(store.listEvents({ entityId: 'f-1' })).toContainEqual(
+      expect.objectContaining({
+        eventType: 'feature_phase_completed',
+        payload: expect.objectContaining({
+          phase: 'verify',
+          summary: 'Repair needed: integrated flow not proven.',
+          extra: expect.objectContaining({
+            outcome: 'repair_needed',
+            failedChecks: ['integrated flow not proven'],
+          }),
         }),
       }),
     );

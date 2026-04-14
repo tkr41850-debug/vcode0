@@ -5,7 +5,9 @@ import type {
 } from '@agents/index';
 import type { ProposalPhaseResult } from '@agents/proposal';
 import {
+  buildFeaturePhaseAgentToolset,
   buildProposalAgentToolset,
+  createFeaturePhaseToolHost,
   createProposalToolHost,
 } from '@agents/tools';
 import type { FeatureGraph } from '@core/graph/index';
@@ -19,7 +21,7 @@ import type {
   Task,
   VerificationSummary,
 } from '@core/types/index';
-import type { AgentMessage } from '@mariozechner/pi-agent-core';
+import type { AgentMessage, AgentTool } from '@mariozechner/pi-agent-core';
 import { Agent } from '@mariozechner/pi-agent-core';
 import type { AssistantMessage } from '@mariozechner/pi-ai';
 import type { Store } from '@orchestrator/ports/index';
@@ -97,8 +99,14 @@ export class PiFeatureAgentRuntime implements AgentPort {
     run: FeaturePhaseRunContext,
   ): Promise<FeaturePhaseResult> {
     const prompt = this.renderPrompt({ feature, run, phase });
+    const host = createFeaturePhaseToolHost(
+      feature.id,
+      this.deps.graph,
+      this.deps.store,
+    );
+    const tools = buildFeaturePhaseAgentToolset(host, phase);
     const messages = await this.loadMessages(run.sessionId);
-    const agent = this.createAgent(phase, prompt, [], run, messages);
+    const agent = this.createAgent(phase, prompt, tools, run, messages);
 
     await this.executeAgent(agent, feature.description);
     const finalMessages = agent.state.messages;
@@ -150,15 +158,24 @@ export class PiFeatureAgentRuntime implements AgentPort {
     run: FeaturePhaseRunContext,
   ): Promise<VerificationSummary> {
     const prompt = this.renderPrompt({ feature, run, phase: 'verify' });
+    const host = createFeaturePhaseToolHost(
+      feature.id,
+      this.deps.graph,
+      this.deps.store,
+    );
+    const tools = buildFeaturePhaseAgentToolset(host, 'verify');
     const messages = await this.loadMessages(run.sessionId);
-    const agent = this.createAgent('verify', prompt, [], run, messages);
+    const agent = this.createAgent('verify', prompt, tools, run, messages);
 
     await this.executeAgent(agent, feature.description);
+    if (!host.wasVerifySubmitted()) {
+      throw new Error('verify phase must call submitVerify before completion');
+    }
+
     const finalMessages = agent.state.messages;
     const sessionId = await this.persistMessages(run, finalMessages);
-    const summary =
-      extractLastAssistantText(finalMessages) || 'Verification complete.';
-    const verification = parseVerificationSummary(summary);
+    const verification = host.getVerificationSummary();
+    const summary = verification.summary ?? 'Verification complete.';
 
     this.recordPhaseCompletion(
       feature.id,
@@ -267,7 +284,7 @@ export class PiFeatureAgentRuntime implements AgentPort {
       'discuss' | 'research' | 'plan' | 'verify' | 'summarize' | 'replan'
     >,
     systemPrompt: string,
-    tools: ReturnType<typeof buildProposalAgentToolset>,
+    tools: AgentTool[],
     run: FeaturePhaseRunContext,
     messages: AgentMessage[],
   ): Agent {
@@ -631,20 +648,4 @@ function phaseRoutingTier(
     case 'research':
       return 'standard';
   }
-}
-
-function parseVerificationSummary(summary: string): VerificationSummary {
-  const normalized = summary.toLowerCase();
-  const replan =
-    normalized.includes('replan needed') ||
-    normalized.includes('replan required');
-  const repair =
-    normalized.includes('repair needed') ||
-    normalized.includes('repair required');
-
-  return {
-    ok: !replan && !repair && !normalized.includes('fail'),
-    summary,
-    ...(replan || repair ? { failedChecks: [summary] } : {}),
-  };
 }

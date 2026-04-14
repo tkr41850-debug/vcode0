@@ -27,6 +27,7 @@ Summarization stance:
 - keep summary dense and durable
 
 Check:
+- inspect persisted feature state, task results, changed files, and prior phase events with available tools before drafting summary
 - what user-visible or system-visible capability now exists
 - which files or subsystems became important integration seams
 - what verification created strongest confidence

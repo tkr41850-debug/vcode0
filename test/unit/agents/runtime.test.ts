@@ -10,6 +10,7 @@ import type {
   Feature,
   FeaturePhaseAgentRun,
   GvcConfig,
+  VerificationCriterionEvidence,
   VerificationSummary,
 } from '@core/types/index';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -119,8 +120,15 @@ describe('PiFeatureAgentRuntime', () => {
     faux.unregister();
   });
 
-  it('runs discuss as one-shot text phase and persists transcript', async () => {
+  it('runs discuss with inspection tools and persists transcript', async () => {
     faux.setResponses([
+      fauxAssistantMessage(
+        [
+          fauxToolCall('getFeatureState', {}),
+          fauxToolCall('listFeatureTasks', {}),
+        ],
+        { stopReason: 'toolUse' },
+      ),
       fauxAssistantMessage([fauxText('Discussion summary.')]),
     ]);
 
@@ -158,6 +166,64 @@ describe('PiFeatureAgentRuntime', () => {
         }),
       }),
     );
+  });
+
+  it('exposes feature inspection tools during summarize', async () => {
+    faux.setResponses([
+      fauxAssistantMessage(
+        [
+          fauxToolCall('getChangedFiles', {}),
+          fauxToolCall('listFeatureEvents', { phase: 'verify' }),
+        ],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage([fauxText('Summary after inspection.')]),
+    ]);
+
+    const { graph, feature } = createFeatureGraph();
+    graph.createTask({
+      id: 't-1',
+      featureId: feature.id,
+      description: 'Task 1',
+    });
+    graph.transitionTask('t-1', { status: 'ready' });
+    graph.transitionTask('t-1', {
+      status: 'running',
+      collabControl: 'branch_open',
+    });
+    graph.transitionTask('t-1', {
+      status: 'done',
+      collabControl: 'merged',
+      result: {
+        summary: 'Implemented API path',
+        filesChanged: ['src/api.ts'],
+      },
+    });
+
+    const store = new InMemoryStore();
+    appendFeaturePhaseEvent(store, feature.id, 'verify', 'verify green', {
+      ok: true,
+      summary: 'verify green',
+      outcome: 'pass',
+    });
+    const sessionStore = new InMemorySessionStore();
+    const run = createFeatureRun('summarize');
+    store.createAgentRun(run as AgentRun);
+
+    const runtime = new PiFeatureAgentRuntime({
+      modelId: 'claude-sonnet-4-6',
+      config: createConfig(),
+      promptLibrary,
+      graph,
+      store,
+      sessionStore,
+    });
+
+    const result = await runtime.summarizeFeature(feature, {
+      agentRunId: run.id,
+    });
+
+    expect(result).toEqual({ summary: 'Summary after inspection.' });
   });
 
   it('runs planning with proposal tools against draft graph only', async () => {
@@ -224,11 +290,29 @@ describe('PiFeatureAgentRuntime', () => {
     );
   });
 
-  it('parses verify results into repair-needed failures', async () => {
+  it('returns structured verify repair-needed failures from submitVerify', async () => {
+    const criteriaEvidence: VerificationCriterionEvidence[] = [
+      {
+        criterion: 'success criteria met',
+        status: 'missing',
+        evidence: 'No proof for expected integrated behavior.',
+      },
+    ];
     faux.setResponses([
-      fauxAssistantMessage([
-        fauxText('Repair needed: missing proof for success criteria.'),
-      ]),
+      fauxAssistantMessage(
+        [
+          fauxToolCall('listFeatureEvents', { phase: 'feature_ci' }),
+          fauxToolCall('submitVerify', {
+            outcome: 'repair_needed',
+            summary: 'Repair needed: missing proof for success criteria.',
+            failedChecks: ['missing proof for success criteria'],
+            criteriaEvidence,
+            repairFocus: ['prove integrated behavior'],
+          }),
+        ],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage([fauxText('Verification structured.')]),
     ]);
 
     const { graph, feature } = createFeatureGraph();
@@ -252,9 +336,53 @@ describe('PiFeatureAgentRuntime', () => {
 
     expect(result).toEqual({
       ok: false,
+      outcome: 'repair_needed',
       summary: 'Repair needed: missing proof for success criteria.',
-      failedChecks: ['Repair needed: missing proof for success criteria.'],
+      failedChecks: ['missing proof for success criteria'],
+      criteriaEvidence,
+      repairFocus: ['prove integrated behavior'],
     });
+    expect(store.listEvents({ entityId: feature.id })).toContainEqual(
+      expect.objectContaining({
+        eventType: 'feature_phase_completed',
+        payload: expect.objectContaining({
+          phase: 'verify',
+          summary: 'Repair needed: missing proof for success criteria.',
+          sessionId: run.id,
+          extra: expect.objectContaining({
+            outcome: 'repair_needed',
+            failedChecks: ['missing proof for success criteria'],
+          }),
+        }),
+      }),
+    );
+  });
+
+  it('requires submitVerify before verify phase completion', async () => {
+    faux.setResponses([
+      fauxAssistantMessage([fauxText('Looks good overall.')]),
+    ]);
+
+    const { graph, feature } = createFeatureGraph();
+    const store = new InMemoryStore();
+    const sessionStore = new InMemorySessionStore();
+    const run = createFeatureRun('verify');
+    store.createAgentRun(run as AgentRun);
+
+    const runtime = new PiFeatureAgentRuntime({
+      modelId: 'claude-sonnet-4-6',
+      config: createConfig(),
+      promptLibrary,
+      graph,
+      store,
+      sessionStore,
+    });
+
+    await expect(
+      runtime.verifyFeature(feature, {
+        agentRunId: run.id,
+      }),
+    ).rejects.toThrow('verify phase must call submitVerify before completion');
   });
 
   it('builds summarize prompt from task results and verification evidence', async () => {

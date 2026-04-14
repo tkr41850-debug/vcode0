@@ -10,8 +10,19 @@ import {
   GraphProposalBuilder,
   type GraphProposalMode,
 } from '@core/proposals/index';
-import type { Feature, FeatureId, MilestoneId, Task } from '@core/types/index';
+import type {
+  AgentRun,
+  EventRecord,
+  Feature,
+  FeatureId,
+  MilestoneId,
+  Task,
+  TaskResult,
+  VerificationCriterionEvidence,
+  VerificationSummary,
+} from '@core/types/index';
 import type { AgentTool } from '@mariozechner/pi-agent-core';
+import type { Store } from '@orchestrator/ports/index';
 import { Type } from '@sinclair/typebox';
 
 export type { DependencyOptions, FeatureEditPatch, TaskEditPatch };
@@ -49,6 +60,47 @@ export interface EditTaskOptions {
 
 export type SubmitProposalOptions = Record<string, never>;
 
+export interface GetFeatureStateOptions {
+  featureId?: FeatureId;
+}
+
+export interface ListFeatureTasksOptions {
+  featureId?: FeatureId;
+}
+
+export interface GetTaskResultOptions {
+  taskId: Task['id'];
+}
+
+export interface ListFeatureEventsOptions {
+  featureId?: FeatureId;
+  phase?: AgentRun['phase'];
+  limit?: number;
+}
+
+export interface ListFeatureRunsOptions {
+  featureId?: FeatureId;
+  phase?: AgentRun['phase'];
+}
+
+export interface GetChangedFilesOptions {
+  featureId?: FeatureId;
+}
+
+export interface SubmitVerifyOptions {
+  outcome: 'pass' | 'repair_needed';
+  summary: string;
+  failedChecks?: string[];
+  criteriaEvidence?: VerificationCriterionEvidence[];
+  repairFocus?: string[];
+}
+
+export interface TaskResultLookup {
+  taskId: Task['id'];
+  featureId: FeatureId;
+  result: TaskResult;
+}
+
 export type ProposalToolName =
   | 'addFeature'
   | 'removeFeature'
@@ -63,6 +115,16 @@ export type ProposalToolName =
 export type PlannerToolName = ProposalToolName;
 export type ReplannerToolName = ProposalToolName;
 export type AgentToolName = ProposalToolName;
+
+export type FeatureInspectionToolName =
+  | 'getFeatureState'
+  | 'listFeatureTasks'
+  | 'getTaskResult'
+  | 'listFeatureEvents'
+  | 'listFeatureRuns'
+  | 'getChangedFiles';
+
+export type FeaturePhaseToolName = FeatureInspectionToolName | 'submitVerify';
 
 export interface PlannerToolArgsMap {
   addFeature: AddFeatureOptions;
@@ -88,11 +150,39 @@ export interface PlannerToolResultMap {
   submit: undefined;
 }
 
+export interface FeaturePhaseToolArgsMap {
+  getFeatureState: GetFeatureStateOptions;
+  listFeatureTasks: ListFeatureTasksOptions;
+  getTaskResult: GetTaskResultOptions;
+  listFeatureEvents: ListFeatureEventsOptions;
+  listFeatureRuns: ListFeatureRunsOptions;
+  getChangedFiles: GetChangedFilesOptions;
+  submitVerify: SubmitVerifyOptions;
+}
+
+export interface FeaturePhaseToolResultMap {
+  getFeatureState: Feature;
+  listFeatureTasks: Task[];
+  getTaskResult: TaskResultLookup;
+  listFeatureEvents: EventRecord[];
+  listFeatureRuns: AgentRun[];
+  getChangedFiles: string[];
+  submitVerify: VerificationSummary;
+}
+
 export type PlannerToolArgs<Name extends AgentToolName = AgentToolName> =
   PlannerToolArgsMap[Name];
 
 export type PlannerToolResult<Name extends AgentToolName = AgentToolName> =
   PlannerToolResultMap[Name];
+
+export type FeaturePhaseToolArgs<
+  Name extends FeaturePhaseToolName = FeaturePhaseToolName,
+> = FeaturePhaseToolArgsMap[Name];
+
+export type FeaturePhaseToolResult<
+  Name extends FeaturePhaseToolName = FeaturePhaseToolName,
+> = FeaturePhaseToolResultMap[Name];
 
 export interface PlannerToolDefinition<
   Name extends AgentToolName = AgentToolName,
@@ -100,6 +190,16 @@ export interface PlannerToolDefinition<
   name: Name;
   description: string;
   execute(args: PlannerToolArgs<Name>): Promise<PlannerToolResult<Name>>;
+}
+
+export interface FeaturePhaseToolDefinition<
+  Name extends FeaturePhaseToolName = FeaturePhaseToolName,
+> {
+  name: Name;
+  description: string;
+  execute(
+    args: FeaturePhaseToolArgs<Name>,
+  ): Promise<FeaturePhaseToolResult<Name>>;
 }
 
 export interface PlannerToolset {
@@ -120,6 +220,18 @@ export interface ProposalToolHost {
   submit(): void;
   wasSubmitted(): boolean;
   buildProposal(): GraphProposal;
+}
+
+export interface FeaturePhaseToolHost {
+  getFeatureState(args: GetFeatureStateOptions): Feature;
+  listFeatureTasks(args: ListFeatureTasksOptions): Task[];
+  getTaskResult(args: GetTaskResultOptions): TaskResultLookup;
+  listFeatureEvents(args: ListFeatureEventsOptions): EventRecord[];
+  listFeatureRuns(args: ListFeatureRunsOptions): AgentRun[];
+  getChangedFiles(args: GetChangedFilesOptions): string[];
+  submitVerify(args: SubmitVerifyOptions): VerificationSummary;
+  wasVerifySubmitted(): boolean;
+  getVerificationSummary(): VerificationSummary;
 }
 
 export class GraphProposalToolHost implements ProposalToolHost {
@@ -258,11 +370,147 @@ export class GraphProposalToolHost implements ProposalToolHost {
   }
 }
 
+class DefaultFeaturePhaseToolHost implements FeaturePhaseToolHost {
+  private verification: VerificationSummary | undefined;
+
+  constructor(
+    private readonly featureId: FeatureId,
+    private readonly graph: FeatureGraph,
+    private readonly store: Pick<Store, 'listAgentRuns' | 'listEvents'>,
+  ) {}
+
+  getFeatureState(args: GetFeatureStateOptions): Feature {
+    return this.requireFeature(this.resolveFeatureId(args.featureId));
+  }
+
+  listFeatureTasks(args: ListFeatureTasksOptions): Task[] {
+    const featureId = this.resolveFeatureId(args.featureId);
+    return [...this.graph.tasks.values()]
+      .filter((task) => task.featureId === featureId)
+      .sort((a, b) => a.orderInFeature - b.orderInFeature);
+  }
+
+  getTaskResult(args: GetTaskResultOptions): TaskResultLookup {
+    const task = this.graph.tasks.get(args.taskId);
+    if (task === undefined) {
+      throw new Error(`task "${args.taskId}" does not exist`);
+    }
+    if (task.result === undefined) {
+      throw new Error(`task "${args.taskId}" has no recorded result`);
+    }
+    return {
+      taskId: task.id,
+      featureId: task.featureId,
+      result: task.result,
+    };
+  }
+
+  listFeatureEvents(args: ListFeatureEventsOptions): EventRecord[] {
+    const featureId = this.resolveFeatureId(args.featureId);
+    const events = this.store
+      .listEvents({ entityId: featureId })
+      .filter((event) =>
+        args.phase === undefined ? true : readEventPhase(event) === args.phase,
+      )
+      .sort((a, b) => a.timestamp - b.timestamp);
+    if (args.limit === undefined) {
+      return events;
+    }
+    return events.slice(-args.limit);
+  }
+
+  listFeatureRuns(args: ListFeatureRunsOptions): AgentRun[] {
+    const featureId = this.resolveFeatureId(args.featureId);
+    return this.store
+      .listAgentRuns({
+        scopeType: 'feature_phase',
+        scopeId: featureId,
+        ...(args.phase !== undefined ? { phase: args.phase } : {}),
+      })
+      .sort((a, b) => a.id.localeCompare(b.id));
+  }
+
+  getChangedFiles(args: GetChangedFilesOptions): string[] {
+    const tasks = this.listFeatureTasks(
+      args.featureId !== undefined ? { featureId: args.featureId } : {},
+    );
+    const files = new Set<string>();
+    for (const task of tasks) {
+      for (const file of task.result?.filesChanged ?? []) {
+        const trimmed = file.trim();
+        if (trimmed.length > 0) {
+          files.add(trimmed);
+        }
+      }
+    }
+    return [...files];
+  }
+
+  submitVerify(args: SubmitVerifyOptions): VerificationSummary {
+    const fallbackFailedChecks =
+      args.outcome === 'repair_needed'
+        ? args.failedChecks && args.failedChecks.length > 0
+          ? args.failedChecks
+          : args.repairFocus && args.repairFocus.length > 0
+            ? args.repairFocus
+            : [args.summary]
+        : undefined;
+    const verification: VerificationSummary = {
+      ok: args.outcome === 'pass',
+      summary: args.summary,
+      outcome: args.outcome,
+      ...(fallbackFailedChecks !== undefined
+        ? { failedChecks: fallbackFailedChecks }
+        : {}),
+      ...(args.criteriaEvidence !== undefined &&
+      args.criteriaEvidence.length > 0
+        ? { criteriaEvidence: args.criteriaEvidence }
+        : {}),
+      ...(args.repairFocus !== undefined && args.repairFocus.length > 0
+        ? { repairFocus: args.repairFocus }
+        : {}),
+    };
+    this.verification = verification;
+    return verification;
+  }
+
+  wasVerifySubmitted(): boolean {
+    return this.verification !== undefined;
+  }
+
+  getVerificationSummary(): VerificationSummary {
+    if (this.verification === undefined) {
+      throw new Error('verify phase must call submitVerify before completion');
+    }
+    return this.verification;
+  }
+
+  private resolveFeatureId(featureId: FeatureId | undefined): FeatureId {
+    return featureId ?? this.featureId;
+  }
+
+  private requireFeature(featureId: FeatureId): Feature {
+    const feature = this.graph.features.get(featureId);
+    if (feature === undefined) {
+      throw new Error(`feature "${featureId}" does not exist`);
+    }
+    return feature;
+  }
+}
+
 export function createProposalToolHost(
   graph: FeatureGraph,
   mode: GraphProposalMode,
 ): ProposalToolHost {
   return new GraphProposalToolHost(graph, mode);
+}
+
+export function createFeaturePhaseToolHost(
+  featureId: FeatureId,
+  graph: FeatureGraph,
+  store: Pick<Store, 'listAgentRuns' | 'listEvents'>,
+): FeaturePhaseToolHost {
+  return new DefaultFeaturePhaseToolHost(featureId, graph, store);
 }
 
 export function createPlannerToolset(host: ProposalToolHost): PlannerToolset {
@@ -360,6 +608,16 @@ const dependencySchema = Type.Object({
   to: Type.String(),
 });
 
+const verificationCriterionSchema = Type.Object({
+  criterion: Type.String(),
+  status: Type.Union([
+    Type.Literal('met'),
+    Type.Literal('missing'),
+    Type.Literal('failed'),
+  ]),
+  evidence: Type.String(),
+});
+
 const proposalToolParameters = {
   addFeature: Type.Object({
     milestoneId: Type.String(),
@@ -398,8 +656,41 @@ const proposalToolParameters = {
   submit: Type.Object({}),
 } as const;
 
+const featurePhaseToolParameters = {
+  getFeatureState: Type.Object({
+    featureId: Type.Optional(Type.String()),
+  }),
+  listFeatureTasks: Type.Object({
+    featureId: Type.Optional(Type.String()),
+  }),
+  getTaskResult: Type.Object({
+    taskId: Type.String(),
+  }),
+  listFeatureEvents: Type.Object({
+    featureId: Type.Optional(Type.String()),
+    phase: Type.Optional(Type.String()),
+    limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 200 })),
+  }),
+  listFeatureRuns: Type.Object({
+    featureId: Type.Optional(Type.String()),
+    phase: Type.Optional(Type.String()),
+  }),
+  getChangedFiles: Type.Object({
+    featureId: Type.Optional(Type.String()),
+  }),
+  submitVerify: Type.Object({
+    outcome: Type.Union([Type.Literal('pass'), Type.Literal('repair_needed')]),
+    summary: Type.String(),
+    failedChecks: Type.Optional(Type.Array(Type.String())),
+    criteriaEvidence: Type.Optional(Type.Array(verificationCriterionSchema)),
+    repairFocus: Type.Optional(Type.Array(Type.String())),
+  }),
+} as const;
+
 // biome-ignore lint/suspicious/noExplicitAny: matches pi-sdk AgentTool<any>[] surface
 export type ProposalAgentTool = AgentTool<any>;
+// biome-ignore lint/suspicious/noExplicitAny: matches pi-sdk AgentTool<any>[] surface
+export type FeaturePhaseAgentTool = AgentTool<any>;
 
 export function buildProposalAgentToolset(
   host: ProposalToolHost,
@@ -419,6 +710,152 @@ export function buildProposalAgentToolset(
       };
     },
   })) as ProposalAgentTool[];
+}
+
+export function buildFeaturePhaseAgentToolset(
+  host: FeaturePhaseToolHost,
+  phase: 'discuss' | 'research' | 'summarize' | 'verify',
+): FeaturePhaseAgentTool[] {
+  const tools: FeaturePhaseAgentTool[] = [
+    {
+      name: 'getFeatureState',
+      label: 'Get Feature State',
+      description:
+        'Inspect persisted state for the current feature or another feature by id.',
+      parameters: featurePhaseToolParameters.getFeatureState,
+      execute: async (_toolCallId, args) => {
+        const result = host.getFeatureState(args as GetFeatureStateOptions);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Loaded feature ${result.id} in ${result.workControl} / ${result.collabControl}.`,
+            },
+          ],
+          details: result,
+        };
+      },
+    },
+    {
+      name: 'listFeatureTasks',
+      label: 'List Feature Tasks',
+      description:
+        'List persisted tasks for the current feature or another feature by id.',
+      parameters: featurePhaseToolParameters.listFeatureTasks,
+      execute: async (_toolCallId, args) => {
+        const result = host.listFeatureTasks(args as ListFeatureTasksOptions);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Listed ${result.length} tasks.`,
+            },
+          ],
+          details: result,
+        };
+      },
+    },
+    {
+      name: 'getTaskResult',
+      label: 'Get Task Result',
+      description:
+        'Inspect persisted completion result for a task that already landed.',
+      parameters: featurePhaseToolParameters.getTaskResult,
+      execute: async (_toolCallId, args) => {
+        const result = host.getTaskResult(args as GetTaskResultOptions);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Loaded result for task ${result.taskId}.`,
+            },
+          ],
+          details: result,
+        };
+      },
+    },
+    {
+      name: 'listFeatureEvents',
+      label: 'List Feature Events',
+      description:
+        'Inspect persisted feature events, optionally filtered by phase and limited to recent entries.',
+      parameters: featurePhaseToolParameters.listFeatureEvents,
+      execute: async (_toolCallId, args) => {
+        const result = host.listFeatureEvents(args as ListFeatureEventsOptions);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Listed ${result.length} feature events.`,
+            },
+          ],
+          details: result,
+        };
+      },
+    },
+    {
+      name: 'listFeatureRuns',
+      label: 'List Feature Runs',
+      description:
+        'Inspect stored feature-phase runs for current feature, optionally filtered by phase.',
+      parameters: featurePhaseToolParameters.listFeatureRuns,
+      execute: async (_toolCallId, args) => {
+        const result = host.listFeatureRuns(args as ListFeatureRunsOptions);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Listed ${result.length} feature-phase runs.`,
+            },
+          ],
+          details: result,
+        };
+      },
+    },
+    {
+      name: 'getChangedFiles',
+      label: 'Get Changed Files',
+      description:
+        'Collect deduplicated files changed by landed tasks for current feature.',
+      parameters: featurePhaseToolParameters.getChangedFiles,
+      execute: async (_toolCallId, args) => {
+        const result = host.getChangedFiles(args as GetChangedFilesOptions);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Collected ${result.length} changed files.`,
+            },
+          ],
+          details: result,
+        };
+      },
+    },
+  ];
+
+  if (phase === 'verify') {
+    tools.push({
+      name: 'submitVerify',
+      label: 'Submit Verify Verdict',
+      description:
+        'Finalize semantic feature verification with a structured pass or repair-needed verdict. Call exactly once before verify phase completes.',
+      parameters: featurePhaseToolParameters.submitVerify,
+      execute: async (_toolCallId, args) => {
+        const result = host.submitVerify(args as SubmitVerifyOptions);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Submitted verify verdict: ${result.outcome ?? (result.ok ? 'pass' : 'repair_needed')}.`,
+            },
+          ],
+          details: result,
+        };
+      },
+    });
+  }
+
+  return tools;
 }
 
 function formatToolText(
@@ -452,5 +889,22 @@ function formatToolText(
       return 'Dependency added to proposal.';
     case 'removeDependency':
       return 'Dependency removed from proposal.';
+  }
+}
+
+function readEventPhase(event: EventRecord): AgentRun['phase'] | undefined {
+  const phase = event.payload?.phase;
+  switch (phase) {
+    case 'execute':
+    case 'discuss':
+    case 'research':
+    case 'plan':
+    case 'feature_ci':
+    case 'verify':
+    case 'summarize':
+    case 'replan':
+      return phase;
+    default:
+      return undefined;
   }
 }

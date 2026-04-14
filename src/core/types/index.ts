@@ -72,10 +72,23 @@ export interface DependencyOutputSummary {
   filesChanged: string[];
 }
 
+export type VerificationOutcome = 'pass' | 'repair_needed';
+
+export type VerificationCriterionStatus = 'met' | 'missing' | 'failed';
+
+export interface VerificationCriterionEvidence {
+  criterion: string;
+  status: VerificationCriterionStatus;
+  evidence: string;
+}
+
 export interface VerificationSummary {
   ok: boolean;
   summary?: string;
   failedChecks?: string[];
+  outcome?: VerificationOutcome;
+  criteriaEvidence?: VerificationCriterionEvidence[];
+  repairFocus?: string[];
 }
 
 export type AgentRunPhase =

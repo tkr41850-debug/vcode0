@@ -19,7 +19,7 @@ These docs keep purpose, prompt text, and upstream provenance in one browsable p
 - `Plan Feature` covers both initial planning and replanning. Same prompt family; context changes.
 - `Execute Task` stays runtime-owned because worker prompt is assembled from runtime context.
 - `Summarize Feature` is feature-phase prompt source even though current scheduler summary implementation is still minimal.
-- `Verify Feature` should verify real feature outcome, not devolve into generic style review.
+- `Verify Feature` should verify real feature outcome, not devolve into generic style review, and now ends with structured `submitVerify(...)` output.
 
 ## Main source families
 

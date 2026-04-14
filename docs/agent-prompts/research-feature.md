@@ -31,6 +31,7 @@ Calibrate depth to uncertainty:
 - deep research for unfamiliar subsystems, new runtime boundaries, or ambiguous architecture
 
 Research rules:
+- inspect persisted feature state, events, task results, and prior runs with available tools before filling gaps from prompt context
 - read real code and name exact files
 - identify entry points, abstractions, state transitions, and persistence/runtime boundaries
 - distinguish facts from recommendations

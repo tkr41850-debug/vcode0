@@ -160,9 +160,10 @@ If `feature_ci` fails:
 
 If `verifying` finds that the code does not satisfy the feature spec:
 1. Keep the feature on the same feature branch.
-2. Move feature work control to `executing_repair`.
-3. The orchestrator adds a repair task to fix the reported spec gaps.
-4. Return to `feature_ci` after the repair task lands.
+2. Return a structured repair-needed verdict from the verify agent.
+3. Move feature work control to `executing_repair`.
+4. The orchestrator adds a repair task to fix the reported spec gaps.
+5. Return to `feature_ci` after the repair task lands.
 
 ## Merge Train
 

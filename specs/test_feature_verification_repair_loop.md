@@ -16,7 +16,7 @@ Capture the repair loop when `feature_ci` or agent-level `verifying` fails befor
 ### Feature verification failure also creates repair work on the same branch
 - Given heavy feature CI has already passed
 - And the feature is in agent-level `verifying`
-- When that spec review finds gaps
+- When that spec review returns a structured repair-needed verdict
 - Then the feature remains on the same feature branch
 - And feature work control moves to `executing_repair`
 - And repair work is created on the same branch

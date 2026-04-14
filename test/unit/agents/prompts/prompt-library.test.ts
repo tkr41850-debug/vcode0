@@ -114,5 +114,15 @@ describe('promptLibrary', () => {
     expect(prompt).toContain('### Integrated Outcome');
     expect(prompt).toContain('## Important Files');
     expect(prompt).toContain('src/runtime/worker/system-prompt.ts');
+    expect(prompt).toContain('inspect persisted feature state');
+  });
+
+  it('renders verify prompt with structured repair-only verdict instructions', () => {
+    const prompt = promptTemplates.verify.render(buildInput());
+
+    expect(prompt).toContain("You are gvc0's feature verification agent.");
+    expect(prompt).toContain('`submitVerify(...)` exactly once');
+    expect(prompt).toContain('pass or repair needed');
+    expect(prompt).not.toContain('replan needed');
   });
 });
