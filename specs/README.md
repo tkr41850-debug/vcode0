@@ -18,14 +18,14 @@ Use this page as the canonical scenario index. For testing strategy and faux-pro
 - [test_graph_contracts](./test_graph_contracts.md) — `FeatureGraph` remains the authoritative mutable DAG surface, derived read model, and queue view.
 - [test_scheduler_frontier_priority](./test_scheduler_frontier_priority.md) — ready-frontier recomputation, milestone steering, critical-path ordering, and reservation-overlap penalties.
 - [test_package_boundary_contracts](./test_package_boundary_contracts.md) — package ownership and dependency-direction rules across app, core, orchestrator, agents, runtime, git, persistence, and TUI.
-- [test_orchestrator_port_contracts](./test_orchestrator_port_contracts.md) — store/git/runtime/agent/UI port boundaries keep side effects behind orchestration seams.
+- [test_orchestrator_port_contracts](./test_orchestrator_port_contracts.md) — graph plus store/runtime/agent/verification/UI boundaries keep side effects behind orchestration seams.
 
 ## Conflict / Overlap
 
 - [test_conflict_steering](./test_conflict_steering.md) — upstream updates escalate from awareness to sync recommendation, required sync, and explicit conflict steering.
 - [test_cross_feature_overlap_runtime](./test_cross_feature_overlap_runtime.md) — runtime cross-feature overlap selects primary/secondary ownership, blocks the whole secondary feature, and resumes after rebase.
-- [test_fs_lock_detection](./test_fs_lock_detection.md) — same-feature overlap triggers suspension.
-- [test_fs_lock_resume](./test_fs_lock_resume.md) — suspended tasks either resume cleanly or receive exact conflict steering against the updated feature branch.
+- [test_same_feature_overlap_detection](./test_same_feature_overlap_detection.md) — same-feature overlap triggers suspension.
+- [test_same_feature_overlap_resume](./test_same_feature_overlap_resume.md) — suspended tasks either resume cleanly or receive exact conflict steering against the updated feature branch.
 
 ## Runtime / Recovery / Waits
 

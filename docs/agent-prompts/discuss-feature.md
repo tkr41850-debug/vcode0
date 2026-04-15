@@ -77,4 +77,4 @@ Primary influences:
 Local gvc0 alignment:
 - `src/agents/planner.ts` — `discussFeature(...)` phase exists
 - `src/agents/index.ts` — feature phases route through `AgentPort`
-- `memory/orchestrator_feature_phase_execution_gap.md` — discuss shares same run/session plane as other feature phases
+- `src/agents/runtime.ts` — discuss runs on same persisted run/session plane as other feature phases

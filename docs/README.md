@@ -5,7 +5,7 @@ Use these entry points depending on what you need:
 - [Architecture Overview](../ARCHITECTURE.md) — system thesis, lifecycle split, and component map.
 - [Architecture Topics](./architecture/README.md) — canonical model and architecture details.
 - [Operations Topics](./operations/README.md) — verification, recovery, conflict coordination, warnings, and testing strategy.
-- [Reference Topics](./reference/README.md) — TUI behavior, knowledge-file artifacts, the Codebase Map docs page, and source-area READMEs.
+- [Reference Topics](./reference/README.md) — TUI behavior, context/knowledge inputs, and source-area README pointers.
 - [Agent Prompts](./agent-prompts/README.md) — live-source prompt references for discuss, research, plan, execute, verify, and summarize agents, plus copied upstream references.
 - [Scenario Specs](../specs/README.md) — grouped markdown scenario inventory for later executable tests.
 
@@ -61,9 +61,9 @@ Use these entry points depending on what you need:
 
 ## Deferred Notes
 
-These stay separate from the baseline architecture docs:
+These stay separate from baseline architecture docs:
 
-- [Feature Candidates](./feature-candidates/)
-- [Optimization Candidates](./optimization-candidates/)
-- [Concerns](./concerns/)
-- [Compare](./compare/)
+- [Feature Candidates](./feature-candidates/README.md)
+- [Optimization Candidates](./optimization-candidates/README.md)
+- [Concerns](./concerns/README.md)
+- [Compare](./compare/README.md)

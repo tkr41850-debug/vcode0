@@ -58,4 +58,4 @@ Primary influences:
 Local gvc0 alignment:
 - `src/agents/planner.ts` — `summarizeFeature(...)` phase exists in planner-facing surface
 - `src/orchestrator/summaries/index.ts` — summary text gates final post-merge completion when not skipped by budget profile
-- `memory/orchestrator_feature_phase_execution_gap.md` — summarize shares same run/session plane as other feature phases
+- `src/agents/runtime.ts` — summarize shares same persisted run/session plane as other feature phases

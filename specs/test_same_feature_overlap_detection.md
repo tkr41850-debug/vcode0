@@ -1,8 +1,8 @@
-# test_fs_lock_detection
+# test_same_feature_overlap_detection
 
 ## Goal
 
-Capture same-feature file-lock detection and suspension.
+Capture same-feature overlap detection and suspension.
 
 ## Scenarios
 

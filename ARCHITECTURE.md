@@ -61,6 +61,7 @@ gvc0/
 │   ├── architecture/
 │   ├── operations/
 │   ├── reference/
+│   ├── agent-prompts/
 │   ├── worker-model.md
 │   ├── testing.md
 │   ├── concerns/
@@ -85,22 +86,23 @@ gvc0/
 - [docs/README.md](./docs/README.md) — main documentation landing page.
 - [docs/architecture/README.md](./docs/architecture/README.md) — canonical model and architecture topics.
 - [docs/operations/README.md](./docs/operations/README.md) — verification, recovery, conflict coordination, and warnings.
-- [docs/reference/README.md](./docs/reference/README.md) — TUI, knowledge files, codebase map, and source-area pointers.
+- [docs/reference/README.md](./docs/reference/README.md) — TUI, knowledge/context inputs, codebase map, and source-area pointers.
+- [docs/agent-prompts/README.md](./docs/agent-prompts/README.md) — feature-phase and worker prompt references.
 - [docs/worker-model.md](./docs/worker-model.md) — process-per-task runtime, worktrees, IPC, and crash recovery.
 - [docs/testing.md](./docs/testing.md) — testing strategy.
 - [specs/README.md](./specs/README.md) — grouped scenario-spec inventory.
 
-This file is the overview. Use the landing pages above for the detailed topic map.
+This file is overview. Use landing pages above for detailed topic map.
 
 ## Source-Area Maps
 
-When you already know which subsystem you are editing, use [docs/reference/codebase-map.md](./docs/reference/codebase-map.md) to jump to the nearest `src/**/README.md`.
+When you already know which subsystem you are editing, use [docs/reference/codebase-map.md](./docs/reference/codebase-map.md) to jump to nearest `src/**/README.md`.
 
 ## Deferred Notes
 
-The baseline docs stay separate from deferred work:
+Baseline docs stay separate from deferred work:
 
-- [Feature Candidates](./docs/feature-candidates/)
-- [Optimization Candidates](./docs/optimization-candidates/)
-- [Concerns](./docs/concerns/)
-- [Compare](./docs/compare/)
+- [Feature Candidates](./docs/feature-candidates/README.md)
+- [Optimization Candidates](./docs/optimization-candidates/README.md)
+- [Concerns](./docs/concerns/README.md)
+- [Compare](./docs/compare/README.md)

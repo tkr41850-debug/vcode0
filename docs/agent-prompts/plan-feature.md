@@ -65,6 +65,6 @@ Primary influences:
 - `anthropics/claude-code/plugins/feature-dev/agents/code-architect.md` — decisive architecture selection, implementation map, concrete reasoning
 
 Local gvc0 alignment:
-- `memory/planner_replanner_proposal_graph.md` — planning and replanning share one proposal-producing surface; vary mainly by context
 - `src/agents/planner.ts` and `src/agents/replanner.ts` — separate phase entrypoints, shared doctrine
-- `src/agents/tools/index.ts` — current planner/replanner vocabulary planner prompt must eventually speak through
+- `src/agents/tools/index.ts` — current planner/replanner proposal vocabulary (`addFeature`, `addTask`, `addDependency`, `submit`, etc.)
+- `src/agents/runtime.ts` — planning and replanning run through same feature-phase runtime surface with different prompt/context inputs

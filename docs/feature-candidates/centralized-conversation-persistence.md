@@ -6,22 +6,23 @@ Future feature candidate. Do not treat this as part of the baseline architecture
 
 ## Baseline
 
-The current baseline uses two persistence patterns:
-- task execution resumes from authoritative `agent_runs.session_id` through the task runtime/session harness
-- planner/replanner-style feature phases are assumed to persist their own conversation state to disk so they can resume after restart without requiring a centralized shared conversation store
+Current baseline already shares one persisted session pointer model for both task and feature-phase runs:
+- `agent_runs.session_id` is authoritative resumable pointer
+- current local backing store is filesystem-based `FileSessionStore` under `.gvc0/sessions/`
+- both task execution and feature phases persist message history through that same local session-store seam
 
-This keeps task-runtime session recovery explicit while avoiding an immediate need to unify all task and feature-phase conversation persistence behind one subsystem.
+What is still *not* centralized is richer conversation management beyond that local file-backed store: no dedicated session service, no provider-agnostic checkpoint model beyond stored message transcripts, and no richer cross-runtime ownership/query layer.
 
 ## Candidate
 
-A later version could centralize conversation persistence for all orchestrated agent work, including task execution runs and feature-phase planner/replanner runs.
+A later version could replace current local file-backed session storage with richer centralized conversation persistence for all orchestrated agent work, including task execution runs and feature phases.
 
 Potential capabilities:
 - one orchestrator-owned conversation/session persistence layer for both task and feature-phase runs
 - shared resume semantics across task workers, planner, replanner, discuss, research, verify, and summarize phases
 - provider-agnostic storage and retrieval of conversation transcripts, checkpoints, and metadata
 - cleaner crash recovery because all resumable agent work would use one persistence contract
-- less duplication between task harness session persistence and planner/replanner disk-backed conversation persistence
+- less filesystem-specific session handling and easier migration away from per-project local session files
 - easier future migration to alternate backends or external session services
 
 ## Migration Questions
@@ -50,7 +51,7 @@ If this candidate is pursued later, the main design questions to resolve are:
 
 ## Why Deferred
 
-This is deferred because baseline orchestrator work still has more urgent gaps: same-feature conflict coordination, task-run recovery, and integration coverage for settled behavior. Assuming planner/replanner phases persist their own conversation state to disk is sufficient for current recovery planning without forcing a broader persistence architecture decision.
+This is deferred because current local `FileSessionStore` plus shared `agent_runs.session_id` semantics already cover baseline recovery needs. Bigger remaining gaps are around coordination and coverage, not lack of a central session service. Candidate becomes interesting only when local file-backed transcripts stop being sufficient for provider-agnostic recovery, richer ownership, or distributed runtime support.
 
 ## Related
 

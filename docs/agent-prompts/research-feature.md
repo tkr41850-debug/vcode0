@@ -66,5 +66,5 @@ Primary influences:
 
 Local gvc0 alignment:
 - `src/agents/planner.ts` — `researchFeature(...)` phase exists
-- `memory/planner_replanner_proposal_graph.md` — planner/replanner need live code map plus proposal mutations
-- `memory/orchestrator_feature_phase_execution_gap.md` — research is first-class feature phase, not side channel
+- `src/agents/tools/index.ts` — planner/replanner speak through proposal and feature-phase tool surfaces
+- `src/agents/runtime.ts` — research is first-class feature phase on shared run/session wiring

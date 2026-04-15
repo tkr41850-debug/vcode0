@@ -2,50 +2,56 @@
 
 ## Goal
 
-Capture the package-boundary and ownership rules across the `src/` architecture layers.
+Capture current package-boundary and ownership rules across `src/` architecture layers.
 
 ## Scenarios
 
-### App stays the composition root
-- Given the runnable application is assembled from multiple subsystems
-- When startup wiring is added or changed
-- Then `src/` remains a thin composition root for process startup, config loading, and subsystem wiring
-- And subsystem behavior continues to live in the package that owns it rather than being reimplemented at the root
+### App stays thin lifecycle/composition surface
+- Given runnable application is assembled from multiple subsystems
+- When startup wiring changes
+- Then `src/main.ts`, `src/compose.ts`, and `src/app/` stay focused on CLI startup, lifecycle, and composition
+- And subsystem behavior continues to live in package that owns it rather than being reimplemented at root
 
 ### Core stays pure
-- Given `@core/*` owns graph types, scheduling rules, warnings, and shared contracts
+- Given `@core/*` owns graph types, scheduling rules, warnings, state derivation, and shared contracts
 - When core behavior is added or refactored
 - Then it does not depend on concrete runtime, persistence, git, or TUI implementations
 - And side-effecting concerns stay behind higher-layer adapters or contracts
 
-### Orchestrator coordinates through ports
-- Given the orchestrator needs persistence, git, runtime, agent, and UI capabilities
+### Orchestrator coordinates through graph plus ports
+- Given orchestrator needs durable graph state, task runtime control, feature-phase agent work, verification, and UI refresh
 - When orchestration logic invokes those capabilities
-- Then it does so through the port interfaces and adapter-owned contract types rather than importing concrete backend implementations directly
-- And orchestration keeps ownership of workflow coordination rather than adapter-specific mechanics
+- Then it coordinates through `FeatureGraph` plus adapter-owned ports/contracts rather than importing concrete backends directly
+- And orchestration keeps ownership of workflow/state transitions rather than adapter-specific mechanics
 
-### Adapter packages own adapter-specific contract surfaces
-- Given `@runtime/*`, `@persistence/*`, and `@tui/*` expose side-effecting capabilities to the orchestrator
-- When their boundaries need result shapes, reference types, or port interfaces
-- Then those adapter-specific contracts live in the package that owns the side effect
-- And `@core/*` keeps only workflow/domain contracts that are not adapter-specific
-- And git operations use `simple-git` directly rather than a separate architectural layer
+### Agents own planning and feature-phase semantics
+- Given `@agents/*` owns discuss/research/plan/verify/summarize/replan prompts and proposal tools
+- When agent-driven feature work runs
+- Then that package owns prompt behavior and proposal semantics
+- And runtime-owned worker process/session mechanics stay outside `@agents/*`
+- And worker tool catalog remains under `@agents/worker/*` even though worker system prompt is assembled by runtime
 
-### Agents own planning logic without becoming the runtime
-- Given `@agents/*` owns planner and replanner prompts and graph-mutation tools
-- When agent-driven planning work runs
-- Then that package owns planning behavior and restructuring proposals
-- And live worker execution, session management, and IPC remain runtime concerns
+### Runtime owns execution mechanics
+- Given `@runtime/*` owns worker lifecycle, IPC, session harnessing, session persistence seam, model routing, and task prompt assembly
+- When task execution state changes in live worker session
+- Then runtime handles process/session mechanics and worker prompt assembly
+- And authoritative graph mutation and durable workflow state stay outside runtime package
 
-### Runtime owns execution mechanics without becoming graph authority
-- Given `@runtime/*` owns worker lifecycle management, session harnessing, context assembly, and IPC transport
-- When task execution state changes in a live worker session
-- Then runtime handles process and session mechanics
-- And authoritative graph mutation and durable workflow state stay outside the runtime package
+### Persistence owns durable storage surfaces without swallowing whole orchestrator
+- Given durable state is split across graph state and run/event state
+- When persistence boundaries are implemented
+- Then `PersistentFeatureGraph` owns milestone/feature/task/dependency graph I/O
+- And `Store` owns `agent_runs` plus `events`
+- And persistence-local row/codec/migration concerns stay under `@persistence/*` rather than leaking into `@core/*`
 
-### Persistence and TUI stay in their lanes
-- Given `@persistence/*` and `@tui/*` each represent distinct side-effecting surfaces
-- When the system saves state or presents operator controls
-- Then persistence owns durable storage and TUI owns presentation and user-triggered commands
-- And none of those packages becomes the source of truth for the overall orchestration model
-- And git operations use `simple-git` directly without a separate package boundary
+### TUI stays presentation-only
+- Given `@tui/*` shows DAG state and user-triggered commands
+- When presentation behavior changes
+- Then TUI owns rendering, overlays, derived view-model state, and keybindings
+- And TUI does not become source of truth for graph or run state
+
+### Git stays direct, not separate architectural package
+- Given orchestrator/runtime need repository-facing collaboration work
+- When feature branches, task worktrees, rebases, and merges happen
+- Then code uses `simple-git` directly where needed rather than introducing dedicated `@git/*` layer
+- And naming conventions still live in shared core utilities

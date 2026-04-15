@@ -107,6 +107,7 @@ The `events` table is an append-only audit log for debugging,
 progress reporting, warnings, and runtime usage audit trails.
 
 The baseline keeps IDs persisted as plain `TEXT` columns in SQLite while using typed prefixed aliases in TypeScript (`m-${string}`, `f-${string}`, `t-${string}`). This preserves simple storage and joins without introducing object-shaped reference payloads.
+`dependencies.dep_type` is still stored explicitly even with typed ID namespaces because persistence reads/writes need to distinguish feature-vs-task edge sets without re-inferring kind at every SQL boundary, and because the table is also the durable source for rehydrating those separate adjacency maps.
 `milestones.display_order` stores UI ordering only,
 and `milestones.steering_queue_position` stores the optional
 ordered steering queue; `NULL` means the milestone is not
@@ -189,10 +190,11 @@ pointer for task execution runs.
 `tasks.session_id` remains the task-facing compatibility field
 for execution runs, but the shared run table is the long-term
 source of truth for pause/resume/manual ownership behavior.
-Feature-phase runs still persist run state in `agent_runs`, but the
-current baseline assumes planner/replanner conversation state is
-persisted to disk by the phase implementation itself rather than by a
-centralized shared session store.
+Feature-phase runs use that same `agent_runs.session_id` plane.
+In current baseline wiring, both task sessions and feature-phase
+message transcripts persist through shared session-store backing
+(currently `FileSessionStore` under `.gvc0/sessions/`) rather than
+through separate phase-owned recovery files.
 
 `tasks.token_usage` and `features.token_usage` should store
 normalized lifetime aggregates rather than only the latest call.
@@ -244,7 +246,7 @@ provider quirk into first-class columns.
 
 - `features.collab_status` stores branch lifecycle and
   merge-train state (`none`, `branch_open`, `merge_queued`,
-  `integrating`, `merged`, `conflict`).
+  `integrating`, `merged`, `conflict`, `cancelled`).
 - `tasks.collab_status` stores task coordination state
   (`none`, `branch_open`, `suspended`, `merged`, `conflict`).
 - `suspended_at`, `suspend_reason`, and `suspended_files`
@@ -280,7 +282,7 @@ provider quirk into first-class columns.
 - Feature dependencies are `feature → feature` only.
 - Task dependencies are `task → task` only and must remain within the same feature.
 - Baseline ID namespaces are structural: milestone ids use `m-*`, feature ids use `f-*`, and task ids use `t-*`.
-- Dependency kind may be inferred from those typed ID namespaces rather than being supplied separately by callers.
+- Callers may infer dependency kind from typed ID namespaces, but persistence still stores `dep_type` explicitly so graph rehydration and SQL edge operations can split feature and task dependencies without recomputing kind from every row.
 - `reserved_write_paths` must contain normalized
   project-root-relative paths (exact paths preferred;
   globs/directories only as an escape hatch).

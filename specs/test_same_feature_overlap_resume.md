@@ -1,8 +1,8 @@
-# test_fs_lock_resume
+# test_same_feature_overlap_resume
 
 ## Goal
 
-Capture same-feature resume behavior after a dominant task lands on the feature branch.
+Capture same-feature overlap resume behavior after a dominant task lands on the feature branch.
 
 ## Scenarios
 

@@ -60,5 +60,5 @@ Primary influences:
 
 Local gvc0 alignment:
 - `src/runtime/worker/system-prompt.ts` — current runtime-owned worker prompt seam
-- `memory/implementation_maturity_map.md` — worker tool catalog and runtime execution stack already real
-- `memory/orchestrator_feature_phase_execution_gap.md` — worker execution separate from feature-phase planner surface even though run/session plane is shared
+- `src/agents/worker/README.md` — worker tool catalog lives under `@agents/worker`
+- `src/runtime/worker/index.ts` and `src/runtime/harness/index.ts` — execution stays separate from feature-phase planner surface even though run/session plane is shared

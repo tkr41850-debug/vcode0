@@ -58,5 +58,5 @@ Primary influences:
 
 Local gvc0 alignment:
 - `src/agents/planner.ts` — `verifyFeature(...)` phase exists
-- `memory/implementation_maturity_map.md` — deterministic `feature_ci` verification/repair flow now real, so verify prompt should focus on semantic gate above raw check execution
-- `memory/feature_verification_contract.md` — feature enters merge queue only after verification; failures create repair work on same branch
+- `src/orchestrator/features/index.ts` — failed `feature_ci` / `verify` results create same-branch repair flow before merge queue
+- `src/orchestrator/scheduler/index.ts` — semantic verification stays distinct from raw verification command execution

@@ -1,7 +1,7 @@
 # Agent Prompts
 
 Prompt references for gvc0 agent phases.
-Canonical live prompt source now lives under `src/agents/prompts/` and `src/runtime/worker/system-prompt.ts`.
+Canonical live prompt source lives under `src/agents/prompts/` for feature phases and `src/runtime/worker/system-prompt.ts` for task execution.
 These docs keep purpose, prompt text, and upstream provenance in one browsable place.
 
 ## Index
@@ -18,13 +18,13 @@ These docs keep purpose, prompt text, and upstream provenance in one browsable p
 
 - `Plan Feature` covers both initial planning and replanning. Same prompt family; context changes.
 - `Execute Task` stays runtime-owned because worker prompt is assembled from runtime context.
-- `Summarize Feature` is feature-phase prompt source even though current scheduler summary implementation is still minimal.
-- `Discuss Feature`, `Research Feature`, and `Summarize Feature` now end with structured `submitDiscuss(...)`, `submitResearch(...)`, and `submitSummarize(...)` outputs.
-- `Verify Feature` should verify real feature outcome, not devolve into generic style review, and now ends with structured `submitVerify(...)` output.
+- `Summarize Feature` is live post-merge prompt source; budget profile may skip invoking it.
+- `Discuss Feature`, `Research Feature`, and `Summarize Feature` end with structured `submitDiscuss(...)`, `submitResearch(...)`, and `submitSummarize(...)` outputs.
+- `Verify Feature` verifies real feature outcome, not generic style, and ends with structured `submitVerify(...)` output.
 
 ## Main source families
 
 - GSD-2 prompts under `gsd-2/src/resources/extensions/gsd/prompts/`
 - Claude Code plugin agents and commands under `anthropics/claude-code/plugins/`
 - Local gvc0 live prompt source under `src/agents/prompts/` and `src/runtime/worker/system-prompt.ts`
-- Local gvc0 architecture and memory under `src/agents/`, `src/runtime/`, and `memory/`
+- Local gvc0 implementation seams under `src/agents/`, `src/runtime/`, `src/orchestrator/`, and `docs/`

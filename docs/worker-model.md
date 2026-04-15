@@ -341,18 +341,17 @@ with global defaults plus stage-specific overrides.
 
 Precedence:
 1. built-in defaults
-2. token-profile defaults
-3. `context.defaults`
-4. `context.stages[stage]` partial override for the current stage
+2. `context.defaults`
+3. `context.stages[stage]` partial override for the current stage
 
 ```typescript
 interface WorkerContext {
   strategy: "shared-summary" | "fresh" | "inherit";
   planSummary?: string;            // overall plan description
   dependencyOutputs?: DepOutput[]; // summaries from completed deps
-  codebaseMap?: string;            // contents of .gvc0/CODEBASE.md
-  knowledge?: string;              // contents of .gvc0/KNOWLEDGE.md
-  decisions?: string;              // contents of .gvc0/DECISIONS.md
+  codebaseMap?: string;            // optional orientation text supplied by caller
+  knowledge?: string;              // optional knowledge text supplied by caller
+  decisions?: string;              // optional decisions text supplied by caller
 }
 
 interface DepOutput {
@@ -432,15 +431,17 @@ If a separate session service is ever introduced,
 it may map those IDs onto provider-specific underlying sessions
 without changing the main task schema.
 At the orchestration model level, feature-level discussing,
-researching, planning, verifying, validating/summarizing, and
+researching, planning, verifying, summarizing, and
 replanning phases use the same run/session plane as task execution:
 they share `agent_runs`, retry/backoff,
 help/approval/manual-ownership waits, and startup recovery.
-For the current baseline, assume planner/replanner conversation state
-is persisted to disk by the phase implementation itself so a feature-phase
-run can resume from that persisted conversation state after restart.
-A future centralized conversation/session persistence layer is a separate
-feature candidate rather than baseline architecture.
+In current baseline wiring, feature-phase message history also persists
+through the same session-store backing used for task sessions
+(currently `FileSessionStore` under `.gvc0/sessions/`), so restart
+recovery does not depend on separate planner/replanner-owned transcript
+files.
+A future centralized or remote conversation/session persistence layer is a
+separate feature candidate rather than baseline architecture.
 The current `RuntimePort` surface is task-oriented because the
 concrete worker-pool implementation is still task-only, but that is
 an implementation detail rather than the architectural boundary.

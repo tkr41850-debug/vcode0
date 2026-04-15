@@ -1,19 +1,20 @@
 # Codebase Map
 
-This page points to the code-local README files under `src/`. Use it when you already know which subsystem you are editing and want the nearest boundary description.
+This page points to code-local README files under `src/`. Use it when you already know which subsystem you are editing and want nearest boundary description.
 
-This docs page is separate from the generated `CODEBASE.md` artifact described in [Knowledge Files](./knowledge-files.md).
+This docs page is separate from any runtime `codebaseMap` prompt string. See [Knowledge Files](./knowledge-files.md) for current context-input wiring.
 
-Start with [ARCHITECTURE.md](../../ARCHITECTURE.md) for the system-wide map, then jump to the source-area README that matches the code you are touching.
+Start with [ARCHITECTURE.md](../../ARCHITECTURE.md) for system-wide map, then jump to source-area README that matches code you are touching.
 
 ## Source-Area READMEs
 
-- [src/README.md](../../src/README.md) — application entry and composition root.
+- [src/README.md](../../src/README.md) — repo-level composition root and cross-package boundary rules.
+- [src/app/README.md](../../src/app/README.md) — application lifecycle wrapper around startup, UI show, and clean shutdown.
 - [src/core/README.md](../../src/core/README.md) — pure domain logic for graph/state/scheduling contracts.
 - [src/orchestrator/README.md](../../src/orchestrator/README.md) — orchestration and state-transition services.
-- [src/runtime/README.md](../../src/runtime/README.md) — worker lifecycle, IPC, harnessing, and local execution.
+- [src/runtime/README.md](../../src/runtime/README.md) — worker lifecycle, IPC, harnessing, session persistence, and local execution.
 - [src/persistence/README.md](../../src/persistence/README.md) — database-backed state storage and migrations.
-- [src/agents/README.md](../../src/agents/README.md) — planner/replanner logic, prompts, and graph-mutation tools.
+- [src/agents/README.md](../../src/agents/README.md) — feature-phase agents, planner/replanner logic, and worker-agent surfaces.
 - [src/agents/worker/README.md](../../src/agents/worker/README.md) — worker agent tool catalog and toolset factory.
 - [src/tui/README.md](../../src/tui/README.md) — terminal UI shell, derived view state, and TUI commands.
 
