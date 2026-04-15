@@ -847,6 +847,228 @@ describe('SchedulerLoop', () => {
     });
   });
 
+  it('suspends lower-priority running tasks when same-feature runtime overlap appears', async () => {
+    const order: string[] = [];
+    const { ports, runtime } = createPorts(order);
+    vi.spyOn(runtime, 'idleWorkerCount').mockReturnValue(0);
+    const suspendTask = vi.spyOn(runtime, 'suspendTask');
+    const graph = createSingleFeatureGraph(
+      {
+        status: 'in_progress',
+        workControl: 'executing',
+        collabControl: 'branch_open',
+      },
+      [
+        createTaskFixture({
+          id: 't-1',
+          description: 'Task 1',
+          status: 'running',
+          collabControl: 'branch_open',
+          reservedWritePaths: ['src/a.ts'],
+        }),
+        createTaskFixture({
+          id: 't-2',
+          orderInFeature: 1,
+          description: 'Task 2',
+          status: 'running',
+          collabControl: 'branch_open',
+          reservedWritePaths: ['src/a.ts'],
+        }),
+      ],
+    );
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+
+    await loop.tickForTest(100);
+
+    expect(graph.tasks.get('t-1')).toMatchObject({
+      status: 'running',
+      collabControl: 'branch_open',
+    });
+    expect(graph.tasks.get('t-2')).toMatchObject({
+      status: 'running',
+      collabControl: 'suspended',
+      suspendReason: 'same_feature_overlap',
+      suspendedFiles: ['src/a.ts'],
+    });
+    expect(suspendTask).toHaveBeenCalledTimes(1);
+    expect(suspendTask).toHaveBeenCalledWith('t-2', 'same_feature_overlap', [
+      'src/a.ts',
+    ]);
+  });
+
+  it('suspends only overlapping component inside same feature', async () => {
+    const order: string[] = [];
+    const { ports, runtime } = createPorts(order);
+    vi.spyOn(runtime, 'idleWorkerCount').mockReturnValue(0);
+    const suspendTask = vi.spyOn(runtime, 'suspendTask');
+    const graph = createSingleFeatureGraph(
+      {
+        status: 'in_progress',
+        workControl: 'executing',
+        collabControl: 'branch_open',
+      },
+      [
+        createTaskFixture({
+          id: 't-1',
+          description: 'Task 1',
+          status: 'running',
+          collabControl: 'branch_open',
+          reservedWritePaths: ['src/a.ts'],
+        }),
+        createTaskFixture({
+          id: 't-2',
+          orderInFeature: 1,
+          description: 'Task 2',
+          status: 'running',
+          collabControl: 'branch_open',
+          reservedWritePaths: ['src/a.ts'],
+        }),
+        createTaskFixture({
+          id: 't-3',
+          orderInFeature: 2,
+          description: 'Task 3',
+          status: 'running',
+          collabControl: 'branch_open',
+          reservedWritePaths: ['src/b.ts'],
+        }),
+      ],
+    );
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+
+    await loop.tickForTest(100);
+
+    expect(graph.tasks.get('t-1')).toMatchObject({
+      collabControl: 'branch_open',
+    });
+    expect(graph.tasks.get('t-2')).toMatchObject({
+      collabControl: 'suspended',
+      suspendReason: 'same_feature_overlap',
+      suspendedFiles: ['src/a.ts'],
+    });
+    expect(graph.tasks.get('t-3')).toMatchObject({
+      collabControl: 'branch_open',
+    });
+    expect(suspendTask).toHaveBeenCalledTimes(1);
+    expect(suspendTask).toHaveBeenCalledWith('t-2', 'same_feature_overlap', [
+      'src/a.ts',
+    ]);
+  });
+
+  it('normalizes reserved write paths before same-feature overlap grouping', async () => {
+    const order: string[] = [];
+    const { ports, runtime } = createPorts(order);
+    vi.spyOn(runtime, 'idleWorkerCount').mockReturnValue(0);
+    const suspendTask = vi.spyOn(runtime, 'suspendTask');
+    const graph = createSingleFeatureGraph(
+      {
+        status: 'in_progress',
+        workControl: 'executing',
+        collabControl: 'branch_open',
+      },
+      [
+        createTaskFixture({
+          id: 't-1',
+          description: 'Task 1',
+          status: 'running',
+          collabControl: 'branch_open',
+          reservedWritePaths: ['./src/a.ts'],
+        }),
+        createTaskFixture({
+          id: 't-2',
+          orderInFeature: 1,
+          description: 'Task 2',
+          status: 'running',
+          collabControl: 'branch_open',
+          reservedWritePaths: ['src/./a.ts'],
+        }),
+      ],
+    );
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+
+    await loop.tickForTest(100);
+
+    expect(graph.tasks.get('t-1')).toMatchObject({
+      collabControl: 'branch_open',
+    });
+    expect(graph.tasks.get('t-2')).toMatchObject({
+      collabControl: 'suspended',
+      suspendReason: 'same_feature_overlap',
+      suspendedFiles: ['src/a.ts'],
+    });
+    expect(suspendTask).toHaveBeenCalledTimes(1);
+    expect(suspendTask).toHaveBeenCalledWith('t-2', 'same_feature_overlap', [
+      'src/a.ts',
+    ]);
+  });
+
+  it('persists per-task overlap files for chained same-feature overlaps', async () => {
+    const order: string[] = [];
+    const { ports, runtime } = createPorts(order);
+    vi.spyOn(runtime, 'idleWorkerCount').mockReturnValue(0);
+    const suspendTask = vi.spyOn(runtime, 'suspendTask');
+    const graph = createSingleFeatureGraph(
+      {
+        status: 'in_progress',
+        workControl: 'executing',
+        collabControl: 'branch_open',
+      },
+      [
+        createTaskFixture({
+          id: 't-1',
+          description: 'Task 1',
+          status: 'running',
+          collabControl: 'branch_open',
+          reservedWritePaths: ['src/a.ts'],
+        }),
+        createTaskFixture({
+          id: 't-2',
+          orderInFeature: 1,
+          description: 'Task 2',
+          status: 'running',
+          collabControl: 'branch_open',
+          reservedWritePaths: ['src/a.ts', 'src/b.ts'],
+        }),
+        createTaskFixture({
+          id: 't-3',
+          orderInFeature: 2,
+          description: 'Task 3',
+          status: 'running',
+          collabControl: 'branch_open',
+          reservedWritePaths: ['src/b.ts'],
+        }),
+      ],
+    );
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+
+    await loop.tickForTest(100);
+
+    expect(graph.tasks.get('t-2')).toMatchObject({
+      collabControl: 'suspended',
+      suspendedFiles: ['src/a.ts', 'src/b.ts'],
+    });
+    expect(graph.tasks.get('t-3')).toMatchObject({
+      collabControl: 'suspended',
+      suspendedFiles: ['src/b.ts'],
+    });
+    expect(suspendTask).toHaveBeenCalledTimes(2);
+    expect(suspendTask).toHaveBeenNthCalledWith(
+      1,
+      't-2',
+      'same_feature_overlap',
+      ['src/a.ts', 'src/b.ts'],
+    );
+    expect(suspendTask).toHaveBeenNthCalledWith(
+      2,
+      't-3',
+      'same_feature_overlap',
+      ['src/b.ts'],
+    );
+  });
+
   it('does not treat implicit worker exit as a landed task', async () => {
     const order: string[] = [];
     const { ports } = createPorts(order);

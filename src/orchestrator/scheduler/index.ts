@@ -1,3 +1,5 @@
+import * as path from 'node:path';
+
 import type { FeatureGraph } from '@core/graph/index';
 import {
   buildCombinedGraph,
@@ -14,6 +16,7 @@ import type {
   FeatureId,
   Task,
   TaskAgentRun,
+  TaskId,
   VerificationSummary,
 } from '@core/types/index';
 import { ConflictCoordinator } from '@orchestrator/conflicts/index';
@@ -141,6 +144,7 @@ export class SchedulerLoop {
 
     this.summaries.reconcilePostMerge();
     this.features.beginNextIntegration();
+    await this.coordinateSameFeatureRuntimeOverlaps();
     await this.dispatchReadyWork(now);
 
     if (
@@ -168,6 +172,13 @@ export class SchedulerLoop {
         });
         if (taskLanded) {
           this.features.onTaskLanded(run.scopeId);
+          const landedTask = this.graph.tasks.get(run.scopeId);
+          if (landedTask !== undefined) {
+            await this.conflicts.reconcileSameFeatureTasks(
+              landedTask.featureId,
+              run.scopeId,
+            );
+          }
         }
         this.ports.store.updateAgentRun(run.id, {
           runStatus: 'completed',
@@ -419,6 +430,127 @@ export class SchedulerLoop {
 
       if (await this.dispatchFeaturePhaseUnit(unit.feature, unit.phase)) {
         dispatched++;
+      }
+    }
+  }
+
+  private async coordinateSameFeatureRuntimeOverlaps(): Promise<void> {
+    const tasksByFeature = new Map<FeatureId, Task[]>();
+
+    for (const task of this.graph.tasks.values()) {
+      if (
+        task.status !== 'running' ||
+        task.collabControl !== 'branch_open' ||
+        task.reservedWritePaths === undefined ||
+        task.reservedWritePaths.length === 0
+      ) {
+        continue;
+      }
+
+      const tasks = tasksByFeature.get(task.featureId) ?? [];
+      tasks.push(task);
+      tasksByFeature.set(task.featureId, tasks);
+    }
+
+    for (const [featureId, tasks] of tasksByFeature) {
+      const feature = this.graph.features.get(featureId);
+      if (feature === undefined || tasks.length <= 1) {
+        continue;
+      }
+
+      const adjacency = new Map<TaskId, Set<TaskId>>();
+      const overlapFilesByTask = new Map<TaskId, Set<string>>();
+      const taskById = new Map<TaskId, Task>(
+        tasks.map((task) => [task.id, task]),
+      );
+      const tasksByPath = new Map<string, Task[]>();
+
+      for (const task of tasks) {
+        for (const reservedPath of task.reservedWritePaths ?? []) {
+          const normalizedPath = normalizeReservedWritePath(reservedPath);
+          const owners = tasksByPath.get(normalizedPath) ?? [];
+          owners.push(task);
+          tasksByPath.set(normalizedPath, owners);
+        }
+      }
+
+      for (const [reservedPath, owners] of tasksByPath) {
+        if (owners.length <= 1) {
+          continue;
+        }
+
+        for (const owner of owners) {
+          const ownerFiles =
+            overlapFilesByTask.get(owner.id) ?? new Set<string>();
+          ownerFiles.add(reservedPath);
+          overlapFilesByTask.set(owner.id, ownerFiles);
+
+          const ownerAdjacency = adjacency.get(owner.id) ?? new Set<TaskId>();
+          for (const peer of owners) {
+            if (peer.id !== owner.id) {
+              ownerAdjacency.add(peer.id);
+            }
+          }
+          adjacency.set(owner.id, ownerAdjacency);
+        }
+      }
+
+      const visited = new Set<TaskId>();
+      for (const taskId of adjacency.keys()) {
+        if (visited.has(taskId)) {
+          continue;
+        }
+
+        const pending: TaskId[] = [taskId];
+        const componentTaskIds: TaskId[] = [];
+        const componentFiles = new Set<string>();
+        while (pending.length > 0) {
+          const currentTaskId = pending.pop();
+          if (currentTaskId === undefined || visited.has(currentTaskId)) {
+            continue;
+          }
+          visited.add(currentTaskId);
+          componentTaskIds.push(currentTaskId);
+
+          for (const file of overlapFilesByTask.get(currentTaskId) ?? []) {
+            componentFiles.add(file);
+          }
+          for (const peerId of adjacency.get(currentTaskId) ?? []) {
+            if (!visited.has(peerId)) {
+              pending.push(peerId);
+            }
+          }
+        }
+
+        const componentTasks = componentTaskIds
+          .map((componentTaskId) => taskById.get(componentTaskId))
+          .filter((task): task is Task => task !== undefined)
+          .sort(
+            (a, b) =>
+              a.orderInFeature - b.orderInFeature || a.id.localeCompare(b.id),
+          );
+        if (componentTasks.length <= 1) {
+          continue;
+        }
+
+        await this.conflicts.handleSameFeatureOverlap(
+          feature,
+          {
+            featureId,
+            taskIds: componentTasks.map((task) => task.id),
+            files: [...componentFiles],
+            taskFilesById: Object.fromEntries(
+              componentTasks.map((task) => [
+                task.id,
+                [...(overlapFilesByTask.get(task.id) ?? [])].sort((a, b) =>
+                  a.localeCompare(b),
+                ),
+              ]),
+            ),
+            suspendReason: 'same_feature_overlap',
+          },
+          componentTasks,
+        );
       }
     }
   }
@@ -732,4 +864,9 @@ export class SchedulerLoop {
       );
     });
   }
+}
+
+function normalizeReservedWritePath(reservedPath: string): string {
+  const normalized = path.posix.normalize(reservedPath.replaceAll('\\', '/'));
+  return normalized.startsWith('./') ? normalized.slice(2) : normalized;
 }

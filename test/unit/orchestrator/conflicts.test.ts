@@ -1,3 +1,4 @@
+import { execFile } from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
@@ -109,38 +110,54 @@ function createGraph(): InMemoryFeatureGraph {
   return graph;
 }
 
+async function git(dir: string, ...args: string[]): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    execFile('git', args, { cwd: dir }, (error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
+async function gitOutput(dir: string, ...args: string[]): Promise<string> {
+  return await new Promise<string>((resolve, reject) => {
+    execFile('git', args, { cwd: dir }, (error, stdout) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve(stdout);
+    });
+  });
+}
+
 async function initRepo(dir: string): Promise<void> {
   await fs.mkdir(dir, { recursive: true });
   await fs.writeFile(path.join(dir, '.gitignore'), 'node_modules\n');
   await fs.writeFile(path.join(dir, 'README.md'), 'base\n');
-  const exec = async (command: string) => {
-    const { execFile } = await import('node:child_process');
-    return new Promise<void>((resolve, reject) => {
-      execFile('git', command.split(' '), { cwd: dir }, (error) => {
-        if (error) reject(error);
-        else resolve();
-      });
-    });
-  };
-  await exec('init -b main');
-  await exec('config user.name Test User');
-  await exec('config user.email test@example.com');
-  await exec('add README.md .gitignore');
-  await exec('commit -m init');
+  await git(dir, 'init', '-b', 'main');
+  await git(dir, 'config', 'user.name', 'Test User');
+  await git(dir, 'config', 'user.email', 'test@example.com');
+  await git(dir, 'add', 'README.md', '.gitignore');
+  await git(dir, 'commit', '-m', 'init');
 }
 
-async function writeFeatureBranch(
+async function writeTaskRebaseRepo(
   root: string,
   feature: Feature,
+  taskBranch: string,
 ): Promise<string> {
-  const branchDir = path.join(root, worktreePath(feature.featureBranch));
-  await initRepo(branchDir);
-  return branchDir;
-}
-
-async function writeTaskBranch(root: string, branch: string): Promise<string> {
-  const taskDir = path.join(root, worktreePath(branch));
+  const taskDir = path.join(root, worktreePath(taskBranch));
   await initRepo(taskDir);
+  await git(taskDir, 'checkout', '-b', feature.featureBranch);
+  await fs.mkdir(path.join(taskDir, 'src'), { recursive: true });
+  await fs.writeFile(path.join(taskDir, 'src', 'a.ts'), 'base\n');
+  await git(taskDir, 'add', 'src/a.ts');
+  await git(taskDir, 'commit', '-m', 'feature base');
+  await git(taskDir, 'checkout', '-b', taskBranch);
   return taskDir;
 }
 
@@ -157,21 +174,50 @@ describe('ConflictCoordinator', () => {
     process.chdir(originalCwd);
   });
 
-  it('suspends lower-priority overlapping tasks', async () => {
+  it('suspends lower-priority overlapping tasks and persists suspension metadata', async () => {
     const root = getTmpDir();
     const ports = createPorts(root);
-    const coordinator = new ConflictCoordinator(ports);
-    const feature = createFeature();
-    const dominant = createTask({
-      id: 't-dominant',
-      worktreeBranch: 'feat-feature-1-1-dominant',
-      reservedWritePaths: ['src/a.ts'],
+    const graph = new InMemoryFeatureGraph({
+      milestones: [
+        {
+          id: 'm-1',
+          name: 'M1',
+          description: 'd',
+          status: 'pending',
+          order: 0,
+        },
+      ],
+      features: [createFeature({ milestoneId: 'm-1', status: 'in_progress' })],
+      tasks: [
+        createTask({
+          id: 't-dominant',
+          orderInFeature: 0,
+          worktreeBranch: 'feat-feature-1-1-dominant',
+          reservedWritePaths: ['src/a.ts'],
+        }),
+        createTask({
+          id: 't-secondary',
+          orderInFeature: 1,
+          worktreeBranch: 'feat-feature-1-1-secondary',
+          reservedWritePaths: ['src/a.ts'],
+        }),
+      ],
     });
-    const secondary = createTask({
-      id: 't-secondary',
-      worktreeBranch: 'feat-feature-1-1-secondary',
-      reservedWritePaths: ['src/a.ts'],
-    });
+    const coordinator = new ConflictCoordinator(ports, graph);
+    const feature = graph.features.get('f-feature-1');
+    const dominant = graph.tasks.get('t-dominant');
+    const secondary = graph.tasks.get('t-secondary');
+
+    expect(feature).toBeDefined();
+    expect(dominant).toBeDefined();
+    expect(secondary).toBeDefined();
+    if (
+      feature === undefined ||
+      dominant === undefined ||
+      secondary === undefined
+    ) {
+      throw new Error('missing fixture state');
+    }
 
     await coordinator.handleSameFeatureOverlap(
       feature,
@@ -184,6 +230,14 @@ describe('ConflictCoordinator', () => {
       [dominant, secondary],
     );
 
+    expect(graph.tasks.get('t-secondary')).toMatchObject({
+      collabControl: 'suspended',
+      suspendReason: 'same_feature_overlap',
+      suspendedFiles: ['src/a.ts'],
+    });
+    expect(graph.tasks.get('t-secondary')?.suspendedAt).toEqual(
+      expect.any(Number),
+    );
     expect(ports.runtime.suspendTask).toHaveBeenCalledWith(
       secondary.id,
       'same_feature_overlap',
@@ -196,87 +250,173 @@ describe('ConflictCoordinator', () => {
     );
   });
 
-  it('resumes suspended task after clean rebase onto feature branch', async () => {
+  it('rebases suspended task cleanly and resumes it', async () => {
     const root = getTmpDir();
     const ports = createPorts(root);
-    const coordinator = new ConflictCoordinator(ports);
-    const feature = createFeature();
-    await writeFeatureBranch(root, feature);
+    const feature = createFeature({
+      milestoneId: 'm-1',
+      status: 'in_progress',
+    });
+    const graph = new InMemoryFeatureGraph({
+      milestones: [
+        {
+          id: 'm-1',
+          name: 'M1',
+          description: 'd',
+          status: 'pending',
+          order: 0,
+        },
+      ],
+      features: [feature],
+      tasks: [
+        createTask({
+          id: 't-dominant',
+          orderInFeature: 0,
+          worktreeBranch: 'feat-feature-1-1-dominant',
+          reservedWritePaths: ['src/a.ts'],
+          result: { summary: 'dominant landed', filesChanged: ['src/a.ts'] },
+        }),
+        createTask({
+          id: 't-suspended',
+          orderInFeature: 1,
+          worktreeBranch: 'feat-feature-1-1-suspended',
+          reservedWritePaths: ['src/a.ts'],
+        }),
+      ],
+    });
+    const coordinator = new ConflictCoordinator(ports, graph);
+    const suspended = graph.tasks.get('t-suspended');
+    const dominant = graph.tasks.get('t-dominant');
 
-    const dominant = createTask({
-      id: 't-dominant',
-      worktreeBranch: 'feat-feature-1-1-dominant',
-      reservedWritePaths: ['src/a.ts'],
-      result: { summary: 'dominant landed', filesChanged: ['src/a.ts'] },
-    });
-    const suspended = createTask({
-      id: 't-suspended',
-      worktreeBranch: 'feat-feature-1-1-suspended',
-      collabControl: 'suspended',
-      status: 'running',
-      reservedWritePaths: ['src/a.ts'],
-    });
-    const taskDir = await writeTaskBranch(
+    expect(suspended).toBeDefined();
+    expect(dominant).toBeDefined();
+    if (
+      suspended === undefined ||
+      suspended.worktreeBranch === undefined ||
+      dominant === undefined
+    ) {
+      throw new Error('missing suspended task');
+    }
+
+    const taskDir = await writeTaskRebaseRepo(
       root,
-      suspended.worktreeBranch ?? 'feat-feature-1-1-suspended',
+      feature,
+      suspended.worktreeBranch,
     );
-    await fs.writeFile(path.join(taskDir, 'src-a.ts'), 'local\n');
+    await fs.writeFile(path.join(taskDir, 'src', 'b.ts'), 'task branch\n');
+    await git(taskDir, 'add', 'src/b.ts');
+    await git(taskDir, 'commit', '-m', 'task work');
+    await git(taskDir, 'checkout', feature.featureBranch);
+    await fs.writeFile(path.join(taskDir, 'src', 'a.ts'), 'feature update\n');
+    await git(taskDir, 'add', 'src/a.ts');
+    await git(taskDir, 'commit', '-m', 'feature update');
+    await git(taskDir, 'checkout', suspended.worktreeBranch);
 
     await coordinator.handleSameFeatureOverlap(
       feature,
       {
         featureId: feature.id,
-        taskIds: [dominant.id, suspended.id],
+        taskIds: ['t-dominant', suspended.id],
         files: ['src/a.ts'],
         suspendReason: 'same_feature_overlap',
       },
       [dominant, suspended],
     );
+    await coordinator.reconcileSameFeatureTasks(feature.id, 't-dominant');
 
+    expect(graph.tasks.get('t-suspended')).toMatchObject({
+      collabControl: 'branch_open',
+      status: 'running',
+    });
+    expect(graph.tasks.get('t-suspended')?.suspendReason).toBeUndefined();
     expect(ports.runtime.resumeTask).toHaveBeenCalledWith(
       suspended.id,
       'same_feature_rebase',
     );
     expect(ports.runtime.steerTask).not.toHaveBeenCalled();
-  });
+    await expect(
+      gitOutput(taskDir, 'rev-parse', '--verify', 'REBASE_HEAD'),
+    ).rejects.toBeDefined();
+  }, 20000);
 
-  it('steers task with conflict context when rebase not clean', async () => {
+  it('transitions task to conflict and steers it when rebase conflicts', async () => {
     const root = getTmpDir();
     const ports = createPorts(root);
-    const coordinator = new ConflictCoordinator(ports);
-    const feature = createFeature();
-    await writeFeatureBranch(root, feature);
+    const feature = createFeature({
+      milestoneId: 'm-1',
+      status: 'in_progress',
+    });
+    const graph = new InMemoryFeatureGraph({
+      milestones: [
+        {
+          id: 'm-1',
+          name: 'M1',
+          description: 'd',
+          status: 'pending',
+          order: 0,
+        },
+      ],
+      features: [feature],
+      tasks: [
+        createTask({
+          id: 't-dominant',
+          orderInFeature: 0,
+          worktreeBranch: 'feat-feature-1-1-dominant',
+          reservedWritePaths: ['src/a.ts'],
+          result: { summary: 'dominant landed', filesChanged: ['src/a.ts'] },
+        }),
+        createTask({
+          id: 't-suspended',
+          orderInFeature: 1,
+          worktreeBranch: 'feat-feature-1-1-suspended-conflict',
+          reservedWritePaths: ['src/a.ts'],
+        }),
+      ],
+    });
+    const coordinator = new ConflictCoordinator(ports, graph);
+    const suspended = graph.tasks.get('t-suspended');
+    const dominant = graph.tasks.get('t-dominant');
 
-    const dominant = createTask({
-      id: 't-dominant',
-      worktreeBranch: 'feat-feature-1-1-dominant',
-      reservedWritePaths: ['src/a.ts'],
-      result: { summary: 'dominant landed', filesChanged: ['src/a.ts'] },
-    });
-    const suspended = createTask({
-      id: 't-suspended',
-      worktreeBranch: 'feat-feature-1-1-suspended-conflict',
-      collabControl: 'suspended',
-      status: 'running',
-      reservedWritePaths: ['src/a.ts'],
-    });
-    const taskDir = await writeTaskBranch(
+    expect(suspended).toBeDefined();
+    expect(dominant).toBeDefined();
+    if (
+      suspended === undefined ||
+      suspended.worktreeBranch === undefined ||
+      dominant === undefined
+    ) {
+      throw new Error('missing suspended task');
+    }
+
+    const taskDir = await writeTaskRebaseRepo(
       root,
-      suspended.worktreeBranch ?? 'feat-feature-1-1-suspended-conflict',
+      feature,
+      suspended.worktreeBranch,
     );
-    await fs.writeFile(path.join(taskDir, 'REBASE_HEAD'), 'blocked\n');
+    await fs.writeFile(path.join(taskDir, 'src', 'a.ts'), 'task change\n');
+    await git(taskDir, 'add', 'src/a.ts');
+    await git(taskDir, 'commit', '-m', 'task change');
+    await git(taskDir, 'checkout', feature.featureBranch);
+    await fs.writeFile(path.join(taskDir, 'src', 'a.ts'), 'feature change\n');
+    await git(taskDir, 'add', 'src/a.ts');
+    await git(taskDir, 'commit', '-m', 'feature change');
+    await git(taskDir, 'checkout', suspended.worktreeBranch);
 
     await coordinator.handleSameFeatureOverlap(
       feature,
       {
         featureId: feature.id,
-        taskIds: [dominant.id, suspended.id],
+        taskIds: ['t-dominant', suspended.id],
         files: ['src/a.ts'],
         suspendReason: 'same_feature_overlap',
       },
       [dominant, suspended],
     );
+    await coordinator.reconcileSameFeatureTasks(feature.id, 't-dominant');
 
+    expect(graph.tasks.get('t-suspended')).toMatchObject({
+      collabControl: 'conflict',
+      status: 'running',
+    });
     expect(ports.runtime.steerTask).toHaveBeenCalledWith(
       suspended.id,
       expect.objectContaining({
@@ -287,14 +427,446 @@ describe('ConflictCoordinator', () => {
           taskId: suspended.id,
           featureId: feature.id,
           files: ['src/a.ts'],
+          conflictedFiles: ['src/a.ts'],
           pauseReason: 'same_feature_overlap',
-          dominantTaskId: dominant.id,
+          dominantTaskId: 't-dominant',
           dominantTaskSummary: 'dominant landed',
         }),
       }),
     );
     expect(ports.runtime.resumeTask).not.toHaveBeenCalled();
+  }, 20000);
+
+  it('leaves task suspended when worktree is missing during reconcile', async () => {
+    const root = getTmpDir();
+    const ports = createPorts(root);
+    const feature = createFeature({
+      milestoneId: 'm-1',
+      status: 'in_progress',
+    });
+    const graph = new InMemoryFeatureGraph({
+      milestones: [
+        {
+          id: 'm-1',
+          name: 'M1',
+          description: 'd',
+          status: 'pending',
+          order: 0,
+        },
+      ],
+      features: [feature],
+      tasks: [
+        createTask({
+          id: 't-dominant',
+          orderInFeature: 0,
+          worktreeBranch: 'feat-feature-1-1-dominant',
+        }),
+        createTask({
+          id: 't-suspended',
+          orderInFeature: 1,
+          worktreeBranch: 'feat-feature-1-1-missing',
+        }),
+      ],
+    });
+    const coordinator = new ConflictCoordinator(ports, graph);
+    const suspended = graph.tasks.get('t-suspended');
+    const dominant = graph.tasks.get('t-dominant');
+
+    expect(suspended).toBeDefined();
+    expect(dominant).toBeDefined();
+    if (suspended === undefined || dominant === undefined) {
+      throw new Error('missing suspended task');
+    }
+
+    await coordinator.handleSameFeatureOverlap(
+      feature,
+      {
+        featureId: feature.id,
+        taskIds: ['t-dominant', suspended.id],
+        files: ['src/a.ts'],
+        suspendReason: 'same_feature_overlap',
+      },
+      [dominant, suspended],
+    );
+    await coordinator.reconcileSameFeatureTasks(feature.id, 't-dominant');
+
+    expect(graph.tasks.get('t-suspended')).toMatchObject({
+      collabControl: 'suspended',
+      status: 'running',
+      suspendReason: 'same_feature_overlap',
+    });
+    expect(ports.runtime.resumeTask).not.toHaveBeenCalled();
+    expect(ports.runtime.steerTask).not.toHaveBeenCalled();
   });
+
+  it('keeps task suspended when resume delivery fails after clean rebase', async () => {
+    const root = getTmpDir();
+    const ports = createPorts(root);
+    ports.runtime.resumeTask = vi.fn(async (taskId: string) => ({
+      kind: 'not_running' as const,
+      taskId,
+    }));
+    const feature = createFeature({
+      milestoneId: 'm-1',
+      status: 'in_progress',
+    });
+    const graph = new InMemoryFeatureGraph({
+      milestones: [
+        {
+          id: 'm-1',
+          name: 'M1',
+          description: 'd',
+          status: 'pending',
+          order: 0,
+        },
+      ],
+      features: [feature],
+      tasks: [
+        createTask({
+          id: 't-dominant',
+          orderInFeature: 0,
+          worktreeBranch: 'feat-feature-1-1-dominant',
+          reservedWritePaths: ['src/a.ts'],
+        }),
+        createTask({
+          id: 't-suspended',
+          orderInFeature: 1,
+          worktreeBranch: 'feat-feature-1-1-not-running',
+          reservedWritePaths: ['src/a.ts'],
+        }),
+      ],
+    });
+    const coordinator = new ConflictCoordinator(ports, graph);
+    const suspended = graph.tasks.get('t-suspended');
+    const dominant = graph.tasks.get('t-dominant');
+
+    expect(suspended).toBeDefined();
+    expect(dominant).toBeDefined();
+    if (
+      suspended === undefined ||
+      suspended.worktreeBranch === undefined ||
+      dominant === undefined
+    ) {
+      throw new Error('missing suspended task');
+    }
+
+    const taskDir = await writeTaskRebaseRepo(
+      root,
+      feature,
+      suspended.worktreeBranch,
+    );
+    await fs.writeFile(path.join(taskDir, 'src', 'b.ts'), 'task branch\n');
+    await git(taskDir, 'add', 'src/b.ts');
+    await git(taskDir, 'commit', '-m', 'task work');
+    await git(taskDir, 'checkout', feature.featureBranch);
+    await fs.writeFile(path.join(taskDir, 'src', 'a.ts'), 'feature update\n');
+    await git(taskDir, 'add', 'src/a.ts');
+    await git(taskDir, 'commit', '-m', 'feature update');
+    await git(taskDir, 'checkout', suspended.worktreeBranch);
+
+    await coordinator.handleSameFeatureOverlap(
+      feature,
+      {
+        featureId: feature.id,
+        taskIds: ['t-dominant', suspended.id],
+        files: ['src/a.ts'],
+        suspendReason: 'same_feature_overlap',
+      },
+      [dominant, suspended],
+    );
+    await coordinator.reconcileSameFeatureTasks(feature.id, 't-dominant');
+
+    expect(graph.tasks.get('t-suspended')).toMatchObject({
+      collabControl: 'suspended',
+      status: 'running',
+    });
+    expect(ports.runtime.resumeTask).toHaveBeenCalledWith(
+      suspended.id,
+      'same_feature_rebase',
+    );
+    expect(ports.runtime.steerTask).not.toHaveBeenCalled();
+  }, 20000);
+
+  it('reconciles only suspended tasks blocked by landed dominant files', async () => {
+    const root = getTmpDir();
+    const ports = createPorts(root);
+    const feature = createFeature({
+      milestoneId: 'm-1',
+      status: 'in_progress',
+    });
+    const graph = new InMemoryFeatureGraph({
+      milestones: [
+        {
+          id: 'm-1',
+          name: 'M1',
+          description: 'd',
+          status: 'pending',
+          order: 0,
+        },
+      ],
+      features: [feature],
+      tasks: [
+        createTask({
+          id: 't-dominant',
+          orderInFeature: 0,
+          worktreeBranch: 'feat-feature-1-1-dominant',
+          reservedWritePaths: ['src/a.ts'],
+          result: { summary: 'dominant landed', filesChanged: ['src/a.ts'] },
+        }),
+        createTask({
+          id: 't-overlap',
+          orderInFeature: 1,
+          worktreeBranch: 'feat-feature-1-1-overlap',
+          reservedWritePaths: ['src/a.ts'],
+        }),
+        createTask({
+          id: 't-unrelated',
+          orderInFeature: 2,
+          worktreeBranch: 'feat-feature-1-1-unrelated',
+          reservedWritePaths: ['src/b.ts'],
+        }),
+      ],
+    });
+    const coordinator = new ConflictCoordinator(ports, graph);
+    const dominant = graph.tasks.get('t-dominant');
+    const overlap = graph.tasks.get('t-overlap');
+
+    expect(dominant).toBeDefined();
+    expect(overlap).toBeDefined();
+    if (
+      dominant === undefined ||
+      overlap === undefined ||
+      overlap.worktreeBranch === undefined
+    ) {
+      throw new Error('missing overlap fixture state');
+    }
+
+    const overlapDir = await writeTaskRebaseRepo(
+      root,
+      feature,
+      overlap.worktreeBranch,
+    );
+    await fs.writeFile(path.join(overlapDir, 'src', 'c.ts'), 'task branch\n');
+    await git(overlapDir, 'add', 'src/c.ts');
+    await git(overlapDir, 'commit', '-m', 'task work');
+    await git(overlapDir, 'checkout', feature.featureBranch);
+    await fs.writeFile(
+      path.join(overlapDir, 'src', 'a.ts'),
+      'feature update\n',
+    );
+    await git(overlapDir, 'add', 'src/a.ts');
+    await git(overlapDir, 'commit', '-m', 'feature update');
+    await git(overlapDir, 'checkout', overlap.worktreeBranch);
+
+    await coordinator.handleSameFeatureOverlap(
+      feature,
+      {
+        featureId: feature.id,
+        taskIds: [dominant.id, overlap.id],
+        files: ['src/a.ts'],
+        suspendReason: 'same_feature_overlap',
+      },
+      [dominant, overlap],
+    );
+    graph.transitionTask('t-unrelated', {
+      collabControl: 'suspended',
+      suspendReason: 'same_feature_overlap',
+      suspendedAt: Date.now(),
+      suspendedFiles: ['src/b.ts'],
+    });
+
+    await coordinator.reconcileSameFeatureTasks(feature.id, dominant.id);
+
+    expect(graph.tasks.get('t-overlap')).toMatchObject({
+      collabControl: 'branch_open',
+      status: 'running',
+    });
+    expect(graph.tasks.get('t-unrelated')).toMatchObject({
+      collabControl: 'suspended',
+      status: 'running',
+      suspendReason: 'same_feature_overlap',
+      suspendedFiles: ['src/b.ts'],
+    });
+    expect(ports.runtime.resumeTask).toHaveBeenCalledTimes(1);
+    expect(ports.runtime.resumeTask).toHaveBeenCalledWith(
+      't-overlap',
+      'same_feature_rebase',
+    );
+    expect(ports.runtime.resumeTask).not.toHaveBeenCalledWith(
+      't-unrelated',
+      'same_feature_rebase',
+    );
+  }, 20000);
+
+  it('steers suspended task when dirty worktree blocks same-feature rebase', async () => {
+    const root = getTmpDir();
+    const ports = createPorts(root);
+    const feature = createFeature({
+      milestoneId: 'm-1',
+      status: 'in_progress',
+    });
+    const graph = new InMemoryFeatureGraph({
+      milestones: [
+        {
+          id: 'm-1',
+          name: 'M1',
+          description: 'd',
+          status: 'pending',
+          order: 0,
+        },
+      ],
+      features: [feature],
+      tasks: [
+        createTask({
+          id: 't-dominant',
+          orderInFeature: 0,
+          worktreeBranch: 'feat-feature-1-1-dominant',
+          reservedWritePaths: ['src/a.ts'],
+          result: { summary: 'dominant landed', filesChanged: ['src/a.ts'] },
+        }),
+        createTask({
+          id: 't-suspended',
+          orderInFeature: 1,
+          worktreeBranch: 'feat-feature-1-1-dirty',
+          reservedWritePaths: ['src/a.ts'],
+        }),
+      ],
+    });
+    const coordinator = new ConflictCoordinator(ports, graph);
+    const dominant = graph.tasks.get('t-dominant');
+    const suspended = graph.tasks.get('t-suspended');
+
+    expect(dominant).toBeDefined();
+    expect(suspended).toBeDefined();
+    if (
+      dominant === undefined ||
+      suspended === undefined ||
+      suspended.worktreeBranch === undefined
+    ) {
+      throw new Error('missing dirty fixture state');
+    }
+
+    const taskDir = await writeTaskRebaseRepo(
+      root,
+      feature,
+      suspended.worktreeBranch,
+    );
+    await fs.writeFile(path.join(taskDir, 'src', 'a.ts'), 'dirty local edit\n');
+
+    await coordinator.handleSameFeatureOverlap(
+      feature,
+      {
+        featureId: feature.id,
+        taskIds: [dominant.id, suspended.id],
+        files: ['src/a.ts'],
+        suspendReason: 'same_feature_overlap',
+      },
+      [dominant, suspended],
+    );
+    await coordinator.reconcileSameFeatureTasks(feature.id, dominant.id);
+
+    expect(graph.tasks.get('t-suspended')).toMatchObject({
+      collabControl: 'conflict',
+      status: 'running',
+    });
+    expect(ports.runtime.resumeTask).not.toHaveBeenCalled();
+    expect(ports.runtime.steerTask).toHaveBeenCalledWith(
+      suspended.id,
+      expect.objectContaining({
+        kind: 'conflict_steer',
+        timing: 'immediate',
+        gitConflictContext: expect.objectContaining({
+          kind: 'same_feature_task_rebase',
+          conflictedFiles: ['src/a.ts'],
+          files: ['src/a.ts'],
+        }),
+      }),
+    );
+  }, 20000);
+
+  it('matches dominant changed files after normalizing path variants', async () => {
+    const root = getTmpDir();
+    const ports = createPorts(root);
+    const feature = createFeature({
+      milestoneId: 'm-1',
+      status: 'in_progress',
+    });
+    const graph = new InMemoryFeatureGraph({
+      milestones: [
+        {
+          id: 'm-1',
+          name: 'M1',
+          description: 'd',
+          status: 'pending',
+          order: 0,
+        },
+      ],
+      features: [feature],
+      tasks: [
+        createTask({
+          id: 't-dominant',
+          orderInFeature: 0,
+          worktreeBranch: 'feat-feature-1-1-dominant',
+          reservedWritePaths: ['src/a.ts'],
+          result: { summary: 'dominant landed', filesChanged: ['./src/a.ts'] },
+        }),
+        createTask({
+          id: 't-suspended',
+          orderInFeature: 1,
+          worktreeBranch: 'feat-feature-1-1-normalized',
+          reservedWritePaths: ['src/a.ts'],
+        }),
+      ],
+    });
+    const coordinator = new ConflictCoordinator(ports, graph);
+    const dominant = graph.tasks.get('t-dominant');
+    const suspended = graph.tasks.get('t-suspended');
+
+    expect(dominant).toBeDefined();
+    expect(suspended).toBeDefined();
+    if (
+      dominant === undefined ||
+      suspended === undefined ||
+      suspended.worktreeBranch === undefined
+    ) {
+      throw new Error('missing normalized fixture state');
+    }
+
+    const taskDir = await writeTaskRebaseRepo(
+      root,
+      feature,
+      suspended.worktreeBranch,
+    );
+    await fs.writeFile(path.join(taskDir, 'src', 'b.ts'), 'task branch\n');
+    await git(taskDir, 'add', 'src/b.ts');
+    await git(taskDir, 'commit', '-m', 'task work');
+    await git(taskDir, 'checkout', feature.featureBranch);
+    await fs.writeFile(path.join(taskDir, 'src', 'a.ts'), 'feature update\n');
+    await git(taskDir, 'add', 'src/a.ts');
+    await git(taskDir, 'commit', '-m', 'feature update');
+    await git(taskDir, 'checkout', suspended.worktreeBranch);
+
+    await coordinator.handleSameFeatureOverlap(
+      feature,
+      {
+        featureId: feature.id,
+        taskIds: [dominant.id, suspended.id],
+        files: ['src/a.ts'],
+        suspendReason: 'same_feature_overlap',
+      },
+      [dominant, suspended],
+    );
+    await coordinator.reconcileSameFeatureTasks(feature.id, dominant.id);
+
+    expect(graph.tasks.get('t-suspended')).toMatchObject({
+      collabControl: 'branch_open',
+      status: 'running',
+    });
+    expect(ports.runtime.resumeTask).toHaveBeenCalledWith(
+      suspended.id,
+      'same_feature_rebase',
+    );
+  }, 20000);
 
   it('adds feature dependency and task blocking metadata for cross-feature overlap', async () => {
     const root = getTmpDir();
