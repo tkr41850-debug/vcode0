@@ -7,3 +7,4 @@ Use these pages when you want contrast with predecessor systems rather than cano
 Current entries:
 
 - [Comparison with gsd-2](./gsd-2.md)
+- [Comparison with Wave](./wave.md)
