@@ -7,11 +7,12 @@ import {
 import { InMemoryFeatureGraph } from '@core/graph/index';
 import type {
   AgentRun,
+  DiscussPhaseDetails,
   Feature,
   FeaturePhaseAgentRun,
   GvcConfig,
+  SummarizePhaseDetails,
   VerificationCriterionEvidence,
-  VerificationSummary,
 } from '@core/types/index';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -70,15 +71,22 @@ function createFeatureRun(
 
 function createPromptCapturingLibrary(): {
   library: PromptLibrary;
-  captured: { summarize?: string };
+  captured: { summarize?: string; plan?: string };
 } {
-  const captured: { summarize?: string } = {};
+  const captured: { summarize?: string; plan?: string } = {};
   const library = createPromptLibrary({
     summarize: {
       name: 'summarize',
       render(input) {
         captured.summarize = promptLibrary.get('summarize').render(input);
         return captured.summarize;
+      },
+    },
+    plan: {
+      name: 'plan',
+      render(input) {
+        captured.plan = promptLibrary.get('plan').render(input);
+        return captured.plan;
       },
     },
   });
@@ -91,7 +99,7 @@ function appendFeaturePhaseEvent(
   featureId: string,
   phase: FeaturePhaseAgentRun['phase'],
   summary: string,
-  extra?: VerificationSummary,
+  extra?: Record<string, unknown>,
 ): void {
   store.appendEvent({
     eventType: 'feature_phase_completed',
@@ -120,16 +128,29 @@ describe('PiFeatureAgentRuntime', () => {
     faux.unregister();
   });
 
-  it('runs discuss with inspection tools and persists transcript', async () => {
+  it('runs discuss with structured submit tool and persists transcript', async () => {
+    const extra: DiscussPhaseDetails = {
+      intent: 'Clarify feature intent',
+      successCriteria: ['User can trigger feature'],
+      constraints: ['Keep current API'],
+      risks: ['Scope drift'],
+      externalIntegrations: ['None'],
+      antiGoals: ['No planner output'],
+      openQuestions: ['Need auth requirement?'],
+    };
     faux.setResponses([
       fauxAssistantMessage(
         [
           fauxToolCall('getFeatureState', {}),
           fauxToolCall('listFeatureTasks', {}),
+          fauxToolCall('submitDiscuss', {
+            summary: 'Discussion summary.',
+            ...extra,
+          }),
         ],
         { stopReason: 'toolUse' },
       ),
-      fauxAssistantMessage([fauxText('Discussion summary.')]),
+      fauxAssistantMessage([fauxText('Discussion structured.')]),
     ]);
 
     const { graph, feature } = createFeatureGraph();
@@ -151,7 +172,7 @@ describe('PiFeatureAgentRuntime', () => {
       agentRunId: run.id,
     });
 
-    expect(result).toEqual({ summary: 'Discussion summary.' });
+    expect(result).toEqual({ summary: 'Discussion summary.', extra });
     expect(store.getAgentRun(run.id)).toEqual(
       expect.objectContaining({ sessionId: run.id }),
     );
@@ -163,21 +184,65 @@ describe('PiFeatureAgentRuntime', () => {
           phase: 'discuss',
           summary: 'Discussion summary.',
           sessionId: run.id,
+          extra: expect.objectContaining({
+            summary: 'Discussion summary.',
+            intent: 'Clarify feature intent',
+          }),
         }),
       }),
     );
   });
 
+  it('requires submitDiscuss before discuss phase completion', async () => {
+    faux.setResponses([
+      fauxAssistantMessage([fauxText('Discussion notes only.')]),
+    ]);
+
+    const { graph, feature } = createFeatureGraph();
+    const store = new InMemoryStore();
+    const sessionStore = new InMemorySessionStore();
+    const run = createFeatureRun('discuss');
+    store.createAgentRun(run as AgentRun);
+
+    const runtime = new PiFeatureAgentRuntime({
+      modelId: 'claude-sonnet-4-6',
+      config: createConfig(),
+      promptLibrary,
+      graph,
+      store,
+      sessionStore,
+    });
+
+    await expect(
+      runtime.discussFeature(feature, {
+        agentRunId: run.id,
+      }),
+    ).rejects.toThrow(
+      'discuss phase must call submitDiscuss before completion',
+    );
+  });
+
   it('exposes feature inspection tools during summarize', async () => {
+    const extra: SummarizePhaseDetails = {
+      outcome: 'Delivered merged feature',
+      deliveredCapabilities: ['API path works'],
+      importantFiles: ['src/api.ts'],
+      verificationConfidence: ['verify green'],
+      carryForwardNotes: ['No follow-up'],
+    };
     faux.setResponses([
       fauxAssistantMessage(
         [
           fauxToolCall('getChangedFiles', {}),
           fauxToolCall('listFeatureEvents', { phase: 'verify' }),
+          fauxToolCall('submitSummarize', {
+            summary: 'Summary after inspection.',
+            ...extra,
+          }),
         ],
         { stopReason: 'toolUse' },
       ),
-      fauxAssistantMessage([fauxText('Summary after inspection.')]),
+      fauxAssistantMessage([fauxText('Summary structured.')]),
     ]);
 
     const { graph, feature } = createFeatureGraph();
@@ -223,7 +288,81 @@ describe('PiFeatureAgentRuntime', () => {
       agentRunId: run.id,
     });
 
-    expect(result).toEqual({ summary: 'Summary after inspection.' });
+    expect(result).toEqual({ summary: 'Summary after inspection.', extra });
+  });
+
+  it('builds plan prompt from structured discuss and research outputs', async () => {
+    const { graph, feature } = createFeatureGraph();
+    const store = new InMemoryStore();
+    appendFeaturePhaseEvent(store, feature.id, 'discuss', 'Discussion ready.', {
+      summary: 'Discussion ready.',
+      intent: 'Implement canonical prompt source',
+      successCriteria: ['Prompt source live'],
+      constraints: ['No worker redesign'],
+      risks: ['Prompt drift'],
+      externalIntegrations: ['Anthropic API'],
+      antiGoals: ['No planner host work'],
+      openQuestions: ['Need docs sync?'],
+    });
+    appendFeaturePhaseEvent(store, feature.id, 'research', 'Research ready.', {
+      summary: 'Research ready.',
+      existingBehavior: 'Prompts render from prompt library.',
+      essentialFiles: [
+        {
+          path: 'src/agents/prompts/index.ts',
+          responsibility: 'Prompt exports',
+        },
+      ],
+      reusePatterns: ['Reuse prompt library registry'],
+      riskyBoundaries: ['Docs can drift from source'],
+      proofsNeeded: ['Need prompt rendering proof'],
+      verificationSurfaces: ['prompt-library tests'],
+      planningNotes: ['Keep execute prompt separate'],
+    });
+    const sessionStore = new InMemorySessionStore();
+    const run = createFeatureRun('plan');
+    store.createAgentRun(run as AgentRun);
+    const { library, captured } = createPromptCapturingLibrary();
+    const runtime = new PiFeatureAgentRuntime({
+      modelId: 'claude-sonnet-4-6',
+      config: createConfig(),
+      promptLibrary: library,
+      graph,
+      store,
+      sessionStore,
+    });
+
+    faux.setResponses([
+      fauxAssistantMessage(
+        [
+          fauxToolCall('addTask', {
+            featureId: 'f-1',
+            description: 'Draft task',
+            reservedWritePaths: ['src/new.ts'],
+          }),
+          fauxToolCall('submit', {}),
+        ],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage([fauxText('Plan ready.')]),
+    ]);
+
+    const result = await runtime.planFeature(feature, {
+      agentRunId: run.id,
+    });
+
+    expect(result.summary).toBe('Plan ready.');
+    expect(captured.plan).toContain(
+      'Intent: Implement canonical prompt source',
+    );
+    expect(captured.plan).toContain('Success criteria:');
+    expect(captured.plan).toContain('Prompt source live');
+    expect(captured.plan).toContain('Essential files:');
+    expect(captured.plan).toContain(
+      'src/agents/prompts/index.ts: Prompt exports',
+    );
+    expect(captured.plan).toContain('Reuse patterns:');
+    expect(captured.plan).toContain('Reuse prompt library registry');
   });
 
   it('runs planning with proposal tools against draft graph only', async () => {
@@ -385,9 +524,83 @@ describe('PiFeatureAgentRuntime', () => {
     ).rejects.toThrow('verify phase must call submitVerify before completion');
   });
 
-  it('builds summarize prompt from task results and verification evidence', async () => {
+  it('requires submitResearch before research phase completion', async () => {
     faux.setResponses([
-      fauxAssistantMessage([fauxText('Final durable summary.')]),
+      fauxAssistantMessage([fauxText('Research notes only.')]),
+    ]);
+
+    const { graph, feature } = createFeatureGraph();
+    const store = new InMemoryStore();
+    const sessionStore = new InMemorySessionStore();
+    const run = createFeatureRun('research');
+    store.createAgentRun(run as AgentRun);
+
+    const runtime = new PiFeatureAgentRuntime({
+      modelId: 'claude-sonnet-4-6',
+      config: createConfig(),
+      promptLibrary,
+      graph,
+      store,
+      sessionStore,
+    });
+
+    await expect(
+      runtime.researchFeature(feature, {
+        agentRunId: run.id,
+      }),
+    ).rejects.toThrow(
+      'research phase must call submitResearch before completion',
+    );
+  });
+
+  it('requires submitSummarize before summarize phase completion', async () => {
+    faux.setResponses([
+      fauxAssistantMessage([fauxText('Summary notes only.')]),
+    ]);
+
+    const { graph, feature } = createFeatureGraph();
+    const store = new InMemoryStore();
+    const sessionStore = new InMemorySessionStore();
+    const run = createFeatureRun('summarize');
+    store.createAgentRun(run as AgentRun);
+
+    const runtime = new PiFeatureAgentRuntime({
+      modelId: 'claude-sonnet-4-6',
+      config: createConfig(),
+      promptLibrary,
+      graph,
+      store,
+      sessionStore,
+    });
+
+    await expect(
+      runtime.summarizeFeature(feature, {
+        agentRunId: run.id,
+      }),
+    ).rejects.toThrow(
+      'summarize phase must call submitSummarize before completion',
+    );
+  });
+
+  it('builds summarize prompt from structured phase outputs and verification evidence', async () => {
+    const summaryExtra: SummarizePhaseDetails = {
+      outcome: 'Final shipped outcome',
+      deliveredCapabilities: ['Capability delivered'],
+      importantFiles: ['src/api.ts', 'src/feature.ts', 'src/verify.ts'],
+      verificationConfidence: ['feature ci green', 'verify green'],
+      carryForwardNotes: ['Carry note'],
+    };
+    faux.setResponses([
+      fauxAssistantMessage(
+        [
+          fauxToolCall('submitSummarize', {
+            summary: 'Final durable summary.',
+            ...summaryExtra,
+          }),
+        ],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage([fauxText('Summary submitted.')]),
     ]);
 
     const { graph, feature } = createFeatureGraph();
@@ -435,12 +648,37 @@ describe('PiFeatureAgentRuntime', () => {
       feature.id,
       'discuss',
       'Settled summary scope.',
+      {
+        summary: 'Settled summary scope.',
+        intent: 'Ship merged capability summary',
+        successCriteria: ['Durable outcome clear'],
+        constraints: ['No roadmap'],
+        risks: ['Missing evidence'],
+        externalIntegrations: ['None'],
+        antiGoals: ['No planning'],
+        openQuestions: ['Need downstream notes?'],
+      },
     );
     appendFeaturePhaseEvent(
       store,
       feature.id,
       'research',
       'Checked merge output and task evidence.',
+      {
+        summary: 'Checked merge output and task evidence.',
+        existingBehavior: 'Summary agent reads merged evidence.',
+        essentialFiles: [
+          {
+            path: 'src/agents/runtime.ts',
+            responsibility: 'Build summarize context',
+          },
+        ],
+        reusePatterns: ['Reuse task result summaries'],
+        riskyBoundaries: ['Merged evidence can drift'],
+        proofsNeeded: ['Need merged task evidence'],
+        verificationSurfaces: ['feature summary prompt'],
+        planningNotes: ['Keep downstream durable'],
+      },
     );
     appendFeaturePhaseEvent(
       store,
@@ -474,7 +712,16 @@ describe('PiFeatureAgentRuntime', () => {
       agentRunId: run.id,
     });
 
-    expect(result).toEqual({ summary: 'Final durable summary.' });
+    expect(result).toEqual({
+      summary: 'Final durable summary.',
+      extra: summaryExtra,
+    });
+    expect(captured.summarize).toContain(
+      'Intent: Ship merged capability summary',
+    );
+    expect(captured.summarize).toContain(
+      'Existing behavior: Summary agent reads merged evidence.',
+    );
     expect(captured.summarize).toContain('Implemented API path');
     expect(captured.summarize).toContain('Added verification hooks');
     expect(captured.summarize).toContain(

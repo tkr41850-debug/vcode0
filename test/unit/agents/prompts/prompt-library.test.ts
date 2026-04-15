@@ -106,15 +106,22 @@ describe('promptLibrary', () => {
     expect(replanPrompt).toContain('### Blockers or Discoveries');
   });
 
-  it('renders summarize prompt with durable downstream sections', () => {
-    const prompt = promptTemplates.summarize.render(buildInput());
+  it('renders discuss, research, and summarize prompts with structured submit instructions', () => {
+    const discussPrompt = promptTemplates.discuss.render(buildInput());
+    const researchPrompt = promptTemplates.research.render(buildInput());
+    const summarizePrompt = promptTemplates.summarize.render(buildInput());
 
-    expect(prompt).toContain("You are gvc0's feature summarization agent.");
-    expect(prompt).toContain('## Summary Inputs');
-    expect(prompt).toContain('### Integrated Outcome');
-    expect(prompt).toContain('## Important Files');
-    expect(prompt).toContain('src/runtime/worker/system-prompt.ts');
-    expect(prompt).toContain('inspect persisted feature state');
+    expect(discussPrompt).toContain('`submitDiscuss(...)` exactly once');
+    expect(researchPrompt).toContain('`submitResearch(...)` exactly once');
+    expect(summarizePrompt).toContain('`submitSummarize(...)` exactly once');
+    expect(summarizePrompt).toContain(
+      "You are gvc0's feature summarization agent.",
+    );
+    expect(summarizePrompt).toContain('## Summary Inputs');
+    expect(summarizePrompt).toContain('### Integrated Outcome');
+    expect(summarizePrompt).toContain('## Important Files');
+    expect(summarizePrompt).toContain('src/runtime/worker/system-prompt.ts');
+    expect(summarizePrompt).toContain('inspect persisted feature state');
   });
 
   it('renders verify prompt with structured repair-only verdict instructions', () => {

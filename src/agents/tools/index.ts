@@ -12,10 +12,16 @@ import {
 } from '@core/proposals/index';
 import type {
   AgentRun,
+  DiscussPhaseDetails,
+  DiscussPhaseResult,
   EventRecord,
   Feature,
   FeatureId,
   MilestoneId,
+  ResearchPhaseDetails,
+  ResearchPhaseResult,
+  SummarizePhaseDetails,
+  SummarizePhaseResult,
   Task,
   TaskResult,
   VerificationCriterionEvidence,
@@ -87,6 +93,18 @@ export interface GetChangedFilesOptions {
   featureId?: FeatureId;
 }
 
+export interface SubmitDiscussOptions extends DiscussPhaseDetails {
+  summary: string;
+}
+
+export interface SubmitResearchOptions extends ResearchPhaseDetails {
+  summary: string;
+}
+
+export interface SubmitSummarizeOptions extends SummarizePhaseDetails {
+  summary: string;
+}
+
 export interface SubmitVerifyOptions {
   outcome: 'pass' | 'repair_needed';
   summary: string;
@@ -124,7 +142,12 @@ export type FeatureInspectionToolName =
   | 'listFeatureRuns'
   | 'getChangedFiles';
 
-export type FeaturePhaseToolName = FeatureInspectionToolName | 'submitVerify';
+export type FeaturePhaseToolName =
+  | FeatureInspectionToolName
+  | 'submitDiscuss'
+  | 'submitResearch'
+  | 'submitSummarize'
+  | 'submitVerify';
 
 export interface PlannerToolArgsMap {
   addFeature: AddFeatureOptions;
@@ -157,6 +180,9 @@ export interface FeaturePhaseToolArgsMap {
   listFeatureEvents: ListFeatureEventsOptions;
   listFeatureRuns: ListFeatureRunsOptions;
   getChangedFiles: GetChangedFilesOptions;
+  submitDiscuss: SubmitDiscussOptions;
+  submitResearch: SubmitResearchOptions;
+  submitSummarize: SubmitSummarizeOptions;
   submitVerify: SubmitVerifyOptions;
 }
 
@@ -167,6 +193,9 @@ export interface FeaturePhaseToolResultMap {
   listFeatureEvents: EventRecord[];
   listFeatureRuns: AgentRun[];
   getChangedFiles: string[];
+  submitDiscuss: DiscussPhaseResult;
+  submitResearch: ResearchPhaseResult;
+  submitSummarize: SummarizePhaseResult;
   submitVerify: VerificationSummary;
 }
 
@@ -229,8 +258,17 @@ export interface FeaturePhaseToolHost {
   listFeatureEvents(args: ListFeatureEventsOptions): EventRecord[];
   listFeatureRuns(args: ListFeatureRunsOptions): AgentRun[];
   getChangedFiles(args: GetChangedFilesOptions): string[];
+  submitDiscuss(args: SubmitDiscussOptions): DiscussPhaseResult;
+  submitResearch(args: SubmitResearchOptions): ResearchPhaseResult;
+  submitSummarize(args: SubmitSummarizeOptions): SummarizePhaseResult;
   submitVerify(args: SubmitVerifyOptions): VerificationSummary;
+  wasDiscussSubmitted(): boolean;
+  wasResearchSubmitted(): boolean;
+  wasSummarizeSubmitted(): boolean;
   wasVerifySubmitted(): boolean;
+  getDiscussSummary(): DiscussPhaseResult;
+  getResearchSummary(): ResearchPhaseResult;
+  getSummarizeSummary(): SummarizePhaseResult;
   getVerificationSummary(): VerificationSummary;
 }
 
@@ -371,6 +409,9 @@ export class GraphProposalToolHost implements ProposalToolHost {
 }
 
 class DefaultFeaturePhaseToolHost implements FeaturePhaseToolHost {
+  private discuss: DiscussPhaseResult | undefined;
+  private research: ResearchPhaseResult | undefined;
+  private summarize: SummarizePhaseResult | undefined;
   private verification: VerificationSummary | undefined;
 
   constructor(
@@ -446,6 +487,36 @@ class DefaultFeaturePhaseToolHost implements FeaturePhaseToolHost {
     return [...files];
   }
 
+  submitDiscuss(args: SubmitDiscussOptions): DiscussPhaseResult {
+    const { summary, ...extra } = args;
+    const result: DiscussPhaseResult = {
+      summary,
+      extra,
+    };
+    this.discuss = result;
+    return result;
+  }
+
+  submitResearch(args: SubmitResearchOptions): ResearchPhaseResult {
+    const { summary, ...extra } = args;
+    const result: ResearchPhaseResult = {
+      summary,
+      extra,
+    };
+    this.research = result;
+    return result;
+  }
+
+  submitSummarize(args: SubmitSummarizeOptions): SummarizePhaseResult {
+    const { summary, ...extra } = args;
+    const result: SummarizePhaseResult = {
+      summary,
+      extra,
+    };
+    this.summarize = result;
+    return result;
+  }
+
   submitVerify(args: SubmitVerifyOptions): VerificationSummary {
     const fallbackFailedChecks =
       args.outcome === 'repair_needed'
@@ -474,8 +545,47 @@ class DefaultFeaturePhaseToolHost implements FeaturePhaseToolHost {
     return verification;
   }
 
+  wasDiscussSubmitted(): boolean {
+    return this.discuss !== undefined;
+  }
+
+  wasResearchSubmitted(): boolean {
+    return this.research !== undefined;
+  }
+
+  wasSummarizeSubmitted(): boolean {
+    return this.summarize !== undefined;
+  }
+
   wasVerifySubmitted(): boolean {
     return this.verification !== undefined;
+  }
+
+  getDiscussSummary(): DiscussPhaseResult {
+    if (this.discuss === undefined) {
+      throw new Error(
+        'discuss phase must call submitDiscuss before completion',
+      );
+    }
+    return this.discuss;
+  }
+
+  getResearchSummary(): ResearchPhaseResult {
+    if (this.research === undefined) {
+      throw new Error(
+        'research phase must call submitResearch before completion',
+      );
+    }
+    return this.research;
+  }
+
+  getSummarizeSummary(): SummarizePhaseResult {
+    if (this.summarize === undefined) {
+      throw new Error(
+        'summarize phase must call submitSummarize before completion',
+      );
+    }
+    return this.summarize;
   }
 
   getVerificationSummary(): VerificationSummary {
@@ -618,6 +728,42 @@ const verificationCriterionSchema = Type.Object({
   evidence: Type.String(),
 });
 
+const discussSubmitSchema = Type.Object({
+  summary: Type.String(),
+  intent: Type.String(),
+  successCriteria: Type.Array(Type.String()),
+  constraints: Type.Array(Type.String()),
+  risks: Type.Array(Type.String()),
+  externalIntegrations: Type.Array(Type.String()),
+  antiGoals: Type.Array(Type.String()),
+  openQuestions: Type.Array(Type.String()),
+});
+
+const researchFileSchema = Type.Object({
+  path: Type.String(),
+  responsibility: Type.String(),
+});
+
+const researchSubmitSchema = Type.Object({
+  summary: Type.String(),
+  existingBehavior: Type.String(),
+  essentialFiles: Type.Array(researchFileSchema),
+  reusePatterns: Type.Array(Type.String()),
+  riskyBoundaries: Type.Array(Type.String()),
+  proofsNeeded: Type.Array(Type.String()),
+  verificationSurfaces: Type.Array(Type.String()),
+  planningNotes: Type.Array(Type.String()),
+});
+
+const summarizeSubmitSchema = Type.Object({
+  summary: Type.String(),
+  outcome: Type.String(),
+  deliveredCapabilities: Type.Array(Type.String()),
+  importantFiles: Type.Array(Type.String()),
+  verificationConfidence: Type.Array(Type.String()),
+  carryForwardNotes: Type.Array(Type.String()),
+});
+
 const proposalToolParameters = {
   addFeature: Type.Object({
     milestoneId: Type.String(),
@@ -678,6 +824,9 @@ const featurePhaseToolParameters = {
   getChangedFiles: Type.Object({
     featureId: Type.Optional(Type.String()),
   }),
+  submitDiscuss: discussSubmitSchema,
+  submitResearch: researchSubmitSchema,
+  submitSummarize: summarizeSubmitSchema,
   submitVerify: Type.Object({
     outcome: Type.Union([Type.Literal('pass'), Type.Literal('repair_needed')]),
     summary: Type.String(),
@@ -833,26 +982,91 @@ export function buildFeaturePhaseAgentToolset(
     },
   ];
 
-  if (phase === 'verify') {
-    tools.push({
-      name: 'submitVerify',
-      label: 'Submit Verify Verdict',
-      description:
-        'Finalize semantic feature verification with a structured pass or repair-needed verdict. Call exactly once before verify phase completes.',
-      parameters: featurePhaseToolParameters.submitVerify,
-      execute: async (_toolCallId, args) => {
-        const result = host.submitVerify(args as SubmitVerifyOptions);
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `Submitted verify verdict: ${result.outcome ?? (result.ok ? 'pass' : 'repair_needed')}.`,
-            },
-          ],
-          details: result,
-        };
-      },
-    });
+  switch (phase) {
+    case 'discuss':
+      tools.push({
+        name: 'submitDiscuss',
+        label: 'Submit Discuss Summary',
+        description:
+          'Finalize feature discussion with structured planning input. Call exactly once before discuss phase completes.',
+        parameters: featurePhaseToolParameters.submitDiscuss,
+        execute: async (_toolCallId, args) => {
+          const result = host.submitDiscuss(args as SubmitDiscussOptions);
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `Submitted discuss summary: ${result.summary}.`,
+              },
+            ],
+            details: result,
+          };
+        },
+      });
+      break;
+    case 'research':
+      tools.push({
+        name: 'submitResearch',
+        label: 'Submit Research Summary',
+        description:
+          'Finalize feature research with structured codebase findings. Call exactly once before research phase completes.',
+        parameters: featurePhaseToolParameters.submitResearch,
+        execute: async (_toolCallId, args) => {
+          const result = host.submitResearch(args as SubmitResearchOptions);
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `Submitted research summary: ${result.summary}.`,
+              },
+            ],
+            details: result,
+          };
+        },
+      });
+      break;
+    case 'summarize':
+      tools.push({
+        name: 'submitSummarize',
+        label: 'Submit Durable Summary',
+        description:
+          'Finalize merged feature summary with durable downstream context. Call exactly once before summarize phase completes.',
+        parameters: featurePhaseToolParameters.submitSummarize,
+        execute: async (_toolCallId, args) => {
+          const result = host.submitSummarize(args as SubmitSummarizeOptions);
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `Submitted durable summary: ${result.summary}.`,
+              },
+            ],
+            details: result,
+          };
+        },
+      });
+      break;
+    case 'verify':
+      tools.push({
+        name: 'submitVerify',
+        label: 'Submit Verify Verdict',
+        description:
+          'Finalize semantic feature verification with a structured pass or repair-needed verdict. Call exactly once before verify phase completes.',
+        parameters: featurePhaseToolParameters.submitVerify,
+        execute: async (_toolCallId, args) => {
+          const result = host.submitVerify(args as SubmitVerifyOptions);
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `Submitted verify verdict: ${result.outcome ?? (result.ok ? 'pass' : 'repair_needed')}.`,
+              },
+            ],
+            details: result,
+          };
+        },
+      });
+      break;
   }
 
   return tools;

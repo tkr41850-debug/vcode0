@@ -1,8 +1,10 @@
 import type { ProposalPhaseResult } from '@agents/proposal';
 import type {
+  DiscussPhaseResult,
   Feature,
-  FeaturePhaseResult,
   FeaturePhaseRunContext,
+  ResearchPhaseResult,
+  SummarizePhaseResult,
   VerificationSummary,
 } from '@core/types/index';
 
@@ -10,11 +12,11 @@ export interface PlannerAgent {
   discussFeature(
     feature: Feature,
     run: FeaturePhaseRunContext,
-  ): Promise<FeaturePhaseResult>;
+  ): Promise<DiscussPhaseResult>;
   researchFeature(
     feature: Feature,
     run: FeaturePhaseRunContext,
-  ): Promise<FeaturePhaseResult>;
+  ): Promise<ResearchPhaseResult>;
   planFeature(
     feature: Feature,
     run: FeaturePhaseRunContext,
@@ -26,5 +28,5 @@ export interface PlannerAgent {
   summarizeFeature(
     feature: Feature,
     run: FeaturePhaseRunContext,
-  ): Promise<FeaturePhaseResult>;
+  ): Promise<SummarizePhaseResult>;
 }

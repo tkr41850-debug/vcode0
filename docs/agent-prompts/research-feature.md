@@ -40,7 +40,7 @@ Research rules:
 - include likely verification commands, test surfaces, or observable behaviors
 - if external libraries matter, capture only constraints that change planning
 
-Output structure:
+Output should use `submitResearch(...)` exactly once and include:
 - summary of what exists
 - essential files and responsibilities
 - patterns to reuse
@@ -54,6 +54,7 @@ Do not:
 - mutate graph
 - invent complexity when work is straightforward
 - duplicate discussion summary except where needed for context
+- end with free-text summary instead of `submitResearch(...)`
 ```
 
 ## Source

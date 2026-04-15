@@ -33,6 +33,8 @@ Capture the responsibility split across the orchestrator adapter ports so orches
 - Then it uses `AgentPort`
 - And those feature phases still participate in the same run/session plane as task execution (`agent_runs`, persisted conversation state, retry/backoff, help/approval/manual ownership, recovery)
 - And `AgentPort` is the semantic dispatch surface for that work, not evidence of a separate execution plane
+- And discuss, research, verify, and summarize phases complete only through their phase-specific terminal submit tools rather than trailing free-text summaries
+- And scheduler/integration coverage should eventually prove discuss and research dispatch end-to-end with structured `submitDiscuss(...)` and `submitResearch(...)` completion
 
 ### UiPort stays presentation-only
 - Given the terminal UI must show state, refresh derived views, and dispose cleanly

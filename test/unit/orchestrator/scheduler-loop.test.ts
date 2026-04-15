@@ -5,12 +5,14 @@ import { deriveSummaryAvailability } from '@core/state';
 import type {
   AgentRun,
   AgentRunPhase,
+  DiscussPhaseDetails,
   EventRecord,
   Feature,
   FeaturePhaseAgentRun,
-  FeaturePhaseResult,
   FeaturePhaseRunContext,
   GvcConfig,
+  ResearchPhaseDetails,
+  SummarizePhaseDetails,
   Task,
   TaskAgentRun,
   VerificationSummary,
@@ -205,14 +207,47 @@ function makeProposal(mode: 'plan' | 'replan' = 'plan'): GraphProposal {
 }
 
 function createAgentMock(): PlannerAgent & ReplannerAgent {
-  const featureResult: FeaturePhaseResult = { summary: 'ok' };
+  const discussResult = {
+    summary: 'ok',
+    extra: {
+      intent: 'intent',
+      successCriteria: ['criterion'],
+      constraints: [],
+      risks: [],
+      externalIntegrations: [],
+      antiGoals: [],
+      openQuestions: [],
+    } satisfies DiscussPhaseDetails,
+  };
+  const researchResult = {
+    summary: 'ok',
+    extra: {
+      existingBehavior: 'existing',
+      essentialFiles: [],
+      reusePatterns: [],
+      riskyBoundaries: [],
+      proofsNeeded: [],
+      verificationSurfaces: [],
+      planningNotes: [],
+    } satisfies ResearchPhaseDetails,
+  };
+  const summarizeResult = {
+    summary: 'ok',
+    extra: {
+      outcome: 'outcome',
+      deliveredCapabilities: [],
+      importantFiles: [],
+      verificationConfidence: [],
+      carryForwardNotes: [],
+    } satisfies SummarizePhaseDetails,
+  };
   const verificationResult: VerificationSummary = { ok: true };
 
   return {
     discussFeature: async (_feature: Feature, _run: FeaturePhaseRunContext) =>
-      featureResult,
+      discussResult,
     researchFeature: async (_feature: Feature, _run: FeaturePhaseRunContext) =>
-      featureResult,
+      researchResult,
     planFeature: async (_feature: Feature, _run: FeaturePhaseRunContext) => ({
       summary: 'ok',
       proposal: makeProposal('plan'),
@@ -220,7 +255,7 @@ function createAgentMock(): PlannerAgent & ReplannerAgent {
     verifyFeature: async (_feature: Feature, _run: FeaturePhaseRunContext) =>
       verificationResult,
     summarizeFeature: async (_feature: Feature, _run: FeaturePhaseRunContext) =>
-      featureResult,
+      summarizeResult,
     replanFeature: async (
       _feature: Feature,
       _reason: string,

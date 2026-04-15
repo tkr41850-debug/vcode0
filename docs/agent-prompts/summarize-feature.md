@@ -34,7 +34,7 @@ Check:
 - what limitations, debts, or follow-up work still matter
 - what future work should know before building on this feature
 
-Output should include:
+Output should use `submitSummarize(...)` exactly once and include:
 - concise outcome summary
 - capability delivered
 - important files or subsystems touched
@@ -46,6 +46,7 @@ Do not:
 - include low-signal trivia
 - claim unmerged or unverified work as delivered
 - turn summary into roadmap planning
+- end with free-text summary instead of `submitSummarize(...)`
 ```
 
 ## Source

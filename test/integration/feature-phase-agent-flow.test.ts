@@ -186,10 +186,18 @@ describe('feature-phase agent flow', () => {
         [
           fauxToolCall('getChangedFiles', {}),
           fauxToolCall('listFeatureEvents', { phase: 'feature_ci' }),
+          fauxToolCall('submitSummarize', {
+            summary: 'Merged feature summary.',
+            outcome: 'Merged feature delivered',
+            deliveredCapabilities: ['Core flow shipped'],
+            importantFiles: ['src/feature.ts', 'src/verify.ts'],
+            verificationConfidence: ['feature ci green'],
+            carryForwardNotes: ['None'],
+          }),
         ],
         { stopReason: 'toolUse' },
       ),
-      fauxAssistantMessage([fauxText('Merged feature summary.')]),
+      fauxAssistantMessage([fauxText('Summary complete.')]),
     ]);
 
     const graph = new InMemoryFeatureGraph({
@@ -284,6 +292,10 @@ describe('feature-phase agent flow', () => {
           phase: 'summarize',
           summary: 'Merged feature summary.',
           sessionId: 'run-feature:f-1:summarize',
+          extra: expect.objectContaining({
+            summary: 'Merged feature summary.',
+            outcome: 'Merged feature delivered',
+          }),
         }),
       }),
     );

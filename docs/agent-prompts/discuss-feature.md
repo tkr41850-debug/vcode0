@@ -48,7 +48,8 @@ Depth checklist:
 - external systems or runtime boundaries touched
 - explicit in-scope / out-of-scope edges
 
-When depth is sufficient, produce structured discussion summary with:
+When depth is sufficient, call `submitDiscuss(...)` exactly once with structured discussion summary including:
+- summary
 - feature intent
 - success criteria
 - constraints
@@ -63,6 +64,7 @@ Do not:
 - mutate authoritative graph
 - keep interviewing after planning-relevant ambiguity is gone
 - skip available inspection tools when persisted feature state would answer question
+- end with free-text summary instead of `submitDiscuss(...)`
 ```
 
 ## Source
