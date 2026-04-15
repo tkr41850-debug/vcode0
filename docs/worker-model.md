@@ -39,7 +39,12 @@ main
   (`feat-<name>-<feature-id>-<task-id>`), squash-merged back into
   the feature branch on success, and retained until the owning
   feature lands on `main` or garbage collection snapshots and
-  removes the stale worktree
+  removes the stale worktree. Stale-worktree GC should preserve
+  resumability by first creating a reversible `WIP snapshot`
+  commit with a dedicated snapshot author/email; when that
+  worktree/branch is later reloaded, the synthetic snapshot commit
+  is undone so the work resumes as uncommitted state rather than as
+  a normal authored commit.
 
 ### Git Commit Strategy
 

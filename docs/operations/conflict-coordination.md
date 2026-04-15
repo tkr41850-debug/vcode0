@@ -80,6 +80,7 @@ Typical triggers:
 - `ort` merge or similar auto-rebase fails
 - feature-branch repair work is required after integration-time overlap
 - repeated attempts show no meaningful progress
+- more than 5 minutes pass after steering without meaningful activity
 
 Action:
 
@@ -148,6 +149,7 @@ After same-feature conflict steering begins:
 1. If the agent resolves the conflict and later passes normal task `submit()` verification, clear task collaboration control from `conflict` and continue the normal completion path.
 2. If the agent resolves merge markers but ordinary task verification still fails, treat that as normal task work rather than a continuing collaboration conflict.
 3. If the agent makes no meaningful progress, keep task collaboration control at `conflict` and escalate to targeted repair work, replanning, or user intervention.
+4. Treat conflict halting as a state-based rule, not a blind wall-clock timeout: only halt after at least 5 minutes have passed since steering began and there has been no meaningful activity during that window. Ongoing conflict-resolution progress should keep the task in the active conflict path.
 
 ### Cross-Feature Overlap
 
