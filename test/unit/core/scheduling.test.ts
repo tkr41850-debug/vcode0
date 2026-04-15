@@ -1,4 +1,7 @@
-import type { InMemoryFeatureGraph } from '@core/graph/index';
+import type {
+  CreateTaskOptions,
+  InMemoryFeatureGraph,
+} from '@core/graph/index';
 import type {
   ExecutionRunReader,
   SchedulableUnit,
@@ -12,12 +15,18 @@ import {
   workTypeTierOf,
   workTypeTierPriority,
 } from '@core/scheduling/index';
-import type { AgentRun, AgentRunPhase } from '@core/types/index';
+import type {
+  AgentRun,
+  AgentRunPhase,
+  FeaturePhaseAgentRun,
+  TaskAgentRun,
+} from '@core/types/index';
 import { describe, expect, it } from 'vitest';
 import { extractSchedulableIds } from '../../helpers/assertions.js';
 import {
   createGraphWithFeature,
   createGraphWithMilestone,
+  createGraphWithTask,
   updateFeature,
   updateTask,
 } from '../../helpers/graph-builders.js';
@@ -30,17 +39,12 @@ const noopRunReader: ExecutionRunReader = {
   },
 };
 
-/**
- * Promote every `pending` task to `ready`. Scheduling tests don't model the
- * planner's pending→ready promotion, so we apply it before dispatch so the
- * scheduler sees the same set the tests conceptually set up.
- */
-function promotePendingTasks(g: InMemoryFeatureGraph): void {
-  for (const [id, t] of g.tasks) {
-    if (t.status === 'pending') {
-      updateTask(g, id, { status: 'ready' });
-    }
-  }
+function createReadyTask(
+  g: InMemoryFeatureGraph,
+  task: CreateTaskOptions,
+): void {
+  g.createTask(task);
+  updateTask(g, task.id, { status: 'ready' });
 }
 
 function runScheduler(
@@ -49,7 +53,6 @@ function runScheduler(
   readySince?: Map<string, number>,
   now = 0,
 ): SchedulableUnit[] {
-  promotePendingTasks(g);
   const combined = buildCombinedGraph(g);
   const metrics = computeGraphMetrics(combined);
   const scheduler = new CriticalPathScheduler();
@@ -58,8 +61,8 @@ function runScheduler(
 
 function makeTaskRun(
   scopeId: `t-${string}`,
-  overrides: Partial<AgentRun> = {},
-): AgentRun {
+  overrides: Partial<TaskAgentRun> = {},
+): TaskAgentRun {
   return {
     id: `run-${scopeId}`,
     scopeType: 'task',
@@ -71,14 +74,14 @@ function makeTaskRun(
     restartCount: 0,
     maxRetries: 3,
     ...overrides,
-  } as AgentRun;
+  };
 }
 
 function makeFeaturePhaseRun(
   scopeId: `f-${string}`,
   phase: AgentRunPhase,
-  overrides: Partial<AgentRun> = {},
-): AgentRun {
+  overrides: Partial<FeaturePhaseAgentRun> = {},
+): FeaturePhaseAgentRun {
   return {
     id: `run-${scopeId}-${phase}`,
     scopeType: 'feature_phase',
@@ -90,7 +93,7 @@ function makeFeaturePhaseRun(
     restartCount: 0,
     maxRetries: 3,
     ...overrides,
-  } as AgentRun;
+  };
 }
 
 function createRunReader(...runs: AgentRun[]): ExecutionRunReader {
@@ -162,13 +165,13 @@ describe('buildCombinedGraph', () => {
   it('creates a virtual node for a pre-execution feature', () => {
     const g = createGraphWithFeature();
     updateFeature(g, 'f-1', { workControl: 'planning' });
-    g.createTask({
+    createReadyTask(g, {
       id: 't-1',
       featureId: 'f-1',
       description: 'task1',
       weight: 'small',
     });
-    g.createTask({
+    createReadyTask(g, {
       id: 't-2',
       featureId: 'f-1',
       description: 'task2',
@@ -201,14 +204,14 @@ describe('buildCombinedGraph', () => {
   it('expands an executing feature into concrete task nodes', () => {
     const g = createGraphWithFeature();
     updateFeature(g, 'f-1', { workControl: 'executing' });
-    g.createTask({
+    createReadyTask(g, {
       id: 't-1',
       featureId: 'f-1',
       description: 'task1',
       weight: 'small',
       dependsOn: [],
     });
-    g.createTask({
+    createReadyTask(g, {
       id: 't-2',
       featureId: 'f-1',
       description: 'task2',
@@ -262,13 +265,13 @@ describe('buildCombinedGraph', () => {
       description: 'desc',
     });
     updateFeature(g, 'f-a', { workControl: 'executing' });
-    g.createTask({
+    createReadyTask(g, {
       id: 't-a1',
       featureId: 'f-a',
       description: 'A task 1',
       weight: 'small',
     });
-    g.createTask({
+    createReadyTask(g, {
       id: 't-a2',
       featureId: 'f-a',
       description: 'A task 2',
@@ -284,7 +287,7 @@ describe('buildCombinedGraph', () => {
       dependsOn: ['f-a'],
     });
     updateFeature(g, 'f-b', { workControl: 'executing' });
-    g.createTask({
+    createReadyTask(g, {
       id: 't-b1',
       featureId: 'f-b',
       description: 'B task 1',
@@ -309,7 +312,7 @@ describe('buildCombinedGraph', () => {
       description: 'desc',
     });
     updateFeature(g, 'f-a', { workControl: 'planning' });
-    g.createTask({
+    createReadyTask(g, {
       id: 't-a1',
       featureId: 'f-a',
       description: 'A task 1',
@@ -324,7 +327,7 @@ describe('buildCombinedGraph', () => {
       dependsOn: ['f-a'],
     });
     updateFeature(g, 'f-b', { workControl: 'executing' });
-    g.createTask({
+    createReadyTask(g, {
       id: 't-b1',
       featureId: 'f-b',
       description: 'B task 1',
@@ -349,20 +352,20 @@ describe('computeGraphMetrics', () => {
     // A(w=4) -> B(w=10) -> C(w=1)
     const g = createGraphWithFeature();
     updateFeature(g, 'f-1', { workControl: 'executing' });
-    g.createTask({
+    createReadyTask(g, {
       id: 't-1',
       featureId: 'f-1',
       description: 'A',
       weight: 'small',
     });
-    g.createTask({
+    createReadyTask(g, {
       id: 't-2',
       featureId: 'f-1',
       description: 'B',
       weight: 'medium',
       dependsOn: ['t-1'],
     });
-    g.createTask({
+    createReadyTask(g, {
       id: 't-3',
       featureId: 'f-1',
       description: 'C',
@@ -384,27 +387,27 @@ describe('computeGraphMetrics', () => {
     // A -> B(w=10), A -> C(w=1), B -> D, C -> D
     const g = createGraphWithFeature();
     updateFeature(g, 'f-1', { workControl: 'executing' });
-    g.createTask({
+    createReadyTask(g, {
       id: 't-a',
       featureId: 'f-1',
       description: 'A',
       weight: 'small',
     });
-    g.createTask({
+    createReadyTask(g, {
       id: 't-b',
       featureId: 'f-1',
       description: 'B',
       weight: 'medium',
       dependsOn: ['t-a'],
     });
-    g.createTask({
+    createReadyTask(g, {
       id: 't-c',
       featureId: 'f-1',
       description: 'C',
       weight: 'trivial',
       dependsOn: ['t-a'],
     });
-    g.createTask({
+    createReadyTask(g, {
       id: 't-d',
       featureId: 'f-1',
       description: 'D',
@@ -428,20 +431,20 @@ describe('computeGraphMetrics', () => {
   it('computes distance for a linear graph', () => {
     const g = createGraphWithFeature();
     updateFeature(g, 'f-1', { workControl: 'executing' });
-    g.createTask({
+    createReadyTask(g, {
       id: 't-1',
       featureId: 'f-1',
       description: 'A',
       weight: 'small',
     });
-    g.createTask({
+    createReadyTask(g, {
       id: 't-2',
       featureId: 'f-1',
       description: 'B',
       weight: 'medium',
       dependsOn: ['t-1'],
     });
-    g.createTask({
+    createReadyTask(g, {
       id: 't-3',
       featureId: 'f-1',
       description: 'C',
@@ -464,27 +467,27 @@ describe('computeGraphMetrics', () => {
     // Diamond: A -> B, A -> C, B -> D, C -> D
     const g = createGraphWithFeature();
     updateFeature(g, 'f-1', { workControl: 'executing' });
-    g.createTask({
+    createReadyTask(g, {
       id: 't-a',
       featureId: 'f-1',
       description: 'A',
       weight: 'small',
     });
-    g.createTask({
+    createReadyTask(g, {
       id: 't-b',
       featureId: 'f-1',
       description: 'B',
       weight: 'medium',
       dependsOn: ['t-a'],
     });
-    g.createTask({
+    createReadyTask(g, {
       id: 't-c',
       featureId: 'f-1',
       description: 'C',
       weight: 'trivial',
       dependsOn: ['t-a'],
     });
-    g.createTask({
+    createReadyTask(g, {
       id: 't-d',
       featureId: 'f-1',
       description: 'D',
@@ -506,14 +509,12 @@ describe('computeGraphMetrics', () => {
   });
 
   it('handles a single-node graph', () => {
-    const g = createGraphWithFeature();
-    updateFeature(g, 'f-1', { workControl: 'executing' });
-    g.createTask({
+    const g = createGraphWithTask({
       id: 't-1',
-      featureId: 'f-1',
       description: 'only task',
       weight: 'heavy',
     });
+    updateFeature(g, 'f-1', { workControl: 'executing' });
 
     const combined = buildCombinedGraph(g);
     const metrics = computeGraphMetrics(combined);
@@ -537,7 +538,7 @@ describe('CriticalPathScheduler.prioritizeReadyWork', () => {
       description: 'desc',
     });
     updateFeature(g, 'f-a', { workControl: 'executing' });
-    g.createTask({
+    createReadyTask(g, {
       id: 't-a1',
       featureId: 'f-a',
       description: 'A1',
@@ -551,7 +552,7 @@ describe('CriticalPathScheduler.prioritizeReadyWork', () => {
       description: 'desc',
     });
     updateFeature(g, 'f-b', { workControl: 'executing' });
-    g.createTask({
+    createReadyTask(g, {
       id: 't-b1',
       featureId: 'f-b',
       description: 'B1',
@@ -575,7 +576,7 @@ describe('CriticalPathScheduler.prioritizeReadyWork', () => {
       description: 'desc',
     });
     updateFeature(g, 'f-a', { workControl: 'executing' });
-    g.createTask({
+    createReadyTask(g, {
       id: 't-exec',
       featureId: 'f-a',
       description: 'exec task',
@@ -611,7 +612,7 @@ describe('CriticalPathScheduler.prioritizeReadyWork', () => {
       description: 'desc',
     });
     updateFeature(g, 'f-a', { workControl: 'executing' });
-    g.createTask({
+    createReadyTask(g, {
       id: 't-short',
       featureId: 'f-a',
       description: 'short',
@@ -625,13 +626,13 @@ describe('CriticalPathScheduler.prioritizeReadyWork', () => {
       description: 'desc',
     });
     updateFeature(g, 'f-b', { workControl: 'executing' });
-    g.createTask({
+    createReadyTask(g, {
       id: 't-long',
       featureId: 'f-b',
       description: 'long start',
       weight: 'heavy',
     });
-    g.createTask({
+    createReadyTask(g, {
       id: 't-long2',
       featureId: 'f-b',
       description: 'long end',
@@ -656,7 +657,7 @@ describe('CriticalPathScheduler.prioritizeReadyWork', () => {
       description: 'desc',
     });
     updateFeature(g, 'f-a', { workControl: 'executing' });
-    g.createTask({
+    createReadyTask(g, {
       id: 't-fail',
       featureId: 'f-a',
       description: 'failed task',
@@ -671,7 +672,7 @@ describe('CriticalPathScheduler.prioritizeReadyWork', () => {
       description: 'desc',
     });
     updateFeature(g, 'f-b', { workControl: 'executing' });
-    g.createTask({
+    createReadyTask(g, {
       id: 't-ok',
       featureId: 'f-b',
       description: 'ok task',
@@ -694,7 +695,7 @@ describe('CriticalPathScheduler.prioritizeReadyWork', () => {
       description: 'desc',
     });
     updateFeature(g, 'f-a', { workControl: 'executing' });
-    g.createTask({
+    createReadyTask(g, {
       id: 't-overlap',
       featureId: 'f-a',
       description: 'overlapping',
@@ -709,7 +710,7 @@ describe('CriticalPathScheduler.prioritizeReadyWork', () => {
       description: 'desc',
     });
     updateFeature(g, 'f-b', { workControl: 'executing' });
-    g.createTask({
+    createReadyTask(g, {
       id: 't-overlap2',
       featureId: 'f-b',
       description: 'also overlapping',
@@ -724,7 +725,7 @@ describe('CriticalPathScheduler.prioritizeReadyWork', () => {
       description: 'desc',
     });
     updateFeature(g, 'f-c', { workControl: 'executing' });
-    g.createTask({
+    createReadyTask(g, {
       id: 't-clean',
       featureId: 'f-c',
       description: 'no overlap',
@@ -748,7 +749,7 @@ describe('CriticalPathScheduler.prioritizeReadyWork', () => {
       description: 'desc',
     });
     updateFeature(g, 'f-a', { workControl: 'executing' });
-    g.createTask({
+    createReadyTask(g, {
       id: 't-fresh',
       featureId: 'f-a',
       description: 'fresh task',
@@ -762,7 +763,7 @@ describe('CriticalPathScheduler.prioritizeReadyWork', () => {
       description: 'desc',
     });
     updateFeature(g, 'f-b', { workControl: 'executing' });
-    g.createTask({
+    createReadyTask(g, {
       id: 't-retry',
       featureId: 'f-b',
       description: 'retryable task',
@@ -795,7 +796,7 @@ describe('CriticalPathScheduler.prioritizeReadyWork', () => {
       description: 'desc',
     });
     updateFeature(g, 'f-a', { workControl: 'executing' });
-    g.createTask({
+    createReadyTask(g, {
       id: 't-z',
       featureId: 'f-a',
       description: 'Z task',
@@ -809,7 +810,7 @@ describe('CriticalPathScheduler.prioritizeReadyWork', () => {
       description: 'desc',
     });
     updateFeature(g, 'f-b', { workControl: 'executing' });
-    g.createTask({
+    createReadyTask(g, {
       id: 't-a',
       featureId: 'f-b',
       description: 'A task',
@@ -823,17 +824,7 @@ describe('CriticalPathScheduler.prioritizeReadyWork', () => {
       ['task:t-z', 100],
       ['task:t-a', 200],
     ]);
-    promotePendingTasks(g);
-    const combined = buildCombinedGraph(g);
-    const metrics = computeGraphMetrics(combined);
-    const scheduler = new CriticalPathScheduler();
-    const result = scheduler.prioritizeReadyWork(
-      g,
-      noopRunReader,
-      metrics,
-      300,
-      readySince,
-    );
+    const result = runScheduler(g, noopRunReader, readySince, 300);
     const ids = extractSchedulableIds(result);
     // t-z is older (readyAt=100) so it comes before t-a (readyAt=200)
     expect(ids.indexOf('t-z')).toBeLessThan(ids.indexOf('t-a'));
@@ -848,7 +839,7 @@ describe('CriticalPathScheduler.prioritizeReadyWork', () => {
       description: 'desc',
     });
     updateFeature(g, 'f-a', { workControl: 'executing' });
-    g.createTask({
+    createReadyTask(g, {
       id: 't-z',
       featureId: 'f-a',
       description: 'Z task',
@@ -862,7 +853,7 @@ describe('CriticalPathScheduler.prioritizeReadyWork', () => {
       description: 'desc',
     });
     updateFeature(g, 'f-b', { workControl: 'executing' });
-    g.createTask({
+    createReadyTask(g, {
       id: 't-a',
       featureId: 'f-b',
       description: 'A task',
@@ -886,31 +877,31 @@ describe('CriticalPathScheduler.prioritizeReadyWork', () => {
       description: 'desc',
     });
     updateFeature(g, 'f-a', { workControl: 'executing' });
-    g.createTask({
+    createReadyTask(g, {
       id: 't-ready',
       featureId: 'f-a',
       description: 'Ready task',
       weight: 'medium',
     });
-    g.createTask({
+    createReadyTask(g, {
       id: 't-help',
       featureId: 'f-a',
       description: 'Help task',
       weight: 'medium',
     });
-    g.createTask({
+    createReadyTask(g, {
       id: 't-approval',
       featureId: 'f-a',
       description: 'Approval task',
       weight: 'medium',
     });
-    g.createTask({
+    createReadyTask(g, {
       id: 't-backoff',
       featureId: 'f-a',
       description: 'Backoff task',
       weight: 'medium',
     });
-    g.createTask({
+    createReadyTask(g, {
       id: 't-retry-now',
       featureId: 'f-a',
       description: 'Retry now task',

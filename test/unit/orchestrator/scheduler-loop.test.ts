@@ -33,6 +33,12 @@ import { VerificationService } from '@orchestrator/services/index';
 import type { RuntimePort } from '@runtime/contracts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import {
+  createFeatureFixture,
+  createMilestoneFixture,
+  createTaskFixture,
+} from '../../helpers/graph-builders.js';
+
 class ExposedSchedulerLoop extends SchedulerLoop {
   async tickForTest(now: number): Promise<void> {
     return super.tick(now);
@@ -386,6 +392,64 @@ function makeFeaturePhaseRun(
   };
 }
 
+function createSchedulerGraph(
+  input?: ConstructorParameters<typeof InMemoryFeatureGraph>[0],
+): InMemoryFeatureGraph {
+  return new InMemoryFeatureGraph({
+    milestones: input?.milestones ?? [createMilestoneFixture()],
+    features: input?.features ?? [],
+    tasks: input?.tasks ?? [],
+  });
+}
+
+function createSingleFeatureGraph(
+  featureOverrides: Partial<Feature> = {},
+  tasks: Task[] = [],
+): InMemoryFeatureGraph {
+  return createSchedulerGraph({
+    milestones: [createMilestoneFixture()],
+    features: [createFeatureFixture(featureOverrides)],
+    tasks,
+  });
+}
+
+function createSingleTaskDispatchGraph(
+  overrides: { feature?: Partial<Feature>; task?: Partial<Task> } = {},
+): InMemoryFeatureGraph {
+  return createSingleFeatureGraph(
+    {
+      status: 'pending',
+      workControl: 'executing',
+      collabControl: 'none',
+      ...overrides.feature,
+    },
+    [
+      createTaskFixture({
+        id: 't-1',
+        description: 'Task 1',
+        status: 'ready',
+        collabControl: 'none',
+        ...overrides.task,
+      }),
+    ],
+  );
+}
+
+function createProposalApprovalGraph(
+  featureOverrides: Partial<Feature> = {},
+  tasks: Task[] = [],
+): InMemoryFeatureGraph {
+  return createSingleFeatureGraph(
+    {
+      status: 'in_progress',
+      workControl: 'planning',
+      collabControl: 'none',
+      ...featureOverrides,
+    },
+    tasks,
+  );
+}
+
 afterEach(() => {
   vi.useRealTimers();
 });
@@ -397,7 +461,7 @@ describe('SchedulerLoop', () => {
     const order: string[] = [];
     const { ports } = createPorts(order);
     const loop = new RecordingSchedulerLoop(
-      new InMemoryFeatureGraph(),
+      createSchedulerGraph(),
       ports,
       order,
     );
@@ -424,7 +488,7 @@ describe('SchedulerLoop', () => {
     const order: string[] = [];
     const { ports } = createPorts(order);
     const loop = new RecordingSchedulerLoop(
-      new InMemoryFeatureGraph(),
+      createSchedulerGraph(),
       ports,
       order,
     );
@@ -455,7 +519,7 @@ describe('SchedulerLoop', () => {
     const order: string[] = [];
     const { ports, ui } = createPorts(order);
     const loop = new RecordingSchedulerLoop(
-      new InMemoryFeatureGraph(),
+      createSchedulerGraph(),
       ports,
       order,
     );
@@ -482,7 +546,7 @@ describe('SchedulerLoop', () => {
     const order: string[] = [];
     const { ports, runtime } = createPorts(order);
     const loop = new RecordingSchedulerLoop(
-      new InMemoryFeatureGraph(),
+      createSchedulerGraph(),
       ports,
       order,
     );
@@ -501,42 +565,7 @@ describe('SchedulerLoop', () => {
   it('creates a missing task run on first dispatch and starts it', async () => {
     const order: string[] = [];
     const { ports, runtime } = createPorts(order);
-    const graph = new InMemoryFeatureGraph({
-      milestones: [
-        {
-          id: 'm-1',
-          name: 'Milestone 1',
-          description: 'desc',
-          status: 'pending',
-          order: 0,
-        },
-      ],
-      features: [
-        {
-          id: 'f-1',
-          milestoneId: 'm-1',
-          orderInMilestone: 0,
-          name: 'Feature 1',
-          description: 'desc',
-          dependsOn: [],
-          status: 'pending',
-          workControl: 'executing',
-          collabControl: 'none',
-          featureBranch: 'feat-feature-1-1',
-        },
-      ],
-      tasks: [
-        {
-          id: 't-1',
-          featureId: 'f-1',
-          orderInFeature: 0,
-          description: 'Task 1',
-          dependsOn: [],
-          status: 'ready',
-          collabControl: 'none',
-        },
-      ],
-    });
+    const graph = createSingleTaskDispatchGraph();
     const createAgentRun = vi.spyOn(ports.store, 'createAgentRun');
     const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
     const dispatchTask = vi.spyOn(runtime, 'dispatchTask');
@@ -574,42 +603,7 @@ describe('SchedulerLoop', () => {
   it('skips dispatch when auto execution is disabled', async () => {
     const order: string[] = [];
     const { ports, runtime } = createPorts(order);
-    const graph = new InMemoryFeatureGraph({
-      milestones: [
-        {
-          id: 'm-1',
-          name: 'Milestone 1',
-          description: 'desc',
-          status: 'pending',
-          order: 0,
-        },
-      ],
-      features: [
-        {
-          id: 'f-1',
-          milestoneId: 'm-1',
-          orderInMilestone: 0,
-          name: 'Feature 1',
-          description: 'desc',
-          dependsOn: [],
-          status: 'pending',
-          workControl: 'executing',
-          collabControl: 'none',
-          featureBranch: 'feat-feature-1-1',
-        },
-      ],
-      tasks: [
-        {
-          id: 't-1',
-          featureId: 'f-1',
-          orderInFeature: 0,
-          description: 'Task 1',
-          dependsOn: [],
-          status: 'ready',
-          collabControl: 'none',
-        },
-      ],
-    });
+    const graph = createSingleTaskDispatchGraph();
     const dispatchTask = vi.spyOn(runtime, 'dispatchTask');
     const loop = new ExposedSchedulerLoop(graph, ports);
 
@@ -622,42 +616,7 @@ describe('SchedulerLoop', () => {
   it('resumes an existing task run when session state is present', async () => {
     const order: string[] = [];
     const { ports, runtime } = createPorts(order);
-    const graph = new InMemoryFeatureGraph({
-      milestones: [
-        {
-          id: 'm-1',
-          name: 'Milestone 1',
-          description: 'desc',
-          status: 'pending',
-          order: 0,
-        },
-      ],
-      features: [
-        {
-          id: 'f-1',
-          milestoneId: 'm-1',
-          orderInMilestone: 0,
-          name: 'Feature 1',
-          description: 'desc',
-          dependsOn: [],
-          status: 'pending',
-          workControl: 'executing',
-          collabControl: 'none',
-          featureBranch: 'feat-feature-1-1',
-        },
-      ],
-      tasks: [
-        {
-          id: 't-1',
-          featureId: 'f-1',
-          orderInFeature: 0,
-          description: 'Task 1',
-          dependsOn: [],
-          status: 'ready',
-          collabControl: 'none',
-        },
-      ],
-    });
+    const graph = createSingleTaskDispatchGraph();
     ports.store.createAgentRun(
       makeTaskRun({
         id: 'run-task:t-1',
@@ -693,42 +652,7 @@ describe('SchedulerLoop', () => {
   it('falls back to a fresh start when a stored session is not resumable', async () => {
     const order: string[] = [];
     const { ports, runtime } = createPorts(order);
-    const graph = new InMemoryFeatureGraph({
-      milestones: [
-        {
-          id: 'm-1',
-          name: 'Milestone 1',
-          description: 'desc',
-          status: 'pending',
-          order: 0,
-        },
-      ],
-      features: [
-        {
-          id: 'f-1',
-          milestoneId: 'm-1',
-          orderInMilestone: 0,
-          name: 'Feature 1',
-          description: 'desc',
-          dependsOn: [],
-          status: 'pending',
-          workControl: 'executing',
-          collabControl: 'none',
-          featureBranch: 'feat-feature-1-1',
-        },
-      ],
-      tasks: [
-        {
-          id: 't-1',
-          featureId: 'f-1',
-          orderInFeature: 0,
-          description: 'Task 1',
-          dependsOn: [],
-          status: 'ready',
-          collabControl: 'none',
-        },
-      ],
-    });
+    const graph = createSingleTaskDispatchGraph();
     ports.store.createAgentRun(
       makeTaskRun({
         id: 'run-task:t-1',
@@ -778,42 +702,7 @@ describe('SchedulerLoop', () => {
   it('increments restartCount when a retry-eligible run is actually redispatched', async () => {
     const order: string[] = [];
     const { ports, runtime } = createPorts(order);
-    const graph = new InMemoryFeatureGraph({
-      milestones: [
-        {
-          id: 'm-1',
-          name: 'Milestone 1',
-          description: 'desc',
-          status: 'pending',
-          order: 0,
-        },
-      ],
-      features: [
-        {
-          id: 'f-1',
-          milestoneId: 'm-1',
-          orderInMilestone: 0,
-          name: 'Feature 1',
-          description: 'desc',
-          dependsOn: [],
-          status: 'pending',
-          workControl: 'executing',
-          collabControl: 'none',
-          featureBranch: 'feat-feature-1-1',
-        },
-      ],
-      tasks: [
-        {
-          id: 't-1',
-          featureId: 'f-1',
-          orderInFeature: 0,
-          description: 'Task 1',
-          dependsOn: [],
-          status: 'ready',
-          collabControl: 'none',
-        },
-      ],
-    });
+    const graph = createSingleTaskDispatchGraph();
     ports.store.createAgentRun(
       makeTaskRun({
         id: 'run-task:t-1',
@@ -848,51 +737,28 @@ describe('SchedulerLoop', () => {
       .spyOn(runtime, 'idleWorkerCount')
       .mockReturnValue(1);
     const dispatchTask = vi.spyOn(runtime, 'dispatchTask');
-    const graph = new InMemoryFeatureGraph({
-      milestones: [
-        {
-          id: 'm-1',
-          name: 'Milestone 1',
-          description: 'desc',
-          status: 'pending',
-          order: 0,
-        },
-      ],
-      features: [
-        {
-          id: 'f-1',
-          milestoneId: 'm-1',
-          orderInMilestone: 0,
-          name: 'Feature 1',
-          description: 'desc',
-          dependsOn: [],
-          status: 'pending',
-          workControl: 'executing',
-          collabControl: 'none',
-          featureBranch: 'feat-feature-1-1',
-        },
-      ],
-      tasks: [
-        {
+    const graph = createSingleFeatureGraph(
+      {
+        status: 'pending',
+        workControl: 'executing',
+        collabControl: 'none',
+      },
+      [
+        createTaskFixture({
           id: 't-1',
-          featureId: 'f-1',
-          orderInFeature: 0,
           description: 'Task 1',
-          dependsOn: [],
           status: 'ready',
           collabControl: 'none',
-        },
-        {
+        }),
+        createTaskFixture({
           id: 't-2',
-          featureId: 'f-1',
           orderInFeature: 1,
           description: 'Task 2',
-          dependsOn: [],
           status: 'ready',
           collabControl: 'none',
-        },
+        }),
       ],
-    });
+    );
 
     const loop = new ExposedSchedulerLoop(graph, ports);
 
@@ -909,42 +775,21 @@ describe('SchedulerLoop', () => {
   it('completes a task run, marks the task merged, and advances the feature to feature_ci after the last task lands', async () => {
     const order: string[] = [];
     const { ports } = createPorts(order);
-    const graph = new InMemoryFeatureGraph({
-      milestones: [
-        {
-          id: 'm-1',
-          name: 'Milestone 1',
-          description: 'desc',
-          status: 'pending',
-          order: 0,
-        },
-      ],
-      features: [
-        {
-          id: 'f-1',
-          milestoneId: 'm-1',
-          orderInMilestone: 0,
-          name: 'Feature 1',
-          description: 'desc',
-          dependsOn: [],
-          status: 'in_progress',
-          workControl: 'executing',
-          collabControl: 'branch_open',
-          featureBranch: 'feat-feature-1-1',
-        },
-      ],
-      tasks: [
-        {
+    const graph = createSingleFeatureGraph(
+      {
+        status: 'in_progress',
+        workControl: 'executing',
+        collabControl: 'branch_open',
+      },
+      [
+        createTaskFixture({
           id: 't-1',
-          featureId: 'f-1',
-          orderInFeature: 0,
           description: 'Task 1',
-          dependsOn: [],
           status: 'running',
           collabControl: 'branch_open',
-        },
+        }),
       ],
-    });
+    );
     ports.store.createAgentRun(
       makeTaskRun({
         id: 'run-task:t-1',
@@ -1005,42 +850,21 @@ describe('SchedulerLoop', () => {
   it('does not treat implicit worker exit as a landed task', async () => {
     const order: string[] = [];
     const { ports } = createPorts(order);
-    const graph = new InMemoryFeatureGraph({
-      milestones: [
-        {
-          id: 'm-1',
-          name: 'Milestone 1',
-          description: 'desc',
-          status: 'pending',
-          order: 0,
-        },
-      ],
-      features: [
-        {
-          id: 'f-1',
-          milestoneId: 'm-1',
-          orderInMilestone: 0,
-          name: 'Feature 1',
-          description: 'desc',
-          dependsOn: [],
-          status: 'in_progress',
-          workControl: 'executing',
-          collabControl: 'branch_open',
-          featureBranch: 'feat-feature-1-1',
-        },
-      ],
-      tasks: [
-        {
+    const graph = createSingleFeatureGraph(
+      {
+        status: 'in_progress',
+        workControl: 'executing',
+        collabControl: 'branch_open',
+      },
+      [
+        createTaskFixture({
           id: 't-1',
-          featureId: 'f-1',
-          orderInFeature: 0,
           description: 'Task 1',
-          dependsOn: [],
           status: 'running',
           collabControl: 'branch_open',
-        },
+        }),
       ],
-    });
+    );
     ports.store.createAgentRun(
       makeTaskRun({
         id: 'run-task:t-1',
@@ -1090,42 +914,21 @@ describe('SchedulerLoop', () => {
   it('puts a transient worker error into retry_await and returns the task to ready', async () => {
     const order: string[] = [];
     const { ports } = createPorts(order);
-    const graph = new InMemoryFeatureGraph({
-      milestones: [
-        {
-          id: 'm-1',
-          name: 'Milestone 1',
-          description: 'desc',
-          status: 'pending',
-          order: 0,
-        },
-      ],
-      features: [
-        {
-          id: 'f-1',
-          milestoneId: 'm-1',
-          orderInMilestone: 0,
-          name: 'Feature 1',
-          description: 'desc',
-          dependsOn: [],
-          status: 'pending',
-          workControl: 'executing',
-          collabControl: 'none',
-          featureBranch: 'feat-feature-1-1',
-        },
-      ],
-      tasks: [
-        {
+    const graph = createSingleFeatureGraph(
+      {
+        status: 'pending',
+        workControl: 'executing',
+        collabControl: 'none',
+      },
+      [
+        createTaskFixture({
           id: 't-1',
-          featureId: 'f-1',
-          orderInFeature: 0,
           description: 'Task 1',
-          dependsOn: [],
           status: 'running',
           collabControl: 'branch_open',
-        },
+        }),
       ],
-    });
+    );
     ports.store.createAgentRun(
       makeTaskRun({
         id: 'run-task:t-1',
@@ -1167,42 +970,21 @@ describe('SchedulerLoop', () => {
   it('moves a task run to await_response manual ownership on request_help', async () => {
     const order: string[] = [];
     const { ports } = createPorts(order);
-    const graph = new InMemoryFeatureGraph({
-      milestones: [
-        {
-          id: 'm-1',
-          name: 'Milestone 1',
-          description: 'desc',
-          status: 'pending',
-          order: 0,
-        },
-      ],
-      features: [
-        {
-          id: 'f-1',
-          milestoneId: 'm-1',
-          orderInMilestone: 0,
-          name: 'Feature 1',
-          description: 'desc',
-          dependsOn: [],
-          status: 'pending',
-          workControl: 'executing',
-          collabControl: 'none',
-          featureBranch: 'feat-feature-1-1',
-        },
-      ],
-      tasks: [
-        {
+    const graph = createSingleFeatureGraph(
+      {
+        status: 'pending',
+        workControl: 'executing',
+        collabControl: 'none',
+      },
+      [
+        createTaskFixture({
           id: 't-1',
-          featureId: 'f-1',
-          orderInFeature: 0,
           description: 'Task 1',
-          dependsOn: [],
           status: 'running',
           collabControl: 'branch_open',
-        },
+        }),
       ],
-    });
+    );
     ports.store.createAgentRun(
       makeTaskRun({
         id: 'run-task:t-1',
@@ -1235,42 +1017,21 @@ describe('SchedulerLoop', () => {
   it('moves a task run to await_approval on request_approval', async () => {
     const order: string[] = [];
     const { ports } = createPorts(order);
-    const graph = new InMemoryFeatureGraph({
-      milestones: [
-        {
-          id: 'm-1',
-          name: 'Milestone 1',
-          description: 'desc',
-          status: 'pending',
-          order: 0,
-        },
-      ],
-      features: [
-        {
-          id: 'f-1',
-          milestoneId: 'm-1',
-          orderInMilestone: 0,
-          name: 'Feature 1',
-          description: 'desc',
-          dependsOn: [],
-          status: 'pending',
-          workControl: 'executing',
-          collabControl: 'none',
-          featureBranch: 'feat-feature-1-1',
-        },
-      ],
-      tasks: [
-        {
+    const graph = createSingleFeatureGraph(
+      {
+        status: 'pending',
+        workControl: 'executing',
+        collabControl: 'none',
+      },
+      [
+        createTaskFixture({
           id: 't-1',
-          featureId: 'f-1',
-          orderInFeature: 0,
           description: 'Task 1',
-          dependsOn: [],
           status: 'running',
           collabControl: 'branch_open',
-        },
+        }),
       ],
-    });
+    );
     ports.store.createAgentRun(
       makeTaskRun({
         id: 'run-task:t-1',
@@ -1314,31 +1075,10 @@ describe('SchedulerLoop', () => {
     const createAgentRun = vi.spyOn(ports.store, 'createAgentRun');
     const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
     const planFeature = vi.spyOn(ports.agents, 'planFeature');
-    const graph = new InMemoryFeatureGraph({
-      milestones: [
-        {
-          id: 'm-1',
-          name: 'Milestone 1',
-          description: 'desc',
-          status: 'pending',
-          order: 0,
-        },
-      ],
-      features: [
-        {
-          id: 'f-1',
-          milestoneId: 'm-1',
-          orderInMilestone: 0,
-          name: 'Feature 1',
-          description: 'desc',
-          dependsOn: [],
-          status: 'pending',
-          workControl: 'planning',
-          collabControl: 'none',
-          featureBranch: 'feat-feature-1-1',
-        },
-      ],
-      tasks: [],
+    const graph = createProposalApprovalGraph({
+      status: 'pending',
+      workControl: 'planning',
+      collabControl: 'none',
     });
 
     const loop = new ExposedSchedulerLoop(graph, ports);
@@ -1379,31 +1119,10 @@ describe('SchedulerLoop', () => {
         sessionId: 'sess-existing',
       }),
     );
-    const graph = new InMemoryFeatureGraph({
-      milestones: [
-        {
-          id: 'm-1',
-          name: 'Milestone 1',
-          description: 'desc',
-          status: 'pending',
-          order: 0,
-        },
-      ],
-      features: [
-        {
-          id: 'f-1',
-          milestoneId: 'm-1',
-          orderInMilestone: 0,
-          name: 'Feature 1',
-          description: 'desc',
-          dependsOn: [],
-          status: 'pending',
-          workControl: 'planning',
-          collabControl: 'none',
-          featureBranch: 'feat-feature-1-1',
-        },
-      ],
-      tasks: [],
+    const graph = createProposalApprovalGraph({
+      status: 'pending',
+      workControl: 'planning',
+      collabControl: 'none',
     });
 
     const loop = new ExposedSchedulerLoop(graph, ports);
@@ -1423,42 +1142,21 @@ describe('SchedulerLoop', () => {
     const order: string[] = [];
     const { ports } = createPorts(order);
     const verifyFeatureBranch = vi.spyOn(ports.verification, 'verifyFeature');
-    const graph = new InMemoryFeatureGraph({
-      milestones: [
-        {
-          id: 'm-1',
-          name: 'Milestone 1',
-          description: 'desc',
-          status: 'pending',
-          order: 0,
-        },
-      ],
-      features: [
-        {
-          id: 'f-1',
-          milestoneId: 'm-1',
-          orderInMilestone: 0,
-          name: 'Feature 1',
-          description: 'desc',
-          dependsOn: [],
-          status: 'pending',
-          workControl: 'feature_ci',
-          collabControl: 'branch_open',
-          featureBranch: 'feat-feature-1-1',
-        },
-      ],
-      tasks: [
-        {
+    const graph = createSingleFeatureGraph(
+      {
+        status: 'pending',
+        workControl: 'feature_ci',
+        collabControl: 'branch_open',
+      },
+      [
+        createTaskFixture({
           id: 't-1',
-          featureId: 'f-1',
-          orderInFeature: 0,
           description: 'Task 1',
-          dependsOn: [],
           status: 'done',
           collabControl: 'merged',
-        },
+        }),
       ],
-    });
+    );
 
     const loop = new ExposedSchedulerLoop(graph, ports);
 
@@ -1476,42 +1174,21 @@ describe('SchedulerLoop', () => {
       new Error('feature checks failed to run'),
     );
     const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
-    const graph = new InMemoryFeatureGraph({
-      milestones: [
-        {
-          id: 'm-1',
-          name: 'Milestone 1',
-          description: 'desc',
-          status: 'pending',
-          order: 0,
-        },
-      ],
-      features: [
-        {
-          id: 'f-1',
-          milestoneId: 'm-1',
-          orderInMilestone: 0,
-          name: 'Feature 1',
-          description: 'desc',
-          dependsOn: [],
-          status: 'pending',
-          workControl: 'feature_ci',
-          collabControl: 'branch_open',
-          featureBranch: 'feat-feature-1-1',
-        },
-      ],
-      tasks: [
-        {
+    const graph = createSingleFeatureGraph(
+      {
+        status: 'pending',
+        workControl: 'feature_ci',
+        collabControl: 'branch_open',
+      },
+      [
+        createTaskFixture({
           id: 't-1',
-          featureId: 'f-1',
-          orderInFeature: 0,
           description: 'Task 1',
-          dependsOn: [],
           status: 'done',
           collabControl: 'merged',
-        },
+        }),
       ],
-    });
+    );
 
     const loop = new ExposedSchedulerLoop(graph, ports);
 
@@ -1531,31 +1208,10 @@ describe('SchedulerLoop', () => {
     const order: string[] = [];
     const { ports } = createPorts(order);
     const verifyFeature = vi.spyOn(ports.agents, 'verifyFeature');
-    const graph = new InMemoryFeatureGraph({
-      milestones: [
-        {
-          id: 'm-1',
-          name: 'Milestone 1',
-          description: 'desc',
-          status: 'pending',
-          order: 0,
-        },
-      ],
-      features: [
-        {
-          id: 'f-1',
-          milestoneId: 'm-1',
-          orderInMilestone: 0,
-          name: 'Feature 1',
-          description: 'desc',
-          dependsOn: [],
-          status: 'pending',
-          workControl: 'verifying',
-          collabControl: 'branch_open',
-          featureBranch: 'feat-feature-1-1',
-        },
-      ],
-      tasks: [],
+    const graph = createSingleFeatureGraph({
+      status: 'pending',
+      workControl: 'verifying',
+      collabControl: 'branch_open',
     });
 
     const loop = new ExposedSchedulerLoop(graph, ports);
@@ -1572,31 +1228,10 @@ describe('SchedulerLoop', () => {
     const order: string[] = [];
     const { ports } = createPorts(order, { tokenProfile: 'balanced' });
     const summarizeFeature = vi.spyOn(ports.agents, 'summarizeFeature');
-    const graph = new InMemoryFeatureGraph({
-      milestones: [
-        {
-          id: 'm-1',
-          name: 'Milestone 1',
-          description: 'desc',
-          status: 'pending',
-          order: 0,
-        },
-      ],
-      features: [
-        {
-          id: 'f-1',
-          milestoneId: 'm-1',
-          orderInMilestone: 0,
-          name: 'Feature 1',
-          description: 'desc',
-          dependsOn: [],
-          status: 'done',
-          workControl: 'awaiting_merge',
-          collabControl: 'merged',
-          featureBranch: 'feat-feature-1-1',
-        },
-      ],
-      tasks: [],
+    const graph = createSingleFeatureGraph({
+      status: 'done',
+      workControl: 'awaiting_merge',
+      collabControl: 'merged',
     });
 
     const loop = new ExposedSchedulerLoop(graph, ports);
@@ -1612,31 +1247,10 @@ describe('SchedulerLoop', () => {
   it('does not emit feature_phase_complete when plan submits proposal for approval', async () => {
     const order: string[] = [];
     const { ports } = createPorts(order);
-    const graph = new InMemoryFeatureGraph({
-      milestones: [
-        {
-          id: 'm-1',
-          name: 'Milestone 1',
-          description: 'desc',
-          status: 'pending',
-          order: 0,
-        },
-      ],
-      features: [
-        {
-          id: 'f-1',
-          milestoneId: 'm-1',
-          orderInMilestone: 0,
-          name: 'Feature 1',
-          description: 'desc',
-          dependsOn: [],
-          status: 'pending',
-          workControl: 'planning',
-          collabControl: 'none',
-          featureBranch: 'feat-feature-1-1',
-        },
-      ],
-      tasks: [],
+    const graph = createProposalApprovalGraph({
+      status: 'pending',
+      workControl: 'planning',
+      collabControl: 'none',
     });
 
     const loop = new ObservingSchedulerLoop(graph, ports);
@@ -1652,31 +1266,10 @@ describe('SchedulerLoop', () => {
     vi.spyOn(ports.agents, 'planFeature').mockRejectedValueOnce(
       new Error('boom'),
     );
-    const graph = new InMemoryFeatureGraph({
-      milestones: [
-        {
-          id: 'm-1',
-          name: 'Milestone 1',
-          description: 'desc',
-          status: 'pending',
-          order: 0,
-        },
-      ],
-      features: [
-        {
-          id: 'f-1',
-          milestoneId: 'm-1',
-          orderInMilestone: 0,
-          name: 'Feature 1',
-          description: 'desc',
-          dependsOn: [],
-          status: 'pending',
-          workControl: 'planning',
-          collabControl: 'none',
-          featureBranch: 'feat-feature-1-1',
-        },
-      ],
-      tasks: [],
+    const graph = createProposalApprovalGraph({
+      status: 'pending',
+      workControl: 'planning',
+      collabControl: 'none',
     });
 
     const loop = new ObservingSchedulerLoop(graph, ports);
@@ -1701,31 +1294,10 @@ describe('SchedulerLoop', () => {
       }),
     );
     const planFeature = vi.spyOn(ports.agents, 'planFeature');
-    const graph = new InMemoryFeatureGraph({
-      milestones: [
-        {
-          id: 'm-1',
-          name: 'Milestone 1',
-          description: 'desc',
-          status: 'pending',
-          order: 0,
-        },
-      ],
-      features: [
-        {
-          id: 'f-1',
-          milestoneId: 'm-1',
-          orderInMilestone: 0,
-          name: 'Feature 1',
-          description: 'desc',
-          dependsOn: [],
-          status: 'pending',
-          workControl: 'planning',
-          collabControl: 'none',
-          featureBranch: 'feat-feature-1-1',
-        },
-      ],
-      tasks: [],
+    const graph = createProposalApprovalGraph({
+      status: 'pending',
+      workControl: 'planning',
+      collabControl: 'none',
     });
 
     const loop = new ExposedSchedulerLoop(graph, ports);
@@ -1740,32 +1312,7 @@ describe('SchedulerLoop', () => {
     const { ports } = createPorts(order);
     const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
     const appendEvent = vi.spyOn(ports.store, 'appendEvent');
-    const graph = new InMemoryFeatureGraph({
-      milestones: [
-        {
-          id: 'm-1',
-          name: 'Milestone 1',
-          description: 'desc',
-          status: 'pending',
-          order: 0,
-        },
-      ],
-      features: [
-        {
-          id: 'f-1',
-          milestoneId: 'm-1',
-          orderInMilestone: 0,
-          name: 'Feature 1',
-          description: 'desc',
-          dependsOn: [],
-          status: 'in_progress',
-          workControl: 'planning',
-          collabControl: 'none',
-          featureBranch: 'feat-feature-1-1',
-        },
-      ],
-      tasks: [],
-    });
+    const graph = createProposalApprovalGraph();
     ports.store.createAgentRun(
       makeFeaturePhaseRun('plan', {
         runStatus: 'await_approval',
@@ -1815,32 +1362,7 @@ describe('SchedulerLoop', () => {
     const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
     const appendEvent = vi.spyOn(ports.store, 'appendEvent');
     const planFeature = vi.spyOn(ports.agents, 'planFeature');
-    const graph = new InMemoryFeatureGraph({
-      milestones: [
-        {
-          id: 'm-1',
-          name: 'Milestone 1',
-          description: 'desc',
-          status: 'pending',
-          order: 0,
-        },
-      ],
-      features: [
-        {
-          id: 'f-1',
-          milestoneId: 'm-1',
-          orderInMilestone: 0,
-          name: 'Feature 1',
-          description: 'desc',
-          dependsOn: [],
-          status: 'in_progress',
-          workControl: 'planning',
-          collabControl: 'none',
-          featureBranch: 'feat-feature-1-1',
-        },
-      ],
-      tasks: [],
-    });
+    const graph = createProposalApprovalGraph();
     ports.store.createAgentRun(
       makeFeaturePhaseRun('plan', {
         runStatus: 'await_approval',
@@ -1901,42 +1423,20 @@ describe('SchedulerLoop', () => {
     const order: string[] = [];
     const { ports } = createPorts(order);
     const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
-    const graph = new InMemoryFeatureGraph({
-      milestones: [
-        {
-          id: 'm-1',
-          name: 'Milestone 1',
-          description: 'desc',
-          status: 'pending',
-          order: 0,
-        },
-      ],
-      features: [
-        {
-          id: 'f-1',
-          milestoneId: 'm-1',
-          orderInMilestone: 0,
-          name: 'Feature 1',
-          description: 'desc',
-          dependsOn: [],
-          status: 'in_progress',
-          workControl: 'replanning',
-          collabControl: 'branch_open',
-          featureBranch: 'feat-feature-1-1',
-        },
-      ],
-      tasks: [
-        {
+    const graph = createProposalApprovalGraph(
+      {
+        workControl: 'replanning',
+        collabControl: 'branch_open',
+      },
+      [
+        createTaskFixture({
           id: 't-stuck',
-          featureId: 'f-1',
-          orderInFeature: 0,
           description: 'Existing stuck task',
-          dependsOn: [],
           status: 'stuck',
           collabControl: 'branch_open',
-        },
+        }),
       ],
-    });
+    );
     ports.store.createAgentRun(
       makeFeaturePhaseRun('replan', {
         runStatus: 'await_approval',
@@ -1982,32 +1482,7 @@ describe('SchedulerLoop', () => {
     const { ports } = createPorts(order);
     const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
     const appendEvent = vi.spyOn(ports.store, 'appendEvent');
-    const graph = new InMemoryFeatureGraph({
-      milestones: [
-        {
-          id: 'm-1',
-          name: 'Milestone 1',
-          description: 'desc',
-          status: 'pending',
-          order: 0,
-        },
-      ],
-      features: [
-        {
-          id: 'f-1',
-          milestoneId: 'm-1',
-          orderInMilestone: 0,
-          name: 'Feature 1',
-          description: 'desc',
-          dependsOn: [],
-          status: 'in_progress',
-          workControl: 'planning',
-          collabControl: 'none',
-          featureBranch: 'feat-feature-1-1',
-        },
-      ],
-      tasks: [],
-    });
+    const graph = createProposalApprovalGraph();
     ports.store.createAgentRun(
       makeFeaturePhaseRun('plan', {
         runStatus: 'await_approval',
@@ -2053,32 +1528,7 @@ describe('SchedulerLoop', () => {
     const order: string[] = [];
     const { ports } = createPorts(order);
     const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
-    const graph = new InMemoryFeatureGraph({
-      milestones: [
-        {
-          id: 'm-1',
-          name: 'Milestone 1',
-          description: 'desc',
-          status: 'pending',
-          order: 0,
-        },
-      ],
-      features: [
-        {
-          id: 'f-1',
-          milestoneId: 'm-1',
-          orderInMilestone: 0,
-          name: 'Feature 1',
-          description: 'desc',
-          dependsOn: [],
-          status: 'in_progress',
-          workControl: 'planning',
-          collabControl: 'none',
-          featureBranch: 'feat-feature-1-1',
-        },
-      ],
-      tasks: [],
-    });
+    const graph = createProposalApprovalGraph();
     const noOpProposal: GraphProposal = {
       version: 1,
       mode: 'plan',
@@ -2125,32 +1575,7 @@ describe('SchedulerLoop', () => {
     const order: string[] = [];
     const { ports } = createPorts(order);
     const appendEvent = vi.spyOn(ports.store, 'appendEvent');
-    const graph = new InMemoryFeatureGraph({
-      milestones: [
-        {
-          id: 'm-1',
-          name: 'Milestone 1',
-          description: 'desc',
-          status: 'pending',
-          order: 0,
-        },
-      ],
-      features: [
-        {
-          id: 'f-1',
-          milestoneId: 'm-1',
-          orderInMilestone: 0,
-          name: 'Feature 1',
-          description: 'desc',
-          dependsOn: [],
-          status: 'in_progress',
-          workControl: 'planning',
-          collabControl: 'none',
-          featureBranch: 'feat-feature-1-1',
-        },
-      ],
-      tasks: [],
-    });
+    const graph = createProposalApprovalGraph();
     ports.store.createAgentRun(
       makeFeaturePhaseRun('plan', {
         runStatus: 'await_approval',
@@ -2847,31 +2272,10 @@ describe('SchedulerLoop', () => {
     const order: string[] = [];
     const { ports } = createPorts(order, { tokenProfile: 'balanced' });
     vi.spyOn(ports.runtime, 'idleWorkerCount').mockReturnValue(0);
-    const graph = new InMemoryFeatureGraph({
-      milestones: [
-        {
-          id: 'm-1',
-          name: 'Milestone 1',
-          description: 'desc',
-          status: 'pending',
-          order: 0,
-        },
-      ],
-      features: [
-        {
-          id: 'f-1',
-          milestoneId: 'm-1',
-          orderInMilestone: 0,
-          name: 'Feature 1',
-          description: 'desc',
-          dependsOn: [],
-          status: 'done',
-          workControl: 'awaiting_merge',
-          collabControl: 'merged',
-          featureBranch: 'feat-feature-1-1',
-        },
-      ],
-      tasks: [],
+    const graph = createSingleFeatureGraph({
+      status: 'done',
+      workControl: 'awaiting_merge',
+      collabControl: 'merged',
     });
 
     const loop = new ExposedSchedulerLoop(graph, ports);
@@ -2893,31 +2297,10 @@ describe('SchedulerLoop', () => {
   it('skips summarizing in budget mode after merge', async () => {
     const order: string[] = [];
     const { ports } = createPorts(order, { tokenProfile: 'budget' });
-    const graph = new InMemoryFeatureGraph({
-      milestones: [
-        {
-          id: 'm-1',
-          name: 'Milestone 1',
-          description: 'desc',
-          status: 'pending',
-          order: 0,
-        },
-      ],
-      features: [
-        {
-          id: 'f-1',
-          milestoneId: 'm-1',
-          orderInMilestone: 0,
-          name: 'Feature 1',
-          description: 'desc',
-          dependsOn: [],
-          status: 'done',
-          workControl: 'awaiting_merge',
-          collabControl: 'merged',
-          featureBranch: 'feat-feature-1-1',
-        },
-      ],
-      tasks: [],
+    const graph = createSingleFeatureGraph({
+      status: 'done',
+      workControl: 'awaiting_merge',
+      collabControl: 'merged',
     });
 
     const loop = new ExposedSchedulerLoop(graph, ports);
@@ -3305,32 +2688,7 @@ describe('SchedulerLoop', () => {
     const order: string[] = [];
     const { ports } = createPorts(order);
     const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
-    const graph = new InMemoryFeatureGraph({
-      milestones: [
-        {
-          id: 'm-1',
-          name: 'Milestone 1',
-          description: 'desc',
-          status: 'pending',
-          order: 0,
-        },
-      ],
-      features: [
-        {
-          id: 'f-1',
-          milestoneId: 'm-1',
-          orderInMilestone: 0,
-          name: 'Feature 1',
-          description: 'desc',
-          dependsOn: [],
-          status: 'in_progress',
-          workControl: 'planning',
-          collabControl: 'none',
-          featureBranch: 'feat-feature-1-1',
-        },
-      ],
-      tasks: [],
-    });
+    const graph = createProposalApprovalGraph();
     ports.store.createAgentRun(makeFeaturePhaseRun('plan'));
 
     const loop = new ExposedSchedulerLoop(graph, ports);

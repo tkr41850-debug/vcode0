@@ -4,9 +4,7 @@ import {
   type PromptLibrary,
   promptLibrary,
 } from '@agents';
-import { InMemoryFeatureGraph } from '@core/graph/index';
 import type {
-  AgentRun,
   DiscussPhaseDetails,
   Feature,
   FeaturePhaseAgentRun,
@@ -16,6 +14,7 @@ import type {
 } from '@core/types/index';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { createGraphWithFeature } from '../../helpers/graph-builders.js';
 import {
   createFauxProvider,
   type FauxProviderRegistration,
@@ -34,21 +33,17 @@ function createConfig(overrides: Partial<GvcConfig> = {}): GvcConfig {
 }
 
 function createFeatureGraph(): {
-  graph: InMemoryFeatureGraph;
+  graph: ReturnType<typeof createGraphWithFeature>;
   feature: Feature;
 } {
-  const graph = new InMemoryFeatureGraph();
-  graph.createMilestone({
-    id: 'm-1',
-    name: 'Milestone 1',
-    description: 'desc',
-  });
-  const feature = graph.createFeature({
-    id: 'f-1',
-    milestoneId: 'm-1',
+  const graph = createGraphWithFeature({
     name: 'Feature 1',
     description: 'Implement feature 1',
   });
+  const feature = graph.features.get('f-1');
+  if (feature === undefined) {
+    throw new Error('feature f-1 not found');
+  }
 
   return { graph, feature };
 }
@@ -67,6 +62,62 @@ function createFeatureRun(
     restartCount: 0,
     maxRetries: 3,
   };
+}
+
+function createRuntimeFixture(
+  phase: FeaturePhaseAgentRun['phase'],
+  options: {
+    config?: Partial<GvcConfig>;
+    promptLibrary?: PromptLibrary;
+  } = {},
+): {
+  graph: ReturnType<typeof createGraphWithFeature>;
+  feature: Feature;
+  store: InMemoryStore;
+  sessionStore: InMemorySessionStore;
+  run: FeaturePhaseAgentRun;
+  runtime: PiFeatureAgentRuntime;
+} {
+  const { graph, feature } = createFeatureGraph();
+  const store = new InMemoryStore();
+  const sessionStore = new InMemorySessionStore();
+  const run = createFeatureRun(phase);
+  store.createAgentRun(run);
+
+  const runtime = new PiFeatureAgentRuntime({
+    modelId: 'claude-sonnet-4-6',
+    config: createConfig(options.config),
+    promptLibrary: options.promptLibrary ?? promptLibrary,
+    graph,
+    store,
+    sessionStore,
+  });
+
+  return { graph, feature, store, sessionStore, run, runtime };
+}
+
+function addMergedTask(
+  graph: ReturnType<typeof createGraphWithFeature>,
+  featureId: `f-${string}`,
+  taskId: `t-${string}`,
+  description: string,
+  result: { summary: string; filesChanged: string[] },
+): void {
+  graph.createTask({
+    id: taskId,
+    featureId,
+    description,
+  });
+  graph.transitionTask(taskId, { status: 'ready' });
+  graph.transitionTask(taskId, {
+    status: 'running',
+    collabControl: 'branch_open',
+  });
+  graph.transitionTask(taskId, {
+    status: 'done',
+    collabControl: 'merged',
+    result,
+  });
 }
 
 function createPromptCapturingLibrary(): {
@@ -153,20 +204,8 @@ describe('PiFeatureAgentRuntime', () => {
       fauxAssistantMessage([fauxText('Discussion structured.')]),
     ]);
 
-    const { graph, feature } = createFeatureGraph();
-    const store = new InMemoryStore();
-    const sessionStore = new InMemorySessionStore();
-    const run = createFeatureRun('discuss');
-    store.createAgentRun(run as AgentRun);
-
-    const runtime = new PiFeatureAgentRuntime({
-      modelId: 'claude-sonnet-4-6',
-      config: createConfig(),
-      promptLibrary,
-      graph,
-      store,
-      sessionStore,
-    });
+    const { feature, store, sessionStore, run, runtime } =
+      createRuntimeFixture('discuss');
 
     const result = await runtime.discussFeature(feature, {
       agentRunId: run.id,
@@ -193,35 +232,6 @@ describe('PiFeatureAgentRuntime', () => {
     );
   });
 
-  it('requires submitDiscuss before discuss phase completion', async () => {
-    faux.setResponses([
-      fauxAssistantMessage([fauxText('Discussion notes only.')]),
-    ]);
-
-    const { graph, feature } = createFeatureGraph();
-    const store = new InMemoryStore();
-    const sessionStore = new InMemorySessionStore();
-    const run = createFeatureRun('discuss');
-    store.createAgentRun(run as AgentRun);
-
-    const runtime = new PiFeatureAgentRuntime({
-      modelId: 'claude-sonnet-4-6',
-      config: createConfig(),
-      promptLibrary,
-      graph,
-      store,
-      sessionStore,
-    });
-
-    await expect(
-      runtime.discussFeature(feature, {
-        agentRunId: run.id,
-      }),
-    ).rejects.toThrow(
-      'discuss phase must call submitDiscuss before completion',
-    );
-  });
-
   it('exposes feature inspection tools during summarize', async () => {
     const extra: SummarizePhaseDetails = {
       outcome: 'Delivered merged feature',
@@ -245,43 +255,17 @@ describe('PiFeatureAgentRuntime', () => {
       fauxAssistantMessage([fauxText('Summary structured.')]),
     ]);
 
-    const { graph, feature } = createFeatureGraph();
-    graph.createTask({
-      id: 't-1',
-      featureId: feature.id,
-      description: 'Task 1',
-    });
-    graph.transitionTask('t-1', { status: 'ready' });
-    graph.transitionTask('t-1', {
-      status: 'running',
-      collabControl: 'branch_open',
-    });
-    graph.transitionTask('t-1', {
-      status: 'done',
-      collabControl: 'merged',
-      result: {
-        summary: 'Implemented API path',
-        filesChanged: ['src/api.ts'],
-      },
+    const { graph, feature, store, run, runtime } =
+      createRuntimeFixture('summarize');
+    addMergedTask(graph, feature.id, 't-1', 'Task 1', {
+      summary: 'Implemented API path',
+      filesChanged: ['src/api.ts'],
     });
 
-    const store = new InMemoryStore();
     appendFeaturePhaseEvent(store, feature.id, 'verify', 'verify green', {
       ok: true,
       summary: 'verify green',
       outcome: 'pass',
-    });
-    const sessionStore = new InMemorySessionStore();
-    const run = createFeatureRun('summarize');
-    store.createAgentRun(run as AgentRun);
-
-    const runtime = new PiFeatureAgentRuntime({
-      modelId: 'claude-sonnet-4-6',
-      config: createConfig(),
-      promptLibrary,
-      graph,
-      store,
-      sessionStore,
     });
 
     const result = await runtime.summarizeFeature(feature, {
@@ -292,8 +276,10 @@ describe('PiFeatureAgentRuntime', () => {
   });
 
   it('builds plan prompt from structured discuss and research outputs', async () => {
-    const { graph, feature } = createFeatureGraph();
-    const store = new InMemoryStore();
+    const { library, captured } = createPromptCapturingLibrary();
+    const { feature, store, run, runtime } = createRuntimeFixture('plan', {
+      promptLibrary: library,
+    });
     appendFeaturePhaseEvent(store, feature.id, 'discuss', 'Discussion ready.', {
       summary: 'Discussion ready.',
       intent: 'Implement canonical prompt source',
@@ -318,18 +304,6 @@ describe('PiFeatureAgentRuntime', () => {
       proofsNeeded: ['Need prompt rendering proof'],
       verificationSurfaces: ['prompt-library tests'],
       planningNotes: ['Keep execute prompt separate'],
-    });
-    const sessionStore = new InMemorySessionStore();
-    const run = createFeatureRun('plan');
-    store.createAgentRun(run as AgentRun);
-    const { library, captured } = createPromptCapturingLibrary();
-    const runtime = new PiFeatureAgentRuntime({
-      modelId: 'claude-sonnet-4-6',
-      config: createConfig(),
-      promptLibrary: library,
-      graph,
-      store,
-      sessionStore,
     });
 
     faux.setResponses([
@@ -381,20 +355,8 @@ describe('PiFeatureAgentRuntime', () => {
       fauxAssistantMessage([fauxText('Plan ready.')]),
     ]);
 
-    const { graph, feature } = createFeatureGraph();
-    const store = new InMemoryStore();
-    const sessionStore = new InMemorySessionStore();
-    const run = createFeatureRun('plan');
-    store.createAgentRun(run as AgentRun);
-
-    const runtime = new PiFeatureAgentRuntime({
-      modelId: 'claude-sonnet-4-6',
-      config: createConfig(),
-      promptLibrary,
-      graph,
-      store,
-      sessionStore,
-    });
+    const { graph, feature, store, run, runtime } =
+      createRuntimeFixture('plan');
 
     const result = await runtime.planFeature(feature, {
       agentRunId: run.id,
@@ -454,20 +416,7 @@ describe('PiFeatureAgentRuntime', () => {
       fauxAssistantMessage([fauxText('Verification structured.')]),
     ]);
 
-    const { graph, feature } = createFeatureGraph();
-    const store = new InMemoryStore();
-    const sessionStore = new InMemorySessionStore();
-    const run = createFeatureRun('verify');
-    store.createAgentRun(run as AgentRun);
-
-    const runtime = new PiFeatureAgentRuntime({
-      modelId: 'claude-sonnet-4-6',
-      config: createConfig(),
-      promptLibrary,
-      graph,
-      store,
-      sessionStore,
-    });
+    const { feature, store, run, runtime } = createRuntimeFixture('verify');
 
     const result = await runtime.verifyFeature(feature, {
       agentRunId: run.id,
@@ -497,88 +446,65 @@ describe('PiFeatureAgentRuntime', () => {
     );
   });
 
-  it('requires submitVerify before verify phase completion', async () => {
-    faux.setResponses([
-      fauxAssistantMessage([fauxText('Looks good overall.')]),
-    ]);
+  it.each([
+    {
+      phase: 'discuss' as const,
+      response: 'Discussion notes only.',
+      runPhase: 'discuss' as const,
+      invoke: (
+        runtime: PiFeatureAgentRuntime,
+        feature: Feature,
+        agentRunId: string,
+      ) => runtime.discussFeature(feature, { agentRunId }),
+      expectedError: 'discuss phase must call submitDiscuss before completion',
+    },
+    {
+      phase: 'verify' as const,
+      response: 'Looks good overall.',
+      runPhase: 'verify' as const,
+      invoke: (
+        runtime: PiFeatureAgentRuntime,
+        feature: Feature,
+        agentRunId: string,
+      ) => runtime.verifyFeature(feature, { agentRunId }),
+      expectedError: 'verify phase must call submitVerify before completion',
+    },
+    {
+      phase: 'research' as const,
+      response: 'Research notes only.',
+      runPhase: 'research' as const,
+      invoke: (
+        runtime: PiFeatureAgentRuntime,
+        feature: Feature,
+        agentRunId: string,
+      ) => runtime.researchFeature(feature, { agentRunId }),
+      expectedError:
+        'research phase must call submitResearch before completion',
+    },
+    {
+      phase: 'summarize' as const,
+      response: 'Summary notes only.',
+      runPhase: 'summarize' as const,
+      invoke: (
+        runtime: PiFeatureAgentRuntime,
+        feature: Feature,
+        agentRunId: string,
+      ) => runtime.summarizeFeature(feature, { agentRunId }),
+      expectedError:
+        'summarize phase must call submitSummarize before completion',
+    },
+  ])('requires $phase submit tool before phase completion', async ({
+    response,
+    runPhase,
+    invoke,
+    expectedError,
+  }) => {
+    faux.setResponses([fauxAssistantMessage([fauxText(response)])]);
 
-    const { graph, feature } = createFeatureGraph();
-    const store = new InMemoryStore();
-    const sessionStore = new InMemorySessionStore();
-    const run = createFeatureRun('verify');
-    store.createAgentRun(run as AgentRun);
+    const { feature, run, runtime } = createRuntimeFixture(runPhase);
 
-    const runtime = new PiFeatureAgentRuntime({
-      modelId: 'claude-sonnet-4-6',
-      config: createConfig(),
-      promptLibrary,
-      graph,
-      store,
-      sessionStore,
-    });
-
-    await expect(
-      runtime.verifyFeature(feature, {
-        agentRunId: run.id,
-      }),
-    ).rejects.toThrow('verify phase must call submitVerify before completion');
-  });
-
-  it('requires submitResearch before research phase completion', async () => {
-    faux.setResponses([
-      fauxAssistantMessage([fauxText('Research notes only.')]),
-    ]);
-
-    const { graph, feature } = createFeatureGraph();
-    const store = new InMemoryStore();
-    const sessionStore = new InMemorySessionStore();
-    const run = createFeatureRun('research');
-    store.createAgentRun(run as AgentRun);
-
-    const runtime = new PiFeatureAgentRuntime({
-      modelId: 'claude-sonnet-4-6',
-      config: createConfig(),
-      promptLibrary,
-      graph,
-      store,
-      sessionStore,
-    });
-
-    await expect(
-      runtime.researchFeature(feature, {
-        agentRunId: run.id,
-      }),
-    ).rejects.toThrow(
-      'research phase must call submitResearch before completion',
-    );
-  });
-
-  it('requires submitSummarize before summarize phase completion', async () => {
-    faux.setResponses([
-      fauxAssistantMessage([fauxText('Summary notes only.')]),
-    ]);
-
-    const { graph, feature } = createFeatureGraph();
-    const store = new InMemoryStore();
-    const sessionStore = new InMemorySessionStore();
-    const run = createFeatureRun('summarize');
-    store.createAgentRun(run as AgentRun);
-
-    const runtime = new PiFeatureAgentRuntime({
-      modelId: 'claude-sonnet-4-6',
-      config: createConfig(),
-      promptLibrary,
-      graph,
-      store,
-      sessionStore,
-    });
-
-    await expect(
-      runtime.summarizeFeature(feature, {
-        agentRunId: run.id,
-      }),
-    ).rejects.toThrow(
-      'summarize phase must call submitSummarize before completion',
+    await expect(invoke(runtime, feature, run.id)).rejects.toThrow(
+      expectedError,
     );
   });
 
@@ -603,46 +529,24 @@ describe('PiFeatureAgentRuntime', () => {
       fauxAssistantMessage([fauxText('Summary submitted.')]),
     ]);
 
-    const { graph, feature } = createFeatureGraph();
+    const { library, captured } = createPromptCapturingLibrary();
+    const { graph, feature, store, run, runtime } = createRuntimeFixture(
+      'summarize',
+      { promptLibrary: library },
+    );
     graph.editFeature(feature.id, { summary: 'stale old summary' });
-    graph.createTask({
-      id: 't-1',
-      featureId: feature.id,
-      description: 'Task 1',
+    const currentFeature = graph.features.get(feature.id);
+    if (currentFeature === undefined) {
+      throw new Error(`feature ${feature.id} not found`);
+    }
+    addMergedTask(graph, feature.id, 't-1', 'Task 1', {
+      summary: 'Implemented API path',
+      filesChanged: ['src/api.ts', 'src/feature.ts'],
     });
-    graph.transitionTask('t-1', { status: 'ready' });
-    graph.transitionTask('t-1', {
-      status: 'running',
-      collabControl: 'branch_open',
+    addMergedTask(graph, feature.id, 't-2', 'Task 2', {
+      summary: 'Added verification hooks',
+      filesChanged: ['src/feature.ts', 'src/verify.ts'],
     });
-    graph.transitionTask('t-1', {
-      status: 'done',
-      collabControl: 'merged',
-      result: {
-        summary: 'Implemented API path',
-        filesChanged: ['src/api.ts', 'src/feature.ts'],
-      },
-    });
-    graph.createTask({
-      id: 't-2',
-      featureId: feature.id,
-      description: 'Task 2',
-    });
-    graph.transitionTask('t-2', { status: 'ready' });
-    graph.transitionTask('t-2', {
-      status: 'running',
-      collabControl: 'branch_open',
-    });
-    graph.transitionTask('t-2', {
-      status: 'done',
-      collabControl: 'merged',
-      result: {
-        summary: 'Added verification hooks',
-        filesChanged: ['src/feature.ts', 'src/verify.ts'],
-      },
-    });
-
-    const store = new InMemoryStore();
     appendFeaturePhaseEvent(
       store,
       feature.id,
@@ -694,21 +598,7 @@ describe('PiFeatureAgentRuntime', () => {
       ok: true,
       summary: 'verify green',
     });
-    const sessionStore = new InMemorySessionStore();
-    const run = createFeatureRun('summarize');
-    store.createAgentRun(run as AgentRun);
-    const { library, captured } = createPromptCapturingLibrary();
-
-    const runtime = new PiFeatureAgentRuntime({
-      modelId: 'claude-sonnet-4-6',
-      config: createConfig(),
-      promptLibrary: library,
-      graph,
-      store,
-      sessionStore,
-    });
-
-    const result = await runtime.summarizeFeature(feature, {
+    const result = await runtime.summarizeFeature(currentFeature, {
       agentRunId: run.id,
     });
 
