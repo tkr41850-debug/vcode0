@@ -25,9 +25,7 @@ test('renders startup shell and keyboard help flow', async ({ terminal }) => {
 
   terminal.keyPress('h');
   await expect(terminal.getByText('Help [h/q/esc hide]')).toBeVisible();
-  await expect(
-    terminal.getByText('Show or hide keyboard help.'),
-  ).toBeVisible();
+  await expect(terminal.getByText('Show or hide keyboard help.')).toBeVisible();
   await expect(terminal.getByText('Hide active overlay.')).toBeVisible();
 
   terminal.keyEscape();
@@ -37,7 +35,9 @@ test('renders startup shell and keyboard help flow', async ({ terminal }) => {
   await waitForExit(terminal);
 });
 
-test('opens monitor overlay and closes it before quit', async ({ terminal }) => {
+test('opens monitor overlay and closes it before quit', async ({
+  terminal,
+}) => {
   await expect(terminal.getByText('loading...')).toBeVisible({
     timeout: loadingTimeoutMs,
   });
