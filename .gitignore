@@ -3,6 +3,7 @@ coverage/
 dist/
 .eslintcache
 .vitest/
+.tui-test/
 *.tsbuildinfo
 .gvc0/
 

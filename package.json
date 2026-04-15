@@ -21,11 +21,14 @@
     "test:unit:watch": "vitest test/unit",
     "test:integration": "vitest run test/integration",
     "test:integration:watch": "vitest test/integration",
+    "test:tui:e2e": "command npx tui-test",
+    "tui": "tsx src/main.ts",
     "typecheck": "tsc --noEmit",
     "verify": "npm run check && npm run lint:ci"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.10",
+    "@microsoft/tui-test": "^0.0.4",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^25.5.2",
     "eslint": "^10.2.0",

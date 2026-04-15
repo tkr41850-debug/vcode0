@@ -8,8 +8,9 @@ vi.mock('@root/compose', () => ({
 
 describe('main CLI', () => {
   beforeEach(() => {
-    composeApplication.mockReset();
     vi.restoreAllMocks();
+    composeApplication.mockReset();
+    vi.spyOn(process.stdout, 'write').mockReturnValue(true);
     process.exitCode = undefined;
   });
 
@@ -18,6 +19,21 @@ describe('main CLI', () => {
 
     expect(parseAppMode([])).toBe('interactive');
     expect(parseAppMode(['--auto'])).toBe('auto');
+  });
+
+  it('writes startup notice before app start', async () => {
+    const app = {
+      start: vi.fn().mockResolvedValue(undefined),
+      stop: vi.fn().mockResolvedValue(undefined),
+    };
+    composeApplication.mockResolvedValue(app);
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+
+    const { runCli } = await import('@root/main');
+    await runCli([]);
+
+    expect(stdoutSpy).toHaveBeenCalledWith('loading...\n');
+    expect(app.start).toHaveBeenCalledWith('interactive');
   });
 
   it('writes startup errors and stops partially started app', async () => {
@@ -37,6 +53,33 @@ describe('main CLI', () => {
     expect(stderrSpy).toHaveBeenCalledWith(
       'Failed to start gvc0 TUI: tty missing\n',
     );
+  });
+
+  it('applies --cwd before startup', async () => {
+    const app = {
+      start: vi.fn().mockResolvedValue(undefined),
+      stop: vi.fn().mockResolvedValue(undefined),
+    };
+    composeApplication.mockResolvedValue(app);
+    const chdirSpy = vi.spyOn(process, 'chdir').mockImplementation(() => {});
+
+    const { runCli } = await import('@root/main');
+    await runCli(['--cwd', '/tmp/tui-e2e']);
+
+    expect(chdirSpy).toHaveBeenCalledWith('/tmp/tui-e2e');
+    expect(app.start).toHaveBeenCalledWith('interactive');
+  });
+
+  it('detects tsx direct execution as main', async () => {
+    const { isExecutedAsMain } = await import('@root/main');
+
+    expect(isExecutedAsMain('file:///tmp/example.ts', '/tmp/example.ts')).toBe(
+      true,
+    );
+    expect(isExecutedAsMain('file:///tmp/example.ts', '/tmp/other.ts')).toBe(
+      false,
+    );
+    expect(isExecutedAsMain('file:///tmp/example.ts', undefined)).toBe(false);
   });
 
   it('reports stop cleanup failures', async () => {

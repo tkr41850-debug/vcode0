@@ -14,5 +14,6 @@ export default defineConfig({
       'test/integration/**/*.test.ts',
       'test/integration/**/*.spec.ts',
     ],
+    exclude: ['test/integration/tui/**'],
   },
 });
