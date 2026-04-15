@@ -4,13 +4,18 @@ See [ARCHITECTURE.md](../ARCHITECTURE.md) for the high-level architecture overvi
 
 ## Current Test Coverage
 
-Vitest separates executable suites under `test/unit/` and `test/integration/`.
+Executable tests use two runners:
+
+- **Vitest** — unit coverage under `test/unit/` plus non-TUI integration coverage under `test/integration/`
+- **`@microsoft/tui-test`** — PTY-driven terminal E2E coverage under `test/integration/tui/`
+
+`npm run test` only runs Vitest. It does **not** run `test/integration/tui/**`. Run the TUI lane separately with `npm run test:tui:e2e` or `npx tui-test`.
 
 Current integration targets:
 
 - `test/integration/merge-train.test.ts` ↔ `src/core/merge-train/index.ts`, `src/persistence/feature-graph.ts` — merge-queue serialization, dependency legality, ejection/re-entry, conflict repair, and DB rehydration.
 - `test/integration/worker-smoke.test.ts` ↔ `src/runtime/worker-pool.ts`, `src/runtime/worker/index.ts`, `src/runtime/ipc/index.ts` — end-to-end runtime plumbing through `LocalWorkerPool`, the in-process harness, and a faux-backed worker run.
-- `test/integration/tui/**/*.test.ts` ↔ `src/main.ts`, `src/tui/app.ts` — PTY-driven terminal E2E coverage via `@microsoft/tui-test` for startup, overlays, and quit behavior.
+- `test/integration/tui/**/*.test.ts` ↔ `src/main.ts`, `src/tui/app.ts` — PTY-driven terminal E2E coverage via `@microsoft/tui-test`, kept separate from Vitest, for startup, overlays, and quit behavior.
 
 Current unit targets include:
 
@@ -92,4 +97,15 @@ Run PTY-driven TUI coverage with:
 npm run test:tui:e2e
 ```
 
-This lane is separate from Vitest. It uses `@microsoft/tui-test` to launch the real `src/main.ts` entrypoint inside a pseudo-terminal, then sends keypresses and asserts visible terminal text. Keep it focused on user-visible shell behavior; pure rendering and state-mapping assertions should stay in Vitest unit tests.
+Or directly with:
+
+```bash
+npx tui-test
+```
+
+Lane split:
+
+- `npm run test` / `vitest run` — Vitest only; excludes `test/integration/tui/**`
+- `npm run test:tui:e2e` / `npx tui-test` — `@microsoft/tui-test` only; runs `test/integration/tui/**`
+
+This lane is separate from Vitest. It uses `@microsoft/tui-test` to launch the real `src/main.ts` entrypoint inside a pseudo-terminal, then sends keypresses and asserts visible terminal text. Keep it focused on user-visible shell behavior; pure rendering and state-mapping assertions should stay in Vitest unit tests. CLI/bootstrap checks like `parseAppMode()` and startup error handling stay in Vitest, while live keyboard flows like help, monitor, and quit belong in the TUI lane.
