@@ -77,3 +77,10 @@ This comparison is worth revisiting later, especially if we add any of the follo
 - <https://github.com/re-cinq/wave/blob/main/docs/guide/pipelines.md>
 - <https://github.com/re-cinq/wave/blob/main/docs/reference/pipeline-schema.md>
 - <https://github.com/re-cinq/wave/blob/main/docs/reference/cli.md>
+
+## Backend Fit Notes
+
+- **Feasible in part:** Wave could plausibly run bounded gvc0 executions like task runs or verify/review phases.
+- **Poor full-backend fit:** gvc0's core value is persistent milestone/feature/task state, split work vs collaboration control, and merge-train branch orchestration.
+- **Main mismatch:** Wave is strongest as pipeline/run engine; gvc0 needs durable scheduler-owned graph and branch lifecycle state across many runs.
+- **Most reasonable shape:** keep gvc0 as source of truth and use Wave, if at all, as a pluggable execution substrate under individual `agent_run`s.
