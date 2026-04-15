@@ -22,11 +22,7 @@ describe('composeApplication', () => {
   it('bootstraps app runtime files and lifecycle', async () => {
     const app = await composeApplication();
 
-    try {
-      await app.start();
-    } finally {
-      await app.stop();
-    }
+    await app.stop();
 
     await expect(fs.stat(path.join(tmpDir, '.gvc0'))).resolves.toBeTruthy();
     await expect(

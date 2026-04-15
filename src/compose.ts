@@ -4,6 +4,7 @@ import * as path from 'node:path';
 
 import { PiFeatureAgentRuntime, promptLibrary } from '@agents';
 import { type ApplicationLifecycle, GvcApplication } from '@app/index';
+import type { AppMode } from '@core/types/index';
 import type {
   OrchestratorPorts,
   VerificationPort,
@@ -33,13 +34,56 @@ export async function composeApplication(): Promise<GvcApplication> {
   const graph = new PersistentFeatureGraph(db);
   const store = new SqliteStore(db);
   const sessionStore = new FileSessionStore(projectRoot);
-  const ui = new TuiApp();
+  const maxWorkers = Math.max(1, os.availableParallelism());
 
   let scheduler: SchedulerLoop | undefined;
+  let stopApplication: (() => Promise<void>) | undefined;
+
+  const ui = new TuiApp({
+    snapshot: () => graph.snapshot(),
+    listAgentRuns: () => store.listAgentRuns(),
+    getWorkerCounts: () => {
+      const idleWorkers = runtime.idleWorkerCount();
+      return {
+        runningWorkers: Math.max(0, maxWorkers - idleWorkers),
+        idleWorkers,
+        totalWorkers: maxWorkers,
+      };
+    },
+    isAutoExecutionEnabled: () => scheduler?.isAutoExecutionEnabled() ?? false,
+    toggleAutoExecution: () => {
+      const next = !(scheduler?.isAutoExecutionEnabled() ?? false);
+      return scheduler?.setAutoExecutionEnabled(next) ?? next;
+    },
+    toggleMilestoneQueue: (milestoneId) => {
+      const milestone = graph
+        .snapshot()
+        .milestones.find((entry) => entry.id === milestoneId);
+      if (milestone?.steeringQueuePosition !== undefined) {
+        graph.dequeueMilestone(milestoneId);
+        return;
+      }
+      graph.queueMilestone(milestoneId);
+    },
+    cancelFeature: (featureId) => {
+      graph.cancelFeature(featureId);
+    },
+    quit: async () => {
+      await stopApplication?.();
+    },
+  });
+
+  let verification: VerificationPort;
   const runtime = new LocalWorkerPool(
     new PiSdkHarness(sessionStore, projectRoot),
-    Math.max(1, os.availableParallelism()),
+    maxWorkers,
     (message) => {
+      if (message.type === 'progress') {
+        ui.onWorkerOutput(message.agentRunId, message.taskId, message.message);
+      }
+      if (message.type === 'assistant_output') {
+        ui.onWorkerOutput(message.agentRunId, message.taskId, message.text);
+      }
       scheduler?.enqueue({ type: 'worker_message', message });
     },
   );
@@ -53,7 +97,6 @@ export async function composeApplication(): Promise<GvcApplication> {
     getApiKey,
   });
 
-  let verification: VerificationPort;
   const ports: OrchestratorPorts = {
     store,
     runtime,
@@ -70,7 +113,8 @@ export async function composeApplication(): Promise<GvcApplication> {
   const recovery = new RecoveryService(ports, graph, projectRoot);
 
   const lifecycle: ApplicationLifecycle = {
-    start: async () => {
+    start: async (mode: AppMode) => {
+      scheduler?.setAutoExecutionEnabled(mode === 'auto');
       await recovery.recoverOrphanedRuns();
       await scheduler?.run();
     },
@@ -83,7 +127,9 @@ export async function composeApplication(): Promise<GvcApplication> {
     },
   };
 
-  return new GvcApplication(ports, lifecycle);
+  const app = new GvcApplication(ports, lifecycle);
+  stopApplication = () => app.stop();
+  return app;
 }
 
 async function ensureRuntimeDirs(projectRoot: string): Promise<void> {

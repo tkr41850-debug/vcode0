@@ -83,6 +83,7 @@ export class SchedulerLoop {
   private readonly conflicts: ConflictCoordinator;
   private readonly summaries: SummaryCoordinator;
   private intervalId: ReturnType<typeof setInterval> | undefined;
+  private autoExecutionEnabled = true;
 
   constructor(
     private readonly graph: FeatureGraph,
@@ -95,6 +96,15 @@ export class SchedulerLoop {
 
   enqueue(event: SchedulerEvent): void {
     this.events.push(event);
+  }
+
+  isAutoExecutionEnabled(): boolean {
+    return this.autoExecutionEnabled;
+  }
+
+  setAutoExecutionEnabled(enabled: boolean): boolean {
+    this.autoExecutionEnabled = enabled;
+    return this.autoExecutionEnabled;
   }
 
   run(): Promise<void> {
@@ -120,6 +130,8 @@ export class SchedulerLoop {
   }
 
   protected async tick(now: number): Promise<void> {
+    const beforeFingerprint = this.uiStateFingerprint();
+
     while (this.events.length > 0) {
       const event = this.events.shift();
       if (event !== undefined) {
@@ -130,7 +142,13 @@ export class SchedulerLoop {
     this.summaries.reconcilePostMerge();
     this.features.beginNextIntegration();
     await this.dispatchReadyWork(now);
-    this.ports.ui.refresh();
+
+    if (
+      beforeFingerprint !== this.uiStateFingerprint() ||
+      this.didRetryWindowExpire(now)
+    ) {
+      this.ports.ui.refresh();
+    }
   }
 
   protected async handleEvent(event: SchedulerEvent): Promise<void> {
@@ -366,6 +384,11 @@ export class SchedulerLoop {
   }
 
   protected async dispatchReadyWork(now: number): Promise<void> {
+    if (!this.autoExecutionEnabled) {
+      this.syncReadySince([], now);
+      return;
+    }
+
     const idleWorkers = this.ports.runtime.idleWorkerCount();
     if (idleWorkers <= 0) {
       this.syncReadySince([], now);
@@ -687,6 +710,26 @@ export class SchedulerLoop {
         run.runStatus === 'retry_await'
           ? run.restartCount + 1
           : run.restartCount,
+    });
+  }
+
+  private uiStateFingerprint(): string {
+    return JSON.stringify({
+      graph: this.graph.snapshot(),
+      runs: this.ports.store.listAgentRuns(),
+      autoExecutionEnabled: this.autoExecutionEnabled,
+    });
+  }
+
+  private didRetryWindowExpire(now: number): boolean {
+    const lowerBound = now - 1000;
+    return this.ports.store.listAgentRuns().some((run) => {
+      return (
+        run.runStatus === 'retry_await' &&
+        run.retryAt !== undefined &&
+        run.retryAt <= now &&
+        run.retryAt > lowerBound
+      );
     });
   }
 }

@@ -1,55 +1,443 @@
-import type {
-  SummaryAvailability,
-  TaskPresentationStatus,
+import {
+  deriveFeatureUnitStatus,
+  deriveMilestoneUnitStatus,
+  deriveSummaryAvailability,
+  deriveTaskPresentationStatus,
+  type SummaryAvailability,
+  type TaskPresentationStatus,
 } from '@core/state/index';
 import type {
   AgentRun,
+  AgentRunPhase,
+  DerivedUnitStatus,
   Feature,
-  FeatureCollabControl,
-  FeatureWorkControl,
+  FeatureId,
   Milestone,
+  MilestoneId,
   Task,
-  TaskCollabControl,
+  TaskId,
 } from '@core/types/index';
+import type { TuiKeybindHint } from '@tui/commands/index';
 
-export type DagNodeWorkStatus =
-  | FeatureWorkControl
-  | TaskPresentationStatus
-  | 'milestone';
-
-export type DagNodeCollabStatus =
-  | FeatureCollabControl
-  | TaskCollabControl
-  | 'none';
+export type DagNodeKind = 'milestone' | 'feature' | 'task';
+export type DagDisplayStatus = DerivedUnitStatus | TaskPresentationStatus;
 
 export interface DagNodeViewModel {
   id: string;
+  kind: DagNodeKind;
   label: string;
-  workStatus: DagNodeWorkStatus;
-  collabStatus: DagNodeCollabStatus;
-  summaryAvailability?: SummaryAvailability;
+  icon: string;
+  displayStatus: DagDisplayStatus;
+  workStatus: string;
+  collabStatus: string;
+  meta: string[];
+  dependsOn: string[];
   children: DagNodeViewModel[];
+  milestoneId?: MilestoneId;
+  featureId?: FeatureId;
+  taskId?: TaskId;
+  queuePosition?: number;
+  summaryAvailability?: SummaryAvailability;
+  runStatus?: AgentRun['runStatus'];
 }
 
-export interface StatusBarViewModel {
+export interface WorkerCountsViewModel {
   runningWorkers: number;
   idleWorkers: number;
+  totalWorkers: number;
+}
+
+export interface StatusBarViewModel extends WorkerCountsViewModel {
+  autoExecutionEnabled: boolean;
   completedTasks: number;
   totalTasks: number;
   totalUsd: number;
+  keybindHints: readonly TuiKeybindHint[];
+  selectedLabel?: string;
+  notice?: string;
+}
+
+export interface WorkerLogViewModel {
+  id: string;
+  label: string;
+  taskId: string;
+  agentRunId: string;
+  lines: string[];
+  updatedAt: number;
+}
+
+export interface DependencyDetailViewModel {
+  featureId: FeatureId;
+  featureLabel: string;
+  description: string;
+  milestoneLabel: string;
+  dependsOn: string[];
+  dependents: string[];
+}
+
+export interface StatusBarBuildInput {
+  tasks: Task[];
+  workerCounts: WorkerCountsViewModel;
+  autoExecutionEnabled: boolean;
+  keybindHints: readonly TuiKeybindHint[];
+  selectedLabel?: string;
+  notice?: string;
 }
 
 export class TuiViewModelBuilder {
   buildMilestoneTree(
-    _milestones: Milestone[],
-    _features: Feature[],
-    _tasks: Task[],
-    _runs: AgentRun[] = [],
+    milestones: Milestone[],
+    features: Feature[],
+    tasks: Task[],
+    runs: AgentRun[] = [],
+    now = Date.now(),
   ): DagNodeViewModel[] {
-    return [];
+    const sortedMilestones = [...milestones].sort((left, right) => {
+      if (left.order !== right.order) {
+        return left.order - right.order;
+      }
+      return left.id.localeCompare(right.id);
+    });
+    const featuresByMilestone = new Map<MilestoneId, Feature[]>();
+    const tasksByFeature = new Map<FeatureId, Task[]>();
+    const taskRuns = new Map<TaskId, AgentRun>();
+    const featurePhaseRuns = new Map<string, AgentRun>();
+
+    for (const feature of features) {
+      const entries = featuresByMilestone.get(feature.milestoneId) ?? [];
+      entries.push(feature);
+      featuresByMilestone.set(feature.milestoneId, entries);
+    }
+
+    for (const task of tasks) {
+      const entries = tasksByFeature.get(task.featureId) ?? [];
+      entries.push(task);
+      tasksByFeature.set(task.featureId, entries);
+    }
+
+    for (const run of runs) {
+      if (run.scopeType === 'task') {
+        taskRuns.set(run.scopeId, run);
+        continue;
+      }
+      featurePhaseRuns.set(`${run.scopeId}:${run.phase}`, run);
+    }
+
+    const featureStatuses = new Map<FeatureId, DerivedUnitStatus>();
+    const featureNodes = new Map<FeatureId, DagNodeViewModel>();
+
+    for (const feature of features) {
+      const featureTasks = [...(tasksByFeature.get(feature.id) ?? [])].sort(
+        compareTasks,
+      );
+      const currentPhase = phaseForFeatureWorkControl(feature.workControl);
+      const currentRun =
+        currentPhase === undefined
+          ? undefined
+          : featurePhaseRuns.get(`${feature.id}:${currentPhase}`);
+      const featureStatus = deriveFeatureUnitStatus(
+        feature,
+        featureTasks.map((task) => task.status),
+      );
+      const summaryAvailability = deriveSummaryAvailability(feature);
+      const featureBlocked = deriveFeatureBlocked(currentRun, now);
+      featureStatuses.set(feature.id, featureStatus);
+
+      const taskNodes = featureTasks.map((task) => {
+        const taskRun = taskRuns.get(task.id);
+        const presentationStatus = deriveTaskPresentationStatus(
+          task,
+          taskRun,
+          now,
+        );
+        const meta =
+          presentationStatus === 'blocked'
+            ? [
+                `wait: ${taskRun?.runStatus ?? task.collabControl}`,
+                `collab: ${task.collabControl}`,
+              ]
+            : [task.status, `collab: ${task.collabControl}`];
+
+        return {
+          id: task.id,
+          kind: 'task',
+          label: `${task.id}: ${task.description}`,
+          icon: iconForTask(task, taskRun, now),
+          displayStatus: presentationStatus,
+          workStatus: presentationStatus,
+          collabStatus: task.collabControl,
+          meta,
+          dependsOn: [...task.dependsOn],
+          children: [],
+          milestoneId: feature.milestoneId,
+          featureId: feature.id,
+          taskId: task.id,
+          ...(taskRun !== undefined ? { runStatus: taskRun.runStatus } : {}),
+        } satisfies DagNodeViewModel;
+      });
+
+      const meta = [
+        `work: ${feature.workControl}`,
+        `collab: ${feature.collabControl}`,
+        ...(featureBlocked && currentRun !== undefined
+          ? [`wait: ${currentRun.runStatus}`]
+          : []),
+        ...(summaryAvailability === 'unavailable'
+          ? []
+          : [`summary: ${summaryAvailability}`]),
+      ];
+
+      featureNodes.set(feature.id, {
+        id: feature.id,
+        kind: 'feature',
+        label: formatFeatureLabel(feature),
+        icon: iconForFeature(featureStatus, currentRun, now),
+        displayStatus: featureBlocked ? 'blocked' : featureStatus,
+        workStatus: feature.workControl,
+        collabStatus: feature.collabControl,
+        meta,
+        dependsOn: [...feature.dependsOn],
+        children: taskNodes,
+        milestoneId: feature.milestoneId,
+        featureId: feature.id,
+        summaryAvailability,
+        ...(currentRun !== undefined
+          ? { runStatus: currentRun.runStatus }
+          : {}),
+      });
+    }
+
+    return sortedMilestones.map((milestone) => {
+      const milestoneFeatures = [
+        ...(featuresByMilestone.get(milestone.id) ?? []),
+      ].sort(compareFeatures);
+      const childNodes = milestoneFeatures
+        .map((feature) => featureNodes.get(feature.id))
+        .filter((node): node is DagNodeViewModel => node !== undefined);
+      const childStatuses = milestoneFeatures.map((feature) => {
+        return featureStatuses.get(feature.id) ?? 'pending';
+      });
+      const milestoneStatus = deriveMilestoneUnitStatus(childStatuses);
+      const doneChildren = childStatuses.filter(
+        (status) => status === 'done',
+      ).length;
+
+      return {
+        id: milestone.id,
+        kind: 'milestone',
+        label: `${milestone.id}: ${milestone.name}`,
+        icon: iconForDerivedStatus(milestoneStatus),
+        displayStatus: milestoneStatus,
+        workStatus: 'milestone',
+        collabStatus: 'none',
+        meta: [
+          `${doneChildren}/${childNodes.length} done`,
+          ...(milestone.steeringQueuePosition !== undefined
+            ? [`queue: ${milestone.steeringQueuePosition + 1}`]
+            : []),
+        ],
+        dependsOn: [],
+        children: childNodes,
+        milestoneId: milestone.id,
+        ...(milestone.steeringQueuePosition !== undefined
+          ? { queuePosition: milestone.steeringQueuePosition }
+          : {}),
+      } satisfies DagNodeViewModel;
+    });
   }
 
-  buildStatusBar(inputs: StatusBarViewModel): StatusBarViewModel {
-    return { ...inputs };
+  buildStatusBar(input: StatusBarBuildInput): StatusBarViewModel {
+    const completedTasks = input.tasks.filter(
+      (task) => task.status === 'done',
+    ).length;
+    const totalUsd = input.tasks.reduce((sum, task) => {
+      return sum + (task.tokenUsage?.usd ?? 0);
+    }, 0);
+
+    return {
+      autoExecutionEnabled: input.autoExecutionEnabled,
+      runningWorkers: input.workerCounts.runningWorkers,
+      idleWorkers: input.workerCounts.idleWorkers,
+      totalWorkers: input.workerCounts.totalWorkers,
+      completedTasks,
+      totalTasks: input.tasks.length,
+      totalUsd,
+      keybindHints: input.keybindHints,
+      ...(input.selectedLabel !== undefined
+        ? { selectedLabel: input.selectedLabel }
+        : {}),
+      ...(input.notice !== undefined ? { notice: input.notice } : {}),
+    };
+  }
+
+  buildDependencyDetail(
+    featureId: FeatureId,
+    milestones: Milestone[],
+    features: Feature[],
+  ): DependencyDetailViewModel | undefined {
+    const feature = features.find((entry) => entry.id === featureId);
+    if (feature === undefined) {
+      return undefined;
+    }
+
+    const milestone = milestones.find(
+      (entry) => entry.id === feature.milestoneId,
+    );
+    const featureLabels = new Map<FeatureId, string>();
+    const dependents: string[] = [];
+
+    for (const entry of features) {
+      featureLabels.set(entry.id, formatFeatureLabel(entry));
+      if (entry.dependsOn.includes(featureId)) {
+        dependents.push(formatFeatureLabel(entry));
+      }
+    }
+
+    return {
+      featureId,
+      featureLabel: formatFeatureLabel(feature),
+      description: feature.description,
+      milestoneLabel:
+        milestone === undefined
+          ? feature.milestoneId
+          : `${milestone.id}: ${milestone.name}`,
+      dependsOn: feature.dependsOn.map((dependencyId) => {
+        return featureLabels.get(dependencyId) ?? dependencyId;
+      }),
+      dependents,
+    };
+  }
+}
+
+export function flattenDagNodes(
+  nodes: readonly DagNodeViewModel[],
+): DagNodeViewModel[] {
+  const flattened: DagNodeViewModel[] = [];
+
+  const visit = (node: DagNodeViewModel): void => {
+    flattened.push(node);
+    for (const child of node.children) {
+      visit(child);
+    }
+  };
+
+  for (const node of nodes) {
+    visit(node);
+  }
+
+  return flattened;
+}
+
+function compareFeatures(left: Feature, right: Feature): number {
+  if (left.orderInMilestone !== right.orderInMilestone) {
+    return left.orderInMilestone - right.orderInMilestone;
+  }
+  return left.id.localeCompare(right.id);
+}
+
+function compareTasks(left: Task, right: Task): number {
+  if (left.orderInFeature !== right.orderInFeature) {
+    return left.orderInFeature - right.orderInFeature;
+  }
+  return left.id.localeCompare(right.id);
+}
+
+function formatFeatureLabel(feature: Feature): string {
+  return `${feature.id}: ${feature.name}`;
+}
+
+function phaseForFeatureWorkControl(
+  workControl: Feature['workControl'],
+): AgentRunPhase | undefined {
+  switch (workControl) {
+    case 'discussing':
+      return 'discuss';
+    case 'researching':
+      return 'research';
+    case 'planning':
+      return 'plan';
+    case 'feature_ci':
+      return 'feature_ci';
+    case 'verifying':
+      return 'verify';
+    case 'summarizing':
+      return 'summarize';
+    case 'replanning':
+      return 'replan';
+    case 'executing':
+    case 'awaiting_merge':
+    case 'executing_repair':
+    case 'work_complete':
+      return undefined;
+  }
+}
+
+function deriveFeatureBlocked(run: AgentRun | undefined, now: number): boolean {
+  if (run === undefined) {
+    return false;
+  }
+
+  if (
+    run.runStatus === 'await_response' ||
+    run.runStatus === 'await_approval'
+  ) {
+    return true;
+  }
+
+  return run.runStatus === 'retry_await' && (run.retryAt ?? now + 1) > now;
+}
+
+function iconForTask(
+  task: Task,
+  run: AgentRun | undefined,
+  now: number,
+): string {
+  const presentationStatus = deriveTaskPresentationStatus(task, run, now);
+  if (presentationStatus === 'blocked') {
+    return '⏸';
+  }
+
+  switch (presentationStatus) {
+    case 'done':
+      return '✓';
+    case 'running':
+      return '⟳';
+    case 'stuck':
+      return '!';
+    case 'failed':
+      return '✗';
+    case 'cancelled':
+      return '⊘';
+    case 'pending':
+    case 'ready':
+      return '·';
+  }
+}
+
+function iconForFeature(
+  status: DerivedUnitStatus,
+  run: AgentRun | undefined,
+  now: number,
+): string {
+  if (deriveFeatureBlocked(run, now)) {
+    return '⏸';
+  }
+  return iconForDerivedStatus(status);
+}
+
+function iconForDerivedStatus(status: DerivedUnitStatus): string {
+  switch (status) {
+    case 'done':
+      return '✓';
+    case 'in_progress':
+      return '⟳';
+    case 'partially_failed':
+      return '!';
+    case 'failed':
+      return '✗';
+    case 'cancelled':
+      return '⊘';
+    case 'pending':
+      return '·';
   }
 }

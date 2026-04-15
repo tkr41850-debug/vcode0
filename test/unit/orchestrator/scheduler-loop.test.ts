@@ -409,13 +409,12 @@ describe('SchedulerLoop', () => {
       'event:shutdown',
       'event:feature_phase_error',
       'dispatch',
-      'refresh',
     ]);
 
     await loop.stop();
   });
 
-  it('runs on a 1-second interval and refreshes the UI on each tick', async () => {
+  it('runs on a 1-second interval without refreshing UI when no state changed', async () => {
     vi.useFakeTimers();
 
     const order: string[] = [];
@@ -432,11 +431,11 @@ describe('SchedulerLoop', () => {
     expect(loop.dispatchTimes).toEqual([]);
 
     await vi.advanceTimersByTimeAsync(1000);
-    expect(ui.refresh).toHaveBeenCalledTimes(1);
+    expect(ui.refresh).not.toHaveBeenCalled();
     expect(loop.dispatchTimes).toHaveLength(1);
 
     await vi.advanceTimersByTimeAsync(1000);
-    expect(ui.refresh).toHaveBeenCalledTimes(2);
+    expect(ui.refresh).not.toHaveBeenCalled();
     expect(loop.dispatchTimes).toHaveLength(2);
 
     await loop.stop();
@@ -535,6 +534,54 @@ describe('SchedulerLoop', () => {
       sessionId: 'sess-1',
       restartCount: 0,
     });
+  });
+
+  it('skips dispatch when auto execution is disabled', async () => {
+    const order: string[] = [];
+    const { ports, runtime } = createPorts(order);
+    const graph = new InMemoryFeatureGraph({
+      milestones: [
+        {
+          id: 'm-1',
+          name: 'Milestone 1',
+          description: 'desc',
+          status: 'pending',
+          order: 0,
+        },
+      ],
+      features: [
+        {
+          id: 'f-1',
+          milestoneId: 'm-1',
+          orderInMilestone: 0,
+          name: 'Feature 1',
+          description: 'desc',
+          dependsOn: [],
+          status: 'pending',
+          workControl: 'executing',
+          collabControl: 'none',
+          featureBranch: 'feat-feature-1-1',
+        },
+      ],
+      tasks: [
+        {
+          id: 't-1',
+          featureId: 'f-1',
+          orderInFeature: 0,
+          description: 'Task 1',
+          dependsOn: [],
+          status: 'ready',
+          collabControl: 'none',
+        },
+      ],
+    });
+    const dispatchTask = vi.spyOn(runtime, 'dispatchTask');
+    const loop = new ExposedSchedulerLoop(graph, ports);
+
+    loop.setAutoExecutionEnabled(false);
+    await loop.dispatchReadyWorkForTest(100);
+
+    expect(dispatchTask).not.toHaveBeenCalled();
   });
 
   it('resumes an existing task run when session state is present', async () => {
