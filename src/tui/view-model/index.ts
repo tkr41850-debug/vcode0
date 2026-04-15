@@ -12,6 +12,7 @@ import type {
   DerivedUnitStatus,
   Feature,
   FeatureId,
+  FeaturePhaseAgentRun,
   Milestone,
   MilestoneId,
   Task,
@@ -55,6 +56,16 @@ export interface StatusBarViewModel extends WorkerCountsViewModel {
   keybindHints: readonly TuiKeybindHint[];
   selectedLabel?: string;
   notice?: string;
+  dataMode?: 'live' | 'draft';
+  focusMode?: 'composer' | 'graph';
+  pendingProposalPhase?: FeaturePhaseAgentRun['phase'];
+}
+
+export interface ComposerViewModel {
+  mode: 'command' | 'draft' | 'approval';
+  focusMode: 'composer' | 'graph';
+  text: string;
+  detail: string;
 }
 
 export interface WorkerLogViewModel {
@@ -82,6 +93,9 @@ export interface StatusBarBuildInput {
   keybindHints: readonly TuiKeybindHint[];
   selectedLabel?: string;
   notice?: string;
+  dataMode?: 'live' | 'draft';
+  focusMode?: 'composer' | 'graph';
+  pendingProposalPhase?: FeaturePhaseAgentRun['phase'];
 }
 
 export class TuiViewModelBuilder {
@@ -267,6 +281,49 @@ export class TuiViewModelBuilder {
         ? { selectedLabel: input.selectedLabel }
         : {}),
       ...(input.notice !== undefined ? { notice: input.notice } : {}),
+      ...(input.dataMode !== undefined ? { dataMode: input.dataMode } : {}),
+      ...(input.focusMode !== undefined ? { focusMode: input.focusMode } : {}),
+      ...(input.pendingProposalPhase !== undefined
+        ? { pendingProposalPhase: input.pendingProposalPhase }
+        : {}),
+    };
+  }
+
+  buildComposer(input: {
+    text: string;
+    focusMode: 'composer' | 'graph';
+    draftFeatureId?: FeatureId;
+    draftPhase?: 'plan' | 'replan';
+    draftCommandCount?: number;
+    pendingProposalPhase?: FeaturePhaseAgentRun['phase'];
+    pendingFeatureId?: FeatureId;
+  }): ComposerViewModel {
+    if (
+      input.pendingProposalPhase !== undefined &&
+      input.pendingFeatureId !== undefined
+    ) {
+      return {
+        mode: 'approval',
+        focusMode: input.focusMode,
+        text: input.text,
+        detail: `approval ${input.pendingProposalPhase} ${input.pendingFeatureId} /approve /reject /rerun`,
+      };
+    }
+
+    if (input.draftFeatureId !== undefined && input.draftPhase !== undefined) {
+      return {
+        mode: 'draft',
+        focusMode: input.focusMode,
+        text: input.text,
+        detail: `draft ${input.draftPhase} ${input.draftFeatureId} ${input.draftCommandCount ?? 0} ops /submit /discard`,
+      };
+    }
+
+    return {
+      mode: 'command',
+      focusMode: input.focusMode,
+      text: input.text,
+      detail: 'composer /help /feature-add /task-add /dep-add',
     };
   }
 

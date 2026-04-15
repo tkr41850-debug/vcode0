@@ -6,6 +6,7 @@ import {
 } from '@mariozechner/pi-tui';
 import type { TuiKeybindHint } from '@tui/commands/index';
 import type {
+  ComposerViewModel,
   DagNodeViewModel,
   DependencyDetailViewModel,
   StatusBarViewModel,
@@ -83,15 +84,19 @@ export class StatusBar implements Component {
       `workers: ${this.model.runningWorkers}/${this.model.totalWorkers} running`,
       `tasks: ${this.model.completedTasks}/${this.model.totalTasks} done`,
       `cost: $${this.model.totalUsd.toFixed(2)}`,
+      ...(this.model.dataMode !== undefined ? [`view: ${this.model.dataMode}`] : []),
+      ...(this.model.focusMode !== undefined ? [`focus: ${this.model.focusMode}`] : []),
     ].join('  ');
     const keybindSummary = this.model.keybindHints
       .map((hint) => `${hint.key} ${hint.label}`)
       .join('  ');
     const bottom = this.model.notice
       ? `notice: ${this.model.notice}`
-      : this.model.selectedLabel
-        ? `selected: ${this.model.selectedLabel}`
-        : `keys: ${keybindSummary}`;
+      : this.model.pendingProposalPhase !== undefined
+        ? `approval: ${this.model.pendingProposalPhase}`
+        : this.model.selectedLabel
+          ? `selected: ${this.model.selectedLabel}`
+          : `keys: ${keybindSummary}`;
 
     return [...padWrapped(top, safeWidth), ...padWrapped(bottom, safeWidth)];
   }
@@ -251,6 +256,38 @@ export class AgentMonitorOverlay implements Component {
       rows,
       safeWidth,
     );
+  }
+
+  invalidate(): void {}
+}
+
+export class ComposerStatus implements Component {
+  private model: ComposerViewModel = {
+    mode: 'command',
+    focusMode: 'composer',
+    text: '',
+    detail: 'composer',
+  };
+
+  setModel(model: ComposerViewModel): void {
+    this.model = model;
+  }
+
+  render(width: number): string[] {
+    const safeWidth = Math.max(1, width);
+    const top = truncateToWidth(
+      `[${this.model.mode}] [${this.model.focusMode}] ${this.model.detail}`,
+      safeWidth,
+      '...',
+      true,
+    );
+    const body = truncateToWidth(
+      this.model.text.length > 0 ? this.model.text : '/',
+      safeWidth,
+      '...',
+      false,
+    );
+    return [...padWrapped(top, safeWidth), ...padWrapped(body, safeWidth)];
   }
 
   invalidate(): void {}

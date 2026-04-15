@@ -1,6 +1,14 @@
 import type { GraphSnapshot } from '@core/graph/index';
-import type { AgentRun, FeatureId, MilestoneId } from '@core/types/index';
+import type {
+  AgentRun,
+  Feature,
+  FeatureId,
+  FeaturePhaseAgentRun,
+  MilestoneId,
+} from '@core/types/index';
 import {
+  CombinedAutocompleteProvider,
+  Editor,
   Key,
   matchesKey,
   type OverlayHandle,
@@ -9,18 +17,26 @@ import {
 } from '@mariozechner/pi-tui';
 import type { UiPort } from '@orchestrator/ports/index';
 import {
+  buildComposerSlashCommands,
   CommandRegistry,
   NAVIGATION_KEYBINDS,
+  parseSlashCommand,
+  type ComposerSelection,
   type TuiCommandContext,
   type TuiCommandKey,
 } from '@tui/commands/index';
 import {
   AgentMonitorOverlay,
+  ComposerStatus,
   DagView,
   DependencyDetailOverlay,
   HelpOverlay,
   StatusBar,
 } from '@tui/components/index';
+import {
+  ComposerProposalController,
+  type ComposerDraftState,
+} from '@tui/proposal-controller';
 import {
   type DagNodeViewModel,
   flattenDagNodes,
@@ -33,9 +49,25 @@ export interface TuiDataSource {
   listAgentRuns(): AgentRun[];
   getWorkerCounts(): WorkerCountsViewModel;
   isAutoExecutionEnabled(): boolean;
+  setAutoExecutionEnabled(enabled: boolean): boolean;
   toggleAutoExecution(): boolean;
   toggleMilestoneQueue(milestoneId: MilestoneId): void;
   cancelFeature(featureId: FeatureId): void;
+  saveFeatureRun(run: FeaturePhaseAgentRun): void;
+  getFeatureRun(
+    featureId: FeatureId,
+    phase: 'plan' | 'replan',
+  ): FeaturePhaseAgentRun | undefined;
+  enqueueApprovalDecision(event: {
+    featureId: FeatureId;
+    phase: 'plan' | 'replan';
+    decision: 'approved' | 'rejected';
+    comment?: string;
+  }): void;
+  rerunFeatureProposal(event: {
+    featureId: FeatureId;
+    phase: 'plan' | 'replan';
+  }): void;
   quit(): Promise<void>;
 }
 
@@ -46,11 +78,23 @@ export class TuiApp implements UiPort {
   private readonly tui = new TUI(this.terminal);
   private readonly dagView = new DagView();
   private readonly statusBar = new StatusBar();
+  private readonly composerStatus = new ComposerStatus();
+  private readonly composer = new Editor(this.tui, {
+    borderColor: (value) => value,
+    selectList: {
+      selectedPrefix: (value) => value,
+      selectedText: (value) => value,
+      description: (value) => value,
+      scrollInfo: (value) => value,
+      noMatch: (value) => value,
+    },
+  });
   private readonly monitorOverlay = new AgentMonitorOverlay();
   private readonly dependencyOverlay = new DependencyDetailOverlay();
   private readonly helpOverlay = new HelpOverlay();
   private readonly commands = new CommandRegistry();
   private readonly viewModels = new TuiViewModelBuilder();
+  private readonly proposalController: ComposerProposalController;
   private monitorHandle: OverlayHandle | undefined;
   private dependencyHandle: OverlayHandle | undefined;
   private helpHandle: OverlayHandle | undefined;
@@ -58,9 +102,35 @@ export class TuiApp implements UiPort {
   private selectedNodeId: string | undefined;
   private selectedWorkerId: string | undefined;
   private notice: string | undefined;
+  private focusMode: 'composer' | 'graph' = 'composer';
+  private composerText = '';
   private readonly commandContext: TuiCommandContext;
 
   constructor(private readonly dataSource: TuiDataSource) {
+    this.proposalController = new ComposerProposalController({
+      snapshot: () => this.dataSource.snapshot(),
+      isAutoExecutionEnabled: () => this.dataSource.isAutoExecutionEnabled(),
+      setAutoExecutionEnabled: (enabled) =>
+        this.dataSource.setAutoExecutionEnabled(enabled),
+      getFeatureRun: (featureId, phase) =>
+        this.dataSource.getFeatureRun(featureId, phase),
+      saveFeatureRun: (run) => this.dataSource.saveFeatureRun(run),
+      enqueueApprovalDecision: (event) => {
+        this.dataSource.enqueueApprovalDecision(event);
+      },
+      enqueueRerun: (event) => {
+        this.dataSource.rerunFeatureProposal(event);
+      },
+    });
+
+    this.composer.onChange = (text) => {
+      this.composerText = text;
+      this.refresh();
+    };
+    this.composer.onSubmit = (text) => {
+      void this.handleComposerSubmit(text);
+    };
+
     this.commandContext = {
       toggleAutoExecution: () => {
         const enabled = this.dataSource.toggleAutoExecution();
@@ -126,16 +196,20 @@ export class TuiApp implements UiPort {
 
     this.tui.addChild(this.dagView);
     this.tui.addChild(this.statusBar);
+    this.tui.addChild(this.composerStatus);
+    this.tui.addChild(this.composer);
     this.tui.addInputListener((data) => {
       return this.handleInput(data) ? { consume: true } : undefined;
     });
     this.tui.start();
+    this.tui.setFocus(this.composer);
     this.started = true;
     this.refresh();
   }
 
   refresh(): void {
-    const { milestones, features, tasks } = this.dataSource.snapshot();
+    const snapshot = this.displayedSnapshot();
+    const { milestones, features, tasks } = snapshot;
     const runs = this.dataSource.listAgentRuns();
     const nodes = this.viewModels.buildMilestoneTree(
       milestones,
@@ -154,10 +228,15 @@ export class TuiApp implements UiPort {
       this.selectedNodeId = flattened[0]?.id;
     }
 
-    const selectedNode = flattened.find(
-      (node) => node.id === this.selectedNodeId,
+    const selectedNode = flattened.find((node) => node.id === this.selectedNodeId);
+    const draftState = this.proposalController.getDraftState();
+    const pendingRun = this.pendingProposalForSelection();
+
+    this.dagView.setModel(
+      nodes,
+      this.selectedNodeId,
+      draftState !== undefined ? 'gvc0 progress [draft]' : 'gvc0 progress',
     );
-    this.dagView.setModel(nodes, this.selectedNodeId, 'gvc0 progress');
     this.statusBar.setModel(
       this.viewModels.buildStatusBar({
         tasks,
@@ -168,6 +247,30 @@ export class TuiApp implements UiPort {
           ? { selectedLabel: selectedNode.label }
           : {}),
         ...(this.notice !== undefined ? { notice: this.notice } : {}),
+        dataMode: draftState !== undefined ? 'draft' : 'live',
+        focusMode: this.focusMode,
+        ...(pendingRun !== undefined
+          ? { pendingProposalPhase: pendingRun.phase }
+          : {}),
+      }),
+    );
+    this.composerStatus.setModel(
+      this.viewModels.buildComposer({
+        text: this.composerText,
+        focusMode: this.focusMode,
+        ...(draftState !== undefined
+          ? {
+              draftFeatureId: draftState.featureId,
+              draftPhase: draftState.phase,
+              draftCommandCount: draftState.commandCount,
+            }
+          : {}),
+        ...(pendingRun !== undefined
+          ? {
+              pendingProposalPhase: pendingRun.phase,
+              pendingFeatureId: pendingRun.scopeId,
+            }
+          : {}),
       }),
     );
 
@@ -184,6 +287,14 @@ export class TuiApp implements UiPort {
       );
     }
 
+    this.composer.setAutocompleteProvider(
+      new CombinedAutocompleteProvider(
+        buildComposerSlashCommands({
+          snapshot,
+          selection: this.currentSelection(),
+        }),
+      ),
+    );
     this.monitorOverlay.setSelectedWorker(this.selectedWorkerId);
     if (this.started && this.interactiveTerminal) {
       this.tui.requestRender();
@@ -218,6 +329,32 @@ export class TuiApp implements UiPort {
   }
 
   private handleInput(data: string): boolean {
+    if (matchesKey(data, Key.escape) || matchesKey(data, Key.esc)) {
+      if (this.hideTopOverlay()) {
+        return true;
+      }
+      if (this.focusMode === 'composer' && this.composerText.trim().length === 0) {
+        this.focusGraph();
+        return true;
+      }
+      if (this.focusMode === 'graph') {
+        this.focusComposer();
+        return true;
+      }
+      return false;
+    }
+    if (matchesKey(data, 'q') && this.hasVisibleOverlay()) {
+      return this.hideTopOverlay();
+    }
+
+    if (this.focusMode === 'composer') {
+      return false;
+    }
+
+    if (matchesKey(data, '/')) {
+      this.focusComposer('/');
+      return true;
+    }
     if (matchesKey(data, Key.up)) {
       this.moveSelection(-1);
       return true;
@@ -225,12 +362,6 @@ export class TuiApp implements UiPort {
     if (matchesKey(data, Key.down)) {
       this.moveSelection(1);
       return true;
-    }
-    if (matchesKey(data, Key.escape) || matchesKey(data, Key.esc)) {
-      return this.hideTopOverlay();
-    }
-    if (matchesKey(data, 'q') && this.hasVisibleOverlay()) {
-      return this.hideTopOverlay();
     }
 
     const commandKey = this.matchCommandKey(data);
@@ -240,6 +371,96 @@ export class TuiApp implements UiPort {
 
     void this.commands.executeByKey(commandKey, this.commandContext);
     return true;
+  }
+
+  private async handleComposerSubmit(text: string): Promise<void> {
+    const trimmed = text.trim();
+    if (trimmed.length === 0) {
+      this.notice = undefined;
+      this.refresh();
+      return;
+    }
+
+    if (!trimmed.startsWith('/')) {
+      this.notice = 'planner chat not wired yet';
+      this.refresh();
+      return;
+    }
+
+    try {
+      const message = await this.executeSlashCommand(trimmed);
+      this.composer.addToHistory(trimmed);
+      this.notice = message;
+    } catch (error) {
+      this.notice = formatUnknownError(error);
+    }
+    this.refresh();
+  }
+
+  private async executeSlashCommand(input: string): Promise<string> {
+    const parsed = parseSlashCommand(input);
+
+    switch (parsed.name) {
+      case 'auto':
+        this.commandContext.toggleAutoExecution();
+        return this.notice ?? 'toggled auto execution';
+      case 'queue':
+        this.commandContext.toggleMilestoneQueue();
+        return this.notice ?? 'toggled milestone queue';
+      case 'monitor':
+        this.commandContext.toggleAgentMonitor();
+        return this.notice ?? 'toggled monitor';
+      case 'worker-next':
+        this.commandContext.selectNextWorker();
+        return this.notice ?? 'selected next worker';
+      case 'help':
+        this.commandContext.toggleHelp();
+        return this.notice ?? 'toggled help';
+      case 'deps':
+        this.commandContext.toggleDependencyDetail();
+        return this.notice ?? 'toggled dependency detail';
+      case 'cancel':
+        this.commandContext.cancelSelectedFeature();
+        return this.notice ?? 'cancelled feature';
+      case 'quit':
+        this.commandContext.requestQuit();
+        return 'quitting';
+      default: {
+        const result = await this.proposalController.execute(
+          input,
+          this.currentSelection(),
+        );
+        return result.message;
+      }
+    }
+  }
+
+  private displayedSnapshot(): GraphSnapshot {
+    return this.proposalController.getDraftSnapshot() ?? this.dataSource.snapshot();
+  }
+
+  private pendingProposalForSelection(): FeaturePhaseAgentRun | undefined {
+    if (this.proposalController.getDraftState() !== undefined) {
+      return undefined;
+    }
+
+    const featureId = this.selectedFeatureId();
+    if (featureId === undefined) {
+      return undefined;
+    }
+
+    const feature = this.featureFromAuthoritativeSnapshot(featureId);
+    if (feature === undefined) {
+      return undefined;
+    }
+
+    const phase = phaseForFeature(feature);
+    if (phase === undefined) {
+      return undefined;
+    }
+
+    const run = this.dataSource.getFeatureRun(featureId, phase);
+    return run?.runStatus === 'await_approval' ? run : undefined;
   }
 
   private matchCommandKey(data: string): TuiCommandKey | undefined {
@@ -290,7 +511,7 @@ export class TuiApp implements UiPort {
   }
 
   private moveSelection(step: number): void {
-    const { milestones, features, tasks } = this.dataSource.snapshot();
+    const { milestones, features, tasks } = this.displayedSnapshot();
     const nodes = flattenDagNodes(
       this.viewModels.buildMilestoneTree(
         milestones,
@@ -306,15 +527,36 @@ export class TuiApp implements UiPort {
       return;
     }
 
-    const currentIndex = nodes.findIndex(
-      (node) => node.id === this.selectedNodeId,
-    );
+    const currentIndex = nodes.findIndex((node) => node.id === this.selectedNodeId);
     const nextIndex =
-      currentIndex < 0
-        ? 0
-        : (currentIndex + step + nodes.length) % nodes.length;
+      currentIndex < 0 ? 0 : (currentIndex + step + nodes.length) % nodes.length;
     this.selectedNodeId = nodes[nextIndex]?.id;
     this.notice = undefined;
+    this.refresh();
+  }
+
+  private currentSelection(): ComposerSelection {
+    const node = this.selectedNode();
+    return {
+      ...(node?.milestoneId !== undefined ? { milestoneId: node.milestoneId } : {}),
+      ...(node?.featureId !== undefined ? { featureId: node.featureId } : {}),
+      ...(node?.taskId !== undefined ? { taskId: node.taskId } : {}),
+    };
+  }
+
+  private focusComposer(seedText?: string): void {
+    this.focusMode = 'composer';
+    if (seedText !== undefined && this.composerText.trim().length === 0) {
+      this.composer.setText(seedText);
+      this.composerText = seedText;
+    }
+    this.tui.setFocus(this.composer);
+    this.refresh();
+  }
+
+  private focusGraph(): void {
+    this.focusMode = 'graph';
+    this.tui.setFocus(null);
     this.refresh();
   }
 
@@ -338,7 +580,7 @@ export class TuiApp implements UiPort {
   }
 
   private selectedNode(): DagNodeViewModel | undefined {
-    const { milestones, features, tasks } = this.dataSource.snapshot();
+    const { milestones, features, tasks } = this.displayedSnapshot();
     const flattened = flattenDagNodes(
       this.viewModels.buildMilestoneTree(
         milestones,
@@ -348,6 +590,12 @@ export class TuiApp implements UiPort {
       ),
     );
     return flattened.find((node) => node.id === this.selectedNodeId);
+  }
+
+  private featureFromAuthoritativeSnapshot(featureId: FeatureId): Feature | undefined {
+    return this.dataSource
+      .snapshot()
+      .features.find((feature) => feature.id === featureId);
   }
 
   private toggleHelpOverlay(): void {
@@ -383,9 +631,9 @@ export class TuiApp implements UiPort {
 
     this.monitorHandle = this.tui.showOverlay(this.monitorOverlay, {
       width: '85%',
-      maxHeight: '60%',
+      maxHeight: '55%',
       anchor: 'bottom-center',
-      offsetY: -1,
+      offsetY: -4,
     });
     this.notice = 'monitor shown';
     this.refresh();
@@ -400,7 +648,7 @@ export class TuiApp implements UiPort {
       return;
     }
 
-    const { milestones, features } = this.dataSource.snapshot();
+    const { milestones, features } = this.displayedSnapshot();
     const featureId = this.selectedFeatureId();
     this.dependencyOverlay.setDetail(
       featureId === undefined
@@ -419,4 +667,22 @@ export class TuiApp implements UiPort {
     this.notice = 'dependency detail shown';
     this.refresh();
   }
+}
+
+function phaseForFeature(feature: Feature): 'plan' | 'replan' | undefined {
+  switch (feature.workControl) {
+    case 'planning':
+      return 'plan';
+    case 'replanning':
+      return 'replan';
+    default:
+      return undefined;
+  }
+}
+
+function formatUnknownError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
 }

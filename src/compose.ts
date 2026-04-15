@@ -51,6 +51,9 @@ export async function composeApplication(): Promise<GvcApplication> {
       };
     },
     isAutoExecutionEnabled: () => scheduler?.isAutoExecutionEnabled() ?? false,
+    setAutoExecutionEnabled: (enabled) => {
+      return scheduler?.setAutoExecutionEnabled(enabled) ?? enabled;
+    },
     toggleAutoExecution: () => {
       const next = !(scheduler?.isAutoExecutionEnabled() ?? false);
       return scheduler?.setAutoExecutionEnabled(next) ?? next;
@@ -67,6 +70,44 @@ export async function composeApplication(): Promise<GvcApplication> {
     },
     cancelFeature: (featureId) => {
       graph.cancelFeature(featureId);
+    },
+    saveFeatureRun: (run) => {
+      const existing = store.getAgentRun(run.id);
+      if (existing === undefined) {
+        store.createAgentRun(run);
+        return;
+      }
+      store.updateAgentRun(run.id, {
+        phase: run.phase,
+        runStatus: run.runStatus,
+        owner: run.owner,
+        attention: run.attention,
+        restartCount: run.restartCount,
+        maxRetries: run.maxRetries,
+        ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
+        ...(run.payloadJson !== undefined ? { payloadJson: run.payloadJson } : {}),
+        ...(run.retryAt !== undefined ? { retryAt: run.retryAt } : {}),
+      });
+    },
+    getFeatureRun: (featureId, phase) => {
+      const run = store.getAgentRun(`run-feature:${featureId}:${phase}`);
+      return run?.scopeType === 'feature_phase' ? run : undefined;
+    },
+    enqueueApprovalDecision: (event) => {
+      scheduler?.enqueue({
+        type: 'feature_phase_approval_decision',
+        featureId: event.featureId,
+        phase: event.phase,
+        decision: event.decision,
+        ...(event.comment !== undefined ? { comment: event.comment } : {}),
+      });
+    },
+    rerunFeatureProposal: (event) => {
+      scheduler?.enqueue({
+        type: 'feature_phase_rerun_requested',
+        featureId: event.featureId,
+        phase: event.phase,
+      });
     },
     quit: async () => {
       await stopApplication?.();
