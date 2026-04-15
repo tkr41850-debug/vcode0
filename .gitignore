@@ -4,6 +4,7 @@ dist/
 .eslintcache
 .vitest/
 .tui-test/
+tui-traces/
 *.tsbuildinfo
 .gvc0/
 
