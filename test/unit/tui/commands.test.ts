@@ -53,7 +53,9 @@ describe('buildComposerSlashCommands', () => {
       signal: new AbortController().signal,
     });
 
-    expect(suggestions?.items.map((item) => item.value)).toContain('feature-add');
+    expect(suggestions?.items.map((item) => item.value)).toContain(
+      'feature-add',
+    );
     expect(suggestions?.items.map((item) => item.value)).toContain(
       'feature-edit',
     );

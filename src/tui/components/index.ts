@@ -84,8 +84,12 @@ export class StatusBar implements Component {
       `workers: ${this.model.runningWorkers}/${this.model.totalWorkers} running`,
       `tasks: ${this.model.completedTasks}/${this.model.totalTasks} done`,
       `cost: $${this.model.totalUsd.toFixed(2)}`,
-      ...(this.model.dataMode !== undefined ? [`view: ${this.model.dataMode}`] : []),
-      ...(this.model.focusMode !== undefined ? [`focus: ${this.model.focusMode}`] : []),
+      ...(this.model.dataMode !== undefined
+        ? [`view: ${this.model.dataMode}`]
+        : []),
+      ...(this.model.focusMode !== undefined
+        ? [`focus: ${this.model.focusMode}`]
+        : []),
     ].join('  ');
     const keybindSummary = this.model.keybindHints
       .map((hint) => `${hint.key} ${hint.label}`)

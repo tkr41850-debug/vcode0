@@ -1,6 +1,10 @@
 import type { GraphSnapshot } from '@core/graph/index';
 import { InMemoryFeatureGraph } from '@core/graph/index';
-import type { AgentRun, FeaturePhaseAgentRun, Milestone } from '@core/types/index';
+import type {
+  AgentRun,
+  FeaturePhaseAgentRun,
+  Milestone,
+} from '@core/types/index';
 import {
   ComposerProposalController,
   type ComposerProposalEnvironment,
@@ -22,7 +26,11 @@ function makeMilestone(overrides: Partial<Milestone> = {}): Milestone {
 
 function makePlanningGraph(): InMemoryFeatureGraph {
   const graph = new InMemoryFeatureGraph();
-  graph.createMilestone({ id: 'm-1', name: 'Milestone 1', description: 'desc' });
+  graph.createMilestone({
+    id: 'm-1',
+    name: 'Milestone 1',
+    description: 'desc',
+  });
   graph.createFeature({
     id: 'f-1',
     milestoneId: 'm-1',
@@ -69,14 +77,19 @@ describe('ComposerProposalController', () => {
     const env = makeEnv(graph);
     const controller = new ComposerProposalController(env);
 
-    const result = await controller.execute('/feature-add --milestone m-1 --name "New feature" --description "Added from TUI"', {
-      featureId: 'f-1',
-    });
+    const result = await controller.execute(
+      '/feature-add --milestone m-1 --name "New feature" --description "Added from TUI"',
+      {
+        featureId: 'f-1',
+      },
+    );
 
     expect(result.message).toContain('Added feature');
     expect(env.isAutoExecutionEnabled()).toBe(false);
     expect(controller.getDraftSnapshot()?.features).toEqual(
-      expect.arrayContaining([expect.objectContaining({ name: 'New feature' })]),
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'New feature' }),
+      ]),
     );
     expect(graph.features.has('f-2')).toBe(false);
   });
@@ -92,7 +105,9 @@ describe('ComposerProposalController', () => {
     );
     const result = await controller.execute('/submit', { featureId: 'f-1' });
 
-    const run = env.getFeatureRun('f-1', 'plan') as FeaturePhaseAgentRun | undefined;
+    const run = env.getFeatureRun('f-1', 'plan') as
+      | FeaturePhaseAgentRun
+      | undefined;
     expect(result.message).toContain('Submitted proposal');
     expect(run).toMatchObject({
       id: 'run-feature:f-1:plan',

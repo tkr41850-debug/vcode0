@@ -13,7 +13,7 @@ export class SummaryCoordinator {
         feature.collabControl === 'merged' &&
         feature.workControl === 'awaiting_merge'
       ) {
-        this.startOrSkip(feature);
+        this.advancePostMerge(feature);
       }
     }
   }
@@ -31,27 +31,24 @@ export class SummaryCoordinator {
     });
   }
 
-  summarize(_feature: Feature): void {}
-
-  skip(feature: Feature): void {
-    this.markPhaseDone(feature.id);
-    this.graph.transitionFeature(feature.id, {
-      workControl: 'work_complete',
-      status: 'done',
-    });
-  }
-
-  private startOrSkip(feature: Feature): void {
+  advancePostMerge(feature: Feature): void {
     this.markPhaseDone(feature.id);
 
     if (this.tokenProfile === 'budget') {
-      this.skip(this.requireFeature(feature.id));
+      this.completeWithoutSummary(feature.id);
       return;
     }
 
     this.graph.transitionFeature(feature.id, {
       workControl: 'summarizing',
       status: 'pending',
+    });
+  }
+
+  private completeWithoutSummary(featureId: FeatureId): void {
+    this.graph.transitionFeature(featureId, {
+      workControl: 'work_complete',
+      status: 'done',
     });
   }
 

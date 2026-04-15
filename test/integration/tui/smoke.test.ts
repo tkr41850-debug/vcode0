@@ -4,7 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { promisify } from 'node:util';
 
-import { Key, expect, test } from '@microsoft/tui-test';
+import { expect, Key, test } from '@microsoft/tui-test';
 
 const tuiReadyTimeoutMs = 30_000;
 const execFileAsync = promisify(execFile);
@@ -84,7 +84,9 @@ test('creates planner draft and reaches approval-ready state', async ({
   await expect(terminal.getByText('focus: graph')).toBeVisible();
 
   terminal.keyDown();
-  await expect(terminal.getByText('selected: f-1: Planner feature')).toBeVisible();
+  await expect(
+    terminal.getByText('selected: f-1: Planner feature'),
+  ).toBeVisible();
 
   terminal.keyPress('/');
   await expect(terminal.getByText('focus: composer')).toBeVisible();
@@ -102,9 +104,9 @@ test('creates planner draft and reaches approval-ready state', async ({
   ).toBeVisible();
 });
 
-async function createWorkspace(options: {
-  withPlanningFeature?: boolean;
-} = {}): Promise<string> {
+async function createWorkspace(
+  options: { withPlanningFeature?: boolean } = {},
+): Promise<string> {
   const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'gvc0-tui-'));
   workspaces.push(workspace);
   await fs.mkdir(path.join(workspace, '.gvc0'), { recursive: true });
@@ -119,11 +121,11 @@ async function createWorkspace(options: {
           "import * as path from 'node:path';",
           "import { openDatabase } from './src/persistence/db.ts';",
           "import { PersistentFeatureGraph } from './src/persistence/feature-graph.ts';",
-          "const workspace = process.env.GVC0_TUI_WORKSPACE;",
+          'const workspace = process.env.GVC0_TUI_WORKSPACE;',
           "if (workspace === undefined) throw new Error('missing GVC0_TUI_WORKSPACE');",
           "const db = openDatabase(path.join(workspace, '.gvc0', 'state.db'));",
           'try {',
-          "  const graph = new PersistentFeatureGraph(db);",
+          '  const graph = new PersistentFeatureGraph(db);',
           "  graph.createMilestone({ id: 'm-1', name: 'Milestone 1', description: 'desc' });",
           "  graph.createFeature({ id: 'f-1', milestoneId: 'm-1', name: 'Planner feature', description: 'desc' });",
           "  graph.transitionFeature('f-1', { status: 'in_progress' });",

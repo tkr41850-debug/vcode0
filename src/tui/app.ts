@@ -19,9 +19,9 @@ import type { UiPort } from '@orchestrator/ports/index';
 import {
   buildComposerSlashCommands,
   CommandRegistry,
+  type ComposerSelection,
   NAVIGATION_KEYBINDS,
   parseSlashCommand,
-  type ComposerSelection,
   type TuiCommandContext,
   type TuiCommandKey,
 } from '@tui/commands/index';
@@ -34,8 +34,8 @@ import {
   StatusBar,
 } from '@tui/components/index';
 import {
-  ComposerProposalController,
   type ComposerDraftState,
+  ComposerProposalController,
 } from '@tui/proposal-controller';
 import {
   type DagNodeViewModel,
@@ -228,7 +228,9 @@ export class TuiApp implements UiPort {
       this.selectedNodeId = flattened[0]?.id;
     }
 
-    const selectedNode = flattened.find((node) => node.id === this.selectedNodeId);
+    const selectedNode = flattened.find(
+      (node) => node.id === this.selectedNodeId,
+    );
     const draftState = this.proposalController.getDraftState();
     const pendingRun = this.pendingProposalForSelection();
 
@@ -333,7 +335,10 @@ export class TuiApp implements UiPort {
       if (this.hideTopOverlay()) {
         return true;
       }
-      if (this.focusMode === 'composer' && this.composerText.trim().length === 0) {
+      if (
+        this.focusMode === 'composer' &&
+        this.composerText.trim().length === 0
+      ) {
         this.focusGraph();
         return true;
       }
@@ -436,7 +441,9 @@ export class TuiApp implements UiPort {
   }
 
   private displayedSnapshot(): GraphSnapshot {
-    return this.proposalController.getDraftSnapshot() ?? this.dataSource.snapshot();
+    return (
+      this.proposalController.getDraftSnapshot() ?? this.dataSource.snapshot()
+    );
   }
 
   private pendingProposalForSelection(): FeaturePhaseAgentRun | undefined {
@@ -527,9 +534,13 @@ export class TuiApp implements UiPort {
       return;
     }
 
-    const currentIndex = nodes.findIndex((node) => node.id === this.selectedNodeId);
+    const currentIndex = nodes.findIndex(
+      (node) => node.id === this.selectedNodeId,
+    );
     const nextIndex =
-      currentIndex < 0 ? 0 : (currentIndex + step + nodes.length) % nodes.length;
+      currentIndex < 0
+        ? 0
+        : (currentIndex + step + nodes.length) % nodes.length;
     this.selectedNodeId = nodes[nextIndex]?.id;
     this.notice = undefined;
     this.refresh();
@@ -538,7 +549,9 @@ export class TuiApp implements UiPort {
   private currentSelection(): ComposerSelection {
     const node = this.selectedNode();
     return {
-      ...(node?.milestoneId !== undefined ? { milestoneId: node.milestoneId } : {}),
+      ...(node?.milestoneId !== undefined
+        ? { milestoneId: node.milestoneId }
+        : {}),
       ...(node?.featureId !== undefined ? { featureId: node.featureId } : {}),
       ...(node?.taskId !== undefined ? { taskId: node.taskId } : {}),
     };
@@ -592,7 +605,9 @@ export class TuiApp implements UiPort {
     return flattened.find((node) => node.id === this.selectedNodeId);
   }
 
-  private featureFromAuthoritativeSnapshot(featureId: FeatureId): Feature | undefined {
+  private featureFromAuthoritativeSnapshot(
+    featureId: FeatureId,
+  ): Feature | undefined {
     return this.dataSource
       .snapshot()
       .features.find((feature) => feature.id === featureId);

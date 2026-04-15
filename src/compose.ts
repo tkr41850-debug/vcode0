@@ -85,7 +85,9 @@ export async function composeApplication(): Promise<GvcApplication> {
         restartCount: run.restartCount,
         maxRetries: run.maxRetries,
         ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
-        ...(run.payloadJson !== undefined ? { payloadJson: run.payloadJson } : {}),
+        ...(run.payloadJson !== undefined
+          ? { payloadJson: run.payloadJson }
+          : {}),
         ...(run.retryAt !== undefined ? { retryAt: run.retryAt } : {}),
       });
     },

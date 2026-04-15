@@ -1,12 +1,3 @@
-import { InMemoryFeatureGraph, type GraphSnapshot } from '@core/graph/index';
-import type { GraphProposalMode } from '@core/proposals/index';
-import type {
-  Feature,
-  FeatureId,
-  FeaturePhaseAgentRun,
-  MilestoneId,
-  TaskId,
-} from '@core/types/index';
 import {
   createPlannerToolset,
   createProposalToolHost,
@@ -17,11 +8,20 @@ import {
   type PlannerToolResult,
   type ProposalToolHost,
 } from '@agents/tools';
+import { type GraphSnapshot, InMemoryFeatureGraph } from '@core/graph/index';
+import type { GraphProposalMode } from '@core/proposals/index';
+import type {
+  Feature,
+  FeatureId,
+  FeaturePhaseAgentRun,
+  MilestoneId,
+  TaskId,
+} from '@core/types/index';
 import {
-  isTaskWeight,
-  parseSlashCommand,
   type ComposerSelection,
+  isTaskWeight,
   type ParsedSlashCommand,
+  parseSlashCommand,
 } from '@tui/commands/index';
 
 export interface ComposerProposalEnvironment {
@@ -189,7 +189,9 @@ export class ComposerProposalController {
       throw new Error('select planning or replanning feature first');
     }
 
-    const feature = this.env.snapshot().features.find((entry) => entry.id === featureId);
+    const feature = this.env
+      .snapshot()
+      .features.find((entry) => entry.id === featureId);
     if (feature === undefined) {
       throw new Error(`feature "${featureId}" does not exist`);
     }
@@ -200,7 +202,10 @@ export class ComposerProposalController {
       this.env.setAutoExecutionEnabled(false);
     }
 
-    const host = createProposalToolHost(buildGraphFromSnapshot(this.env.snapshot()), phase);
+    const host = createProposalToolHost(
+      buildGraphFromSnapshot(this.env.snapshot()),
+      phase,
+    );
     const toolset = createPlannerToolset(host);
     this.draft = {
       featureId,
@@ -218,7 +223,9 @@ export class ComposerProposalController {
     name: Name,
     args: PlannerToolArgsMap[Name],
   ): Promise<PlannerToolResult<Name>> {
-    const tool = draft.toolByName.get(name) as PlannerToolDefinition<Name> | undefined;
+    const tool = draft.toolByName.get(name) as
+      | PlannerToolDefinition<Name>
+      | undefined;
     if (tool === undefined) {
       throw new Error(`planner tool "${name}" missing`);
     }
@@ -306,7 +313,9 @@ export class ComposerProposalController {
       throw new Error('select feature with pending proposal first');
     }
 
-    const feature = this.env.snapshot().features.find((entry) => entry.id === featureId);
+    const feature = this.env
+      .snapshot()
+      .features.find((entry) => entry.id === featureId);
     if (feature === undefined) {
       throw new Error(`feature "${featureId}" does not exist`);
     }
@@ -331,7 +340,9 @@ function phaseForFeature(feature: Feature): GraphProposalMode {
     case 'replanning':
       return 'replan';
     default:
-      throw new Error(`feature "${feature.id}" is not in planning or replanning`);
+      throw new Error(
+        `feature "${feature.id}" is not in planning or replanning`,
+      );
   }
 }
 
@@ -381,7 +392,10 @@ function readFeatureId(
   throw new Error('--feature is required');
 }
 
-function readTaskId(parsed: ParsedSlashCommand, selection: ComposerSelection): TaskId {
+function readTaskId(
+  parsed: ParsedSlashCommand,
+  selection: ComposerSelection,
+): TaskId {
   const value = parsed.args.task;
   if (typeof value === 'string' && value.startsWith('t-')) {
     return value as TaskId;
@@ -417,7 +431,9 @@ function readDependencyOptions(parsed: ParsedSlashCommand): DependencyOptions {
     return { from: from as TaskId, to: to as TaskId };
   }
 
-  throw new Error('dependency endpoints must both be features or both be tasks');
+  throw new Error(
+    'dependency endpoints must both be features or both be tasks',
+  );
 }
 
 function readDependencyArg(

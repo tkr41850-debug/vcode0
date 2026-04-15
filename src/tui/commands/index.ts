@@ -243,7 +243,9 @@ export function buildComposerSlashCommands({
     .sort((left, right) => left.localeCompare(right));
   const taskIds = snapshot.tasks
     .filter((task) => {
-      return selectedFeatureId === undefined || task.featureId === selectedFeatureId;
+      return (
+        selectedFeatureId === undefined || task.featureId === selectedFeatureId
+      );
     })
     .map((task) => task.id)
     .sort((left, right) => left.localeCompare(right));
