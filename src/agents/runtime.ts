@@ -130,7 +130,13 @@ export class PiFeatureAgentRuntime implements AgentPort {
     );
     const tools = buildFeaturePhaseAgentToolset(host, phase);
     const messages = await this.loadMessages(run.sessionId);
-    const { agent, model } = this.createAgent(phase, prompt, tools, run, messages);
+    const { agent, model } = this.createAgent(
+      phase,
+      prompt,
+      tools,
+      run,
+      messages,
+    );
 
     await this.executeAgent(agent, feature.description);
     const finalMessages = agent.state.messages;
@@ -170,7 +176,13 @@ export class PiFeatureAgentRuntime implements AgentPort {
     const host = createProposalToolHost(this.deps.graph, phase);
     const tools = buildProposalAgentToolset(host);
     const messages = await this.loadMessages(run.sessionId);
-    const { agent, model } = this.createAgent(phase, prompt, tools, run, messages);
+    const { agent, model } = this.createAgent(
+      phase,
+      prompt,
+      tools,
+      run,
+      messages,
+    );
 
     await this.executeAgent(agent, feature.description);
     if (!host.wasSubmitted()) {
@@ -206,7 +218,13 @@ export class PiFeatureAgentRuntime implements AgentPort {
     );
     const tools = buildFeaturePhaseAgentToolset(host, 'verify');
     const messages = await this.loadMessages(run.sessionId);
-    const { agent, model } = this.createAgent('verify', prompt, tools, run, messages);
+    const { agent, model } = this.createAgent(
+      'verify',
+      prompt,
+      tools,
+      run,
+      messages,
+    );
 
     await this.executeAgent(agent, feature.description);
     if (!host.wasVerifySubmitted()) {

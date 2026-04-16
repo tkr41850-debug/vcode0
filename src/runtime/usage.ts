@@ -7,7 +7,9 @@ function modelUsageKey(provider: string, model: string): string {
   return `${provider}:${model}`;
 }
 
-function isAssistantMessage(message: AgentMessage): message is AssistantMessage {
+function isAssistantMessage(
+  message: AgentMessage,
+): message is AssistantMessage {
   return (message as AssistantMessage).role === 'assistant';
 }
 

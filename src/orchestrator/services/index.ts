@@ -4,7 +4,6 @@ import * as path from 'node:path';
 
 import type { FeatureGraph } from '@core/graph/index';
 import { worktreePath } from '@core/naming/index';
-import { addTokenUsageAggregates } from '@runtime/usage';
 import type {
   BudgetState,
   Feature,
@@ -18,6 +17,7 @@ import type {
   OrchestratorPorts,
   VerificationPort,
 } from '@orchestrator/ports/index';
+import { addTokenUsageAggregates } from '@runtime/usage';
 
 interface VerificationCommandResult {
   stdout: string;
@@ -353,8 +353,10 @@ export class BudgetService {
 
   async refresh(): Promise<BudgetState> {
     const taskRollups: Record<TaskId, TokenUsageAggregate | undefined> = {};
-    const featurePhaseRollups: Record<FeatureId, TokenUsageAggregate | undefined> =
-      {};
+    const featurePhaseRollups: Record<
+      FeatureId,
+      TokenUsageAggregate | undefined
+    > = {};
     const perTaskUsd: Record<string, number> = {};
     let totalUsd = 0;
     let totalCalls = 0;
@@ -386,7 +388,8 @@ export class BudgetService {
       }
     }
 
-    const featureRollups: Record<FeatureId, TokenUsageAggregate | undefined> = {};
+    const featureRollups: Record<FeatureId, TokenUsageAggregate | undefined> =
+      {};
     for (const feature of this.graph.features.values()) {
       const taskUsage = addTokenUsageAggregates(
         ...[...this.graph.tasks.values()]

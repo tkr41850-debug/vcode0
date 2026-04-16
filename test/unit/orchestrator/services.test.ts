@@ -12,11 +12,13 @@ import type {
   VerificationCheck,
 } from '@core/types/index';
 import type { OrchestratorPorts } from '@orchestrator/ports/index';
-import { BudgetService, VerificationService } from '@orchestrator/services/index';
+import {
+  BudgetService,
+  VerificationService,
+} from '@orchestrator/services/index';
 import { describe, expect, it } from 'vitest';
-
-import { createInMemoryStore } from '../../integration/harness/store-memory.js';
 import { useTmpDir } from '../../helpers/tmp-dir.js';
+import { createInMemoryStore } from '../../integration/harness/store-memory.js';
 
 function usageAggregate(usd: number, llmCalls = 1): TokenUsageAggregate {
   const inputTokens = 10 * llmCalls;
@@ -272,7 +274,7 @@ describe('BudgetService', () => {
     const service = new BudgetService(
       {
         store,
-      } as OrchestratorPorts,
+      } as unknown as OrchestratorPorts,
       graph,
     );
 
@@ -281,7 +283,9 @@ describe('BudgetService', () => {
     expect(graph.tasks.get('t-1')?.tokenUsage).toEqual(usageAggregate(2, 3));
     expect(graph.tasks.get('t-2')?.tokenUsage).toEqual(usageAggregate(2.5, 3));
     expect(graph.tasks.get('t-3')?.tokenUsage).toBeUndefined();
-    expect(graph.features.get('f-1')?.tokenUsage).toEqual(usageAggregate(5.5, 9));
+    expect(graph.features.get('f-1')?.tokenUsage).toEqual(
+      usageAggregate(5.5, 9),
+    );
     expect(graph.features.get('f-2')?.tokenUsage).toEqual(usageAggregate(0.9));
     expect(state).toEqual({
       totalUsd: 6.4,
@@ -336,7 +340,7 @@ describe('BudgetService', () => {
     const service = new BudgetService(
       {
         store,
-      } as OrchestratorPorts,
+      } as unknown as OrchestratorPorts,
       graph,
     );
 

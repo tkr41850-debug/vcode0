@@ -262,7 +262,9 @@ describe('PersistentFeatureGraph', () => {
           'SELECT id, token_usage FROM tasks ORDER BY id',
         )
         .all();
-      expect(featureRow?.token_usage).toBe(JSON.stringify(usageAggregate(5.5, 2)));
+      expect(featureRow?.token_usage).toBe(
+        JSON.stringify(usageAggregate(5.5, 2)),
+      );
       expect(taskRows).toEqual([
         { id: 't-1', token_usage: JSON.stringify(usageAggregate(1.25)) },
         { id: 't-2', token_usage: JSON.stringify(usageAggregate(2.75, 3)) },
