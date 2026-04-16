@@ -13,7 +13,7 @@ export class SummaryCoordinator {
         feature.collabControl === 'merged' &&
         feature.workControl === 'awaiting_merge'
       ) {
-        this.advancePostMerge(feature);
+        this.advancePostMergeFeature(feature);
       }
     }
   }
@@ -31,7 +31,7 @@ export class SummaryCoordinator {
     });
   }
 
-  advancePostMerge(feature: Feature): void {
+  private advancePostMergeFeature(feature: Feature): void {
     this.markPhaseDone(feature.id);
 
     if (this.tokenProfile === 'budget') {
