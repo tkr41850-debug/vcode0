@@ -1,8 +1,42 @@
-import type { AgentRun, EventRecord, TaskAgentRun } from '@core/types/index';
+import type {
+  AgentRun,
+  EventRecord,
+  TaskAgentRun,
+  TokenUsageAggregate,
+} from '@core/types/index';
 import { openDatabase } from '@persistence/db';
 import { SqliteStore } from '@persistence/sqlite-store';
 import type Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
+const TOKEN_USAGE: TokenUsageAggregate = {
+  llmCalls: 2,
+  inputTokens: 800,
+  outputTokens: 400,
+  cacheReadTokens: 150,
+  cacheWriteTokens: 75,
+  reasoningTokens: 25,
+  audioInputTokens: 0,
+  audioOutputTokens: 0,
+  totalTokens: 1450,
+  usd: 0.0085,
+  byModel: {
+    'anthropic:claude-opus-4-6': {
+      provider: 'anthropic',
+      model: 'claude-opus-4-6',
+      llmCalls: 2,
+      inputTokens: 800,
+      outputTokens: 400,
+      cacheReadTokens: 150,
+      cacheWriteTokens: 75,
+      reasoningTokens: 25,
+      audioInputTokens: 0,
+      audioOutputTokens: 0,
+      totalTokens: 1450,
+      usd: 0.0085,
+    },
+  },
+};
 
 function makeTaskRun(overrides: Partial<TaskAgentRun> = {}): TaskAgentRun {
   return {
@@ -115,6 +149,24 @@ describe('SqliteStore', () => {
       expect(loaded?.sessionId).toBe('sess-xyz');
     });
 
+    it('round-trips tokenUsage on agent runs', () => {
+      const run = {
+        ...makeTaskRun(),
+        tokenUsage: TOKEN_USAGE,
+      } as TaskAgentRun;
+      store.createAgentRun(run);
+
+      const loaded = store.getAgentRun(run.id);
+      expect(loaded).toMatchObject({ ...run, tokenUsage: TOKEN_USAGE });
+
+      const row = db
+        .prepare<[string], { token_usage: string | null }>(
+          'SELECT token_usage FROM agent_runs WHERE id = ?',
+        )
+        .get(run.id);
+      expect(row?.token_usage).toContain('llmCalls');
+    });
+
     it('updateAgentRun preserves created_at and advances updated_at', () => {
       clock = 1_000;
       const run = makeTaskRun();
@@ -130,6 +182,18 @@ describe('SqliteStore', () => {
         .get(run.id);
       expect(row?.created_at).toBe(1_000);
       expect(row?.updated_at).toBe(5_000);
+    });
+
+    it('updates tokenUsage via updateAgentRun', () => {
+      const run = makeTaskRun();
+      store.createAgentRun(run);
+
+      store.updateAgentRun(run.id, {
+        tokenUsage: TOKEN_USAGE,
+      } as Partial<AgentRun>);
+
+      const loaded = store.getAgentRun(run.id);
+      expect(loaded).toMatchObject({ ...run, tokenUsage: TOKEN_USAGE });
     });
 
     it('updateAgentRun throws on missing run without touching any row', () => {

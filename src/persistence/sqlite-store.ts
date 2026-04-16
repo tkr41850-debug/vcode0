@@ -14,7 +14,7 @@ import type { AgentRunRow, EventRow } from '@persistence/queries/index';
 import type Database from 'better-sqlite3';
 
 const AGENT_RUN_COLUMNS =
-  'id, scope_type, scope_id, phase, run_status, owner, attention, session_id, payload_json, max_retries, restart_count, retry_at, created_at, updated_at';
+  'id, scope_type, scope_id, phase, run_status, owner, attention, session_id, payload_json, token_usage, max_retries, restart_count, retry_at, created_at, updated_at';
 
 const EVENT_COLUMNS = 'id, timestamp, event_type, entity_id, payload';
 
@@ -30,6 +30,7 @@ interface AgentRunInsertParams {
   attention: string;
   session_id: string | null;
   payload_json: string | null;
+  token_usage: string | null;
   max_retries: number;
   restart_count: number;
   retry_at: number | null;
@@ -51,6 +52,7 @@ interface AgentRunUpdateParams {
   attention: string;
   session_id: string | null;
   payload_json: string | null;
+  token_usage: string | null;
   max_retries: number;
   restart_count: number;
   retry_at: number | null;
@@ -84,8 +86,8 @@ export class SqliteStore implements Store {
     this.insertAgentRunStmt = db.prepare<AgentRunInsertParams>(
       `INSERT INTO agent_runs (${AGENT_RUN_COLUMNS}) VALUES (
         :id, :scope_type, :scope_id, :phase, :run_status, :owner, :attention,
-        :session_id, :payload_json, :max_retries, :restart_count, :retry_at,
-        :created_at, :updated_at
+        :session_id, :payload_json, :token_usage, :max_retries, :restart_count,
+        :retry_at, :created_at, :updated_at
       )`,
     );
 
@@ -97,6 +99,7 @@ export class SqliteStore implements Store {
         attention = :attention,
         session_id = :session_id,
         payload_json = :payload_json,
+        token_usage = :token_usage,
         max_retries = :max_retries,
         restart_count = :restart_count,
         retry_at = :retry_at,
@@ -125,6 +128,7 @@ export class SqliteStore implements Store {
           attention: row.attention,
           session_id: row.session_id,
           payload_json: row.payload_json,
+          token_usage: row.token_usage,
           max_retries: row.max_retries,
           restart_count: row.restart_count,
           retry_at: row.retry_at,

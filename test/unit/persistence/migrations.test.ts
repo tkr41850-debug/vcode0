@@ -1,6 +1,7 @@
 import { openDatabase } from '@persistence/db';
 import { Migration001Init } from '@persistence/migrations/001_init';
 import { Migration002FeatureRuntimeBlock } from '@persistence/migrations/002_feature_runtime_block';
+import { Migration003AgentRunTokenUsage } from '@persistence/migrations/003_agent_run_token_usage';
 import { MigrationRunner } from '@persistence/migrations/index';
 import type Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -47,6 +48,7 @@ describe('persistence migrations', () => {
 
     expect(applied).toContain(Migration001Init.id);
     expect(applied).toContain(Migration002FeatureRuntimeBlock.id);
+    expect(applied).toContain(Migration003AgentRunTokenUsage.id);
   });
 
   it('adds runtime_blocked_by_feature_id to features', () => {
@@ -58,10 +60,20 @@ describe('persistence migrations', () => {
     expect(columns).toContain('runtime_blocked_by_feature_id');
   });
 
+  it('adds token_usage to agent_runs', () => {
+    const columns = db
+      .prepare<[], { name: string }>("PRAGMA table_info('agent_runs')")
+      .all()
+      .map((row) => row.name);
+
+    expect(columns).toContain('token_usage');
+  });
+
   it('is idempotent when the runner is re-invoked', () => {
     const runner = new MigrationRunner(db, [
       Migration001Init,
       Migration002FeatureRuntimeBlock,
+      Migration003AgentRunTokenUsage,
     ]);
     runner.run();
     runner.run();
@@ -70,7 +82,7 @@ describe('persistence migrations', () => {
       .prepare<[string], { count: number }>(
         'SELECT COUNT(*) AS count FROM schema_migrations WHERE id = ?',
       )
-      .get(Migration002FeatureRuntimeBlock.id);
+      .get(Migration003AgentRunTokenUsage.id);
     expect(rows?.count).toBe(1);
   });
 

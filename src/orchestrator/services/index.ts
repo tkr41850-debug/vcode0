@@ -4,8 +4,13 @@ import * as path from 'node:path';
 
 import type { FeatureGraph } from '@core/graph/index';
 import { worktreePath } from '@core/naming/index';
+import { addTokenUsageAggregates } from '@runtime/usage';
 import type {
+  BudgetState,
   Feature,
+  FeatureId,
+  TaskId,
+  TokenUsageAggregate,
   VerificationCheck,
   VerificationSummary,
 } from '@core/types/index';
@@ -341,10 +346,71 @@ export class VerificationService implements VerificationPort {
 }
 
 export class BudgetService {
-  constructor(private readonly ports: OrchestratorPorts) {}
+  constructor(
+    private readonly ports: OrchestratorPorts,
+    private readonly graph: FeatureGraph,
+  ) {}
 
-  refresh(): Promise<void> {
-    void this.ports;
-    return Promise.resolve();
+  async refresh(): Promise<BudgetState> {
+    const taskRollups: Record<TaskId, TokenUsageAggregate | undefined> = {};
+    const featurePhaseRollups: Record<FeatureId, TokenUsageAggregate | undefined> =
+      {};
+    const perTaskUsd: Record<string, number> = {};
+    let totalUsd = 0;
+    let totalCalls = 0;
+
+    for (const run of this.ports.store.listAgentRuns()) {
+      const usage = run.tokenUsage;
+      if (usage === undefined) {
+        continue;
+      }
+
+      totalUsd += usage.usd;
+      totalCalls += usage.llmCalls;
+
+      if (run.scopeType === 'task' && run.phase === 'execute') {
+        const nextTaskUsage = addTokenUsageAggregates(
+          taskRollups[run.scopeId],
+          usage,
+        );
+        taskRollups[run.scopeId] = nextTaskUsage;
+        perTaskUsd[run.scopeId] = nextTaskUsage.usd;
+        continue;
+      }
+
+      if (run.scopeType === 'feature_phase') {
+        featurePhaseRollups[run.scopeId] = addTokenUsageAggregates(
+          featurePhaseRollups[run.scopeId],
+          usage,
+        );
+      }
+    }
+
+    const featureRollups: Record<FeatureId, TokenUsageAggregate | undefined> = {};
+    for (const feature of this.graph.features.values()) {
+      const taskUsage = addTokenUsageAggregates(
+        ...[...this.graph.tasks.values()]
+          .filter((task) => task.featureId === feature.id)
+          .map((task) => taskRollups[task.id]),
+      );
+      const featureUsage = addTokenUsageAggregates(
+        taskUsage,
+        featurePhaseRollups[feature.id],
+      );
+      if (featureUsage.llmCalls > 0 || featureUsage.totalTokens > 0) {
+        featureRollups[feature.id] = featureUsage;
+      }
+    }
+
+    this.graph.replaceUsageRollups({
+      tasks: taskRollups,
+      features: featureRollups,
+    });
+
+    return {
+      totalUsd,
+      totalCalls,
+      perTaskUsd,
+    };
   }
 }

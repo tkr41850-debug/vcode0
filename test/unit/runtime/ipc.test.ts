@@ -147,6 +147,7 @@ describe('ChildNdjsonStdioTransport (worker side)', () => {
         usage: {
           provider: 'anthropic',
           model: 'claude-sonnet-4-20250514',
+          llmCalls: 1,
           inputTokens: 100,
           outputTokens: 50,
           totalTokens: 150,

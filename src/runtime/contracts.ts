@@ -77,6 +77,7 @@ export type RuntimeSteeringDirective =
 export interface RuntimeUsageDelta {
   provider: string;
   model: string;
+  llmCalls?: number;
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens?: number;

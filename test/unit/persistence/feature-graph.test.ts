@@ -1,7 +1,43 @@
+import type { TokenUsageAggregate } from '@core/types/index';
 import { openDatabase } from '@persistence/db';
 import { PersistentFeatureGraph } from '@persistence/feature-graph';
 import type Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
+function usageAggregate(usd: number, llmCalls = 1): TokenUsageAggregate {
+  const inputTokens = 10 * llmCalls;
+  const outputTokens = 5 * llmCalls;
+  const totalTokens = inputTokens + outputTokens;
+
+  return {
+    llmCalls,
+    inputTokens,
+    outputTokens,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    reasoningTokens: 0,
+    audioInputTokens: 0,
+    audioOutputTokens: 0,
+    totalTokens,
+    usd,
+    byModel: {
+      'anthropic:claude-sonnet-4-6': {
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-6',
+        llmCalls,
+        inputTokens,
+        outputTokens,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        reasoningTokens: 0,
+        audioInputTokens: 0,
+        audioOutputTokens: 0,
+        totalTokens,
+        usd,
+      },
+    },
+  };
+}
 
 describe('PersistentFeatureGraph', () => {
   let db: Database.Database;
@@ -193,6 +229,74 @@ describe('PersistentFeatureGraph', () => {
         weight: 'heavy',
         reserved_write_paths: JSON.stringify(['src/updated.ts']),
       });
+    });
+
+    it('persists replaceUsageRollups and clears omitted token usage', () => {
+      graph.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+      graph.createFeature({
+        id: 'f-1',
+        milestoneId: 'm-1',
+        name: 'F',
+        description: 'd',
+      });
+      graph.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+      graph.createTask({ id: 't-2', featureId: 'f-1', description: 'T2' });
+
+      graph.replaceUsageRollups({
+        features: {
+          'f-1': usageAggregate(5.5, 2),
+        },
+        tasks: {
+          't-1': usageAggregate(1.25),
+          't-2': usageAggregate(2.75, 3),
+        },
+      });
+
+      let featureRow = db
+        .prepare<[string], { token_usage: string | null }>(
+          'SELECT token_usage FROM features WHERE id = ?',
+        )
+        .get('f-1');
+      let taskRows = db
+        .prepare<[], { id: string; token_usage: string | null }>(
+          'SELECT id, token_usage FROM tasks ORDER BY id',
+        )
+        .all();
+      expect(featureRow?.token_usage).toBe(JSON.stringify(usageAggregate(5.5, 2)));
+      expect(taskRows).toEqual([
+        { id: 't-1', token_usage: JSON.stringify(usageAggregate(1.25)) },
+        { id: 't-2', token_usage: JSON.stringify(usageAggregate(2.75, 3)) },
+      ]);
+
+      graph.replaceUsageRollups({
+        features: {},
+        tasks: {
+          't-2': usageAggregate(4),
+        },
+      });
+
+      featureRow = db
+        .prepare<[string], { token_usage: string | null }>(
+          'SELECT token_usage FROM features WHERE id = ?',
+        )
+        .get('f-1');
+      taskRows = db
+        .prepare<[], { id: string; token_usage: string | null }>(
+          'SELECT id, token_usage FROM tasks ORDER BY id',
+        )
+        .all();
+      expect(featureRow?.token_usage).toBeNull();
+      expect(taskRows).toEqual([
+        { id: 't-1', token_usage: null },
+        { id: 't-2', token_usage: JSON.stringify(usageAggregate(4)) },
+      ]);
+
+      const rehydrated = new PersistentFeatureGraph(db);
+      expect(rehydrated.features.get('f-1')?.tokenUsage).toBeUndefined();
+      expect(rehydrated.tasks.get('t-1')?.tokenUsage).toBeUndefined();
+      expect(rehydrated.tasks.get('t-2')?.tokenUsage).toEqual(
+        usageAggregate(4),
+      );
     });
 
     it('persists feature transition (status change)', () => {

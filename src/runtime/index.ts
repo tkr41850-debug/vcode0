@@ -23,3 +23,9 @@ export type { ModelBridgeConfig } from '@runtime/routing/model-bridge';
 export { resolveModel } from '@runtime/routing/model-bridge';
 export type { SessionStore } from '@runtime/sessions';
 export { FileSessionStore } from '@runtime/sessions';
+export {
+  addTokenUsageAggregates,
+  emptyTokenUsageAggregate,
+  messagesToTokenUsageAggregate,
+  runtimeUsageToTokenUsageAggregate,
+} from '@runtime/usage';

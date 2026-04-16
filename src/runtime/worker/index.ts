@@ -22,6 +22,7 @@ import type {
 import type { ChildIpcTransport } from '@runtime/ipc/index';
 import { resolveModel } from '@runtime/routing/model-bridge';
 import type { SessionStore } from '@runtime/sessions/index';
+import { messagesToTokenUsageAggregate } from '@runtime/usage';
 import { buildSystemPrompt } from '@runtime/worker/system-prompt';
 
 export interface WorkerRuntimeConfig {
@@ -453,22 +454,11 @@ function summarizeRun(
   provider: string,
   model: string,
 ): { usage: RuntimeUsageDelta; summary: string } {
-  let inputTokens = 0;
-  let outputTokens = 0;
-  let cacheReadTokens = 0;
-  let cacheWriteTokens = 0;
-  let totalTokens = 0;
-  let usd = 0;
+  const aggregate = messagesToTokenUsageAggregate(messages, provider, model);
   let summary = '';
 
   for (const msg of messages) {
     if (!isAssistantMessage(msg)) continue;
-    inputTokens += msg.usage.input;
-    outputTokens += msg.usage.output;
-    cacheReadTokens += msg.usage.cacheRead;
-    cacheWriteTokens += msg.usage.cacheWrite;
-    totalTokens += msg.usage.totalTokens;
-    usd += msg.usage.cost.total;
     const text = extractText(msg);
     if (text.length > 0) summary = text.slice(0, 500);
   }
@@ -477,12 +467,26 @@ function summarizeRun(
     usage: {
       provider,
       model,
-      inputTokens,
-      outputTokens,
-      cacheReadTokens,
-      cacheWriteTokens,
-      totalTokens,
-      usd,
+      llmCalls: aggregate.llmCalls,
+      inputTokens: aggregate.inputTokens,
+      outputTokens: aggregate.outputTokens,
+      ...(aggregate.cacheReadTokens > 0
+        ? { cacheReadTokens: aggregate.cacheReadTokens }
+        : {}),
+      ...(aggregate.cacheWriteTokens > 0
+        ? { cacheWriteTokens: aggregate.cacheWriteTokens }
+        : {}),
+      ...(aggregate.reasoningTokens > 0
+        ? { reasoningTokens: aggregate.reasoningTokens }
+        : {}),
+      ...(aggregate.audioInputTokens > 0
+        ? { audioInputTokens: aggregate.audioInputTokens }
+        : {}),
+      ...(aggregate.audioOutputTokens > 0
+        ? { audioOutputTokens: aggregate.audioOutputTokens }
+        : {}),
+      totalTokens: aggregate.totalTokens,
+      usd: aggregate.usd,
     },
     summary,
   };

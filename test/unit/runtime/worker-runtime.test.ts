@@ -394,6 +394,7 @@ describe('LocalWorkerPool', () => {
         usage: {
           provider: 'anthropic',
           model: 'claude-sonnet-4-20250514',
+          llmCalls: 1,
           inputTokens: 50,
           outputTokens: 20,
           totalTokens: 70,

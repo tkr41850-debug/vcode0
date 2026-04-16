@@ -232,6 +232,38 @@ describe('PiFeatureAgentRuntime', () => {
     );
   });
 
+  it('persists token usage on feature-phase runs after completion', async () => {
+    faux.setResponses([
+      fauxAssistantMessage(
+        [
+          fauxToolCall('submitSummarize', {
+            summary: 'Summary after usage accounting.',
+            outcome: 'Delivered merged feature',
+            deliveredCapabilities: ['capability'],
+            importantFiles: ['src/api.ts'],
+            verificationConfidence: ['verify green'],
+            carryForwardNotes: ['none'],
+          }),
+        ],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage([fauxText('Summary structured.')]),
+    ]);
+
+    const { feature, store, run, runtime } = createRuntimeFixture('summarize');
+
+    await runtime.summarizeFeature(feature, { agentRunId: run.id });
+
+    expect(store.getAgentRun(run.id)).toEqual(
+      expect.objectContaining({
+        tokenUsage: expect.objectContaining({
+          llmCalls: 2,
+          totalTokens: expect.any(Number),
+        }),
+      }),
+    );
+  });
+
   it('exposes feature inspection tools during summarize', async () => {
     const extra: SummarizePhaseDetails = {
       outcome: 'Delivered merged feature',
@@ -430,6 +462,14 @@ describe('PiFeatureAgentRuntime', () => {
       criteriaEvidence,
       repairFocus: ['prove integrated behavior'],
     });
+    expect(store.getAgentRun(run.id)).toEqual(
+      expect.objectContaining({
+        sessionId: run.id,
+        tokenUsage: expect.objectContaining({
+          llmCalls: 2,
+        }),
+      }),
+    );
     expect(store.listEvents({ entityId: feature.id })).toContainEqual(
       expect.objectContaining({
         eventType: 'feature_phase_completed',

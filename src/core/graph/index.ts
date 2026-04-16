@@ -19,6 +19,7 @@ import type {
   TaskStatus,
   TaskSuspendReason,
   TaskWeight,
+  TokenUsageAggregate,
   UnitStatus,
 } from '@core/types/index';
 
@@ -87,6 +88,11 @@ export interface MergeTrainUpdate {
   mergeTrainEnteredAt?: number | undefined;
   mergeTrainEntrySeq?: number | undefined;
   mergeTrainReentryCount?: number | undefined;
+}
+
+export interface UsageRollupPatch {
+  features: Record<FeatureId, TokenUsageAggregate | undefined>;
+  tasks: Record<TaskId, TokenUsageAggregate | undefined>;
 }
 
 export interface FeatureDependencyOptions {
@@ -189,6 +195,9 @@ export interface FeatureGraph {
 
   // Merge-train metadata (used by MergeTrainCoordinator)
   updateMergeTrainState(featureId: FeatureId, fields: MergeTrainUpdate): void;
+
+  // Derived usage rollups materialized from persisted run state.
+  replaceUsageRollups(patch: UsageRollupPatch): void;
 }
 
 export class InMemoryFeatureGraph implements FeatureGraph {
@@ -1458,5 +1467,50 @@ export class InMemoryFeatureGraph implements FeatureGraph {
     }
 
     this.features.set(featureId, updated);
+  }
+
+  replaceUsageRollups(patch: UsageRollupPatch): void {
+    for (const featureId of Object.keys(patch.features) as FeatureId[]) {
+      if (!this.features.has(featureId)) {
+        throw new GraphValidationError(`Feature "${featureId}" does not exist`);
+      }
+    }
+    for (const taskId of Object.keys(patch.tasks) as TaskId[]) {
+      if (!this.tasks.has(taskId)) {
+        throw new GraphValidationError(`Task "${taskId}" does not exist`);
+      }
+    }
+
+    for (const [featureId, feature] of this.features) {
+      const nextUsage = patch.features[featureId];
+      if (nextUsage === undefined && feature.tokenUsage === undefined) {
+        continue;
+      }
+      if (nextUsage === undefined) {
+        const { tokenUsage: _tokenUsage, ...rest } = feature;
+        this.features.set(featureId, rest);
+        continue;
+      }
+      this.features.set(featureId, {
+        ...feature,
+        tokenUsage: nextUsage,
+      });
+    }
+
+    for (const [taskId, task] of this.tasks) {
+      const nextUsage = patch.tasks[taskId];
+      if (nextUsage === undefined && task.tokenUsage === undefined) {
+        continue;
+      }
+      if (nextUsage === undefined) {
+        const { tokenUsage: _tokenUsage, ...rest } = task;
+        this.tasks.set(taskId, rest);
+        continue;
+      }
+      this.tasks.set(taskId, {
+        ...task,
+        tokenUsage: nextUsage,
+      });
+    }
   }
 }

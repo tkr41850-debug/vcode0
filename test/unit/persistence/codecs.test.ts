@@ -281,6 +281,27 @@ describe('codecs — round-trip', () => {
       const row = fullRow<AgentRunRow>(agentRunToRow(run));
       expect(rowToAgentRun(row)).toEqual(run);
     });
+
+    it('round-trips an agent run with tokenUsage', () => {
+      const run = {
+        id: 'run-usage-1',
+        scopeType: 'task',
+        scopeId: 't-1',
+        phase: 'execute',
+        runStatus: 'completed',
+        owner: 'system',
+        attention: 'none',
+        restartCount: 1,
+        maxRetries: 3,
+        tokenUsage: TOKEN_USAGE,
+      } as TaskAgentRun;
+      const row = fullRow<AgentRunRow>(agentRunToRow(run));
+      expect(row.token_usage).toContain('llmCalls');
+      expect(rowToAgentRun(row)).toMatchObject({
+        ...run,
+        tokenUsage: TOKEN_USAGE,
+      });
+    });
   });
 
   describe('Event', () => {

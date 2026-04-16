@@ -34,6 +34,7 @@ import type { AssistantMessage } from '@mariozechner/pi-ai';
 import type { Store } from '@orchestrator/ports/index';
 import { resolveModel } from '@runtime/routing/model-bridge';
 import type { SessionStore } from '@runtime/sessions/index';
+import { messagesToTokenUsageAggregate } from '@runtime/usage';
 
 export interface FeatureAgentRuntimeConfig {
   modelId: string;
@@ -129,12 +130,17 @@ export class PiFeatureAgentRuntime implements AgentPort {
     );
     const tools = buildFeaturePhaseAgentToolset(host, phase);
     const messages = await this.loadMessages(run.sessionId);
-    const agent = this.createAgent(phase, prompt, tools, run, messages);
+    const { agent, model } = this.createAgent(phase, prompt, tools, run, messages);
 
     await this.executeAgent(agent, feature.description);
     const finalMessages = agent.state.messages;
     const result = getSubmittedPhaseResult(host, phase);
-    const sessionId = await this.persistMessages(run, finalMessages);
+    const sessionId = await this.persistMessages(
+      run,
+      finalMessages,
+      model.provider,
+      model.id,
+    );
 
     this.recordPhaseCompletion(
       feature.id,
@@ -164,7 +170,7 @@ export class PiFeatureAgentRuntime implements AgentPort {
     const host = createProposalToolHost(this.deps.graph, phase);
     const tools = buildProposalAgentToolset(host);
     const messages = await this.loadMessages(run.sessionId);
-    const agent = this.createAgent(phase, prompt, tools, run, messages);
+    const { agent, model } = this.createAgent(phase, prompt, tools, run, messages);
 
     await this.executeAgent(agent, feature.description);
     if (!host.wasSubmitted()) {
@@ -172,7 +178,12 @@ export class PiFeatureAgentRuntime implements AgentPort {
     }
 
     const finalMessages = agent.state.messages;
-    const sessionId = await this.persistMessages(run, finalMessages);
+    const sessionId = await this.persistMessages(
+      run,
+      finalMessages,
+      model.provider,
+      model.id,
+    );
     const summary =
       extractLastAssistantText(finalMessages) ||
       `${phase === 'plan' ? 'Planned' : 'Replanned'} ${feature.name}`;
@@ -195,7 +206,7 @@ export class PiFeatureAgentRuntime implements AgentPort {
     );
     const tools = buildFeaturePhaseAgentToolset(host, 'verify');
     const messages = await this.loadMessages(run.sessionId);
-    const agent = this.createAgent('verify', prompt, tools, run, messages);
+    const { agent, model } = this.createAgent('verify', prompt, tools, run, messages);
 
     await this.executeAgent(agent, feature.description);
     if (!host.wasVerifySubmitted()) {
@@ -203,7 +214,12 @@ export class PiFeatureAgentRuntime implements AgentPort {
     }
 
     const finalMessages = agent.state.messages;
-    const sessionId = await this.persistMessages(run, finalMessages);
+    const sessionId = await this.persistMessages(
+      run,
+      finalMessages,
+      model.provider,
+      model.id,
+    );
     const verification = host.getVerificationSummary();
     const summary = verification.summary ?? 'Verification complete.';
 
@@ -291,7 +307,7 @@ export class PiFeatureAgentRuntime implements AgentPort {
     tools: AgentTool[],
     run: FeaturePhaseRunContext,
     messages: AgentMessage[],
-  ): Agent {
+  ): { agent: Agent; model: ReturnType<typeof resolveModel> } {
     const model = resolveModel(
       {
         model: this.deps.config.modelRouting?.ceiling ?? this.deps.modelId,
@@ -325,7 +341,7 @@ export class PiFeatureAgentRuntime implements AgentPort {
     if (run.sessionId !== undefined) {
       options.sessionId = run.sessionId;
     }
-    return new Agent(options);
+    return { agent: new Agent(options), model };
   }
 
   private async executeAgent(agent: Agent, promptInput: string): Promise<void> {
@@ -348,10 +364,15 @@ export class PiFeatureAgentRuntime implements AgentPort {
   private async persistMessages(
     run: FeaturePhaseRunContext,
     messages: AgentMessage[],
+    provider: string,
+    model: string,
   ): Promise<string> {
     const sessionId = run.sessionId ?? run.agentRunId;
     await this.deps.sessionStore.save(sessionId, messages);
-    this.deps.store.updateAgentRun(run.agentRunId, { sessionId });
+    this.deps.store.updateAgentRun(run.agentRunId, {
+      sessionId,
+      tokenUsage: messagesToTokenUsageAggregate(messages, provider, model),
+    });
     return sessionId;
   }
 

@@ -12,6 +12,7 @@ import type {
   SplitSpec,
   TaskEditPatch,
   TaskTransitionPatch,
+  UsageRollupPatch,
 } from '@core/graph/index';
 import { InMemoryFeatureGraph } from '@core/graph/index';
 import type {
@@ -226,6 +227,10 @@ export class PersistentFeatureGraph implements FeatureGraph {
 
   updateMergeTrainState(featureId: FeatureId, fields: MergeTrainUpdate): void {
     this.mutate(() => this.inner.updateMergeTrainState(featureId, fields));
+  }
+
+  replaceUsageRollups(patch: UsageRollupPatch): void {
+    this.mutate(() => this.inner.replaceUsageRollups(patch));
   }
 
   // ---------- Mutation helper ----------

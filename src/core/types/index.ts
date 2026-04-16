@@ -269,6 +269,7 @@ interface BaseAgentRun {
   attention: RunAttention;
   sessionId?: string;
   payloadJson?: string;
+  tokenUsage?: TokenUsageAggregate;
   restartCount: number;
   maxRetries: number;
   retryAt?: number;

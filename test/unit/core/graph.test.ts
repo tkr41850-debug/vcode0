@@ -1,4 +1,5 @@
 import { GraphValidationError, InMemoryFeatureGraph } from '@core/graph/index';
+import type { TokenUsageAggregate } from '@core/types/index';
 import { describe, expect, it } from 'vitest';
 import {
   createFeatureFixture,
@@ -11,6 +12,41 @@ import {
   updateFeature,
   updateTask,
 } from '../../helpers/graph-builders.js';
+
+function usageAggregate(usd: number, llmCalls = 1): TokenUsageAggregate {
+  const inputTokens = 10 * llmCalls;
+  const outputTokens = 5 * llmCalls;
+  const totalTokens = inputTokens + outputTokens;
+
+  return {
+    llmCalls,
+    inputTokens,
+    outputTokens,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    reasoningTokens: 0,
+    audioInputTokens: 0,
+    audioOutputTokens: 0,
+    totalTokens,
+    usd,
+    byModel: {
+      'anthropic:claude-sonnet-4-6': {
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-6',
+        llmCalls,
+        inputTokens,
+        outputTokens,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        reasoningTokens: 0,
+        audioInputTokens: 0,
+        audioOutputTokens: 0,
+        totalTokens,
+        usd,
+      },
+    },
+  };
+}
 
 describe('InMemoryFeatureGraph', () => {
   // ── Milestone creation ──────────────────────────────────────────────
@@ -909,6 +945,66 @@ describe('InMemoryFeatureGraph', () => {
     expect(() => g.editFeature('f-1', { name: 'X' })).toThrow(
       GraphValidationError,
     );
+  });
+
+  it('replaceUsageRollups overwrites feature and task token usage', () => {
+    const g = createGraphWithTask();
+    g.createTask({ id: 't-2', featureId: 'f-1', description: 'T2' });
+
+    g.replaceUsageRollups({
+      features: {
+        'f-1': usageAggregate(4.25, 2),
+      },
+      tasks: {
+        't-1': usageAggregate(1.5),
+        't-2': usageAggregate(2.75, 3),
+      },
+    });
+
+    expect(g.features.get('f-1')?.tokenUsage).toEqual(usageAggregate(4.25, 2));
+    expect(g.tasks.get('t-1')?.tokenUsage).toEqual(usageAggregate(1.5));
+    expect(g.tasks.get('t-2')?.tokenUsage).toEqual(usageAggregate(2.75, 3));
+  });
+
+  it('replaceUsageRollups clears omitted feature and task token usage', () => {
+    const g = createGraphWithTask();
+    g.createTask({ id: 't-2', featureId: 'f-1', description: 'T2' });
+    updateFeature(g, 'f-1', { tokenUsage: usageAggregate(9) });
+    updateTask(g, 't-1', { tokenUsage: usageAggregate(1) });
+    updateTask(g, 't-2', { tokenUsage: usageAggregate(2) });
+
+    g.replaceUsageRollups({
+      features: {},
+      tasks: {
+        't-2': usageAggregate(3),
+      },
+    });
+
+    expect(g.features.get('f-1')?.tokenUsage).toBeUndefined();
+    expect(g.tasks.get('t-1')?.tokenUsage).toBeUndefined();
+    expect(g.tasks.get('t-2')?.tokenUsage).toEqual(usageAggregate(3));
+  });
+
+  it('replaceUsageRollups rejects unknown feature or task ids', () => {
+    const g = createGraphWithFeature();
+
+    expect(() =>
+      g.replaceUsageRollups({
+        features: {
+          'f-missing': usageAggregate(1),
+        },
+        tasks: {},
+      }),
+    ).toThrow(GraphValidationError);
+
+    expect(() =>
+      g.replaceUsageRollups({
+        features: {},
+        tasks: {
+          't-missing': usageAggregate(1),
+        },
+      }),
+    ).toThrow(GraphValidationError);
   });
 
   it('removeFeature removes feature tasks and dependent feature edges', () => {

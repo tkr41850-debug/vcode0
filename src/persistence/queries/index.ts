@@ -82,6 +82,7 @@ interface BaseAgentRunRow {
   attention: RunAttention;
   session_id: string | null;
   payload_json: string | null;
+  token_usage: string | null;
   max_retries: number;
   restart_count: number;
   retry_at: number | null;

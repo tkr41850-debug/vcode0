@@ -223,6 +223,7 @@ export function agentRunToRow(
     attention: r.attention,
     session_id: nullish(r.sessionId),
     payload_json: nullish(r.payloadJson),
+    token_usage: serializeJson(r.tokenUsage),
     max_retries: r.maxRetries,
     restart_count: r.restartCount,
     retry_at: nullish(r.retryAt),
@@ -244,6 +245,10 @@ export function rowToAgentRun(row: AgentRunRow): AgentRun {
     maxRetries: row.max_retries,
     ...optional('sessionId', row.session_id),
     ...optional('payloadJson', row.payload_json),
+    ...optional(
+      'tokenUsage',
+      parseJson<TokenUsageAggregate>(row.token_usage) ?? undefined,
+    ),
     ...optional('retryAt', row.retry_at),
   };
   if (row.scope_type === 'task') {
