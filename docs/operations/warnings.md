@@ -43,6 +43,7 @@ Stage 1 examples:
 - a task-level related-test run exceeds its time budget
 - a feature-level full test suite exceeds its time budget
 - a merge-train verification category repeatedly runs longer than its configured absolute threshold
+- a verification layer runs with an empty effective `checks[]` list because config was omitted or intentionally left empty
 
 Stage 2 examples:
 - task lint gets slower week over week
@@ -144,5 +145,7 @@ Warnings should be surfaced through:
 - append-only `events` log entries
 - TUI warning badges / summaries
 - feature detail views showing recent warning causes
+
+For empty verification-config warnings, emit one advisory `warning_emitted` event per entity/layer combination instead of repeating it on every scheduler tick or retry.
 
 Warnings should remain advisory by default. If a warning later needs to become a policy input, that should be an explicit separate decision rather than an implicit escalation.

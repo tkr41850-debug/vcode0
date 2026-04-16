@@ -1,5 +1,9 @@
 import type { BudgetState } from '@core/types';
-import { WarningEvaluator, type WarningThresholds } from '@core/warnings/index';
+import {
+  createEmptyVerificationChecksWarning,
+  WarningEvaluator,
+  type WarningThresholds,
+} from '@core/warnings/index';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -146,6 +150,21 @@ describe('WarningEvaluator', () => {
         }),
       ]);
       expect(warnings).toHaveLength(0);
+    });
+  });
+
+  describe('empty verification checks warning', () => {
+    it('creates layer-aware empty verification checks warning', () => {
+      expect(
+        createEmptyVerificationChecksWarning('f-1', 'feature', 3000),
+      ).toEqual({
+        category: 'empty_verification_checks',
+        entityId: 'f-1',
+        message:
+          'verification.feature.checks empty; feature_ci running without configured checks',
+        occurredAt: 3000,
+        payload: { layer: 'feature' },
+      });
     });
   });
 

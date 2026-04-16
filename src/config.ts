@@ -22,6 +22,8 @@ import {
 
 export const DEFAULT_CONFIG_PATH = '.gvc0/config.json';
 
+export type VerificationLayerName = 'task' | 'feature' | 'mergeTrain';
+
 const DEFAULT_CONTEXT_DEFAULTS: ContextDefaultsConfig = {
   strategy: 'shared-summary',
   includeKnowledge: true,
@@ -309,6 +311,36 @@ function parseWarningConfig(value: unknown, configPath: string): WarningConfig {
       DEFAULT_WARNING_THRESHOLDS.longFeatureBlockingMs,
     ),
   };
+}
+
+const EMPTY_TASK_LAYER: VerificationLayerConfig = {
+  checks: [],
+  timeoutSecs: 60,
+  continueOnFail: false,
+};
+
+const EMPTY_FEATURE_LAYER: VerificationLayerConfig = {
+  checks: [],
+  timeoutSecs: 600,
+  continueOnFail: false,
+};
+
+export function resolveVerificationLayerConfig(
+  config: GvcConfig,
+  layer: VerificationLayerName,
+): VerificationLayerConfig {
+  const verification = config.verification;
+
+  switch (layer) {
+    case 'mergeTrain':
+      return (
+        verification?.mergeTrain ?? verification?.feature ?? EMPTY_FEATURE_LAYER
+      );
+    case 'feature':
+      return verification?.feature ?? EMPTY_FEATURE_LAYER;
+    case 'task':
+      return verification?.task ?? EMPTY_TASK_LAYER;
+  }
 }
 
 function parseVerificationConfig(

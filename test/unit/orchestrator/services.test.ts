@@ -10,6 +10,7 @@ import type {
   TaskAgentRun,
   TokenUsageAggregate,
   VerificationCheck,
+  VerificationLayerConfig,
 } from '@core/types/index';
 import type { OrchestratorPorts } from '@orchestrator/ports/index';
 import {
@@ -91,6 +92,7 @@ function createFeatureVerificationConfig(
   overrides: {
     timeoutSecs?: number;
     continueOnFail?: boolean;
+    mergeTrain?: VerificationLayerConfig;
   } = {},
 ): GvcConfig {
   return createConfig({
@@ -100,6 +102,9 @@ function createFeatureVerificationConfig(
         timeoutSecs: overrides.timeoutSecs ?? 1,
         continueOnFail: overrides.continueOnFail ?? false,
       },
+      ...(overrides.mergeTrain !== undefined
+        ? { mergeTrain: overrides.mergeTrain }
+        : {}),
     },
   });
 }
@@ -360,9 +365,12 @@ describe('VerificationService', () => {
   const getTmpDir = useTmpDir('orchestrator-services');
 
   it('passes when no feature checks are configured', async () => {
-    const service = new VerificationService(createPorts(), getTmpDir());
+    const root = getTmpDir();
+    const feature = createFeature();
+    await createFeatureWorktree(root, feature);
+    const service = new VerificationService(createPorts(), root);
 
-    await expect(service.verifyFeature(createFeature())).resolves.toEqual({
+    await expect(service.verifyFeature(feature)).resolves.toEqual({
       ok: true,
       summary: 'No feature verification checks configured.',
     });
@@ -386,6 +394,30 @@ describe('VerificationService', () => {
     await expect(service.verifyFeature(feature)).resolves.toEqual({
       ok: true,
       summary: 'Feature verification passed (1/1 checks).',
+    });
+  });
+
+  it('does not inherit explicit empty mergeTrain checks into feature verification', async () => {
+    const root = getTmpDir();
+    const feature = createFeature();
+    await createFeatureWorktree(root, feature);
+
+    const service = new VerificationService(
+      createPorts(
+        createFeatureVerificationConfig([], {
+          mergeTrain: {
+            checks: [{ description: 'merge only', command: 'exit 1' }],
+            timeoutSecs: 1,
+            continueOnFail: false,
+          },
+        }),
+      ),
+      root,
+    );
+
+    await expect(service.verifyFeature(feature)).resolves.toEqual({
+      ok: true,
+      summary: 'No feature verification checks configured.',
     });
   });
 

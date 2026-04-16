@@ -1,4 +1,5 @@
 import type { BudgetState, Feature, Task } from '@core/types';
+import type { VerificationLayerName } from '@root/config';
 
 export type WarningCategory =
   /** Global budget usage crosses its configured warn threshold. */
@@ -10,7 +11,9 @@ export type WarningCategory =
   /** A feature repeatedly re-enters the merge train or cycles through repair. */
   | 'feature_churn'
   /** A single task has failed repeatedly (Stage 1: stuck-task / repeated failure loop). */
-  | 'task_failure_loop';
+  | 'task_failure_loop'
+  /** A verification layer resolved to no configured checks and ran as advisory-only. */
+  | 'empty_verification_checks';
 
 export interface WarningSignal {
   category: WarningCategory;
@@ -28,6 +31,26 @@ export interface WarningThresholds {
   featureChurnThreshold: number;
   taskFailureThreshold: number;
   longFeatureBlockingMs: number;
+}
+
+const LAYER_LABELS: Record<VerificationLayerName, string> = {
+  mergeTrain: 'merge-train',
+  feature: 'feature_ci',
+  task: 'task',
+};
+
+export function createEmptyVerificationChecksWarning(
+  entityId: string,
+  layer: VerificationLayerName,
+  now = Date.now(),
+): WarningSignal {
+  return {
+    category: 'empty_verification_checks',
+    entityId,
+    message: `verification.${layer}.checks empty; ${LAYER_LABELS[layer]} running without configured checks`,
+    occurredAt: now,
+    payload: { layer },
+  };
 }
 
 export class WarningEvaluator {

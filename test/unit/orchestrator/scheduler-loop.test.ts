@@ -1886,7 +1886,15 @@ describe('SchedulerLoop', () => {
 
   it('moves feature_ci success into verifying', async () => {
     const order: string[] = [];
-    const { ports } = createPorts(order);
+    const { ports } = createPorts(order, {
+      verification: {
+        feature: {
+          checks: [{ description: 'Typecheck', command: 'npm run typecheck' }],
+          timeoutSecs: 600,
+          continueOnFail: false,
+        },
+      },
+    });
     const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
     const appendEvent = vi.spyOn(ports.store, 'appendEvent');
     const graph = new InMemoryFeatureGraph({
@@ -1962,6 +1970,88 @@ describe('SchedulerLoop', () => {
         }),
       }),
     );
+    expect(appendEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'warning_emitted',
+        entityId: 'f-1',
+        payload: expect.objectContaining({
+          category: 'empty_verification_checks',
+        }),
+      }),
+    );
+  });
+
+  it('keeps empty-check warning deduped across later ticks when warning history is unavailable', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order, {
+      verification: {
+        feature: {
+          checks: [],
+          timeoutSecs: 600,
+          continueOnFail: false,
+        },
+      },
+    });
+    const appendEvent = vi.spyOn(ports.store, 'appendEvent');
+    const listEvents = vi.spyOn(ports.store, 'listEvents');
+    const graph = createProposalApprovalGraph({
+      status: 'in_progress',
+      workControl: 'feature_ci',
+      collabControl: 'branch_open',
+    });
+    const loop = new ExposedSchedulerLoop(graph, ports);
+    const emitEmptyVerificationChecksWarning = Reflect.get(
+      loop as object,
+      'emitEmptyVerificationChecksWarning',
+    ) as (entityId: 'f-1', layer: 'feature', now: number) => void;
+
+    emitEmptyVerificationChecksWarning.call(loop, 'f-1', 'feature', 10);
+    await loop.tickForTest(100);
+
+    listEvents.mockImplementation((query?: EventQuery) =>
+      query?.eventType === 'warning_emitted' ? [] : [],
+    );
+    emitEmptyVerificationChecksWarning.call(loop, 'f-1', 'feature', 20);
+
+    const warningEvents = appendEvent.mock.calls
+      .map(([event]) => event)
+      .filter(
+        (event) =>
+          event.eventType === 'warning_emitted' &&
+          event.entityId === 'f-1' &&
+          event.payload?.category === 'empty_verification_checks',
+      );
+    expect(warningEvents).toHaveLength(1);
+    expect(warningEvents[0]).toEqual(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          extra: { layer: 'feature' },
+        }),
+      }),
+    );
+  });
+
+  it('does not emit empty-check warning when mergeTrain is omitted but feature checks exist', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order, {
+      verification: {
+        feature: {
+          checks: [{ description: 'Typecheck', command: 'npm run typecheck' }],
+          timeoutSecs: 600,
+          continueOnFail: false,
+        },
+      },
+    });
+    const loop = new ExposedSchedulerLoop(createProposalApprovalGraph(), ports);
+
+    await loop.tickForTest(100);
+
+    const warningEvents = ports.store
+      .listEvents({ eventType: 'warning_emitted', entityId: 'f-1' })
+      .filter(
+        (event) => event.payload?.category === 'empty_verification_checks',
+      );
+    expect(warningEvents).toHaveLength(0);
   });
 
   it('moves verify success to awaiting_merge and merge_queued', async () => {

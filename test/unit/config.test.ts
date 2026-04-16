@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
-import { JsonConfigLoader } from '@root/config';
+import { JsonConfigLoader, resolveVerificationLayerConfig } from '@root/config';
 import { describe, expect, it } from 'vitest';
 
 import { useTmpDir } from '../helpers/tmp-dir.js';
@@ -149,6 +149,47 @@ describe('JsonConfigLoader', () => {
       warnings: {
         longFeatureBlockingMs: 1234,
       },
+    });
+  });
+
+  it('resolves mergeTrain to feature layer when mergeTrain is omitted', async () => {
+    const config = {
+      tokenProfile: 'balanced' as const,
+      verification: {
+        feature: {
+          checks: [{ description: 'Typecheck', command: 'npm run typecheck' }],
+          timeoutSecs: 123,
+          continueOnFail: true,
+        },
+      },
+    };
+
+    expect(resolveVerificationLayerConfig(config, 'mergeTrain')).toEqual(
+      config.verification.feature,
+    );
+  });
+
+  it('keeps explicit empty mergeTrain checks instead of inheriting feature', async () => {
+    const config = {
+      tokenProfile: 'balanced' as const,
+      verification: {
+        feature: {
+          checks: [{ description: 'Typecheck', command: 'npm run typecheck' }],
+          timeoutSecs: 123,
+          continueOnFail: true,
+        },
+        mergeTrain: {
+          checks: [],
+          timeoutSecs: 600,
+          continueOnFail: false,
+        },
+      },
+    };
+
+    expect(resolveVerificationLayerConfig(config, 'mergeTrain')).toEqual({
+      checks: [],
+      timeoutSecs: 600,
+      continueOnFail: false,
     });
   });
 

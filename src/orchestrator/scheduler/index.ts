@@ -20,6 +20,7 @@ import type {
   VerificationSummary,
 } from '@core/types/index';
 import {
+  createEmptyVerificationChecksWarning,
   DEFAULT_LONG_FEATURE_BLOCKING_MS,
   WarningEvaluator,
 } from '@core/warnings/index';
@@ -34,6 +35,10 @@ import {
   summarizeProposalApply,
 } from '@orchestrator/proposals/index';
 import { SummaryCoordinator } from '@orchestrator/summaries/index';
+import {
+  resolveVerificationLayerConfig,
+  type VerificationLayerName,
+} from '@root/config';
 import type {
   DispatchTaskResult,
   TaskRuntimeDispatch,
@@ -369,10 +374,11 @@ export class SchedulerLoop {
       }
 
       if (event.phase === 'feature_ci') {
+        const timestamp = Date.now();
         this.ports.store.appendEvent({
           eventType: 'feature_phase_completed',
           entityId: event.featureId,
-          timestamp: Date.now(),
+          timestamp,
           payload: {
             phase: event.phase,
             summary: event.summary,
@@ -381,6 +387,11 @@ export class SchedulerLoop {
               : {}),
           },
         });
+        this.emitEmptyVerificationChecksWarning(
+          event.featureId,
+          'feature',
+          timestamp,
+        );
       }
 
       if (event.phase === 'summarize') {
@@ -730,7 +741,7 @@ export class SchedulerLoop {
     for (const feature of this.graph.features.values()) {
       const warnings = this.warnings.evaluateFeature(feature, now, tasks);
       for (const warning of warnings) {
-        const warningKey = `${warning.category}:${warning.entityId}`;
+        const warningKey = this.warningKey(warning.category, warning.entityId);
         activeWarningKeys.add(warningKey);
         if (this.emittedWarnings.has(warningKey)) {
           continue;
@@ -752,8 +763,74 @@ export class SchedulerLoop {
       }
     }
 
+    for (const warningKey of this.emittedWarnings) {
+      if (warningKey.startsWith('empty_verification_checks:')) {
+        activeWarningKeys.add(warningKey);
+      }
+    }
+
     this.emittedWarnings = activeWarningKeys;
     return changed;
+  }
+
+  private emitEmptyVerificationChecksWarning(
+    entityId: FeatureId,
+    layer: VerificationLayerName,
+    now: number,
+  ): void {
+    const config = resolveVerificationLayerConfig(this.ports.config, layer);
+    if (config.checks.length > 0) {
+      return;
+    }
+
+    const warningKey = this.warningKey(
+      'empty_verification_checks',
+      entityId,
+      layer,
+    );
+    if (this.emittedWarnings.has(warningKey)) {
+      return;
+    }
+
+    const alreadyLogged = this.ports.store
+      .listEvents({ eventType: 'warning_emitted', entityId })
+      .some((event) => {
+        const extra = event.payload?.extra;
+        return (
+          event.payload?.category === 'empty_verification_checks' &&
+          typeof extra === 'object' &&
+          extra !== null &&
+          'layer' in extra &&
+          extra.layer === layer
+        );
+      });
+
+    this.emittedWarnings.add(warningKey);
+    if (alreadyLogged) {
+      return;
+    }
+
+    const warning = createEmptyVerificationChecksWarning(entityId, layer, now);
+    this.ports.store.appendEvent({
+      eventType: 'warning_emitted',
+      entityId,
+      timestamp: warning.occurredAt,
+      payload: {
+        category: warning.category,
+        message: warning.message,
+        ...(warning.payload !== undefined ? { extra: warning.payload } : {}),
+      },
+    });
+  }
+
+  private warningKey(
+    category: string,
+    entityId: string,
+    layer?: VerificationLayerName,
+  ): string {
+    return layer === undefined
+      ? `${category}:${entityId}`
+      : `${category}:${entityId}:${layer}`;
   }
 
   private syncReadySince(units: readonly SchedulableUnit[], now: number): void {

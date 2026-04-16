@@ -11,12 +11,14 @@ import type {
   TaskId,
   TokenUsageAggregate,
   VerificationCheck,
+  VerificationLayerConfig,
   VerificationSummary,
 } from '@core/types/index';
 import type {
   OrchestratorPorts,
   VerificationPort,
 } from '@orchestrator/ports/index';
+import { resolveVerificationLayerConfig } from '@root/config';
 import { addTokenUsageAggregates } from '@runtime/usage';
 
 interface VerificationCommandResult {
@@ -281,21 +283,32 @@ export class VerificationService implements VerificationPort {
   ) {}
 
   async verifyFeature(feature: Feature): Promise<VerificationSummary> {
-    const config = this.ports.config.verification?.feature;
-    const checks = config?.checks ?? [];
+    const config = resolveVerificationLayerConfig(this.ports.config, 'feature');
+    const cwd = await this.resolveFeatureWorktree(feature);
+    return this.runLayerChecks(
+      'Feature verification',
+      'No feature verification checks configured.',
+      config,
+      cwd,
+    );
+  }
+
+  private async runLayerChecks(
+    label: string,
+    emptySummary: string,
+    config: VerificationLayerConfig,
+    cwd: string,
+  ): Promise<VerificationSummary> {
+    const checks = config.checks;
 
     if (checks.length === 0) {
       return {
         ok: true,
-        summary: 'No feature verification checks configured.',
+        summary: emptySummary,
       };
     }
 
-    const cwd = await this.resolveFeatureWorktree(feature);
-    const timeoutMs = Math.max(
-      1,
-      Math.round((config?.timeoutSecs ?? 60) * 1000),
-    );
+    const timeoutMs = Math.max(1, Math.round(config.timeoutSecs * 1000));
     const failedChecks: string[] = [];
     const failureDetails: string[] = [];
 
@@ -304,7 +317,7 @@ export class VerificationService implements VerificationPort {
       if (result.timedOut || result.exitCode !== 0) {
         failedChecks.push(check.description);
         failureDetails.push(formatVerificationResult(check, result, timeoutMs));
-        if (config?.continueOnFail !== true) {
+        if (config.continueOnFail !== true) {
           break;
         }
       }
@@ -313,14 +326,14 @@ export class VerificationService implements VerificationPort {
     if (failedChecks.length === 0) {
       return {
         ok: true,
-        summary: `Feature verification passed (${checks.length}/${checks.length} checks).`,
+        summary: `${label} passed (${checks.length}/${checks.length} checks).`,
       };
     }
 
     return {
       ok: false,
       summary: truncateSummary(
-        `Feature verification failed (${failedChecks.length}/${checks.length} checks).\n\n${failureDetails.join('\n\n')}`,
+        `${label} failed (${failedChecks.length}/${checks.length} checks).\n\n${failureDetails.join('\n\n')}`,
       ),
       failedChecks,
     };
