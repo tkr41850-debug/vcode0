@@ -22,18 +22,29 @@ describe('main CLI', () => {
   });
 
   it('writes startup notice before app start', async () => {
+    const callOrder: string[] = [];
     const app = {
-      start: vi.fn().mockResolvedValue(undefined),
+      start: vi.fn().mockImplementation(async () => {
+        callOrder.push('start');
+      }),
       stop: vi.fn().mockResolvedValue(undefined),
     };
     composeApplication.mockResolvedValue(app);
-    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(((
+      chunk: string | Uint8Array,
+    ) => {
+      if (chunk === 'loading...\n') {
+        callOrder.push('notice');
+      }
+      return true;
+    }) as typeof process.stdout.write);
 
     const { runCli } = await import('@root/main');
     await runCli([]);
 
     expect(stdoutSpy).toHaveBeenCalledWith('loading...\n');
     expect(app.start).toHaveBeenCalledWith('interactive');
+    expect(callOrder).toEqual(['notice', 'start']);
   });
 
   it('writes startup errors and stops partially started app', async () => {

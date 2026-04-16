@@ -4,7 +4,7 @@ import * as path from 'node:path';
 
 import { PiFeatureAgentRuntime, promptLibrary } from '@agents';
 import { type ApplicationLifecycle, GvcApplication } from '@app/index';
-import type { AppMode } from '@core/types/index';
+import type { AppMode, FeatureId, MilestoneId } from '@core/types/index';
 import type {
   OrchestratorPorts,
   VerificationPort,
@@ -67,6 +67,9 @@ export async function composeApplication(): Promise<GvcApplication> {
         return;
       }
       graph.queueMilestone(milestoneId);
+    },
+    initializeProject: (input) => {
+      return initializeProjectGraph(graph, input);
     },
     cancelFeature: (featureId) => {
       graph.cancelFeature(featureId);
@@ -156,10 +159,13 @@ export async function composeApplication(): Promise<GvcApplication> {
   const recovery = new RecoveryService(ports, graph, projectRoot);
 
   const lifecycle: ApplicationLifecycle = {
-    start: async (mode: AppMode) => {
+    prepare: (mode: AppMode) => {
       scheduler?.setAutoExecutionEnabled(mode === 'auto');
+    },
+    start: async () => {
       await recovery.recoverOrphanedRuns();
       await scheduler?.run();
+      ui.refresh();
     },
     stop: async () => {
       try {
@@ -179,6 +185,59 @@ async function ensureRuntimeDirs(projectRoot: string): Promise<void> {
   await fs.mkdir(path.join(projectRoot, '.gvc0'), { recursive: true });
   await fs.mkdir(path.join(projectRoot, '.gvc0', 'worktrees'), {
     recursive: true,
+  });
+}
+
+export function initializeProjectGraph(
+  graph: PersistentFeatureGraph,
+  input: {
+    milestoneName: string;
+    milestoneDescription: string;
+    featureName: string;
+    featureDescription: string;
+  },
+): { milestoneId: MilestoneId; featureId: FeatureId } {
+  const snapshot = graph.snapshot();
+  if (snapshot.milestones.length > 0 || snapshot.features.length > 0) {
+    throw new Error('project already initialized');
+  }
+
+  const milestoneId: MilestoneId = 'm-1';
+  graph.createMilestone({
+    id: milestoneId,
+    name: input.milestoneName,
+    description: input.milestoneDescription,
+  });
+  graph.queueMilestone(milestoneId);
+
+  const featureId: FeatureId = 'f-1';
+  graph.createFeature({
+    id: featureId,
+    milestoneId,
+    name: input.featureName,
+    description: input.featureDescription,
+  });
+  transitionFeatureToPlanning(graph, featureId);
+
+  return { milestoneId, featureId };
+}
+
+function transitionFeatureToPlanning(
+  graph: PersistentFeatureGraph,
+  featureId: FeatureId,
+): void {
+  graph.transitionFeature(featureId, { collabControl: 'branch_open' });
+  graph.transitionFeature(featureId, { status: 'in_progress' });
+  graph.transitionFeature(featureId, { status: 'done' });
+  graph.transitionFeature(featureId, {
+    workControl: 'researching',
+    status: 'pending',
+  });
+  graph.transitionFeature(featureId, { status: 'in_progress' });
+  graph.transitionFeature(featureId, { status: 'done' });
+  graph.transitionFeature(featureId, {
+    workControl: 'planning',
+    status: 'pending',
   });
 }
 

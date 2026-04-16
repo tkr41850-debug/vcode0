@@ -20,7 +20,9 @@ import {
   buildComposerSlashCommands,
   CommandRegistry,
   type ComposerSelection,
+  type InitializeProjectCommand,
   NAVIGATION_KEYBINDS,
+  parseInitializeProjectCommand,
   parseSlashCommand,
   type TuiCommandContext,
   type TuiCommandKey,
@@ -33,10 +35,7 @@ import {
   HelpOverlay,
   StatusBar,
 } from '@tui/components/index';
-import {
-  type ComposerDraftState,
-  ComposerProposalController,
-} from '@tui/proposal-controller';
+import { ComposerProposalController } from '@tui/proposal-controller';
 import {
   type DagNodeViewModel,
   flattenDagNodes,
@@ -51,6 +50,10 @@ export interface TuiDataSource {
   isAutoExecutionEnabled(): boolean;
   setAutoExecutionEnabled(enabled: boolean): boolean;
   toggleAutoExecution(): boolean;
+  initializeProject(input: InitializeProjectCommand): {
+    milestoneId: MilestoneId;
+    featureId: FeatureId;
+  };
   toggleMilestoneQueue(milestoneId: MilestoneId): void;
   cancelFeature(featureId: FeatureId): void;
   saveFeatureRun(run: FeaturePhaseAgentRun): void;
@@ -238,6 +241,7 @@ export class TuiApp implements UiPort {
       nodes,
       this.selectedNodeId,
       draftState !== undefined ? 'gvc0 progress [draft]' : 'gvc0 progress',
+      nodes.length === 0 ? this.viewModels.buildEmptyState() : undefined,
     );
     this.statusBar.setModel(
       this.viewModels.buildStatusBar({
@@ -430,6 +434,13 @@ export class TuiApp implements UiPort {
       case 'quit':
         this.commandContext.requestQuit();
         return 'quitting';
+      case 'init': {
+        const created = this.dataSource.initializeProject(
+          parseInitializeProjectCommand(parsed),
+        );
+        this.selectedNodeId = created.featureId;
+        return `Initialized ${created.milestoneId} and ${created.featureId}.`;
+      }
       default: {
         const result = await this.proposalController.execute(
           input,

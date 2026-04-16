@@ -18,7 +18,10 @@ import type {
   Task,
   TaskId,
 } from '@core/types/index';
-import type { TuiKeybindHint } from '@tui/commands/index';
+import {
+  INITIALIZE_PROJECT_EXAMPLE_COMMAND,
+  type TuiKeybindHint,
+} from '@tui/commands/index';
 
 export type DagNodeKind = 'milestone' | 'feature' | 'task';
 export type DagDisplayStatus = DerivedUnitStatus | TaskPresentationStatus;
@@ -68,6 +71,11 @@ export interface ComposerViewModel {
   detail: string;
 }
 
+export interface EmptyStateViewModel {
+  title: string;
+  lines: string[];
+}
+
 export interface WorkerLogViewModel {
   id: string;
   label: string;
@@ -99,6 +107,17 @@ export interface StatusBarBuildInput {
 }
 
 export class TuiViewModelBuilder {
+  buildEmptyState(): EmptyStateViewModel {
+    return {
+      title: 'gvc0 startup',
+      lines: [
+        'No milestones yet.',
+        'Run /init to create first milestone and planning feature.',
+        `Example: /init ${INITIALIZE_PROJECT_EXAMPLE_COMMAND}`,
+      ],
+    };
+  }
+
   buildMilestoneTree(
     milestones: Milestone[],
     features: Feature[],

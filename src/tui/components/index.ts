@@ -9,6 +9,7 @@ import type {
   ComposerViewModel,
   DagNodeViewModel,
   DependencyDetailViewModel,
+  EmptyStateViewModel,
   StatusBarViewModel,
   WorkerLogViewModel,
 } from '@tui/view-model/index';
@@ -19,15 +20,18 @@ export class DagView implements Component {
   private nodes: DagNodeViewModel[] = [];
   private selectedNodeId: string | undefined;
   private title = 'gvc0';
+  private emptyState: EmptyStateViewModel | undefined;
 
   setModel(
     nodes: DagNodeViewModel[],
     selectedNodeId?: string,
     title = 'gvc0',
+    emptyState?: EmptyStateViewModel,
   ): void {
     this.nodes = nodes;
     this.selectedNodeId = selectedNodeId;
     this.title = title;
+    this.emptyState = emptyState;
   }
 
   render(width: number): string[] {
@@ -35,7 +39,17 @@ export class DagView implements Component {
     const lines = [truncateToWidth(this.title, safeWidth, '...', true)];
 
     if (this.nodes.length === 0) {
-      lines.push(truncateToWidth('No milestones yet.', safeWidth, '...', true));
+      const emptyState = this.emptyState;
+      if (emptyState === undefined) {
+        lines.push(
+          truncateToWidth('No milestones yet.', safeWidth, '...', true),
+        );
+        return lines;
+      }
+      lines.push(truncateToWidth(emptyState.title, safeWidth, '...', true));
+      for (const line of emptyState.lines) {
+        lines.push(...padWrapped(line, safeWidth));
+      }
       return lines;
     }
 

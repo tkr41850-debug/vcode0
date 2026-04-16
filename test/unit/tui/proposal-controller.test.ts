@@ -1,10 +1,5 @@
-import type { GraphSnapshot } from '@core/graph/index';
 import { InMemoryFeatureGraph } from '@core/graph/index';
-import type {
-  AgentRun,
-  FeaturePhaseAgentRun,
-  Milestone,
-} from '@core/types/index';
+import type { AgentRun, FeaturePhaseAgentRun } from '@core/types/index';
 import {
   ComposerProposalController,
   type ComposerProposalEnvironment,
@@ -12,17 +7,6 @@ import {
 import { describe, expect, it, vi } from 'vitest';
 
 import { updateFeature } from '../../helpers/graph-builders.js';
-
-function makeMilestone(overrides: Partial<Milestone> = {}): Milestone {
-  return {
-    id: 'm-1',
-    name: 'Milestone 1',
-    description: 'desc',
-    status: 'pending',
-    order: 0,
-    ...overrides,
-  };
-}
 
 function makePlanningGraph(): InMemoryFeatureGraph {
   const graph = new InMemoryFeatureGraph();

@@ -5,8 +5,10 @@ import * as path from 'node:path';
 import { promisify } from 'node:util';
 
 import { expect, Key, test } from '@microsoft/tui-test';
+import { INITIALIZE_PROJECT_EXAMPLE_COMMAND } from '@tui/commands/index';
 
 const tuiReadyTimeoutMs = 30_000;
+const initializeProjectCommand = `/init ${INITIALIZE_PROJECT_EXAMPLE_COMMAND}`;
 const execFileAsync = promisify(execFile);
 const workspaces: string[] = [];
 
@@ -30,9 +32,14 @@ test('starts with composer focus and runs help from composer', async ({
   await expect(terminal.getByText('[command] [composer]')).toBeVisible({
     timeout: tuiReadyTimeoutMs,
   });
-  await expect(terminal.getByText('No milestones yet.')).toBeVisible({
+  await expect(terminal.getByText('gvc0 startup')).toBeVisible({
     timeout: tuiReadyTimeoutMs,
   });
+  await expect(
+    terminal.getByText(
+      'Run /init to create first milestone and planning feature.',
+    ),
+  ).toBeVisible({ timeout: tuiReadyTimeoutMs });
 
   terminal.submit('/help');
   await expect(terminal.getByText('Help [h/q/esc hide]')).toBeVisible();
@@ -53,6 +60,30 @@ test('opens monitor overlay from composer command', async ({ terminal }) => {
 
   terminal.keyEscape();
   await expect(terminal.getByText('Agent Monitor')).not.toBeVisible();
+});
+
+test('initializes starter milestone and planning feature from empty workspace', async ({
+  terminal,
+}) => {
+  const workspace = await createWorkspace();
+
+  startTui(terminal, workspace);
+  await waitForTuiReady(terminal);
+
+  terminal.submit(initializeProjectCommand);
+
+  await expect(terminal.getByText('m-1: Milestone 1')).toBeVisible({
+    timeout: tuiReadyTimeoutMs,
+  });
+  await expect(terminal.getByText('f-1: Project startup')).toBeVisible({
+    timeout: tuiReadyTimeoutMs,
+  });
+  await expect(terminal.getByText('queue: 1')).toBeVisible({
+    timeout: tuiReadyTimeoutMs,
+  });
+  await expect(terminal.getByText('work: planning')).toBeVisible({
+    timeout: tuiReadyTimeoutMs,
+  });
 });
 
 test('autocompletes slash commands in composer', async ({ terminal }) => {
@@ -121,20 +152,18 @@ async function createWorkspace(
           "import * as path from 'node:path';",
           "import { openDatabase } from './src/persistence/db.ts';",
           "import { PersistentFeatureGraph } from './src/persistence/feature-graph.ts';",
+          "import { initializeProjectGraph } from './src/compose.ts';",
           'const workspace = process.env.GVC0_TUI_WORKSPACE;',
           "if (workspace === undefined) throw new Error('missing GVC0_TUI_WORKSPACE');",
           "const db = openDatabase(path.join(workspace, '.gvc0', 'state.db'));",
           'try {',
           '  const graph = new PersistentFeatureGraph(db);',
-          "  graph.createMilestone({ id: 'm-1', name: 'Milestone 1', description: 'desc' });",
-          "  graph.createFeature({ id: 'f-1', milestoneId: 'm-1', name: 'Planner feature', description: 'desc' });",
-          "  graph.transitionFeature('f-1', { status: 'in_progress' });",
-          "  graph.transitionFeature('f-1', { status: 'done' });",
-          "  graph.transitionFeature('f-1', { workControl: 'researching', status: 'pending' });",
-          "  graph.transitionFeature('f-1', { status: 'in_progress' });",
-          "  graph.transitionFeature('f-1', { status: 'done' });",
-          "  graph.transitionFeature('f-1', { workControl: 'planning', status: 'pending' });",
-          "  graph.queueMilestone('m-1');",
+          '  initializeProjectGraph(graph, {',
+          "    milestoneName: 'Milestone 1',",
+          "    milestoneDescription: 'desc',",
+          "    featureName: 'Planner feature',",
+          "    featureDescription: 'desc',",
+          '  });',
           '} finally {',
           '  db.close();',
           '}',
@@ -157,9 +186,11 @@ function startTui(
   terminal.submit(`npm run tui -- --cwd ${shellQuote(workspace)}`);
 }
 
-async function waitForTuiReady(terminal: {
-  getByText(text: string): unknown;
-}): Promise<void> {
+type TuiTerminal = Parameters<Parameters<typeof test>[1]>[0]['terminal'];
+
+async function waitForTuiReady(
+  terminal: Pick<TuiTerminal, 'getByText'>,
+): Promise<void> {
   await expect(terminal.getByText('gvc0 progress')).toBeVisible({
     timeout: tuiReadyTimeoutMs,
   });

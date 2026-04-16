@@ -49,6 +49,16 @@ export interface TuiCommandContext {
   requestQuit(): void;
 }
 
+export interface InitializeProjectCommand {
+  milestoneName: string;
+  milestoneDescription: string;
+  featureName: string;
+  featureDescription: string;
+}
+
+export const INITIALIZE_PROJECT_EXAMPLE_COMMAND =
+  '--milestone-name "Milestone 1" --milestone-description "Initial milestone" --feature-name "Project startup" --feature-description "Plan initial project work"';
+
 export interface TuiCommand extends TuiKeybindHint {
   name: TuiCommandName;
   key: TuiCommandKey;
@@ -275,6 +285,19 @@ export function buildComposerSlashCommands({
     staticSlashCommand('deps', 'Show dependency detail for selected feature.'),
     staticSlashCommand('cancel', 'Cancel selected feature.'),
     staticSlashCommand('quit', 'Quit TUI.'),
+    {
+      name: 'init',
+      description: 'Create first milestone and planning feature.',
+      getArgumentCompletions: async (prefix) => {
+        return filterSuggestions(prefix, [
+          {
+            value: INITIALIZE_PROJECT_EXAMPLE_COMMAND,
+            label: 'bootstrap',
+            description: 'Create starter milestone and planning feature',
+          },
+        ]);
+      },
+    },
     {
       name: 'feature-add',
       description: 'Add feature to proposal draft.',
@@ -521,6 +544,31 @@ function sameNodeKind(left: string, right: string): boolean {
   return left.slice(0, 2) === right.slice(0, 2);
 }
 
+export function parseInitializeProjectCommand(
+  parsed: ParsedSlashCommand,
+): InitializeProjectCommand {
+  return {
+    milestoneName: readRequiredStringArg(parsed, 'milestone-name'),
+    milestoneDescription: readRequiredStringArg(
+      parsed,
+      'milestone-description',
+    ),
+    featureName: readRequiredStringArg(parsed, 'feature-name'),
+    featureDescription: readRequiredStringArg(parsed, 'feature-description'),
+  };
+}
+
 export function isTaskWeight(value: string): value is TaskWeight {
   return ['trivial', 'small', 'medium', 'heavy'].includes(value);
+}
+
+function readRequiredStringArg(
+  parsed: ParsedSlashCommand,
+  key: string,
+): string {
+  const value = parsed.args[key];
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error(`--${key} is required`);
+  }
+  return value;
 }

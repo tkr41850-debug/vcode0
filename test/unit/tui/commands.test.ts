@@ -1,6 +1,8 @@
 import { CombinedAutocompleteProvider } from '@mariozechner/pi-tui';
 import {
   buildComposerSlashCommands,
+  INITIALIZE_PROJECT_EXAMPLE_COMMAND,
+  parseInitializeProjectCommand,
   parseSlashCommand,
 } from '@tui/commands/index';
 import { describe, expect, it } from 'vitest';
@@ -31,6 +33,19 @@ describe('parseSlashCommand', () => {
     expect(() => parseSlashCommand('planner chat later')).toThrow(
       'slash command must start with "/"',
     );
+  });
+
+  it('parses init command args', () => {
+    const parsed = parseSlashCommand(
+      `/init ${INITIALIZE_PROJECT_EXAMPLE_COMMAND}`,
+    );
+
+    expect(parseInitializeProjectCommand(parsed)).toEqual({
+      milestoneName: 'Milestone 1',
+      milestoneDescription: 'Initial milestone',
+      featureName: 'Project startup',
+      featureDescription: 'Plan initial project work',
+    });
   });
 });
 
