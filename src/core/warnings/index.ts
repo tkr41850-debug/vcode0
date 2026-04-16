@@ -20,11 +20,14 @@ export interface WarningSignal {
   payload?: Record<string, unknown>;
 }
 
+export const DEFAULT_LONG_FEATURE_BLOCKING_MS = 8 * 60 * 60 * 1000;
+
 export interface WarningThresholds {
   budgetWarnPercent: number;
   budgetGlobalUsd: number;
   featureChurnThreshold: number;
   taskFailureThreshold: number;
+  longFeatureBlockingMs: number;
 }
 
 export class WarningEvaluator {
@@ -55,8 +58,13 @@ export class WarningEvaluator {
     return warnings;
   }
 
-  evaluateFeature(feature: Feature, now?: number): WarningSignal[] {
+  evaluateFeature(
+    feature: Feature,
+    now?: number,
+    tasks: Task[] = [],
+  ): WarningSignal[] {
     const warnings: WarningSignal[] = [];
+    const occurredAt = now ?? Date.now();
     const reentryCount = feature.mergeTrainReentryCount ?? 0;
 
     if (reentryCount >= this.thresholds.featureChurnThreshold) {
@@ -64,9 +72,54 @@ export class WarningEvaluator {
         category: 'feature_churn',
         entityId: feature.id,
         message: `Feature ${feature.id} has re-entered the merge train ${reentryCount} times`,
-        occurredAt: now ?? Date.now(),
+        occurredAt,
         payload: { reentryCount },
       });
+    }
+
+    if (feature.runtimeBlockedByFeatureId !== undefined) {
+      const blockedTasks = tasks.filter(
+        (task) =>
+          task.featureId === feature.id &&
+          task.collabControl === 'suspended' &&
+          task.suspendReason === 'cross_feature_overlap' &&
+          task.blockedByFeatureId === feature.runtimeBlockedByFeatureId &&
+          task.suspendedAt !== undefined,
+      );
+      const oldestBlockedAt = blockedTasks.reduce<number | undefined>(
+        (oldest, task) => {
+          const suspendedAt = task.suspendedAt;
+          if (suspendedAt === undefined) {
+            return oldest;
+          }
+          if (oldest === undefined) {
+            return suspendedAt;
+          }
+          return Math.min(oldest, suspendedAt);
+        },
+        undefined,
+      );
+
+      if (
+        oldestBlockedAt !== undefined &&
+        occurredAt - oldestBlockedAt >= this.thresholds.longFeatureBlockingMs
+      ) {
+        const blockedHours = Math.floor(
+          (occurredAt - oldestBlockedAt) / (60 * 60 * 1000),
+        );
+        warnings.push({
+          category: 'long_feature_blocking',
+          entityId: feature.id,
+          message: `Feature ${feature.id} has been blocked by ${feature.runtimeBlockedByFeatureId} for ${blockedHours}h`,
+          occurredAt,
+          payload: {
+            blockedByFeatureId: feature.runtimeBlockedByFeatureId,
+            blockedSince: oldestBlockedAt,
+            blockedTaskIds: blockedTasks.map((task) => task.id),
+            blockedDurationMs: occurredAt - oldestBlockedAt,
+          },
+        });
+      }
     }
 
     return warnings;

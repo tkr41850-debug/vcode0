@@ -12,6 +12,7 @@ const defaultThresholds: WarningThresholds = {
   budgetGlobalUsd: 10,
   featureChurnThreshold: 3,
   taskFailureThreshold: 3,
+  longFeatureBlockingMs: 8 * 60 * 60 * 1000,
 };
 
 function makeBudget(overrides: Partial<BudgetState> = {}): BudgetState {
@@ -101,6 +102,50 @@ describe('WarningEvaluator', () => {
       expect(warnings[0]?.occurredAt).toBe(1000);
       expect(warnings[0]?.message).toContain('3');
       expect(warnings[0]?.payload).toEqual({ reentryCount: 3 });
+    });
+
+    it('emits long_feature_blocking warning when blocked feature exceeds threshold', () => {
+      const feature = createFeatureFixture({
+        runtimeBlockedByFeatureId: 'f-2',
+      });
+      const now = 8 * 60 * 60 * 1000 + 1;
+      const warnings = evaluator.evaluateFeature(feature, now, [
+        createTaskFixture({
+          id: 't-1',
+          featureId: 'f-1',
+          collabControl: 'suspended',
+          suspendReason: 'cross_feature_overlap',
+          blockedByFeatureId: 'f-2',
+          suspendedAt: 0,
+        }),
+      ]);
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]?.category).toBe('long_feature_blocking');
+      expect(warnings[0]?.entityId).toBe('f-1');
+      expect(warnings[0]?.occurredAt).toBe(now);
+      expect(warnings[0]?.payload).toEqual({
+        blockedByFeatureId: 'f-2',
+        blockedSince: 0,
+        blockedTaskIds: ['t-1'],
+        blockedDurationMs: now,
+      });
+    });
+
+    it('emits no long_feature_blocking warning before threshold or without matching suspended tasks', () => {
+      const feature = createFeatureFixture({
+        runtimeBlockedByFeatureId: 'f-2',
+      });
+      const warnings = evaluator.evaluateFeature(feature, 1000, [
+        createTaskFixture({
+          id: 't-1',
+          featureId: 'f-1',
+          collabControl: 'suspended',
+          suspendReason: 'same_feature_overlap',
+          blockedByFeatureId: 'f-2',
+          suspendedAt: 0,
+        }),
+      ]);
+      expect(warnings).toHaveLength(0);
     });
   });
 

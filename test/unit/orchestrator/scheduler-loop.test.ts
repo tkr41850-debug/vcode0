@@ -3309,6 +3309,95 @@ describe('SchedulerLoop', () => {
     expect(resumeTask).toHaveBeenCalledWith('t-2', 'cross_feature_rebase');
   }, 20000);
 
+  it('falls back to runtime resume dispatch after restart when blocked task becomes ready again', async () => {
+    const order: string[] = [];
+    const { ports, runtime } = createPorts(order, { tokenProfile: 'balanced' });
+    const dispatchTask = vi.spyOn(runtime, 'dispatchTask');
+    const graph = createSingleTaskDispatchGraph({
+      task: {
+        collabControl: 'branch_open',
+        status: 'ready',
+      },
+    });
+    ports.store.createAgentRun(
+      makeTaskRun({
+        id: 'run-task:t-1',
+        scopeId: 't-1',
+        runStatus: 'ready',
+        sessionId: 'sess-1',
+      }),
+    );
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+    await loop.dispatchReadyWorkForTest(100);
+
+    expect(dispatchTask).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 't-1' }),
+      {
+        mode: 'resume',
+        agentRunId: 'run-task:t-1',
+        sessionId: 'sess-1',
+      },
+    );
+  });
+
+  it('emits long blocking warning once when runtime block exceeds threshold', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order, {
+      tokenProfile: 'balanced',
+      warnings: { longFeatureBlockingMs: 1000 },
+    });
+    vi.spyOn(ports.runtime, 'idleWorkerCount').mockReturnValue(0);
+    const appendEvent = vi.spyOn(ports.store, 'appendEvent');
+    const graph = createSchedulerGraph({
+      milestones: [createMilestoneFixture()],
+      features: [
+        createFeatureFixture({
+          id: 'f-1',
+          workControl: 'awaiting_merge',
+          collabControl: 'integrating',
+        }),
+        createFeatureFixture({
+          id: 'f-2',
+          orderInMilestone: 1,
+          workControl: 'executing',
+          collabControl: 'branch_open',
+          runtimeBlockedByFeatureId: 'f-1',
+        }),
+      ],
+      tasks: [
+        createTaskFixture({
+          id: 't-2',
+          featureId: 'f-2',
+          status: 'running',
+          collabControl: 'suspended',
+          blockedByFeatureId: 'f-1',
+          suspendReason: 'cross_feature_overlap',
+          suspendedAt: 0,
+        }),
+      ],
+    });
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+    await loop.tickForTest(1001);
+    await loop.tickForTest(2000);
+
+    const warningCalls = appendEvent.mock.calls.filter(
+      ([event]) => event.eventType === 'warning_emitted',
+    );
+    expect(warningCalls).toHaveLength(1);
+    expect(warningCalls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        eventType: 'warning_emitted',
+        entityId: 'f-2',
+        timestamp: 1001,
+        payload: expect.objectContaining({
+          category: 'long_feature_blocking',
+        }),
+      }),
+    );
+  });
+
   it('creates integration repair and keeps tasks suspended when secondary rebase conflicts', async () => {
     const root = getTmpDir();
     const order: string[] = [];

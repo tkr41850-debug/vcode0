@@ -126,6 +126,11 @@ export class ConflictCoordinator {
           this.graph.transitionTask(task.id, {
             collabControl: 'branch_open',
           });
+        } else {
+          this.graph.transitionTask(task.id, {
+            status: 'ready',
+            collabControl: 'branch_open',
+          });
         }
         continue;
       }
@@ -205,7 +210,9 @@ export class ConflictCoordinator {
           featureId: blockedFeatureId,
           blockedByFeatureId: primaryFeatureId,
           kind: 'blocked',
-          summary: resolution.summary,
+          ...(resolution.summary !== undefined
+            ? { summary: resolution.summary }
+            : {}),
         });
         continue;
       }
@@ -216,7 +223,9 @@ export class ConflictCoordinator {
           blockedByFeatureId: primaryFeatureId,
           kind: 'repair_needed',
           conflictedFiles: resolution.conflictedFiles,
-          summary: resolution.summary,
+          ...(resolution.summary !== undefined
+            ? { summary: resolution.summary }
+            : {}),
         });
         continue;
       }
@@ -307,7 +316,7 @@ export class ConflictCoordinator {
         kind: 'blocked',
         summary: formatCrossFeatureTaskConflictSummary(
           task.id,
-          resolution.context.conflictedFiles,
+          resolution.context.conflictedFiles ?? [],
         ),
       };
     }
@@ -408,7 +417,7 @@ export class ConflictCoordinator {
     return {
       kind: 'repair_needed',
       conflictedFiles: rebase.conflictedFiles,
-      summary: rebase.summary,
+      ...(rebase.summary !== undefined ? { summary: rebase.summary } : {}),
     };
   }
 
@@ -537,10 +546,9 @@ export class ConflictCoordinator {
         kind: 'conflict',
         conflictedFiles:
           conflictedFiles.length > 0 ? conflictedFiles : postAbortDirtyFiles,
-        summary:
-          postAbortDirtyFiles.length > 0
-            ? 'Feature worktree still dirty after rebase abort'
-            : undefined,
+        ...(postAbortDirtyFiles.length > 0
+          ? { summary: 'Feature worktree still dirty after rebase abort' }
+          : {}),
       };
     }
   }

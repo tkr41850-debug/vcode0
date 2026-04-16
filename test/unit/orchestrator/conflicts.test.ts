@@ -591,9 +591,10 @@ describe('ConflictCoordinator', () => {
     await coordinator.reconcileSameFeatureTasks(feature.id, 't-dominant');
 
     expect(graph.tasks.get('t-suspended')).toMatchObject({
-      collabControl: 'suspended',
-      status: 'running',
+      collabControl: 'branch_open',
+      status: 'ready',
     });
+    expect(graph.tasks.get('t-suspended')?.suspendReason).toBeUndefined();
     expect(ports.runtime.resumeTask).toHaveBeenCalledWith(
       suspended.id,
       'same_feature_rebase',

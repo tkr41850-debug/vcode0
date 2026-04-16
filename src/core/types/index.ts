@@ -330,12 +330,17 @@ export interface VerificationConfig {
   mergeTrain?: VerificationLayerConfig;
 }
 
+export interface WarningConfig {
+  longFeatureBlockingMs?: number;
+}
+
 export interface GvcConfig {
   tokenProfile: TokenProfile;
   budget?: BudgetConfig;
   modelRouting?: ModelRoutingConfig;
   context?: ContextConfig;
   verification?: VerificationConfig;
+  warnings?: WarningConfig;
 }
 
 export interface BudgetState {

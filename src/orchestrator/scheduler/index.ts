@@ -19,6 +19,10 @@ import type {
   TaskId,
   VerificationSummary,
 } from '@core/types/index';
+import {
+  DEFAULT_LONG_FEATURE_BLOCKING_MS,
+  WarningEvaluator,
+} from '@core/warnings/index';
 import { ConflictCoordinator } from '@orchestrator/conflicts/index';
 import { FeatureLifecycleCoordinator } from '@orchestrator/features/index';
 import type { OrchestratorPorts } from '@orchestrator/ports/index';
@@ -85,6 +89,8 @@ export class SchedulerLoop {
   private readonly features: FeatureLifecycleCoordinator;
   private readonly conflicts: ConflictCoordinator;
   private readonly summaries: SummaryCoordinator;
+  private readonly warnings: WarningEvaluator;
+  private emittedWarnings = new Set<string>();
   private intervalId: ReturnType<typeof setInterval> | undefined;
   private autoExecutionEnabled = true;
 
@@ -95,6 +101,15 @@ export class SchedulerLoop {
     this.features = new FeatureLifecycleCoordinator(graph);
     this.conflicts = new ConflictCoordinator(ports, graph);
     this.summaries = new SummaryCoordinator(graph, ports.config.tokenProfile);
+    this.warnings = new WarningEvaluator({
+      budgetWarnPercent: ports.config.budget?.warnAtPercent ?? 80,
+      budgetGlobalUsd: ports.config.budget?.globalUsd ?? 1,
+      featureChurnThreshold: 3,
+      taskFailureThreshold: 3,
+      longFeatureBlockingMs:
+        ports.config.warnings?.longFeatureBlockingMs ??
+        DEFAULT_LONG_FEATURE_BLOCKING_MS,
+    });
   }
 
   enqueue(event: SchedulerEvent): void {
@@ -146,11 +161,13 @@ export class SchedulerLoop {
     this.features.beginNextIntegration();
     await this.coordinateSameFeatureRuntimeOverlaps();
     await this.coordinateCrossFeatureRuntimeOverlaps();
+    const warningsChanged = this.emitWarningSignals(now);
     await this.dispatchReadyWork(now);
 
     if (
       beforeFingerprint !== this.uiStateFingerprint() ||
-      this.didRetryWindowExpire(now)
+      this.didRetryWindowExpire(now) ||
+      warningsChanged
     ) {
       this.ports.ui.refresh();
     }
@@ -703,6 +720,40 @@ export class SchedulerLoop {
         return byTaskId.get(scopeId);
       },
     };
+  }
+
+  private emitWarningSignals(now: number): boolean {
+    const tasks = [...this.graph.tasks.values()];
+    const activeWarningKeys = new Set<string>();
+    let changed = false;
+
+    for (const feature of this.graph.features.values()) {
+      const warnings = this.warnings.evaluateFeature(feature, now, tasks);
+      for (const warning of warnings) {
+        const warningKey = `${warning.category}:${warning.entityId}`;
+        activeWarningKeys.add(warningKey);
+        if (this.emittedWarnings.has(warningKey)) {
+          continue;
+        }
+
+        this.ports.store.appendEvent({
+          eventType: 'warning_emitted',
+          entityId: warning.entityId,
+          timestamp: warning.occurredAt,
+          payload: {
+            category: warning.category,
+            message: warning.message,
+            ...(warning.payload !== undefined
+              ? { extra: warning.payload }
+              : {}),
+          },
+        });
+        changed = true;
+      }
+    }
+
+    this.emittedWarnings = activeWarningKeys;
+    return changed;
   }
 
   private syncReadySince(units: readonly SchedulableUnit[], now: number): void {

@@ -13,7 +13,12 @@ import type {
   VerificationCheck,
   VerificationConfig,
   VerificationLayerConfig,
+  WarningConfig,
 } from '@core/types';
+import {
+  DEFAULT_LONG_FEATURE_BLOCKING_MS,
+  type WarningThresholds,
+} from '@core/warnings/index';
 
 export const DEFAULT_CONFIG_PATH = '.gvc0/config.json';
 
@@ -25,10 +30,21 @@ const DEFAULT_CONTEXT_DEFAULTS: ContextDefaultsConfig = {
   maxDependencyOutputs: 8,
 };
 
+const DEFAULT_WARNING_THRESHOLDS: WarningThresholds = {
+  budgetWarnPercent: 80,
+  budgetGlobalUsd: 1,
+  featureChurnThreshold: 3,
+  taskFailureThreshold: 3,
+  longFeatureBlockingMs: DEFAULT_LONG_FEATURE_BLOCKING_MS,
+};
+
 const DEFAULT_CONFIG: GvcConfig = {
   tokenProfile: 'balanced',
   context: {
     defaults: DEFAULT_CONTEXT_DEFAULTS,
+  },
+  warnings: {
+    longFeatureBlockingMs: DEFAULT_WARNING_THRESHOLDS.longFeatureBlockingMs,
   },
 };
 
@@ -70,6 +86,9 @@ function cloneDefaultConfig(): GvcConfig {
     context: {
       defaults: { ...DEFAULT_CONTEXT_DEFAULTS },
     },
+    warnings: {
+      longFeatureBlockingMs: DEFAULT_WARNING_THRESHOLDS.longFeatureBlockingMs,
+    },
   };
 }
 
@@ -96,6 +115,14 @@ function normalizeConfig(input: unknown, configPath: string): GvcConfig {
           verification: parseVerificationConfig(input.verification, configPath),
         }
       : {}),
+    ...(input.warnings !== undefined
+      ? { warnings: parseWarningConfig(input.warnings, configPath) }
+      : {
+          warnings: {
+            longFeatureBlockingMs:
+              DEFAULT_WARNING_THRESHOLDS.longFeatureBlockingMs,
+          },
+        }),
   };
 }
 
@@ -267,6 +294,21 @@ function parseContextStrategy(
     return value;
   }
   throw new Error(`Config at ${configPath} has invalid ${field}.strategy.`);
+}
+
+function parseWarningConfig(value: unknown, configPath: string): WarningConfig {
+  if (!isRecord(value)) {
+    throw new Error(`Config at ${configPath} has invalid warnings section.`);
+  }
+
+  return {
+    longFeatureBlockingMs: parseNumberOrDefault(
+      value.longFeatureBlockingMs,
+      'warnings.longFeatureBlockingMs',
+      configPath,
+      DEFAULT_WARNING_THRESHOLDS.longFeatureBlockingMs,
+    ),
+  };
 }
 
 function parseVerificationConfig(

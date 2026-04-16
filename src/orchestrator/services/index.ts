@@ -218,6 +218,15 @@ export class RecoveryService {
         continue;
       }
 
+      if (task.collabControl === 'suspended') {
+        this.ports.store.updateAgentRun(run.id, {
+          runStatus: 'ready',
+          owner: 'system',
+          ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
+        });
+        continue;
+      }
+
       if (run.sessionId !== undefined) {
         await this.rebaseTaskWorktree(task);
         await this.ports.runtime.resumeTask(task.id, 'manual');

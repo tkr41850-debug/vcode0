@@ -188,4 +188,34 @@ describe('RecoveryService', () => {
     expect(runtime.resumeTask).not.toHaveBeenCalled();
     expect(store.updateAgentRun).not.toHaveBeenCalled();
   });
+
+  it('does not resume suspended task runs across restart', async () => {
+    const run = makeTaskRun({
+      runStatus: 'running',
+      sessionId: 'sess-1',
+    });
+    const { ports, runtime, store, graph } = createPorts([run]);
+    const task = graph.tasks.get('t-1');
+    if (task === undefined) {
+      throw new Error('missing task fixture');
+    }
+    graph.tasks.set('t-1', {
+      ...task,
+      status: 'running',
+      collabControl: 'suspended',
+      suspendReason: 'cross_feature_overlap',
+      suspendedAt: 100,
+      blockedByFeatureId: 'f-2',
+    });
+    const service = new RecoveryService(ports, graph);
+
+    await service.recoverOrphanedRuns();
+
+    expect(runtime.resumeTask).not.toHaveBeenCalled();
+    expect(store.updateAgentRun).toHaveBeenCalledWith(run.id, {
+      runStatus: 'ready',
+      owner: 'system',
+      sessionId: 'sess-1',
+    });
+  });
 });

@@ -26,6 +26,9 @@ describe('JsonConfigLoader', () => {
           maxDependencyOutputs: 8,
         },
       },
+      warnings: {
+        longFeatureBlockingMs: 8 * 60 * 60 * 1000,
+      },
     });
 
     await expect(fs.stat(configPath)).resolves.toBeTruthy();
@@ -83,6 +86,9 @@ describe('JsonConfigLoader', () => {
               continueOnFail: true,
             },
           },
+          warnings: {
+            longFeatureBlockingMs: 1234,
+          },
         },
         null,
         2,
@@ -139,6 +145,9 @@ describe('JsonConfigLoader', () => {
           timeoutSecs: 123,
           continueOnFail: true,
         },
+      },
+      warnings: {
+        longFeatureBlockingMs: 1234,
       },
     });
   });
