@@ -214,6 +214,40 @@ describe('PersistentFeatureGraph', () => {
       expect(row?.status).toBe('in_progress');
     });
 
+    it('persists runtimeBlockedByFeatureId edits on features', () => {
+      graph.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+      graph.createFeature({
+        id: 'f-1',
+        milestoneId: 'm-1',
+        name: 'F1',
+        description: 'd',
+      });
+      graph.createFeature({
+        id: 'f-2',
+        milestoneId: 'm-1',
+        name: 'F2',
+        description: 'd',
+      });
+
+      graph.editFeature('f-1', { runtimeBlockedByFeatureId: 'f-2' });
+
+      const row = db
+        .prepare<[string], { runtime_blocked_by_feature_id: string | null }>(
+          'SELECT runtime_blocked_by_feature_id FROM features WHERE id = ?',
+        )
+        .get('f-1');
+      expect(row?.runtime_blocked_by_feature_id).toBe('f-2');
+
+      graph.editFeature('f-1', { runtimeBlockedByFeatureId: undefined });
+
+      const cleared = db
+        .prepare<[string], { runtime_blocked_by_feature_id: string | null }>(
+          'SELECT runtime_blocked_by_feature_id FROM features WHERE id = ?',
+        )
+        .get('f-1');
+      expect(cleared?.runtime_blocked_by_feature_id).toBeNull();
+    });
+
     it('persists cancelFeature(cascade) across feature and tasks', () => {
       graph.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
       graph.createFeature({
@@ -275,6 +309,13 @@ describe('PersistentFeatureGraph', () => {
         name: 'F',
         description: 'first',
       });
+      graph.createFeature({
+        id: 'f-2',
+        milestoneId: 'm-1',
+        name: 'Blocked By',
+        description: 'second',
+      });
+      graph.editFeature('f-1', { runtimeBlockedByFeatureId: 'f-2' });
       graph.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
       graph.createTask({
         id: 't-2',
@@ -287,6 +328,7 @@ describe('PersistentFeatureGraph', () => {
       expect(graph2.milestones.get('m-1')?.name).toBe('M');
       const feat = graph2.features.get('f-1');
       expect(feat?.description).toBe('first');
+      expect(feat?.runtimeBlockedByFeatureId).toBe('f-2');
       const t2 = graph2.tasks.get('t-2');
       expect(t2?.dependsOn).toEqual(['t-1']);
     });

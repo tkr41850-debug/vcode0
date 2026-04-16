@@ -42,6 +42,7 @@ export interface FeatureRow {
   merge_train_entered_at: number | null;
   merge_train_entry_seq: number | null;
   merge_train_reentry_count: number;
+  runtime_blocked_by_feature_id: FeatureId | null;
   summary: string | null;
   token_usage: string | null;
   created_at: number;

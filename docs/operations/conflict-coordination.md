@@ -162,15 +162,16 @@ Cross-feature overlap is handled more conservatively than same-feature file lock
 
 1. Detect an overlap incident between two features using normalized project-root-relative file paths.
 2. The `ConflictCoordinator` receives the overlap incident and both features, applies the cross-feature priority policy (below) to choose **primary** and **secondary**.
-3. Add a runtime feature dependency: `addDependency(secondary, primary)`. This blocks all secondary feature work through the existing DAG scheduling — `readyFeatures()` will not return the secondary until the primary completes.
-4. Suspend all running secondary tasks via `transitionTask()`, transitioning task collab to `suspended` with `suspend_reason = "cross_feature_overlap"` and `blocked_by_feature_id = <primary feature id>`.
+3. Persist a runtime feature block on the secondary feature (`runtimeBlockedByFeatureId = <primary feature id>`). `readyFeatures()` and `readyTasks()` treat that block as scheduling authority until release.
+4. Suspend all running secondary tasks via `transitionTask()`, transitioning task collab to `suspended` with `suspend_reason = "cross_feature_overlap"`, `blocked_by_feature_id = <primary feature id>`, and any overlapped file paths available from runtime detection.
 5. Release active path locks for suspended tasks; reservations remain as planning metadata.
 6. Let the primary feature continue normally.
 7. If the secondary feature stays blocked for too long (`Date.now() - task.suspendedAt > threshold`), raise a warning via the existing warnings framework.
-8. After the primary feature merges into `main`, the dependency is satisfied. On the next scheduler tick, the secondary appears in the ready frontier. Before dispatching secondary tasks, the scheduler checks whether the feature branch needs rebasing onto updated `main`.
-9. If the rebase succeeds, remove the runtime dependency, clear `blocked_by_feature_id` on affected tasks, and resume normal scheduling.
+8. After the primary feature merges into `main`, release handling rebases the blocked secondary feature branch onto updated `main` before any secondary task resumes.
+9. If the rebase succeeds, clear the runtime feature block, clear `blocked_by_feature_id` on affected tasks, and resume normal scheduling.
 10. If the feature-branch rebase fails, create integration repair work on the secondary feature branch. Tasks remain suspended until repair lands.
-11. If rebase plus verification succeeds, continue normally; otherwise escalate to replanning.
+11. If the rebase succeeds but suspended task worktrees still cannot be resumed cleanly, keep the feature blocked and route that failure into the same integration-repair path.
+12. If rebase plus verification succeeds, continue normally; otherwise escalate to replanning.
 
 The baseline uses **per-feature blocking** (all secondary work paused) rather than per-task suspension (only overlapping tasks paused). This is simpler and safer — rebasing the feature branch with no active tasks avoids mid-flight worktree issues, and recovery on rebase failure is straightforward since no tasks need retroactive suspension. The parallelism cost is bounded because cross-feature overlap should be uncommon when reservation-based scheduling penalties are working. See [per-task cross-feature suspension](../feature-candidates/per-task-cross-feature-suspension.md) for the finer-grained alternative.
 
@@ -182,10 +183,14 @@ Ranking order:
 
 1. explicit dependency predecessor wins
 2. higher derived merge-proximity tuple wins: compare `collabRank(feature.collabControl)` first, then `workRank(feature.workControl)`
-3. older feature request or branch-open time wins
+3. older milestone order and `orderInMilestone` win as stable request-order proxy until dedicated request or branch-open timestamps are modeled durably
 4. feature blocking more downstream dependents wins
-5. larger changed-line count wins
-6. lexical feature id is the final tie-breaker
+5. lexical feature id is final tie-breaker in baseline
+
+Deferred ranking signals:
+
+- older feature request or branch-open time should replace milestone-order proxy once durably modeled
+- changed-line count remains deferred until a durable feature-level aggregate exists
 
 Baseline derived ranks:
 
@@ -194,7 +199,7 @@ Baseline derived ranks:
 
 ## Persistence Notes
 
-Cross-feature blocking is expressed as a runtime feature dependency in the graph plus `blockedByFeatureId` on suspended task rows. The dependency edge is the scheduling authority; task-level fields are for reconstruction and UI display. Suspension fields (`suspendedAt`, `suspendReason`, `suspendedFiles`, `blockedByFeatureId`) live on task rows and back `suspended` collaboration state. The event log remains a debugging and audit surface, not the primary source of current coordination truth.
+Cross-feature blocking is expressed as `Feature.runtimeBlockedByFeatureId` plus `blockedByFeatureId` on suspended task rows. The feature-level runtime block is the scheduling authority; task-level fields are for reconstruction and UI display. Suspension fields (`suspendedAt`, `suspendReason`, `suspendedFiles`, `blockedByFeatureId`) live on task rows and back `suspended` collaboration state. The event log remains a debugging and audit surface, not the primary source of current coordination truth.
 
 ## Related
 

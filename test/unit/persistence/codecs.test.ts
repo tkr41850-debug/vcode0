@@ -133,11 +133,13 @@ describe('codecs — round-trip', () => {
         mergeTrainEnteredAt: 1234,
         mergeTrainEntrySeq: 7,
         mergeTrainReentryCount: 2,
+        runtimeBlockedByFeatureId: 'f-9',
         summary: 'summary text',
         tokenUsage: TOKEN_USAGE,
       };
       const row = fullRow<FeatureRow>(featureToRow(f));
       expect(row.token_usage).toContain('llmCalls');
+      expect(row.runtime_blocked_by_feature_id).toBe('f-9');
       const decoded = rowToFeature(row, ['f-0']);
       expect(decoded).toEqual(f);
       expect(decoded.tokenUsage).toEqual(TOKEN_USAGE);

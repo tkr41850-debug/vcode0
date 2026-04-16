@@ -16,7 +16,7 @@ Capture the runtime coordination protocol for cross-feature overlap before final
 - Given two active features overlap and neither has already been assigned pair ownership
 - When the orchestrator ranks them for runtime coordination
 - Then it compares explicit dependency predecessor first
-- And then nearer-to-merge state, older branch-open time, downstream blocking count, changed-line count, and finally lexical feature id
+- And then nearer-to-merge state, stable request-order proxy, downstream blocking count, and finally lexical feature id
 
 ### Whole secondary feature is paused
 - Given a primary and secondary feature have been selected

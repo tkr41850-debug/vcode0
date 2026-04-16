@@ -161,6 +161,20 @@ async function writeTaskRebaseRepo(
   return taskDir;
 }
 
+async function writeFeatureRebaseRepo(
+  root: string,
+  feature: Feature,
+): Promise<string> {
+  const featureDir = path.join(root, worktreePath(feature.featureBranch));
+  await initRepo(featureDir);
+  await fs.mkdir(path.join(featureDir, 'src'), { recursive: true });
+  await fs.writeFile(path.join(featureDir, 'src', 'a.ts'), 'base\n');
+  await git(featureDir, 'add', 'src/a.ts');
+  await git(featureDir, 'commit', '-m', 'shared base');
+  await git(featureDir, 'checkout', '-b', feature.featureBranch);
+  return featureDir;
+}
+
 describe('ConflictCoordinator', () => {
   const getTmpDir = useTmpDir('orchestrator-conflicts');
   let originalCwd = '';
@@ -868,7 +882,7 @@ describe('ConflictCoordinator', () => {
     );
   }, 20000);
 
-  it('adds feature dependency and task blocking metadata for cross-feature overlap', async () => {
+  it('persists runtime feature blocking and suspends only running secondary tasks', async () => {
     const root = getTmpDir();
     const ports = createPorts(root);
     const graph = createGraph();
@@ -900,18 +914,24 @@ describe('ConflictCoordinator', () => {
       throw new Error('missing graph fixture state');
     }
 
-    await coordinator.handleCrossFeatureOverlap(primary, secondary, [
-      runningTask,
-      readyTask,
-    ]);
+    await coordinator.handleCrossFeatureOverlap(
+      primary,
+      secondary,
+      [runningTask, readyTask],
+      ['src/a.ts'],
+    );
 
-    expect(graph.features.get('f-feature-2')?.dependsOn).toContain(
+    expect(graph.features.get('f-feature-2')).toMatchObject({
+      runtimeBlockedByFeatureId: 'f-feature-1',
+    });
+    expect(graph.features.get('f-feature-2')?.dependsOn).not.toContain(
       'f-feature-1',
     );
     expect(graph.tasks.get('t-feature-2-running')).toMatchObject({
       collabControl: 'suspended',
       suspendReason: 'cross_feature_overlap',
       blockedByFeatureId: 'f-feature-1',
+      suspendedFiles: ['src/a.ts'],
     });
     expect(graph.tasks.get('t-feature-2-running')?.suspendedAt).toEqual(
       expect.any(Number),
@@ -924,16 +944,99 @@ describe('ConflictCoordinator', () => {
     expect(ports.runtime.suspendTask).toHaveBeenCalledWith(
       't-feature-2-running',
       'cross_feature_overlap',
+      ['src/a.ts'],
     );
   });
 
-  it('releases cross-feature dependency and resumes blocked tasks', async () => {
+  it('rebases blocked secondary feature and resumes suspended tasks after primary lands', async () => {
     const root = getTmpDir();
     const ports = createPorts(root);
     const graph = createGraph();
     updateTask(graph, 't-feature-2-running', {
       status: 'running',
       collabControl: 'branch_open',
+      worktreeBranch: 'feat-feature-2-2-task-running',
+      reservedWritePaths: ['src/a.ts'],
+    });
+    const coordinator = new ConflictCoordinator(ports, graph);
+    const primary = graph.features.get('f-feature-1');
+    const secondary = graph.features.get('f-feature-2');
+    const runningTask = graph.tasks.get('t-feature-2-running');
+
+    expect(primary).toBeDefined();
+    expect(secondary).toBeDefined();
+    expect(runningTask).toBeDefined();
+
+    if (
+      primary === undefined ||
+      secondary === undefined ||
+      runningTask === undefined ||
+      runningTask.worktreeBranch === undefined
+    ) {
+      throw new Error('missing graph fixture state');
+    }
+
+    const featureDir = await writeFeatureRebaseRepo(root, secondary);
+    await git(featureDir, 'checkout', 'main');
+    await fs.writeFile(path.join(featureDir, 'src', 'a.ts'), 'main update\n');
+    await git(featureDir, 'add', 'src/a.ts');
+    await git(featureDir, 'commit', '-m', 'main update');
+    await git(featureDir, 'checkout', secondary.featureBranch);
+
+    const taskDir = path.join(root, worktreePath(runningTask.worktreeBranch));
+    await git(
+      featureDir,
+      'worktree',
+      'add',
+      taskDir,
+      '-b',
+      runningTask.worktreeBranch,
+    );
+    await fs.writeFile(path.join(taskDir, 'src', 'b.ts'), 'task work\n');
+    await git(taskDir, 'add', 'src/b.ts');
+    await git(taskDir, 'commit', '-m', 'task work');
+
+    await coordinator.handleCrossFeatureOverlap(primary, secondary, [
+      runningTask,
+    ]);
+    const results = await coordinator.releaseCrossFeatureOverlap(primary.id);
+
+    expect(results).toEqual([
+      {
+        featureId: secondary.id,
+        blockedByFeatureId: primary.id,
+        kind: 'resumed',
+      },
+    ]);
+    expect(
+      graph.features.get('f-feature-2')?.runtimeBlockedByFeatureId,
+    ).toBeUndefined();
+    expect(graph.tasks.get('t-feature-2-running')).toMatchObject({
+      collabControl: 'branch_open',
+      status: 'running',
+    });
+    expect(
+      graph.tasks.get('t-feature-2-running')?.blockedByFeatureId,
+    ).toBeUndefined();
+    expect(
+      graph.tasks.get('t-feature-2-running')?.suspendReason,
+    ).toBeUndefined();
+    expect(graph.tasks.get('t-feature-2-running')?.suspendedAt).toBeUndefined();
+    expect(ports.runtime.resumeTask).toHaveBeenCalledWith(
+      't-feature-2-running',
+      'cross_feature_rebase',
+    );
+  }, 20000);
+
+  it('aborts failed secondary feature rebase before reporting repair_needed', async () => {
+    const root = getTmpDir();
+    const ports = createPorts(root);
+    const graph = createGraph();
+    updateTask(graph, 't-feature-2-running', {
+      status: 'running',
+      collabControl: 'branch_open',
+      worktreeBranch: 'feat-feature-2-2-task-running',
+      reservedWritePaths: ['src/a.ts'],
     });
     const coordinator = new ConflictCoordinator(ports, graph);
     const primary = graph.features.get('f-feature-1');
@@ -952,17 +1055,117 @@ describe('ConflictCoordinator', () => {
       throw new Error('missing graph fixture state');
     }
 
+    const featureDir = await writeFeatureRebaseRepo(root, secondary);
+    await git(featureDir, 'checkout', secondary.featureBranch);
+    await fs.writeFile(
+      path.join(featureDir, 'src', 'a.ts'),
+      'feature change\n',
+    );
+    await git(featureDir, 'add', 'src/a.ts');
+    await git(featureDir, 'commit', '-m', 'feature change');
+    await git(featureDir, 'checkout', 'main');
+    await fs.writeFile(path.join(featureDir, 'src', 'a.ts'), 'main change\n');
+    await git(featureDir, 'add', 'src/a.ts');
+    await git(featureDir, 'commit', '-m', 'main change');
+    await git(featureDir, 'checkout', secondary.featureBranch);
+
     await coordinator.handleCrossFeatureOverlap(primary, secondary, [
       runningTask,
     ]);
-    await coordinator.releaseCrossFeatureOverlap(primary.id);
+    const results = await coordinator.releaseCrossFeatureOverlap(primary.id);
 
-    expect(graph.features.get('f-feature-2')?.dependsOn).not.toContain(
-      'f-feature-1',
-    );
+    expect(results).toEqual([
+      {
+        featureId: secondary.id,
+        blockedByFeatureId: primary.id,
+        kind: 'repair_needed',
+        conflictedFiles: ['src/a.ts'],
+      },
+    ]);
+    expect(graph.features.get('f-feature-2')).toMatchObject({
+      runtimeBlockedByFeatureId: 'f-feature-1',
+    });
     expect(graph.tasks.get('t-feature-2-running')).toMatchObject({
-      collabControl: 'branch_open',
+      collabControl: 'suspended',
       status: 'running',
+      blockedByFeatureId: 'f-feature-1',
+      suspendReason: 'cross_feature_overlap',
+    });
+    expect(ports.runtime.resumeTask).not.toHaveBeenCalled();
+    await expect(
+      gitOutput(featureDir, 'rev-parse', '--verify', 'REBASE_HEAD'),
+    ).rejects.toBeDefined();
+    await expect(gitOutput(featureDir, 'status', '--porcelain')).resolves.toBe(
+      '',
+    );
+  }, 20000);
+
+  it('marks task ready when runtime resume delivery fails after clean cross-feature rebase', async () => {
+    const root = getTmpDir();
+    const ports = createPorts(root);
+    ports.runtime.resumeTask = vi.fn(async (taskId: string) => ({
+      kind: 'not_running' as const,
+      taskId,
+    }));
+    const graph = createGraph();
+    updateTask(graph, 't-feature-2-running', {
+      status: 'running',
+      collabControl: 'branch_open',
+      worktreeBranch: 'feat-feature-2-2-task-running',
+      reservedWritePaths: ['src/a.ts'],
+    });
+    const coordinator = new ConflictCoordinator(ports, graph);
+    const primary = graph.features.get('f-feature-1');
+    const secondary = graph.features.get('f-feature-2');
+    const runningTask = graph.tasks.get('t-feature-2-running');
+
+    expect(primary).toBeDefined();
+    expect(secondary).toBeDefined();
+    expect(runningTask).toBeDefined();
+    if (
+      primary === undefined ||
+      secondary === undefined ||
+      runningTask === undefined ||
+      runningTask.worktreeBranch === undefined
+    ) {
+      throw new Error('missing graph fixture state');
+    }
+
+    const featureDir = await writeFeatureRebaseRepo(root, secondary);
+    await git(featureDir, 'checkout', 'main');
+    await fs.writeFile(path.join(featureDir, 'src', 'a.ts'), 'main update\n');
+    await git(featureDir, 'add', 'src/a.ts');
+    await git(featureDir, 'commit', '-m', 'main update');
+    await git(featureDir, 'checkout', secondary.featureBranch);
+
+    const taskDir = path.join(root, worktreePath(runningTask.worktreeBranch));
+    await git(
+      featureDir,
+      'worktree',
+      'add',
+      taskDir,
+      '-b',
+      runningTask.worktreeBranch,
+    );
+    await fs.writeFile(path.join(taskDir, 'src', 'b.ts'), 'task work\n');
+    await git(taskDir, 'add', 'src/b.ts');
+    await git(taskDir, 'commit', '-m', 'task work');
+
+    await coordinator.handleCrossFeatureOverlap(primary, secondary, [
+      runningTask,
+    ]);
+    const results = await coordinator.releaseCrossFeatureOverlap(primary.id);
+
+    expect(results).toEqual([
+      {
+        featureId: secondary.id,
+        blockedByFeatureId: primary.id,
+        kind: 'resumed',
+      },
+    ]);
+    expect(graph.tasks.get('t-feature-2-running')).toMatchObject({
+      status: 'ready',
+      collabControl: 'branch_open',
     });
     expect(
       graph.tasks.get('t-feature-2-running')?.blockedByFeatureId,
@@ -970,10 +1173,177 @@ describe('ConflictCoordinator', () => {
     expect(
       graph.tasks.get('t-feature-2-running')?.suspendReason,
     ).toBeUndefined();
-    expect(graph.tasks.get('t-feature-2-running')?.suspendedAt).toBeUndefined();
-    expect(ports.runtime.resumeTask).toHaveBeenCalledWith(
-      't-feature-2-running',
-      'cross_feature_rebase',
-    );
+  }, 20000);
+
+  it('reports blocked release when secondary feature worktree is missing', async () => {
+    const root = getTmpDir();
+    const ports = createPorts(root);
+    const graph = createGraph();
+    updateTask(graph, 't-feature-2-running', {
+      status: 'running',
+      collabControl: 'branch_open',
+    });
+    const coordinator = new ConflictCoordinator(ports, graph);
+    const primary = graph.features.get('f-feature-1');
+    const secondary = graph.features.get('f-feature-2');
+    const runningTask = graph.tasks.get('t-feature-2-running');
+
+    expect(primary).toBeDefined();
+    expect(secondary).toBeDefined();
+    expect(runningTask).toBeDefined();
+    if (
+      primary === undefined ||
+      secondary === undefined ||
+      runningTask === undefined
+    ) {
+      throw new Error('missing graph fixture state');
+    }
+
+    await coordinator.handleCrossFeatureOverlap(primary, secondary, [
+      runningTask,
+    ]);
+    const results = await coordinator.releaseCrossFeatureOverlap(primary.id);
+
+    expect(results).toEqual([
+      {
+        featureId: secondary.id,
+        blockedByFeatureId: primary.id,
+        kind: 'blocked',
+        summary: `Feature worktree missing for ${secondary.id}`,
+      },
+    ]);
+    expect(graph.features.get('f-feature-2')).toMatchObject({
+      runtimeBlockedByFeatureId: 'f-feature-1',
+    });
   });
+
+  it('re-blocks feature when cross-feature task rebase conflicts after clean feature rebase', async () => {
+    const root = getTmpDir();
+    const ports = createPorts(root);
+    const graph = createGraph();
+    updateTask(graph, 't-feature-2-running', {
+      status: 'running',
+      collabControl: 'branch_open',
+      worktreeBranch: 'feat-feature-2-2-task-running',
+      reservedWritePaths: ['src/a.ts'],
+    });
+    const coordinator = new ConflictCoordinator(ports, graph);
+    const primary = graph.features.get('f-feature-1');
+    const secondary = graph.features.get('f-feature-2');
+    const runningTask = graph.tasks.get('t-feature-2-running');
+
+    expect(primary).toBeDefined();
+    expect(secondary).toBeDefined();
+    expect(runningTask).toBeDefined();
+    if (
+      primary === undefined ||
+      secondary === undefined ||
+      runningTask === undefined ||
+      runningTask.worktreeBranch === undefined
+    ) {
+      throw new Error('missing graph fixture state');
+    }
+
+    const featureDir = await writeFeatureRebaseRepo(root, secondary);
+    await git(featureDir, 'checkout', 'main');
+    await fs.writeFile(path.join(featureDir, 'src', 'a.ts'), 'main update\n');
+    await git(featureDir, 'add', 'src/a.ts');
+    await git(featureDir, 'commit', '-m', 'main update');
+    await git(featureDir, 'checkout', secondary.featureBranch);
+
+    const taskDir = path.join(root, worktreePath(runningTask.worktreeBranch));
+    await git(
+      featureDir,
+      'worktree',
+      'add',
+      taskDir,
+      '-b',
+      runningTask.worktreeBranch,
+    );
+    await fs.writeFile(path.join(taskDir, 'src', 'a.ts'), 'task change\n');
+    await git(taskDir, 'add', 'src/a.ts');
+    await git(taskDir, 'commit', '-m', 'task change');
+
+    await coordinator.handleCrossFeatureOverlap(primary, secondary, [
+      runningTask,
+    ]);
+    const results = await coordinator.releaseCrossFeatureOverlap(primary.id);
+
+    expect(results).toEqual([
+      {
+        featureId: secondary.id,
+        blockedByFeatureId: primary.id,
+        kind: 'blocked',
+        summary:
+          'Cross-feature task rebase conflicted for t-feature-2-running: src/a.ts',
+      },
+    ]);
+    expect(graph.features.get('f-feature-2')).toMatchObject({
+      runtimeBlockedByFeatureId: 'f-feature-1',
+    });
+    expect(graph.tasks.get('t-feature-2-running')).toMatchObject({
+      collabControl: 'suspended',
+      status: 'running',
+      blockedByFeatureId: 'f-feature-1',
+      suspendReason: 'cross_feature_overlap',
+    });
+    expect(ports.runtime.resumeTask).not.toHaveBeenCalled();
+    expect(ports.runtime.steerTask).not.toHaveBeenCalled();
+  }, 20000);
+
+  it('re-blocks feature when suspended task worktree is missing after clean feature rebase', async () => {
+    const root = getTmpDir();
+    const ports = createPorts(root);
+    const graph = createGraph();
+    updateTask(graph, 't-feature-2-running', {
+      status: 'running',
+      collabControl: 'branch_open',
+      worktreeBranch: 'feat-feature-2-2-task-running',
+      reservedWritePaths: ['src/a.ts'],
+    });
+    const coordinator = new ConflictCoordinator(ports, graph);
+    const primary = graph.features.get('f-feature-1');
+    const secondary = graph.features.get('f-feature-2');
+    const runningTask = graph.tasks.get('t-feature-2-running');
+
+    expect(primary).toBeDefined();
+    expect(secondary).toBeDefined();
+    expect(runningTask).toBeDefined();
+    if (
+      primary === undefined ||
+      secondary === undefined ||
+      runningTask === undefined
+    ) {
+      throw new Error('missing graph fixture state');
+    }
+
+    const featureDir = await writeFeatureRebaseRepo(root, secondary);
+    await git(featureDir, 'checkout', 'main');
+    await fs.writeFile(path.join(featureDir, 'src', 'a.ts'), 'main update\n');
+    await git(featureDir, 'add', 'src/a.ts');
+    await git(featureDir, 'commit', '-m', 'main update');
+    await git(featureDir, 'checkout', secondary.featureBranch);
+
+    await coordinator.handleCrossFeatureOverlap(primary, secondary, [
+      runningTask,
+    ]);
+    const results = await coordinator.releaseCrossFeatureOverlap(primary.id);
+
+    expect(results).toEqual([
+      {
+        featureId: secondary.id,
+        blockedByFeatureId: primary.id,
+        kind: 'blocked',
+        summary: `Task worktree missing for ${runningTask.id}`,
+      },
+    ]);
+    expect(graph.features.get('f-feature-2')).toMatchObject({
+      runtimeBlockedByFeatureId: 'f-feature-1',
+    });
+    expect(graph.tasks.get('t-feature-2-running')).toMatchObject({
+      collabControl: 'suspended',
+      status: 'running',
+      blockedByFeatureId: 'f-feature-1',
+    });
+  }, 20000);
 });

@@ -72,6 +72,7 @@ export interface FeatureEditPatch {
   name?: string;
   description?: string;
   summary?: string;
+  runtimeBlockedByFeatureId?: FeatureId | undefined;
 }
 
 export interface TaskEditPatch {
@@ -497,6 +498,7 @@ export class InMemoryFeatureGraph implements FeatureGraph {
         f.collabControl === 'conflict' ||
         f.collabControl === 'merge_queued' ||
         f.collabControl === 'integrating' ||
+        f.runtimeBlockedByFeatureId !== undefined ||
         (f.collabControl === 'merged' && f.workControl !== 'summarizing')
       ) {
         continue;
@@ -537,6 +539,15 @@ export class InMemoryFeatureGraph implements FeatureGraph {
       }
       const feature = this.features.get(t.featureId);
       if (!feature || feature.collabControl === 'cancelled') {
+        continue;
+      }
+      if (
+        feature.runtimeBlockedByFeatureId !== undefined &&
+        !(
+          feature.workControl === 'executing_repair' &&
+          t.repairSource === 'integration'
+        )
+      ) {
         continue;
       }
       let allDepsDone = true;
@@ -1140,6 +1151,11 @@ export class InMemoryFeatureGraph implements FeatureGraph {
     }
     if (patch.summary !== undefined) {
       updated.summary = patch.summary;
+    }
+    if (patch.runtimeBlockedByFeatureId !== undefined) {
+      updated.runtimeBlockedByFeatureId = patch.runtimeBlockedByFeatureId;
+    } else if ('runtimeBlockedByFeatureId' in patch) {
+      delete updated.runtimeBlockedByFeatureId;
     }
     this.features.set(featureId, updated);
     return updated;

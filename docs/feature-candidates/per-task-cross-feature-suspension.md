@@ -6,7 +6,7 @@ Future feature candidate. Do not treat this as part of the baseline architecture
 
 ## Baseline
 
-The baseline cross-feature overlap policy uses **per-feature blocking**: when runtime overlap is detected between two features, a feature-level dependency is added (`secondary depends on primary`), and all secondary feature tasks are suspended. The secondary feature resumes only after the primary merges and the secondary feature branch is rebased onto updated `main`.
+The baseline cross-feature overlap policy uses **per-feature blocking**: when runtime overlap is detected between two features, the secondary feature stores `runtimeBlockedByFeatureId = <primary feature id>`, and all secondary feature tasks are suspended. The secondary feature resumes only after the primary merges and the secondary feature branch is rebased onto updated `main`.
 
 ## Candidate
 

@@ -232,6 +232,7 @@ export interface Feature {
   mergeTrainEnteredAt?: number;
   mergeTrainEntrySeq?: number;
   mergeTrainReentryCount?: number;
+  runtimeBlockedByFeatureId?: FeatureId;
   summary?: string;
   tokenUsage?: TokenUsageAggregate;
 }
@@ -379,6 +380,18 @@ export interface CrossFeatureFeatureRebaseGitConflictContext
   pauseReason: 'cross_feature_overlap';
 }
 
+export interface CrossFeatureTaskRebaseGitConflictContext
+  extends BaseGitConflictContext {
+  kind: 'cross_feature_task_rebase';
+  taskId: TaskId;
+  taskBranch: string;
+  rebaseTarget: string;
+  blockedByFeatureId: FeatureId;
+  pauseReason: 'cross_feature_overlap';
+  reservedWritePaths?: string[];
+}
+
 export type GitConflictContext =
   | SameFeatureTaskRebaseGitConflictContext
-  | CrossFeatureFeatureRebaseGitConflictContext;
+  | CrossFeatureFeatureRebaseGitConflictContext
+  | CrossFeatureTaskRebaseGitConflictContext;

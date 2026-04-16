@@ -1,5 +1,10 @@
+import { execFile } from 'node:child_process';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+
 import type { PlannerAgent, ReplannerAgent } from '@agents/index';
 import { InMemoryFeatureGraph } from '@core/graph/index';
+import { worktreePath } from '@core/naming/index';
 import type { GraphProposal } from '@core/proposals/index';
 import { deriveSummaryAvailability } from '@core/state';
 import type {
@@ -31,13 +36,14 @@ import {
 } from '@orchestrator/scheduler/index';
 import { VerificationService } from '@orchestrator/services/index';
 import type { RuntimePort } from '@runtime/contracts';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   createFeatureFixture,
   createMilestoneFixture,
   createTaskFixture,
 } from '../../helpers/graph-builders.js';
+import { useTmpDir } from '../../helpers/tmp-dir.js';
 
 class ExposedSchedulerLoop extends SchedulerLoop {
   async tickForTest(now: number): Promise<void> {
@@ -450,7 +456,53 @@ function createProposalApprovalGraph(
   );
 }
 
+async function git(dir: string, ...args: string[]): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    execFile('git', args, { cwd: dir }, (error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
+async function initRepo(dir: string): Promise<void> {
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(path.join(dir, '.gitignore'), 'node_modules\n');
+  await fs.writeFile(path.join(dir, 'README.md'), 'base\n');
+  await git(dir, 'init', '-b', 'main');
+  await git(dir, 'config', 'user.name', 'Test User');
+  await git(dir, 'config', 'user.email', 'test@example.com');
+  await git(dir, 'add', 'README.md', '.gitignore');
+  await git(dir, 'commit', '-m', 'init');
+}
+
+async function writeFeatureRebaseRepo(
+  root: string,
+  feature: Feature,
+): Promise<string> {
+  const featureDir = path.join(root, worktreePath(feature.featureBranch));
+  await initRepo(featureDir);
+  await fs.mkdir(path.join(featureDir, 'src'), { recursive: true });
+  await fs.writeFile(path.join(featureDir, 'src', 'a.ts'), 'base\n');
+  await git(featureDir, 'add', 'src/a.ts');
+  await git(featureDir, 'commit', '-m', 'shared base');
+  await git(featureDir, 'checkout', '-b', feature.featureBranch);
+  return featureDir;
+}
+
+const getTmpDir = useTmpDir('scheduler-loop');
+let originalCwd = '';
+
+beforeEach(() => {
+  originalCwd = process.cwd();
+  process.chdir(getTmpDir());
+});
+
 afterEach(() => {
+  process.chdir(originalCwd);
   vi.useRealTimers();
 });
 
@@ -2746,7 +2798,519 @@ describe('SchedulerLoop', () => {
     expect(feature?.mergeTrainReentryCount).toBe(0);
   });
 
-  it('releases cross-feature blocked tasks when primary integration completes', async () => {
+  it('suspends whole secondary feature when cross-feature runtime overlap appears', async () => {
+    const order: string[] = [];
+    const { ports, runtime } = createPorts(order);
+    vi.spyOn(runtime, 'idleWorkerCount').mockReturnValue(0);
+    const suspendTask = vi.spyOn(runtime, 'suspendTask');
+    const graph = createSchedulerGraph({
+      milestones: [createMilestoneFixture()],
+      features: [
+        createFeatureFixture({
+          id: 'f-1',
+          status: 'in_progress',
+          workControl: 'executing',
+          collabControl: 'branch_open',
+        }),
+        createFeatureFixture({
+          id: 'f-2',
+          orderInMilestone: 1,
+          status: 'in_progress',
+          workControl: 'executing',
+          collabControl: 'branch_open',
+        }),
+      ],
+      tasks: [
+        createTaskFixture({
+          id: 't-1',
+          featureId: 'f-1',
+          status: 'running',
+          collabControl: 'branch_open',
+          reservedWritePaths: ['src/a.ts'],
+        }),
+        createTaskFixture({
+          id: 't-2',
+          featureId: 'f-2',
+          orderInFeature: 0,
+          status: 'running',
+          collabControl: 'branch_open',
+          reservedWritePaths: ['src/a.ts'],
+        }),
+        createTaskFixture({
+          id: 't-3',
+          featureId: 'f-2',
+          orderInFeature: 1,
+          status: 'ready',
+          collabControl: 'branch_open',
+          reservedWritePaths: ['src/a.ts'],
+        }),
+      ],
+    });
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+    await loop.tickForTest(100);
+
+    expect(graph.features.get('f-2')).toMatchObject({
+      runtimeBlockedByFeatureId: 'f-1',
+    });
+    expect(graph.tasks.get('t-2')).toMatchObject({
+      collabControl: 'suspended',
+      suspendReason: 'cross_feature_overlap',
+      blockedByFeatureId: 'f-1',
+      suspendedFiles: ['src/a.ts'],
+    });
+    expect(graph.tasks.get('t-3')).toMatchObject({
+      status: 'ready',
+      collabControl: 'branch_open',
+    });
+    expect(suspendTask).toHaveBeenCalledTimes(1);
+    expect(suspendTask).toHaveBeenCalledWith('t-2', 'cross_feature_overlap', [
+      'src/a.ts',
+    ]);
+  });
+
+  it('prefers dependency predecessor as cross-feature overlap primary', async () => {
+    const order: string[] = [];
+    const { ports, runtime } = createPorts(order);
+    vi.spyOn(runtime, 'idleWorkerCount').mockReturnValue(0);
+    const graph = createSchedulerGraph({
+      milestones: [createMilestoneFixture()],
+      features: [
+        createFeatureFixture({
+          id: 'f-1',
+          status: 'in_progress',
+          workControl: 'executing',
+          collabControl: 'branch_open',
+          dependsOn: ['f-2'],
+        }),
+        createFeatureFixture({
+          id: 'f-2',
+          orderInMilestone: 1,
+          status: 'in_progress',
+          workControl: 'executing',
+          collabControl: 'branch_open',
+        }),
+      ],
+      tasks: [
+        createTaskFixture({
+          id: 't-1',
+          featureId: 'f-1',
+          status: 'running',
+          collabControl: 'branch_open',
+          reservedWritePaths: ['src/a.ts'],
+        }),
+        createTaskFixture({
+          id: 't-2',
+          featureId: 'f-2',
+          orderInFeature: 0,
+          status: 'running',
+          collabControl: 'branch_open',
+          reservedWritePaths: ['src/a.ts'],
+        }),
+      ],
+    });
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+    await loop.tickForTest(100);
+
+    expect(graph.features.get('f-1')?.runtimeBlockedByFeatureId).toBe('f-2');
+    expect(
+      graph.features.get('f-2')?.runtimeBlockedByFeatureId,
+    ).toBeUndefined();
+    expect(graph.tasks.get('t-1')).toMatchObject({
+      collabControl: 'suspended',
+      blockedByFeatureId: 'f-2',
+      suspendReason: 'cross_feature_overlap',
+      suspendedFiles: ['src/a.ts'],
+    });
+    expect(graph.tasks.get('t-2')).toMatchObject({
+      collabControl: 'branch_open',
+    });
+  });
+
+  it('prefers nearer-to-merge feature as cross-feature overlap primary', async () => {
+    const order: string[] = [];
+    const { ports, runtime } = createPorts(order);
+    vi.spyOn(runtime, 'idleWorkerCount').mockReturnValue(0);
+    const graph = createSchedulerGraph({
+      milestones: [createMilestoneFixture()],
+      features: [
+        createFeatureFixture({
+          id: 'f-1',
+          status: 'in_progress',
+          workControl: 'executing',
+          collabControl: 'branch_open',
+        }),
+        createFeatureFixture({
+          id: 'f-2',
+          orderInMilestone: 1,
+          status: 'in_progress',
+          workControl: 'awaiting_merge',
+          collabControl: 'merge_queued',
+        }),
+      ],
+      tasks: [
+        createTaskFixture({
+          id: 't-1',
+          featureId: 'f-1',
+          status: 'running',
+          collabControl: 'branch_open',
+          reservedWritePaths: ['src/a.ts'],
+        }),
+        createTaskFixture({
+          id: 't-2',
+          featureId: 'f-2',
+          orderInFeature: 0,
+          status: 'running',
+          collabControl: 'branch_open',
+          reservedWritePaths: ['src/a.ts'],
+        }),
+      ],
+    });
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+    await loop.tickForTest(100);
+
+    expect(graph.features.get('f-1')?.runtimeBlockedByFeatureId).toBe('f-2');
+    expect(
+      graph.features.get('f-2')?.runtimeBlockedByFeatureId,
+    ).toBeUndefined();
+    expect(graph.tasks.get('t-1')).toMatchObject({
+      collabControl: 'suspended',
+      blockedByFeatureId: 'f-2',
+      suspendReason: 'cross_feature_overlap',
+      suspendedFiles: ['src/a.ts'],
+    });
+    expect(graph.tasks.get('t-2')).toMatchObject({
+      collabControl: 'branch_open',
+    });
+  });
+
+  it('prefers older milestone order when merge proximity ties', async () => {
+    const order: string[] = [];
+    const { ports, runtime } = createPorts(order);
+    vi.spyOn(runtime, 'idleWorkerCount').mockReturnValue(0);
+    const graph = createSchedulerGraph({
+      milestones: [
+        createMilestoneFixture({ id: 'm-1', order: 0 }),
+        createMilestoneFixture({ id: 'm-2', order: 1 }),
+      ],
+      features: [
+        createFeatureFixture({
+          id: 'f-1',
+          milestoneId: 'm-1',
+          status: 'in_progress',
+          workControl: 'executing',
+          collabControl: 'branch_open',
+        }),
+        createFeatureFixture({
+          id: 'f-2',
+          milestoneId: 'm-2',
+          orderInMilestone: 0,
+          status: 'in_progress',
+          workControl: 'executing',
+          collabControl: 'branch_open',
+        }),
+      ],
+      tasks: [
+        createTaskFixture({
+          id: 't-1',
+          featureId: 'f-1',
+          status: 'running',
+          collabControl: 'branch_open',
+          reservedWritePaths: ['src/a.ts'],
+        }),
+        createTaskFixture({
+          id: 't-2',
+          featureId: 'f-2',
+          orderInFeature: 0,
+          status: 'running',
+          collabControl: 'branch_open',
+          reservedWritePaths: ['src/a.ts'],
+        }),
+      ],
+    });
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+    await loop.tickForTest(100);
+
+    expect(graph.features.get('f-2')?.runtimeBlockedByFeatureId).toBe('f-1');
+    expect(
+      graph.features.get('f-1')?.runtimeBlockedByFeatureId,
+    ).toBeUndefined();
+  });
+
+  it('prefers feature blocking more downstream dependents when earlier signals tie', async () => {
+    const order: string[] = [];
+    const { ports, runtime } = createPorts(order);
+    vi.spyOn(runtime, 'idleWorkerCount').mockReturnValue(0);
+    const graph = createSchedulerGraph({
+      milestones: [createMilestoneFixture()],
+      features: [
+        createFeatureFixture({
+          id: 'f-1',
+          status: 'in_progress',
+          workControl: 'executing',
+          collabControl: 'branch_open',
+          orderInMilestone: 0,
+        }),
+        createFeatureFixture({
+          id: 'f-2',
+          status: 'in_progress',
+          workControl: 'executing',
+          collabControl: 'branch_open',
+          orderInMilestone: 0,
+        }),
+        createFeatureFixture({
+          id: 'f-3',
+          orderInMilestone: 1,
+          status: 'pending',
+          workControl: 'discussing',
+          collabControl: 'none',
+          dependsOn: ['f-1'],
+        }),
+        createFeatureFixture({
+          id: 'f-4',
+          orderInMilestone: 2,
+          status: 'pending',
+          workControl: 'discussing',
+          collabControl: 'none',
+          dependsOn: ['f-3'],
+        }),
+      ],
+      tasks: [
+        createTaskFixture({
+          id: 't-1',
+          featureId: 'f-1',
+          status: 'running',
+          collabControl: 'branch_open',
+          reservedWritePaths: ['src/a.ts'],
+        }),
+        createTaskFixture({
+          id: 't-2',
+          featureId: 'f-2',
+          orderInFeature: 0,
+          status: 'running',
+          collabControl: 'branch_open',
+          reservedWritePaths: ['src/a.ts'],
+        }),
+      ],
+    });
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+    await loop.tickForTest(100);
+
+    expect(graph.features.get('f-2')?.runtimeBlockedByFeatureId).toBe('f-1');
+    expect(
+      graph.features.get('f-1')?.runtimeBlockedByFeatureId,
+    ).toBeUndefined();
+  });
+
+  it('does not cascade stale blocked feature into new primary within same tick', async () => {
+    const order: string[] = [];
+    const { ports, runtime } = createPorts(order);
+    vi.spyOn(runtime, 'idleWorkerCount').mockReturnValue(0);
+    const suspendTask = vi.spyOn(runtime, 'suspendTask');
+    const graph = createSchedulerGraph({
+      milestones: [createMilestoneFixture()],
+      features: [
+        createFeatureFixture({
+          id: 'f-1',
+          status: 'in_progress',
+          workControl: 'executing',
+          collabControl: 'branch_open',
+        }),
+        createFeatureFixture({
+          id: 'f-2',
+          orderInMilestone: 1,
+          status: 'in_progress',
+          workControl: 'executing',
+          collabControl: 'branch_open',
+        }),
+        createFeatureFixture({
+          id: 'f-3',
+          orderInMilestone: 2,
+          status: 'in_progress',
+          workControl: 'executing',
+          collabControl: 'branch_open',
+        }),
+      ],
+      tasks: [
+        createTaskFixture({
+          id: 't-1',
+          featureId: 'f-1',
+          status: 'running',
+          collabControl: 'branch_open',
+          reservedWritePaths: ['src/a.ts'],
+        }),
+        createTaskFixture({
+          id: 't-2',
+          featureId: 'f-2',
+          orderInFeature: 0,
+          status: 'running',
+          collabControl: 'branch_open',
+          reservedWritePaths: ['src/a.ts', 'src/b.ts'],
+        }),
+        createTaskFixture({
+          id: 't-3',
+          featureId: 'f-3',
+          orderInFeature: 0,
+          status: 'running',
+          collabControl: 'branch_open',
+          reservedWritePaths: ['src/b.ts'],
+        }),
+      ],
+    });
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+    await loop.tickForTest(100);
+
+    expect(graph.features.get('f-2')).toMatchObject({
+      runtimeBlockedByFeatureId: 'f-1',
+    });
+    expect(
+      graph.features.get('f-3')?.runtimeBlockedByFeatureId,
+    ).toBeUndefined();
+    expect(graph.tasks.get('t-2')).toMatchObject({
+      collabControl: 'suspended',
+      blockedByFeatureId: 'f-1',
+      suspendedFiles: ['src/a.ts'],
+    });
+    expect(graph.tasks.get('t-3')).toMatchObject({
+      collabControl: 'branch_open',
+    });
+    expect(suspendTask).toHaveBeenCalledTimes(1);
+    expect(suspendTask).toHaveBeenCalledWith('t-2', 'cross_feature_overlap', [
+      'src/a.ts',
+    ]);
+  });
+
+  it('releases cross-feature blocked tasks when primary integration completes after clean secondary rebase', async () => {
+    const root = getTmpDir();
+    const order: string[] = [];
+    const { ports, runtime } = createPorts(order, { tokenProfile: 'balanced' });
+    vi.spyOn(ports.runtime, 'idleWorkerCount').mockReturnValue(0);
+    const resumeTask = vi
+      .spyOn(runtime, 'resumeTask')
+      .mockImplementation(async (taskId: string) => ({
+        kind: 'delivered',
+        taskId,
+        agentRunId: `run-${taskId}`,
+      }));
+    const graph = new InMemoryFeatureGraph({
+      milestones: [
+        {
+          id: 'm-1',
+          name: 'Milestone 1',
+          description: 'desc',
+          status: 'pending',
+          order: 0,
+        },
+      ],
+      features: [
+        {
+          id: 'f-1',
+          milestoneId: 'm-1',
+          orderInMilestone: 0,
+          name: 'Feature 1',
+          description: 'desc',
+          dependsOn: [],
+          status: 'in_progress',
+          workControl: 'awaiting_merge',
+          collabControl: 'integrating',
+          featureBranch: 'feat-feature-1-1',
+          mergeTrainManualPosition: 1,
+          mergeTrainEnteredAt: 50,
+          mergeTrainEntrySeq: 1,
+          mergeTrainReentryCount: 0,
+        },
+        {
+          id: 'f-2',
+          milestoneId: 'm-1',
+          orderInMilestone: 1,
+          name: 'Feature 2',
+          description: 'desc',
+          dependsOn: [],
+          status: 'in_progress',
+          workControl: 'executing',
+          collabControl: 'branch_open',
+          featureBranch: 'feat-feature-2-1',
+          runtimeBlockedByFeatureId: 'f-1',
+        },
+      ],
+      tasks: [
+        {
+          id: 't-2',
+          featureId: 'f-2',
+          orderInFeature: 0,
+          description: 'Task 2',
+          dependsOn: [],
+          status: 'running',
+          collabControl: 'suspended',
+          blockedByFeatureId: 'f-1',
+          suspendReason: 'cross_feature_overlap',
+          suspendedAt: 75,
+          worktreeBranch: 'feat-feature-2-1-task-2',
+          reservedWritePaths: ['src/a.ts'],
+        },
+      ],
+    });
+
+    const blockedFeature = graph.features.get('f-2');
+    const blockedTask = graph.tasks.get('t-2');
+    expect(blockedFeature).toBeDefined();
+    expect(blockedTask).toBeDefined();
+    if (
+      blockedFeature === undefined ||
+      blockedTask === undefined ||
+      blockedTask.worktreeBranch === undefined
+    ) {
+      throw new Error('missing blocked feature fixture state');
+    }
+
+    const featureDir = await writeFeatureRebaseRepo(root, blockedFeature);
+    await git(featureDir, 'checkout', 'main');
+    await fs.writeFile(path.join(featureDir, 'src', 'a.ts'), 'main update\n');
+    await git(featureDir, 'add', 'src/a.ts');
+    await git(featureDir, 'commit', '-m', 'main update');
+    await git(featureDir, 'checkout', blockedFeature.featureBranch);
+
+    const taskDir = path.join(root, worktreePath(blockedTask.worktreeBranch));
+    await git(
+      featureDir,
+      'worktree',
+      'add',
+      taskDir,
+      '-b',
+      blockedTask.worktreeBranch,
+    );
+    await fs.writeFile(path.join(taskDir, 'src', 'b.ts'), 'task work\n');
+    await git(taskDir, 'add', 'src/b.ts');
+    await git(taskDir, 'commit', '-m', 'task work');
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+    loop.enqueue({
+      type: 'feature_integration_complete',
+      featureId: 'f-1',
+    });
+
+    await loop.tickForTest(100);
+
+    expect(
+      graph.features.get('f-2')?.runtimeBlockedByFeatureId,
+    ).toBeUndefined();
+    expect(graph.tasks.get('t-2')).toMatchObject({
+      status: 'running',
+      collabControl: 'branch_open',
+    });
+    expect(graph.tasks.get('t-2')?.blockedByFeatureId).toBeUndefined();
+    expect(graph.tasks.get('t-2')?.suspendReason).toBeUndefined();
+    expect(graph.tasks.get('t-2')?.suspendedAt).toBeUndefined();
+    expect(resumeTask).toHaveBeenCalledWith('t-2', 'cross_feature_rebase');
+  }, 20000);
+
+  it('creates integration repair and keeps tasks suspended when secondary rebase conflicts', async () => {
+    const root = getTmpDir();
     const order: string[] = [];
     const { ports, runtime } = createPorts(order, { tokenProfile: 'balanced' });
     vi.spyOn(ports.runtime, 'idleWorkerCount').mockReturnValue(0);
@@ -2784,11 +3348,483 @@ describe('SchedulerLoop', () => {
           orderInMilestone: 1,
           name: 'Feature 2',
           description: 'desc',
-          dependsOn: ['f-1'],
+          dependsOn: [],
           status: 'in_progress',
           workControl: 'executing',
           collabControl: 'branch_open',
           featureBranch: 'feat-feature-2-1',
+          runtimeBlockedByFeatureId: 'f-1',
+        },
+      ],
+      tasks: [
+        {
+          id: 't-2',
+          featureId: 'f-2',
+          orderInFeature: 0,
+          description: 'Task 2',
+          dependsOn: [],
+          status: 'running',
+          collabControl: 'suspended',
+          blockedByFeatureId: 'f-1',
+          suspendReason: 'cross_feature_overlap',
+          suspendedAt: 75,
+        },
+      ],
+    });
+
+    const blockedFeature = graph.features.get('f-2');
+    expect(blockedFeature).toBeDefined();
+    if (blockedFeature === undefined) {
+      throw new Error('missing blocked feature fixture state');
+    }
+
+    const featureDir = await writeFeatureRebaseRepo(root, blockedFeature);
+    await git(featureDir, 'checkout', blockedFeature.featureBranch);
+    await fs.writeFile(
+      path.join(featureDir, 'src', 'a.ts'),
+      'feature change\n',
+    );
+    await git(featureDir, 'add', 'src/a.ts');
+    await git(featureDir, 'commit', '-m', 'feature change');
+    await git(featureDir, 'checkout', 'main');
+    await fs.writeFile(path.join(featureDir, 'src', 'a.ts'), 'main change\n');
+    await git(featureDir, 'add', 'src/a.ts');
+    await git(featureDir, 'commit', '-m', 'main change');
+    await git(featureDir, 'checkout', blockedFeature.featureBranch);
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+    loop.enqueue({
+      type: 'feature_integration_complete',
+      featureId: 'f-1',
+    });
+
+    await loop.tickForTest(100);
+
+    expect(graph.features.get('f-2')).toMatchObject({
+      runtimeBlockedByFeatureId: 'f-1',
+      collabControl: 'conflict',
+      workControl: 'executing_repair',
+      status: 'pending',
+    });
+    expect(graph.tasks.get('t-2')).toMatchObject({
+      status: 'running',
+      collabControl: 'suspended',
+      blockedByFeatureId: 'f-1',
+      suspendReason: 'cross_feature_overlap',
+    });
+    const repairTasks = [...graph.tasks.values()].filter(
+      (task) => task.featureId === 'f-2' && task.repairSource === 'integration',
+    );
+    expect(repairTasks).toHaveLength(1);
+    expect(repairTasks[0]).toMatchObject({
+      status: 'ready',
+      description:
+        'Repair integration issues: Rebase onto main conflicted in src/a.ts',
+    });
+    expect(resumeTask).not.toHaveBeenCalled();
+  }, 20000);
+
+  it('keeps clean-rebased task ready when runtime resume delivery fails', async () => {
+    const root = getTmpDir();
+    const order: string[] = [];
+    const { ports, runtime } = createPorts(order, { tokenProfile: 'balanced' });
+    vi.spyOn(ports.runtime, 'idleWorkerCount').mockReturnValue(0);
+    const resumeTask = vi
+      .spyOn(runtime, 'resumeTask')
+      .mockImplementation(async (taskId: string) => ({
+        kind: 'not_running',
+        taskId,
+      }));
+    const graph = new InMemoryFeatureGraph({
+      milestones: [
+        {
+          id: 'm-1',
+          name: 'Milestone 1',
+          description: 'desc',
+          status: 'pending',
+          order: 0,
+        },
+      ],
+      features: [
+        {
+          id: 'f-1',
+          milestoneId: 'm-1',
+          orderInMilestone: 0,
+          name: 'Feature 1',
+          description: 'desc',
+          dependsOn: [],
+          status: 'in_progress',
+          workControl: 'awaiting_merge',
+          collabControl: 'integrating',
+          featureBranch: 'feat-feature-1-1',
+          mergeTrainManualPosition: 1,
+          mergeTrainEnteredAt: 50,
+          mergeTrainEntrySeq: 1,
+          mergeTrainReentryCount: 0,
+        },
+        {
+          id: 'f-2',
+          milestoneId: 'm-1',
+          orderInMilestone: 1,
+          name: 'Feature 2',
+          description: 'desc',
+          dependsOn: [],
+          status: 'in_progress',
+          workControl: 'executing',
+          collabControl: 'branch_open',
+          featureBranch: 'feat-feature-2-1',
+          runtimeBlockedByFeatureId: 'f-1',
+        },
+      ],
+      tasks: [
+        {
+          id: 't-2',
+          featureId: 'f-2',
+          orderInFeature: 0,
+          description: 'Task 2',
+          dependsOn: [],
+          status: 'running',
+          collabControl: 'suspended',
+          blockedByFeatureId: 'f-1',
+          suspendReason: 'cross_feature_overlap',
+          suspendedAt: 75,
+          worktreeBranch: 'feat-feature-2-1-task-2',
+          reservedWritePaths: ['src/a.ts'],
+        },
+      ],
+    });
+
+    const blockedFeature = graph.features.get('f-2');
+    const blockedTask = graph.tasks.get('t-2');
+    expect(blockedFeature).toBeDefined();
+    expect(blockedTask).toBeDefined();
+    if (
+      blockedFeature === undefined ||
+      blockedTask === undefined ||
+      blockedTask.worktreeBranch === undefined
+    ) {
+      throw new Error('missing blocked feature fixture state');
+    }
+
+    const featureDir = await writeFeatureRebaseRepo(root, blockedFeature);
+    await git(featureDir, 'checkout', 'main');
+    await fs.writeFile(path.join(featureDir, 'src', 'a.ts'), 'main update\n');
+    await git(featureDir, 'add', 'src/a.ts');
+    await git(featureDir, 'commit', '-m', 'main update');
+    await git(featureDir, 'checkout', blockedFeature.featureBranch);
+
+    const taskDir = path.join(root, worktreePath(blockedTask.worktreeBranch));
+    await git(
+      featureDir,
+      'worktree',
+      'add',
+      taskDir,
+      '-b',
+      blockedTask.worktreeBranch,
+    );
+    await fs.writeFile(path.join(taskDir, 'src', 'b.ts'), 'task work\n');
+    await git(taskDir, 'add', 'src/b.ts');
+    await git(taskDir, 'commit', '-m', 'task work');
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+    loop.enqueue({
+      type: 'feature_integration_complete',
+      featureId: 'f-1',
+    });
+
+    await loop.tickForTest(100);
+
+    expect(
+      graph.features.get('f-2')?.runtimeBlockedByFeatureId,
+    ).toBeUndefined();
+    expect(graph.tasks.get('t-2')).toMatchObject({
+      status: 'ready',
+      collabControl: 'branch_open',
+    });
+    expect(graph.tasks.get('t-2')?.blockedByFeatureId).toBeUndefined();
+    expect(graph.tasks.get('t-2')?.suspendReason).toBeUndefined();
+    expect(resumeTask).toHaveBeenCalledWith('t-2', 'cross_feature_rebase');
+  }, 20000);
+
+  it('creates integration repair when blocked secondary task rebase conflicts after clean feature rebase', async () => {
+    const root = getTmpDir();
+    const order: string[] = [];
+    const { ports, runtime } = createPorts(order, { tokenProfile: 'balanced' });
+    vi.spyOn(ports.runtime, 'idleWorkerCount').mockReturnValue(0);
+    const resumeTask = vi.spyOn(runtime, 'resumeTask');
+    const steerTask = vi.spyOn(runtime, 'steerTask');
+    const graph = new InMemoryFeatureGraph({
+      milestones: [
+        {
+          id: 'm-1',
+          name: 'Milestone 1',
+          description: 'desc',
+          status: 'pending',
+          order: 0,
+        },
+      ],
+      features: [
+        {
+          id: 'f-1',
+          milestoneId: 'm-1',
+          orderInMilestone: 0,
+          name: 'Feature 1',
+          description: 'desc',
+          dependsOn: [],
+          status: 'in_progress',
+          workControl: 'awaiting_merge',
+          collabControl: 'integrating',
+          featureBranch: 'feat-feature-1-1',
+          mergeTrainManualPosition: 1,
+          mergeTrainEnteredAt: 50,
+          mergeTrainEntrySeq: 1,
+          mergeTrainReentryCount: 0,
+        },
+        {
+          id: 'f-2',
+          milestoneId: 'm-1',
+          orderInMilestone: 1,
+          name: 'Feature 2',
+          description: 'desc',
+          dependsOn: [],
+          status: 'in_progress',
+          workControl: 'executing',
+          collabControl: 'branch_open',
+          featureBranch: 'feat-feature-2-1',
+          runtimeBlockedByFeatureId: 'f-1',
+        },
+      ],
+      tasks: [
+        {
+          id: 't-2',
+          featureId: 'f-2',
+          orderInFeature: 0,
+          description: 'Task 2',
+          dependsOn: [],
+          status: 'running',
+          collabControl: 'suspended',
+          blockedByFeatureId: 'f-1',
+          suspendReason: 'cross_feature_overlap',
+          suspendedAt: 75,
+          worktreeBranch: 'feat-feature-2-1-task-2',
+          reservedWritePaths: ['src/a.ts'],
+          suspendedFiles: ['src/a.ts'],
+        },
+      ],
+    });
+
+    const blockedFeature = graph.features.get('f-2');
+    const blockedTask = graph.tasks.get('t-2');
+    expect(blockedFeature).toBeDefined();
+    expect(blockedTask).toBeDefined();
+    if (
+      blockedFeature === undefined ||
+      blockedTask === undefined ||
+      blockedTask.worktreeBranch === undefined
+    ) {
+      throw new Error('missing blocked feature fixture state');
+    }
+
+    const featureDir = await writeFeatureRebaseRepo(root, blockedFeature);
+    await git(featureDir, 'checkout', 'main');
+    await fs.writeFile(path.join(featureDir, 'src', 'a.ts'), 'main update\n');
+    await git(featureDir, 'add', 'src/a.ts');
+    await git(featureDir, 'commit', '-m', 'main update');
+    await git(featureDir, 'checkout', blockedFeature.featureBranch);
+
+    const taskDir = path.join(root, worktreePath(blockedTask.worktreeBranch));
+    await git(
+      featureDir,
+      'worktree',
+      'add',
+      taskDir,
+      '-b',
+      blockedTask.worktreeBranch,
+    );
+    await fs.writeFile(path.join(taskDir, 'src', 'a.ts'), 'task change\n');
+    await git(taskDir, 'add', 'src/a.ts');
+    await git(taskDir, 'commit', '-m', 'task change');
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+    loop.enqueue({
+      type: 'feature_integration_complete',
+      featureId: 'f-1',
+    });
+
+    await loop.tickForTest(100);
+
+    expect(graph.features.get('f-2')).toMatchObject({
+      runtimeBlockedByFeatureId: 'f-1',
+      collabControl: 'conflict',
+      workControl: 'executing_repair',
+      status: 'pending',
+    });
+    expect(graph.tasks.get('t-2')).toMatchObject({
+      status: 'running',
+      collabControl: 'suspended',
+      blockedByFeatureId: 'f-1',
+      suspendReason: 'cross_feature_overlap',
+    });
+    const repairTasks = [...graph.tasks.values()].filter(
+      (task) => task.featureId === 'f-2' && task.repairSource === 'integration',
+    );
+    expect(repairTasks).toHaveLength(1);
+    expect(repairTasks[0]).toMatchObject({
+      status: 'ready',
+      description:
+        'Repair integration issues: Cross-feature task rebase conflicted for t-2: src/a.ts',
+    });
+    expect(resumeTask).not.toHaveBeenCalled();
+    expect(steerTask).not.toHaveBeenCalled();
+  }, 20000);
+
+  it('creates integration repair when blocked secondary task worktree is missing after clean feature rebase', async () => {
+    const root = getTmpDir();
+    const order: string[] = [];
+    const { ports, runtime } = createPorts(order, { tokenProfile: 'balanced' });
+    vi.spyOn(ports.runtime, 'idleWorkerCount').mockReturnValue(0);
+    const resumeTask = vi.spyOn(runtime, 'resumeTask');
+    const graph = new InMemoryFeatureGraph({
+      milestones: [
+        {
+          id: 'm-1',
+          name: 'Milestone 1',
+          description: 'desc',
+          status: 'pending',
+          order: 0,
+        },
+      ],
+      features: [
+        {
+          id: 'f-1',
+          milestoneId: 'm-1',
+          orderInMilestone: 0,
+          name: 'Feature 1',
+          description: 'desc',
+          dependsOn: [],
+          status: 'in_progress',
+          workControl: 'awaiting_merge',
+          collabControl: 'integrating',
+          featureBranch: 'feat-feature-1-1',
+          mergeTrainManualPosition: 1,
+          mergeTrainEnteredAt: 50,
+          mergeTrainEntrySeq: 1,
+          mergeTrainReentryCount: 0,
+        },
+        {
+          id: 'f-2',
+          milestoneId: 'm-1',
+          orderInMilestone: 1,
+          name: 'Feature 2',
+          description: 'desc',
+          dependsOn: [],
+          status: 'in_progress',
+          workControl: 'executing',
+          collabControl: 'branch_open',
+          featureBranch: 'feat-feature-2-1',
+          runtimeBlockedByFeatureId: 'f-1',
+        },
+      ],
+      tasks: [
+        {
+          id: 't-2',
+          featureId: 'f-2',
+          orderInFeature: 0,
+          description: 'Task 2',
+          dependsOn: [],
+          status: 'running',
+          collabControl: 'suspended',
+          blockedByFeatureId: 'f-1',
+          suspendReason: 'cross_feature_overlap',
+          suspendedAt: 75,
+          worktreeBranch: 'feat-feature-2-1-task-2',
+          reservedWritePaths: ['src/a.ts'],
+        },
+      ],
+    });
+
+    const blockedFeature = graph.features.get('f-2');
+    expect(blockedFeature).toBeDefined();
+    if (blockedFeature === undefined) {
+      throw new Error('missing blocked feature fixture state');
+    }
+
+    const featureDir = await writeFeatureRebaseRepo(root, blockedFeature);
+    await git(featureDir, 'checkout', 'main');
+    await fs.writeFile(path.join(featureDir, 'src', 'a.ts'), 'main update\n');
+    await git(featureDir, 'add', 'src/a.ts');
+    await git(featureDir, 'commit', '-m', 'main update');
+    await git(featureDir, 'checkout', blockedFeature.featureBranch);
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+    loop.enqueue({
+      type: 'feature_integration_complete',
+      featureId: 'f-1',
+    });
+
+    await loop.tickForTest(100);
+
+    expect(graph.features.get('f-2')).toMatchObject({
+      runtimeBlockedByFeatureId: 'f-1',
+      collabControl: 'conflict',
+      workControl: 'executing_repair',
+      status: 'pending',
+    });
+    const repairTasks = [...graph.tasks.values()].filter(
+      (task) => task.featureId === 'f-2' && task.repairSource === 'integration',
+    );
+    expect(repairTasks).toHaveLength(1);
+    expect(repairTasks[0]).toMatchObject({
+      status: 'ready',
+      description: 'Repair integration issues: Task worktree missing for t-2',
+    });
+    expect(resumeTask).not.toHaveBeenCalled();
+  }, 20000);
+
+  it('creates integration repair when blocked secondary feature worktree is missing', async () => {
+    const order: string[] = [];
+    const { ports, runtime } = createPorts(order, { tokenProfile: 'balanced' });
+    vi.spyOn(ports.runtime, 'idleWorkerCount').mockReturnValue(0);
+    const resumeTask = vi.spyOn(runtime, 'resumeTask');
+    const graph = new InMemoryFeatureGraph({
+      milestones: [
+        {
+          id: 'm-1',
+          name: 'Milestone 1',
+          description: 'desc',
+          status: 'pending',
+          order: 0,
+        },
+      ],
+      features: [
+        {
+          id: 'f-1',
+          milestoneId: 'm-1',
+          orderInMilestone: 0,
+          name: 'Feature 1',
+          description: 'desc',
+          dependsOn: [],
+          status: 'in_progress',
+          workControl: 'awaiting_merge',
+          collabControl: 'integrating',
+          featureBranch: 'feat-feature-1-1',
+          mergeTrainManualPosition: 1,
+          mergeTrainEnteredAt: 50,
+          mergeTrainEntrySeq: 1,
+          mergeTrainReentryCount: 0,
+        },
+        {
+          id: 'f-2',
+          milestoneId: 'm-1',
+          orderInMilestone: 1,
+          name: 'Feature 2',
+          description: 'desc',
+          dependsOn: [],
+          status: 'in_progress',
+          workControl: 'executing',
+          collabControl: 'branch_open',
+          featureBranch: 'feat-feature-2-1',
+          runtimeBlockedByFeatureId: 'f-1',
         },
       ],
       tasks: [
@@ -2815,15 +3851,22 @@ describe('SchedulerLoop', () => {
 
     await loop.tickForTest(100);
 
-    expect(graph.features.get('f-2')?.dependsOn).not.toContain('f-1');
-    expect(graph.tasks.get('t-2')).toMatchObject({
-      status: 'running',
-      collabControl: 'branch_open',
+    expect(graph.features.get('f-2')).toMatchObject({
+      runtimeBlockedByFeatureId: 'f-1',
+      collabControl: 'conflict',
+      workControl: 'executing_repair',
+      status: 'pending',
     });
-    expect(graph.tasks.get('t-2')?.blockedByFeatureId).toBeUndefined();
-    expect(graph.tasks.get('t-2')?.suspendReason).toBeUndefined();
-    expect(graph.tasks.get('t-2')?.suspendedAt).toBeUndefined();
-    expect(resumeTask).toHaveBeenCalledWith('t-2', 'cross_feature_rebase');
+    const repairTasks = [...graph.tasks.values()].filter(
+      (task) => task.featureId === 'f-2' && task.repairSource === 'integration',
+    );
+    expect(repairTasks).toHaveLength(1);
+    expect(repairTasks[0]).toMatchObject({
+      status: 'ready',
+      description:
+        'Repair integration issues: Feature worktree missing for f-2',
+    });
+    expect(resumeTask).not.toHaveBeenCalled();
   });
 
   it('ejects failed integration into conflict and starts the next queued feature', async () => {
@@ -2889,8 +3932,8 @@ describe('SchedulerLoop', () => {
     expect(failedFeature).toEqual(
       expect.objectContaining({
         collabControl: 'conflict',
-        workControl: 'awaiting_merge',
-        status: 'in_progress',
+        workControl: 'executing_repair',
+        status: 'pending',
         mergeTrainReentryCount: 1,
       }),
     );
@@ -2904,6 +3947,88 @@ describe('SchedulerLoop', () => {
         status: 'in_progress',
       }),
     );
+  });
+
+  it('replans when integration repair lands but task resume stays blocked again', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order, { tokenProfile: 'balanced' });
+    const graph = createSchedulerGraph({
+      milestones: [createMilestoneFixture()],
+      features: [
+        createFeatureFixture({
+          id: 'f-2',
+          status: 'in_progress',
+          workControl: 'executing_repair',
+          collabControl: 'conflict',
+          runtimeBlockedByFeatureId: 'f-1',
+        }),
+      ],
+      tasks: [
+        createTaskFixture({
+          id: 't-repair',
+          featureId: 'f-2',
+          status: 'running',
+          collabControl: 'branch_open',
+          repairSource: 'integration',
+          result: { summary: 'repair done', filesChanged: ['src/a.ts'] },
+        }),
+        createTaskFixture({
+          id: 't-suspended',
+          featureId: 'f-2',
+          orderInFeature: 1,
+          status: 'running',
+          collabControl: 'suspended',
+          blockedByFeatureId: 'f-1',
+          suspendReason: 'cross_feature_overlap',
+          suspendedAt: 75,
+          worktreeBranch: 'feat-feature-2-task-suspended',
+        }),
+      ],
+    });
+    ports.store.createAgentRun(
+      makeTaskRun({
+        id: 'run-task:t-repair',
+        scopeId: 't-repair',
+        runStatus: 'running',
+        sessionId: 'sess-repair',
+      }),
+    );
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+
+    await loop.handleEventForTest({
+      type: 'worker_message',
+      message: {
+        type: 'result',
+        taskId: 't-repair',
+        agentRunId: 'run-task:t-repair',
+        result: {
+          summary: 'repair done',
+          filesChanged: ['src/a.ts'],
+        },
+        usage: {
+          provider: 'test',
+          model: 'fake',
+          inputTokens: 1,
+          outputTokens: 2,
+          totalTokens: 3,
+          usd: 0,
+        },
+        completionKind: 'submitted',
+      },
+    });
+
+    const repairedFeature = graph.features.get('f-2');
+    expect(repairedFeature?.runtimeBlockedByFeatureId).toBeUndefined();
+    expect(repairedFeature).toMatchObject({
+      collabControl: 'conflict',
+      workControl: 'replanning',
+      status: 'pending',
+    });
+    const repairTasks = [...graph.tasks.values()].filter(
+      (task) => task.featureId === 'f-2' && task.repairSource === 'integration',
+    );
+    expect(repairTasks).toHaveLength(1);
   });
 
   it('puts feature-phase errors into retry_await on the shared run plane', async () => {

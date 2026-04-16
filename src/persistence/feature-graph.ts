@@ -43,7 +43,7 @@ const MILESTONE_COLUMNS =
   'id, name, description, display_order, steering_queue_position, status, created_at, updated_at';
 
 const FEATURE_COLUMNS =
-  'id, milestone_id, order_in_milestone, name, description, status, work_phase, collab_status, feature_branch, feature_test_policy, merge_train_manual_position, merge_train_entered_at, merge_train_entry_seq, merge_train_reentry_count, summary, token_usage, created_at, updated_at';
+  'id, milestone_id, order_in_milestone, name, description, status, work_phase, collab_status, feature_branch, feature_test_policy, merge_train_manual_position, merge_train_entered_at, merge_train_entry_seq, merge_train_reentry_count, runtime_blocked_by_feature_id, summary, token_usage, created_at, updated_at';
 
 const TASK_COLUMNS =
   'id, feature_id, order_in_feature, description, weight, status, collab_status, worker_id, worktree_branch, reserved_write_paths, blocked_by_feature_id, result_summary, files_changed, token_usage, task_test_policy, session_id, consecutive_failures, suspended_at, suspend_reason, suspended_files, created_at, updated_at';
@@ -403,8 +403,8 @@ export class PersistentFeatureGraph implements FeatureGraph {
           :status, :work_phase, :collab_status, :feature_branch,
           :feature_test_policy, :merge_train_manual_position,
           :merge_train_entered_at, :merge_train_entry_seq,
-          :merge_train_reentry_count, :summary, :token_usage,
-          :created_at, :updated_at
+          :merge_train_reentry_count, :runtime_blocked_by_feature_id,
+          :summary, :token_usage, :created_at, :updated_at
         ) ON CONFLICT(id) DO UPDATE SET
           milestone_id = excluded.milestone_id,
           order_in_milestone = excluded.order_in_milestone,
@@ -419,6 +419,7 @@ export class PersistentFeatureGraph implements FeatureGraph {
           merge_train_entered_at = excluded.merge_train_entered_at,
           merge_train_entry_seq = excluded.merge_train_entry_seq,
           merge_train_reentry_count = excluded.merge_train_reentry_count,
+          runtime_blocked_by_feature_id = excluded.runtime_blocked_by_feature_id,
           summary = excluded.summary,
           token_usage = excluded.token_usage,
           updated_at = excluded.updated_at`,

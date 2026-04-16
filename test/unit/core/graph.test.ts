@@ -678,6 +678,13 @@ describe('InMemoryFeatureGraph', () => {
     expect(g.readyFeatures()).toHaveLength(0);
   });
 
+  it('readyFeatures excludes features blocked by runtime cross-feature overlap', () => {
+    const g = createGraphWithFeature();
+    updateFeature(g, 'f-1', { runtimeBlockedByFeatureId: 'f-2' });
+
+    expect(g.readyFeatures()).toHaveLength(0);
+  });
+
   it('readyFeatures excludes features in conflict collab state', () => {
     const g = createGraphWithFeature();
     updateFeature(g, 'f-1', { collabControl: 'conflict' });
@@ -742,6 +749,30 @@ describe('InMemoryFeatureGraph', () => {
     updateFeature(g, 'f-1', { collabControl: 'cancelled' });
 
     expect(g.readyTasks()).toHaveLength(0);
+  });
+
+  it('readyTasks excludes non-repair tasks on runtime-blocked features', () => {
+    const g = createGraphWithTask();
+    updateTask(g, 't-1', { status: 'ready' });
+    updateFeature(g, 'f-1', {
+      runtimeBlockedByFeatureId: 'f-2',
+      workControl: 'executing',
+    });
+
+    expect(g.readyTasks()).toHaveLength(0);
+  });
+
+  it('readyTasks includes integration repair tasks on runtime-blocked features', () => {
+    const g = createGraphWithTask({ repairSource: 'integration' });
+    updateTask(g, 't-1', { status: 'ready' });
+    updateFeature(g, 'f-1', {
+      runtimeBlockedByFeatureId: 'f-2',
+      workControl: 'executing_repair',
+    });
+
+    const ready = g.readyTasks();
+    expect(ready).toHaveLength(1);
+    expect(ready[0]?.id).toBe('t-1');
   });
 
   it('readyTasks excludes tasks that are already running or done', () => {

@@ -145,6 +145,7 @@ export class SchedulerLoop {
     this.summaries.reconcilePostMerge();
     this.features.beginNextIntegration();
     await this.coordinateSameFeatureRuntimeOverlaps();
+    await this.coordinateCrossFeatureRuntimeOverlaps();
     await this.dispatchReadyWork(now);
 
     if (
@@ -174,6 +175,18 @@ export class SchedulerLoop {
           this.features.onTaskLanded(run.scopeId);
           const landedTask = this.graph.tasks.get(run.scopeId);
           if (landedTask !== undefined) {
+            if (landedTask.repairSource === 'integration') {
+              this.conflicts.clearCrossFeatureBlock(landedTask.featureId);
+              const release = await this.conflicts.resumeCrossFeatureTasks(
+                landedTask.featureId,
+              );
+              if (release.kind === 'blocked') {
+                this.features.createIntegrationRepair(
+                  landedTask.featureId,
+                  release.summary,
+                );
+              }
+            }
             await this.conflicts.reconcileSameFeatureTasks(
               landedTask.featureId,
               run.scopeId,
@@ -383,13 +396,33 @@ export class SchedulerLoop {
 
     if (event.type === 'feature_integration_complete') {
       this.features.completeIntegration(event.featureId);
-      await this.conflicts.releaseCrossFeatureOverlap(event.featureId);
+      const releases = await this.conflicts.releaseCrossFeatureOverlap(
+        event.featureId,
+      );
+      for (const release of releases) {
+        if (release.kind === 'repair_needed') {
+          const conflictedFiles = release.conflictedFiles ?? [];
+          const summary =
+            conflictedFiles.length > 0
+              ? `Rebase onto main conflicted in ${conflictedFiles.join(', ')}`
+              : (release.summary ?? 'Rebase onto main conflicted');
+          this.features.createIntegrationRepair(release.featureId, summary);
+          continue;
+        }
+
+        if (release.kind === 'blocked') {
+          this.features.createIntegrationRepair(
+            release.featureId,
+            release.summary ??
+              'Feature worktree missing before rebase onto main',
+          );
+        }
+      }
       return;
     }
 
     if (event.type === 'feature_integration_failed') {
-      void event.error;
-      this.features.failIntegration(event.featureId);
+      this.features.failIntegration(event.featureId, event.error);
       return;
     }
   }
@@ -431,6 +464,97 @@ export class SchedulerLoop {
       if (await this.dispatchFeaturePhaseUnit(unit.feature, unit.phase)) {
         dispatched++;
       }
+    }
+  }
+
+  private async coordinateCrossFeatureRuntimeOverlaps(): Promise<void> {
+    const runningTasks = [...this.graph.tasks.values()].filter(
+      (task) =>
+        task.status === 'running' &&
+        task.collabControl === 'branch_open' &&
+        task.reservedWritePaths !== undefined &&
+        task.reservedWritePaths.length > 0,
+    );
+    if (runningTasks.length <= 1) {
+      return;
+    }
+
+    const tasksByPath = new Map<string, Task[]>();
+    for (const task of runningTasks) {
+      for (const reservedPath of task.reservedWritePaths ?? []) {
+        const normalizedPath = normalizeReservedWritePath(reservedPath);
+        const owners = tasksByPath.get(normalizedPath) ?? [];
+        owners.push(task);
+        tasksByPath.set(normalizedPath, owners);
+      }
+    }
+
+    const featurePairFiles = new Map<string, Set<string>>();
+    for (const [reservedPath, owners] of tasksByPath) {
+      if (owners.length <= 1) {
+        continue;
+      }
+
+      for (let index = 0; index < owners.length; index++) {
+        const left = owners[index];
+        if (left === undefined) {
+          continue;
+        }
+        for (
+          let peerIndex = index + 1;
+          peerIndex < owners.length;
+          peerIndex++
+        ) {
+          const right = owners[peerIndex];
+          if (
+            right === undefined ||
+            left.featureId === right.featureId ||
+            left.featureId === right.blockedByFeatureId ||
+            right.featureId === left.blockedByFeatureId
+          ) {
+            continue;
+          }
+
+          const [primaryId, secondaryId] = rankCrossFeaturePair(
+            this.graph,
+            left,
+            right,
+          );
+          const key = `${primaryId}|${secondaryId}`;
+          const files = featurePairFiles.get(key) ?? new Set<string>();
+          files.add(reservedPath);
+          featurePairFiles.set(key, files);
+        }
+      }
+    }
+
+    for (const [pairKey] of featurePairFiles) {
+      const [primaryId, secondaryId] = pairKey.split('|') as [
+        FeatureId,
+        FeatureId,
+      ];
+      const primary = this.graph.features.get(primaryId);
+      const secondary = this.graph.features.get(secondaryId);
+      if (
+        primary === undefined ||
+        secondary === undefined ||
+        primary.runtimeBlockedByFeatureId !== undefined ||
+        secondary.runtimeBlockedByFeatureId !== undefined
+      ) {
+        continue;
+      }
+
+      const secondaryTasks = runningTasks.filter(
+        (task) => task.featureId === secondary.id,
+      );
+      await this.conflicts.handleCrossFeatureOverlap(
+        primary,
+        secondary,
+        secondaryTasks,
+        [...(featurePairFiles.get(pairKey) ?? [])].sort((a, b) =>
+          a.localeCompare(b),
+        ),
+      );
     }
   }
 
@@ -869,4 +993,141 @@ export class SchedulerLoop {
 function normalizeReservedWritePath(reservedPath: string): string {
   const normalized = path.posix.normalize(reservedPath.replaceAll('\\', '/'));
   return normalized.startsWith('./') ? normalized.slice(2) : normalized;
+}
+
+function rankCrossFeaturePair(
+  graph: FeatureGraph,
+  left: Task,
+  right: Task,
+): [FeatureId, FeatureId] {
+  const leftFeature = graph.features.get(left.featureId);
+  const rightFeature = graph.features.get(right.featureId);
+  if (leftFeature === undefined || rightFeature === undefined) {
+    return lexicalFeatureOrder(left.featureId, right.featureId);
+  }
+
+  if (leftFeature.dependsOn.includes(rightFeature.id)) {
+    return [right.featureId, left.featureId];
+  }
+  if (rightFeature.dependsOn.includes(leftFeature.id)) {
+    return [left.featureId, right.featureId];
+  }
+
+  const collabOrder =
+    collabRank(leftFeature.collabControl) -
+    collabRank(rightFeature.collabControl);
+  if (collabOrder !== 0) {
+    return collabOrder > 0
+      ? [left.featureId, right.featureId]
+      : [right.featureId, left.featureId];
+  }
+
+  const workOrder =
+    workRank(leftFeature.workControl) - workRank(rightFeature.workControl);
+  if (workOrder !== 0) {
+    return workOrder > 0
+      ? [left.featureId, right.featureId]
+      : [right.featureId, left.featureId];
+  }
+
+  const leftMilestoneOrder =
+    graph.milestones.get(leftFeature.milestoneId)?.order ??
+    Number.MAX_SAFE_INTEGER;
+  const rightMilestoneOrder =
+    graph.milestones.get(rightFeature.milestoneId)?.order ??
+    Number.MAX_SAFE_INTEGER;
+  if (leftMilestoneOrder !== rightMilestoneOrder) {
+    return leftMilestoneOrder < rightMilestoneOrder
+      ? [left.featureId, right.featureId]
+      : [right.featureId, left.featureId];
+  }
+  if (leftFeature.orderInMilestone !== rightFeature.orderInMilestone) {
+    return leftFeature.orderInMilestone < rightFeature.orderInMilestone
+      ? [left.featureId, right.featureId]
+      : [right.featureId, left.featureId];
+  }
+
+  const leftDownstream = countDownstreamDependents(graph, leftFeature.id);
+  const rightDownstream = countDownstreamDependents(graph, rightFeature.id);
+  if (leftDownstream !== rightDownstream) {
+    return leftDownstream > rightDownstream
+      ? [left.featureId, right.featureId]
+      : [right.featureId, left.featureId];
+  }
+
+  return lexicalFeatureOrder(left.featureId, right.featureId);
+}
+
+function lexicalFeatureOrder(
+  leftFeatureId: FeatureId,
+  rightFeatureId: FeatureId,
+): [FeatureId, FeatureId] {
+  return leftFeatureId.localeCompare(rightFeatureId) <= 0
+    ? [leftFeatureId, rightFeatureId]
+    : [rightFeatureId, leftFeatureId];
+}
+
+function collabRank(featureCollabControl: Feature['collabControl']): number {
+  switch (featureCollabControl) {
+    case 'integrating':
+      return 3;
+    case 'merge_queued':
+      return 2;
+    case 'branch_open':
+      return 1;
+    case 'none':
+      return 0;
+    case 'conflict':
+      return -1;
+    case 'merged':
+    case 'cancelled':
+      return -2;
+  }
+}
+
+function workRank(featureWorkControl: Feature['workControl']): number {
+  switch (featureWorkControl) {
+    case 'awaiting_merge':
+      return 5;
+    case 'verifying':
+      return 4;
+    case 'feature_ci':
+      return 3;
+    case 'executing_repair':
+      return 2;
+    case 'executing':
+      return 1;
+    case 'discussing':
+    case 'researching':
+    case 'planning':
+      return 0;
+    case 'replanning':
+    case 'summarizing':
+    case 'work_complete':
+      return -1;
+  }
+}
+
+function countDownstreamDependents(
+  graph: FeatureGraph,
+  featureId: FeatureId,
+): number {
+  const downstream = new Set<FeatureId>();
+  const pending: FeatureId[] = [featureId];
+
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (current === undefined) {
+      continue;
+    }
+
+    for (const feature of graph.features.values()) {
+      if (feature.dependsOn.includes(current) && !downstream.has(feature.id)) {
+        downstream.add(feature.id);
+        pending.push(feature.id);
+      }
+    }
+  }
+
+  return downstream.size;
 }

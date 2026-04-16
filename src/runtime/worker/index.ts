@@ -395,10 +395,21 @@ function formatConflictContext(
         `reserved_write_paths: ${context.reservedWritePaths.join(', ') || 'none'}`,
       );
     }
-  } else {
+  } else if (context.kind === 'cross_feature_feature_rebase') {
     lines.push(`blocked_by_feature_id: ${context.blockedByFeatureId}`);
     lines.push(`target_branch: ${context.targetBranch}`);
     lines.push(`pause_reason: ${context.pauseReason}`);
+  } else {
+    lines.push(`task_id: ${context.taskId}`);
+    lines.push(`task_branch: ${context.taskBranch}`);
+    lines.push(`rebase_target: ${context.rebaseTarget}`);
+    lines.push(`blocked_by_feature_id: ${context.blockedByFeatureId}`);
+    lines.push(`pause_reason: ${context.pauseReason}`);
+    if (context.reservedWritePaths !== undefined) {
+      lines.push(
+        `reserved_write_paths: ${context.reservedWritePaths.join(', ') || 'none'}`,
+      );
+    }
   }
 
   if (context.dependencyOutputs !== undefined) {

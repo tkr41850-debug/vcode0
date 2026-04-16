@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import type { FeatureGraph } from '@core/graph/index';
 import { worktreePath } from '@core/naming/index';
 import type {
+  CrossFeatureTaskRebaseGitConflictContext,
   Feature,
   FeatureId,
   SameFeatureTaskRebaseGitConflictContext,
@@ -23,6 +24,14 @@ export interface OverlapIncident {
   suspendReason: TaskSuspendReason;
 }
 
+export interface CrossFeatureReleaseResult {
+  featureId: FeatureId;
+  blockedByFeatureId: FeatureId;
+  kind: 'resumed' | 'repair_needed' | 'blocked';
+  conflictedFiles?: string[];
+  summary?: string;
+}
+
 type SameFeatureReconcileResolution =
   | { kind: 'resumed' }
   | { kind: 'blocked' }
@@ -31,12 +40,16 @@ type SameFeatureReconcileResolution =
       context: SameFeatureTaskRebaseGitConflictContext;
     };
 
-export class ConflictCoordinator {
-  private readonly crossFeatureDependencies = new Map<
-    FeatureId,
-    Set<FeatureId>
-  >();
+type CrossFeatureReconcileResolution =
+  | { kind: 'resumed' }
+  | { kind: 'blocked'; summary?: string }
+  | {
+      kind: 'repair_needed';
+      conflictedFiles: string[];
+      summary?: string;
+    };
 
+export class ConflictCoordinator {
   constructor(
     private readonly ports: OrchestratorPorts,
     private readonly graph?: FeatureGraph,
@@ -137,15 +150,20 @@ export class ConflictCoordinator {
     primary: Feature,
     secondary: Feature,
     tasks: Task[],
+    overlapFiles: string[] = [],
   ): Promise<void> {
-    this.graph?.addDependency({
-      from: secondary.id,
-      to: primary.id,
-    });
-    this.trackCrossFeatureDependency(primary.id, secondary.id);
+    if (this.graph !== undefined) {
+      this.graph.editFeature(secondary.id, {
+        runtimeBlockedByFeatureId: primary.id,
+      });
+    }
 
     for (const task of tasks) {
-      if (task.featureId !== secondary.id || task.status !== 'running') {
+      if (
+        task.featureId !== secondary.id ||
+        task.status !== 'running' ||
+        task.collabControl !== 'branch_open'
+      ) {
         continue;
       }
 
@@ -154,57 +172,147 @@ export class ConflictCoordinator {
         suspendReason: 'cross_feature_overlap',
         suspendedAt: Date.now(),
         blockedByFeatureId: primary.id,
+        ...(overlapFiles.length > 0 ? { suspendedFiles: overlapFiles } : {}),
       });
 
-      await this.ports.runtime.suspendTask(task.id, 'cross_feature_overlap');
+      await this.ports.runtime.suspendTask(
+        task.id,
+        'cross_feature_overlap',
+        overlapFiles,
+      );
     }
   }
 
-  async releaseCrossFeatureOverlap(primaryFeatureId: FeatureId): Promise<void> {
+  async releaseCrossFeatureOverlap(
+    primaryFeatureId: FeatureId,
+  ): Promise<CrossFeatureReleaseResult[]> {
     if (this.graph === undefined) {
-      this.crossFeatureDependencies.delete(primaryFeatureId);
-      return;
+      return [];
     }
 
-    const blockedFeatureIds = new Set<FeatureId>(
-      this.crossFeatureDependencies.get(primaryFeatureId) ?? [],
-    );
-
-    for (const task of this.graph.tasks.values()) {
-      if (
-        task.collabControl === 'suspended' &&
-        task.blockedByFeatureId === primaryFeatureId
-      ) {
-        blockedFeatureIds.add(task.featureId);
-      }
-    }
+    const blockedFeatureIds = this.findBlockedFeatureIds(primaryFeatureId);
+    const results: CrossFeatureReleaseResult[] = [];
 
     for (const blockedFeatureId of blockedFeatureIds) {
       const blockedFeature = this.graph.features.get(blockedFeatureId);
-      if (blockedFeature?.dependsOn.includes(primaryFeatureId) === true) {
-        this.graph.removeDependency({
-          from: blockedFeatureId,
-          to: primaryFeatureId,
-        });
+      if (blockedFeature === undefined) {
+        continue;
       }
 
-      for (const task of this.graph.tasks.values()) {
-        if (
-          task.featureId !== blockedFeatureId ||
-          task.collabControl !== 'suspended' ||
-          task.blockedByFeatureId !== primaryFeatureId
-        ) {
-          continue;
-        }
-
-        this.graph.transitionTask(task.id, {
-          collabControl: 'branch_open',
+      const resolution = await this.reconcileBlockedFeature(blockedFeature);
+      if (resolution.kind === 'blocked') {
+        results.push({
+          featureId: blockedFeatureId,
+          blockedByFeatureId: primaryFeatureId,
+          kind: 'blocked',
+          summary: resolution.summary,
         });
-        await this.ports.runtime.resumeTask(task.id, 'cross_feature_rebase');
+        continue;
       }
+
+      if (resolution.kind === 'repair_needed') {
+        results.push({
+          featureId: blockedFeatureId,
+          blockedByFeatureId: primaryFeatureId,
+          kind: 'repair_needed',
+          conflictedFiles: resolution.conflictedFiles,
+          summary: resolution.summary,
+        });
+        continue;
+      }
+
+      this.clearCrossFeatureBlock(blockedFeatureId);
+      const taskRelease = await this.resumeCrossFeatureTasks(blockedFeatureId);
+      if (taskRelease.kind === 'blocked') {
+        this.graph.editFeature(blockedFeatureId, {
+          runtimeBlockedByFeatureId: primaryFeatureId,
+        });
+        results.push({
+          featureId: blockedFeatureId,
+          blockedByFeatureId: primaryFeatureId,
+          kind: 'blocked',
+          summary: taskRelease.summary,
+        });
+        continue;
+      }
+
+      results.push({
+        featureId: blockedFeatureId,
+        blockedByFeatureId: primaryFeatureId,
+        kind: 'resumed',
+      });
     }
 
-    this.crossFeatureDependencies.delete(primaryFeatureId);
+    return results;
+  }
+
+  async resumeCrossFeatureTasks(
+    featureId: FeatureId,
+  ): Promise<{ kind: 'resumed' } | { kind: 'blocked'; summary: string }> {
+    if (this.graph === undefined) {
+      return { kind: 'resumed' };
+    }
+
+    const feature = this.graph.features.get(featureId);
+    if (feature === undefined) {
+      return {
+        kind: 'blocked',
+        summary: `Blocked feature missing from graph: ${featureId}`,
+      };
+    }
+    if (feature.runtimeBlockedByFeatureId !== undefined) {
+      return {
+        kind: 'blocked',
+        summary: `Feature ${featureId} still blocked by ${feature.runtimeBlockedByFeatureId}`,
+      };
+    }
+
+    for (const task of this.graph.tasks.values()) {
+      if (
+        task.featureId !== featureId ||
+        task.collabControl !== 'suspended' ||
+        task.suspendReason !== 'cross_feature_overlap'
+      ) {
+        continue;
+      }
+
+      const resolution = await this.reconcileCrossFeatureTask(feature, task);
+      if (resolution.kind === 'blocked') {
+        return {
+          kind: 'blocked',
+          summary:
+            resolution.summary ??
+            `Cross-feature task resume blocked for ${task.id}`,
+        };
+      }
+      if (resolution.kind === 'resumed') {
+        const resume = await this.ports.runtime.resumeTask(
+          task.id,
+          'cross_feature_rebase',
+        );
+        if (resume.kind === 'delivered') {
+          this.graph.transitionTask(task.id, {
+            collabControl: 'branch_open',
+          });
+        } else {
+          this.graph.transitionTask(task.id, {
+            status: 'ready',
+            collabControl: 'branch_open',
+          });
+        }
+        continue;
+      }
+
+      return {
+        kind: 'blocked',
+        summary: formatCrossFeatureTaskConflictSummary(
+          task.id,
+          resolution.context.conflictedFiles,
+        ),
+      };
+    }
+
+    return { kind: 'resumed' };
   }
 
   private async suspendSameFeatureTask(
@@ -279,6 +387,112 @@ export class ConflictCoordinator {
     };
   }
 
+  private async reconcileBlockedFeature(
+    feature: Feature,
+  ): Promise<CrossFeatureReconcileResolution> {
+    const featureDir = path.resolve(
+      process.cwd(),
+      worktreePath(feature.featureBranch),
+    );
+    const rebase = await this.rebaseGitDir(featureDir, 'main');
+    if (rebase.kind === 'clean') {
+      return { kind: 'resumed' };
+    }
+    if (rebase.kind === 'blocked') {
+      return {
+        kind: 'blocked',
+        summary: `Feature worktree missing for ${feature.id}`,
+      };
+    }
+
+    return {
+      kind: 'repair_needed',
+      conflictedFiles: rebase.conflictedFiles,
+      summary: rebase.summary,
+    };
+  }
+
+  private async reconcileCrossFeatureTask(
+    feature: Feature,
+    task: Task,
+  ): Promise<
+    | { kind: 'resumed' }
+    | { kind: 'blocked'; summary?: string }
+    | { kind: 'conflict'; context: CrossFeatureTaskRebaseGitConflictContext }
+  > {
+    const taskBranch = task.worktreeBranch ?? defaultTaskBranch(task);
+    const taskDir = path.resolve(process.cwd(), worktreePath(taskBranch));
+    const rebaseTarget = feature.featureBranch;
+    const rebase = await this.rebaseTaskWorktree(taskDir, rebaseTarget);
+    if (rebase.kind === 'clean') {
+      return { kind: 'resumed' };
+    }
+    if (rebase.kind === 'blocked') {
+      return {
+        kind: 'blocked',
+        summary: `Task worktree missing for ${task.id}`,
+      };
+    }
+
+    const files = task.suspendedFiles ?? [];
+    const blockedByFeatureId = task.blockedByFeatureId;
+    if (blockedByFeatureId === undefined) {
+      return {
+        kind: 'blocked',
+        summary: `Blocked-by feature missing for ${task.id}`,
+      };
+    }
+
+    return {
+      kind: 'conflict',
+      context: {
+        kind: 'cross_feature_task_rebase',
+        featureId: feature.id,
+        taskId: task.id,
+        taskBranch,
+        rebaseTarget,
+        blockedByFeatureId,
+        pauseReason: 'cross_feature_overlap',
+        files,
+        conflictedFiles:
+          rebase.conflictedFiles.length > 0 ? rebase.conflictedFiles : files,
+        ...(task.reservedWritePaths !== undefined
+          ? { reservedWritePaths: task.reservedWritePaths }
+          : {}),
+      },
+    };
+  }
+
+  clearCrossFeatureBlock(featureId: FeatureId): void {
+    this.graph?.editFeature(featureId, {
+      runtimeBlockedByFeatureId: undefined,
+    });
+  }
+
+  private findBlockedFeatureIds(primaryFeatureId: FeatureId): FeatureId[] {
+    if (this.graph === undefined) {
+      return [];
+    }
+
+    const blockedFeatureIds = new Set<FeatureId>();
+    for (const feature of this.graph.features.values()) {
+      if (feature.runtimeBlockedByFeatureId === primaryFeatureId) {
+        blockedFeatureIds.add(feature.id);
+      }
+    }
+
+    for (const task of this.graph.tasks.values()) {
+      if (
+        task.collabControl === 'suspended' &&
+        task.blockedByFeatureId === primaryFeatureId
+      ) {
+        blockedFeatureIds.add(task.featureId);
+      }
+    }
+
+    return [...blockedFeatureIds].sort((a, b) => a.localeCompare(b));
+  }
+
   private async rebaseTaskWorktree(
     taskDir: string,
     rebaseTarget: string,
@@ -287,16 +501,28 @@ export class ConflictCoordinator {
     | { kind: 'blocked' }
     | { kind: 'conflict'; conflictedFiles: string[] }
   > {
-    if (!(await fileExists(taskDir))) {
+    return this.rebaseGitDir(taskDir, rebaseTarget);
+  }
+
+  private async rebaseGitDir(
+    gitDir: string,
+    rebaseTarget: string,
+  ): Promise<
+    | { kind: 'clean' }
+    | { kind: 'blocked' }
+    | { kind: 'conflict'; conflictedFiles: string[]; summary?: string }
+  > {
+    if (!(await fileExists(gitDir))) {
       return { kind: 'blocked' };
     }
 
-    const git = simpleGit(taskDir);
+    const git = simpleGit(gitDir);
     const dirtyFiles = await readDirtyFiles(git);
     if (dirtyFiles.length > 0) {
       return {
         kind: 'conflict',
         conflictedFiles: dirtyFiles,
+        summary: 'Feature worktree has local changes before rebase',
       };
     }
 
@@ -305,34 +531,18 @@ export class ConflictCoordinator {
       return { kind: 'clean' };
     } catch {
       const conflictedFiles = await readConflictedFiles(git);
-      if (conflictedFiles.length > 0) {
-        return {
-          kind: 'conflict',
-          conflictedFiles,
-        };
-      }
-
+      await abortRebase(git);
+      const postAbortDirtyFiles = await readDirtyFiles(git);
       return {
         kind: 'conflict',
-        conflictedFiles: await readDirtyFiles(git),
+        conflictedFiles:
+          conflictedFiles.length > 0 ? conflictedFiles : postAbortDirtyFiles,
+        summary:
+          postAbortDirtyFiles.length > 0
+            ? 'Feature worktree still dirty after rebase abort'
+            : undefined,
       };
     }
-  }
-
-  private trackCrossFeatureDependency(
-    primaryFeatureId: FeatureId,
-    secondaryFeatureId: FeatureId,
-  ): void {
-    const blocked = this.crossFeatureDependencies.get(primaryFeatureId);
-    if (blocked !== undefined) {
-      blocked.add(secondaryFeatureId);
-      return;
-    }
-
-    this.crossFeatureDependencies.set(
-      primaryFeatureId,
-      new Set([secondaryFeatureId]),
-    );
   }
 }
 
@@ -372,6 +582,25 @@ function wasSuspendedByDominantTask(
 function normalizeRepoRelativePath(filePath: string): string {
   const normalized = path.posix.normalize(filePath.replaceAll('\\', '/'));
   return normalized.startsWith('./') ? normalized.slice(2) : normalized;
+}
+
+function formatCrossFeatureTaskConflictSummary(
+  taskId: TaskId,
+  conflictedFiles: string[],
+): string {
+  if (conflictedFiles.length === 0) {
+    return `Cross-feature task rebase conflicted for ${taskId}`;
+  }
+
+  return `Cross-feature task rebase conflicted for ${taskId}: ${conflictedFiles.join(', ')}`;
+}
+
+async function abortRebase(git: ReturnType<typeof simpleGit>): Promise<void> {
+  try {
+    await git.raw(['rebase', '--abort']);
+  } catch {
+    // No active rebase to abort or git already cleaned up.
+  }
 }
 
 async function readConflictedFiles(

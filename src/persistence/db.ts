@@ -1,4 +1,5 @@
 import { Migration001Init } from '@persistence/migrations/001_init';
+import { Migration002FeatureRuntimeBlock } from '@persistence/migrations/002_feature_runtime_block';
 import { MigrationRunner } from '@persistence/migrations/index';
 import Database from 'better-sqlite3';
 
@@ -13,7 +14,10 @@ export function openDatabase(path: string): Database.Database {
   db.pragma('foreign_keys = ON');
   db.pragma('synchronous = NORMAL');
 
-  new MigrationRunner(db, [Migration001Init]).run();
+  new MigrationRunner(db, [
+    Migration001Init,
+    Migration002FeatureRuntimeBlock,
+  ]).run();
 
   return db;
 }

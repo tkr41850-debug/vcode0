@@ -1,5 +1,6 @@
 import { openDatabase } from '@persistence/db';
 import { Migration001Init } from '@persistence/migrations/001_init';
+import { Migration002FeatureRuntimeBlock } from '@persistence/migrations/002_feature_runtime_block';
 import { MigrationRunner } from '@persistence/migrations/index';
 import type Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -45,10 +46,23 @@ describe('persistence migrations', () => {
       .map((row) => row.id);
 
     expect(applied).toContain(Migration001Init.id);
+    expect(applied).toContain(Migration002FeatureRuntimeBlock.id);
+  });
+
+  it('adds runtime_blocked_by_feature_id to features', () => {
+    const columns = db
+      .prepare<[], { name: string }>("PRAGMA table_info('features')")
+      .all()
+      .map((row) => row.name);
+
+    expect(columns).toContain('runtime_blocked_by_feature_id');
   });
 
   it('is idempotent when the runner is re-invoked', () => {
-    const runner = new MigrationRunner(db, [Migration001Init]);
+    const runner = new MigrationRunner(db, [
+      Migration001Init,
+      Migration002FeatureRuntimeBlock,
+    ]);
     runner.run();
     runner.run();
 
@@ -56,7 +70,7 @@ describe('persistence migrations', () => {
       .prepare<[string], { count: number }>(
         'SELECT COUNT(*) AS count FROM schema_migrations WHERE id = ?',
       )
-      .get(Migration001Init.id);
+      .get(Migration002FeatureRuntimeBlock.id);
     expect(rows?.count).toBe(1);
   });
 

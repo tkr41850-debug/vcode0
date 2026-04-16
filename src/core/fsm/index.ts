@@ -56,6 +56,7 @@ const REPAIRABLE_PHASES = new Set<FeatureWorkControl>([
   'executing',
   'feature_ci',
   'verifying',
+  'awaiting_merge',
 ]);
 
 const FAILURE_STATUSES = new Set<UnitStatus>(['failed']);

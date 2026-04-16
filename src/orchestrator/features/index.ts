@@ -39,6 +39,15 @@ export class FeatureLifecycleCoordinator {
       return;
     }
 
+    if (
+      feature.workControl === 'executing_repair' &&
+      feature.collabControl === 'conflict'
+    ) {
+      this.graph.transitionFeature(feature.id, {
+        collabControl: 'branch_open',
+      });
+    }
+
     this.markPhaseDone(feature.id);
     this.advancePhase(feature.id, 'feature_ci');
   }
@@ -51,7 +60,7 @@ export class FeatureLifecycleCoordinator {
     this.mergeTrain.completeIntegration(featureId, this.graph);
   }
 
-  failIntegration(featureId: FeatureId): void {
+  failIntegration(featureId: FeatureId, summary?: string): void {
     const feature = this.requireFeature(featureId);
     const reentryCount = (feature.mergeTrainReentryCount ?? 0) + 1;
 
@@ -62,6 +71,25 @@ export class FeatureLifecycleCoordinator {
       mergeTrainEntrySeq: undefined,
       mergeTrainReentryCount: reentryCount,
     });
+    this.enqueueRepairTask(
+      featureId,
+      'integration',
+      'integration issues',
+      summary,
+    );
+  }
+
+  createIntegrationRepair(featureId: FeatureId, summary?: string): void {
+    const feature = this.requireFeature(featureId);
+    if (feature.collabControl !== 'conflict') {
+      this.graph.transitionFeature(featureId, { collabControl: 'conflict' });
+    }
+    this.enqueueRepairTask(
+      featureId,
+      'integration',
+      'integration issues',
+      summary,
+    );
   }
 
   completePhase(
@@ -114,6 +142,11 @@ export class FeatureLifecycleCoordinator {
         }
         this.markPhaseDone(featureId);
         this.advancePhase(featureId, 'awaiting_merge');
+        if (this.requireFeature(featureId).collabControl === 'conflict') {
+          this.graph.transitionFeature(featureId, {
+            collabControl: 'branch_open',
+          });
+        }
         this.markAwaitingMerge(this.requireFeature(featureId));
         return;
       case 'replan':
@@ -171,26 +204,49 @@ export class FeatureLifecycleCoordinator {
     label: string,
     summary?: string,
   ): void {
+    this.enqueueRepairTask(
+      featureId,
+      label === 'feature CI' ? 'feature_ci' : 'verify',
+      `${label.toLowerCase()} issues`,
+      summary,
+    );
+  }
+
+  private enqueueRepairTask(
+    featureId: FeatureId,
+    repairSource: 'feature_ci' | 'verify' | 'integration',
+    noun: string,
+    summary?: string,
+  ): void {
+    const feature = this.requireFeature(featureId);
     const repairCount = this.countRepairTasks(featureId);
-    this.markPhaseFailed(featureId);
 
-    if (repairCount >= MAX_REPAIR_ATTEMPTS) {
-      this.advancePhase(featureId, 'executing_repair');
+    if (feature.workControl === 'executing_repair') {
+      if (repairCount >= MAX_REPAIR_ATTEMPTS) {
+        this.markPhaseFailed(featureId);
+        this.advancePhase(featureId, 'replanning');
+        return;
+      }
+    } else {
       this.markPhaseFailed(featureId);
-      this.advancePhase(featureId, 'replanning');
-      return;
-    }
+      if (repairCount >= MAX_REPAIR_ATTEMPTS) {
+        this.advancePhase(featureId, 'executing_repair');
+        this.markPhaseFailed(featureId);
+        this.advancePhase(featureId, 'replanning');
+        return;
+      }
 
-    this.advancePhase(featureId, 'executing_repair');
+      this.advancePhase(featureId, 'executing_repair');
+    }
 
     const detail = summary?.trim();
     const repairTask = this.graph.addTask({
       featureId,
       description:
         detail && detail.length > 0
-          ? `Repair ${label.toLowerCase()} issues: ${detail}`
-          : `Repair ${label.toLowerCase()} issues`,
-      repairSource: label === 'feature CI' ? 'feature_ci' : 'verify',
+          ? `Repair ${noun}: ${detail}`
+          : `Repair ${noun}`,
+      repairSource,
     });
     this.graph.transitionTask(repairTask.id, { status: 'ready' });
   }

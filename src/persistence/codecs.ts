@@ -109,6 +109,7 @@ export function featureToRow(
     merge_train_entered_at: nullish(f.mergeTrainEnteredAt),
     merge_train_entry_seq: nullish(f.mergeTrainEntrySeq),
     merge_train_reentry_count: f.mergeTrainReentryCount ?? 0,
+    runtime_blocked_by_feature_id: nullish(f.runtimeBlockedByFeatureId),
     summary: nullish(f.summary),
     token_usage: serializeJson(f.tokenUsage),
   };
@@ -131,6 +132,7 @@ export function rowToFeature(row: FeatureRow, dependsOn: FeatureId[]): Feature {
     ...optional('mergeTrainEnteredAt', row.merge_train_entered_at),
     ...optional('mergeTrainEntrySeq', row.merge_train_entry_seq),
     mergeTrainReentryCount: row.merge_train_reentry_count,
+    ...optional('runtimeBlockedByFeatureId', row.runtime_blocked_by_feature_id),
     ...optional('summary', row.summary),
     ...optional(
       'tokenUsage',
