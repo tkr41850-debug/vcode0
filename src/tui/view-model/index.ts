@@ -16,6 +16,7 @@ import type {
   Milestone,
   MilestoneId,
   Task,
+  TaskAgentRun,
   TaskId,
 } from '@core/types/index';
 import {
@@ -65,7 +66,7 @@ export interface StatusBarViewModel extends WorkerCountsViewModel {
 }
 
 export interface ComposerViewModel {
-  mode: 'command' | 'draft' | 'approval';
+  mode: 'command' | 'draft' | 'approval' | 'task';
   focusMode: 'composer' | 'graph';
   text: string;
   detail: string;
@@ -316,6 +317,10 @@ export class TuiViewModelBuilder {
     draftCommandCount?: number;
     pendingProposalPhase?: FeaturePhaseAgentRun['phase'];
     pendingFeatureId?: FeatureId;
+    pendingTaskId?: TaskId;
+    pendingTaskRunStatus?: TaskAgentRun['runStatus'];
+    pendingTaskOwner?: TaskAgentRun['owner'];
+    pendingTaskPayloadJson?: string;
   }): ComposerViewModel {
     if (
       input.pendingProposalPhase !== undefined &&
@@ -326,6 +331,29 @@ export class TuiViewModelBuilder {
         focusMode: input.focusMode,
         text: input.text,
         detail: `approval ${input.pendingProposalPhase} ${input.pendingFeatureId} /approve /reject /rerun`,
+      };
+    }
+
+    if (
+      input.pendingTaskId !== undefined &&
+      input.pendingTaskRunStatus !== undefined &&
+      input.pendingTaskOwner !== undefined
+    ) {
+      const commands =
+        input.pendingTaskRunStatus === 'await_approval'
+          ? '/approve /reject'
+          : input.pendingTaskRunStatus === 'await_response'
+            ? '/reply'
+            : '/input';
+      const prompt = summarizeTaskWaitPayload(
+        input.pendingTaskRunStatus,
+        input.pendingTaskPayloadJson,
+      );
+      return {
+        mode: 'task',
+        focusMode: input.focusMode,
+        text: input.text,
+        detail: `task ${input.pendingTaskRunStatus} ${input.pendingTaskOwner} ${input.pendingTaskId}${prompt.length > 0 ? ` ${prompt}` : ''} ${commands}`,
       };
     }
 
@@ -416,6 +444,50 @@ function compareTasks(left: Task, right: Task): number {
     return left.orderInFeature - right.orderInFeature;
   }
   return left.id.localeCompare(right.id);
+}
+
+function summarizeTaskWaitPayload(
+  runStatus: TaskAgentRun['runStatus'],
+  payloadJson: string | undefined,
+): string {
+  if (payloadJson === undefined) {
+    return '';
+  }
+
+  try {
+    const parsed = JSON.parse(payloadJson) as {
+      query?: string;
+      label?: string;
+      detail?: string;
+      summary?: string;
+      description?: string;
+    };
+    if (runStatus === 'await_response' && typeof parsed.query === 'string') {
+      return truncateDetail(`q=${parsed.query}`);
+    }
+    if (runStatus === 'await_approval') {
+      if (typeof parsed.label === 'string') {
+        return truncateDetail(`ask=${parsed.label}`);
+      }
+      if (typeof parsed.summary === 'string') {
+        return truncateDetail(`ask=${parsed.summary}`);
+      }
+      if (typeof parsed.description === 'string') {
+        return truncateDetail(`ask=${parsed.description}`);
+      }
+      if (typeof parsed.detail === 'string') {
+        return truncateDetail(`ask=${parsed.detail}`);
+      }
+    }
+  } catch {
+    return '';
+  }
+
+  return '';
+}
+
+function truncateDetail(value: string): string {
+  return value.length <= 48 ? value : `${value.slice(0, 45)}...`;
 }
 
 function formatFeatureLabel(feature: Feature): string {

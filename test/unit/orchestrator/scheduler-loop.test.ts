@@ -184,6 +184,12 @@ function createRuntimeMock(order: string[]): RuntimePort & {
       Promise.resolve({ kind: 'not_running', taskId }),
     resumeTask: (taskId: string) =>
       Promise.resolve({ kind: 'not_running', taskId }),
+    respondToHelp: (taskId: string) =>
+      Promise.resolve({ kind: 'not_running', taskId }),
+    decideApproval: (taskId: string) =>
+      Promise.resolve({ kind: 'not_running', taskId }),
+    sendManualInput: (taskId: string) =>
+      Promise.resolve({ kind: 'not_running', taskId }),
     abortTask: (taskId: string) =>
       Promise.resolve({ kind: 'not_running', taskId }),
     idleWorkerCount: () => 4,

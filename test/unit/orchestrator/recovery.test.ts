@@ -59,10 +59,28 @@ function createStoreMock(runs: TaskAgentRun[]): Store {
 }
 
 function createRuntimeMock(): RuntimePort & {
+  dispatchTask: ReturnType<typeof vi.fn>;
   resumeTask: ReturnType<typeof vi.fn>;
 } {
   return {
-    dispatchTask: vi.fn(),
+    dispatchTask: vi.fn(
+      (_task, dispatch: { mode: 'start' | 'resume'; agentRunId: string; sessionId?: string }) =>
+        Promise.resolve(
+          dispatch.mode === 'resume'
+            ? {
+                kind: 'resumed' as const,
+                taskId: 't-1',
+                agentRunId: dispatch.agentRunId,
+                sessionId: dispatch.sessionId ?? 'sess-resumed',
+              }
+            : {
+                kind: 'started' as const,
+                taskId: 't-1',
+                agentRunId: dispatch.agentRunId,
+                sessionId: 'sess-started',
+              },
+        ),
+    ),
     steerTask: vi.fn(),
     suspendTask: vi.fn(),
     resumeTask: vi.fn((taskId: string) =>
@@ -71,6 +89,15 @@ function createRuntimeMock(): RuntimePort & {
         taskId,
         agentRunId: `run-${taskId}`,
       }),
+    ),
+    respondToHelp: vi.fn((taskId: string) =>
+      Promise.resolve({ kind: 'not_running' as const, taskId }),
+    ),
+    decideApproval: vi.fn((taskId: string) =>
+      Promise.resolve({ kind: 'not_running' as const, taskId }),
+    ),
+    sendManualInput: vi.fn((taskId: string) =>
+      Promise.resolve({ kind: 'not_running' as const, taskId }),
     ),
     abortTask: vi.fn(),
     idleWorkerCount: vi.fn(() => 0),
@@ -81,7 +108,10 @@ function createRuntimeMock(): RuntimePort & {
 function createPorts(runs: TaskAgentRun[]): {
   ports: OrchestratorPorts;
   store: Store & { updateAgentRun: ReturnType<typeof vi.fn> };
-  runtime: RuntimePort & { resumeTask: ReturnType<typeof vi.fn> };
+  runtime: RuntimePort & {
+    dispatchTask: ReturnType<typeof vi.fn>;
+    resumeTask: ReturnType<typeof vi.fn>;
+  };
   graph: InMemoryFeatureGraph;
 } {
   const graph = new InMemoryFeatureGraph();
@@ -138,8 +168,17 @@ describe('RecoveryService', () => {
 
     await service.recoverOrphanedRuns();
 
-    expect(runtime.resumeTask).toHaveBeenCalledWith('t-1', 'manual');
+    expect(runtime.dispatchTask).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 't-1' }),
+      {
+        mode: 'resume',
+        agentRunId: run.id,
+        sessionId: 'sess-1',
+      },
+    );
+    expect(runtime.resumeTask).not.toHaveBeenCalled();
     expect(store.updateAgentRun).toHaveBeenCalledWith(run.id, {
+      sessionId: 'sess-1',
       restartCount: 1,
     });
   });
@@ -163,7 +202,7 @@ describe('RecoveryService', () => {
     });
   });
 
-  it('preserves retry and manual wait states across restart', async () => {
+  it('resumes manual wait states with persisted sessions and preserves retry waits', async () => {
     const runs = [
       makeTaskRun({
         id: 'run-retry',
@@ -176,12 +215,14 @@ describe('RecoveryService', () => {
         scopeId: 't-1',
         runStatus: 'await_response',
         owner: 'manual',
+        sessionId: 'sess-help',
       }),
       makeTaskRun({
         id: 'run-approval',
         scopeId: 't-1',
         runStatus: 'await_approval',
         owner: 'manual',
+        sessionId: 'sess-approval',
       }),
     ];
     const { ports, runtime, store, graph } = createPorts(runs);
@@ -189,8 +230,34 @@ describe('RecoveryService', () => {
 
     await service.recoverOrphanedRuns();
 
+    expect(runtime.dispatchTask).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ id: 't-1' }),
+      {
+        mode: 'resume',
+        agentRunId: 'run-help',
+        sessionId: 'sess-help',
+      },
+    );
+    expect(runtime.dispatchTask).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ id: 't-1' }),
+      {
+        mode: 'resume',
+        agentRunId: 'run-approval',
+        sessionId: 'sess-approval',
+      },
+    );
     expect(runtime.resumeTask).not.toHaveBeenCalled();
-    expect(store.updateAgentRun).not.toHaveBeenCalled();
+    expect(store.updateAgentRun).toHaveBeenCalledWith('run-help', {
+      sessionId: 'sess-help',
+      restartCount: 1,
+    });
+    expect(store.updateAgentRun).toHaveBeenCalledWith('run-approval', {
+      sessionId: 'sess-approval',
+      restartCount: 1,
+    });
+    expect(store.updateAgentRun).not.toHaveBeenCalledWith('run-retry', expect.anything());
   });
 
   it('does not resume suspended task runs across restart', async () => {

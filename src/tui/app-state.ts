@@ -5,6 +5,7 @@ import type {
   FeatureId,
   FeaturePhaseAgentRun,
   MilestoneId,
+  TaskAgentRun,
 } from '@core/types/index';
 import type { ComposerSelection } from '@tui/commands/index';
 import {
@@ -128,6 +129,29 @@ export function pendingProposalForSelection(params: {
 
   const run = params.getFeatureRun(params.selectedFeatureId, phase);
   return run?.runStatus === 'await_approval' ? run : undefined;
+}
+
+export function pendingTaskRunForSelection(params: {
+  draftState:
+    | { featureId: FeatureId; phase: 'plan' | 'replan'; commandCount: number }
+    | undefined;
+  selectedTaskId: string | undefined;
+  getTaskRun: (taskId: string) => TaskAgentRun | undefined;
+}): TaskAgentRun | undefined {
+  if (params.draftState !== undefined || params.selectedTaskId === undefined) {
+    return undefined;
+  }
+
+  const run = params.getTaskRun(params.selectedTaskId);
+  if (run === undefined) {
+    return undefined;
+  }
+
+  return run.runStatus === 'await_response' ||
+    run.runStatus === 'await_approval' ||
+    (run.runStatus === 'running' && run.owner === 'manual')
+    ? run
+    : undefined;
 }
 
 export function phaseForFeature(

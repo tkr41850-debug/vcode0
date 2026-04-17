@@ -47,6 +47,7 @@ import {
   displayedSnapshot,
   findSelectedNode,
   pendingProposalForSelection,
+  pendingTaskRunForSelection,
   resolveSelectedNodeId,
   selectedFeatureIdFromNode,
   selectedMilestoneIdFromNode,
@@ -191,6 +192,11 @@ export class TuiApp implements UiPort {
       getFeatureRun: (featureId, phase) =>
         this.dataSource.getFeatureRun(featureId, phase),
     });
+    const pendingTaskRun = pendingTaskRunForSelection({
+      draftState,
+      selectedTaskId: selectedNode?.taskId,
+      getTaskRun: (taskId) => this.dataSource.getTaskRun(taskId),
+    });
 
     this.dagView.setModel(
       nodes,
@@ -230,6 +236,14 @@ export class TuiApp implements UiPort {
           ? {
               pendingProposalPhase: pendingRun.phase,
               pendingFeatureId: pendingRun.scopeId,
+            }
+          : {}),
+        ...(pendingTaskRun !== undefined
+          ? {
+              pendingTaskId: pendingTaskRun.scopeId,
+              pendingTaskRunStatus: pendingTaskRun.runStatus,
+              pendingTaskOwner: pendingTaskRun.owner,
+              pendingTaskPayloadJson: pendingTaskRun.payloadJson,
             }
           : {}),
       }),

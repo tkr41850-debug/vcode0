@@ -127,6 +127,21 @@ export interface RuntimePort {
     taskId: string,
     reason: TaskResumeReason,
   ): Promise<TaskControlResult>;
+  respondToHelp(
+    this: void,
+    taskId: string,
+    response: HelpResponse,
+  ): Promise<TaskControlResult>;
+  decideApproval(
+    this: void,
+    taskId: string,
+    decision: ApprovalDecision,
+  ): Promise<TaskControlResult>;
+  sendManualInput(
+    this: void,
+    taskId: string,
+    text: string,
+  ): Promise<TaskControlResult>;
   abortTask(this: void, taskId: string): Promise<TaskControlResult>;
   idleWorkerCount(this: void): number;
   stopAll(this: void): Promise<void>;

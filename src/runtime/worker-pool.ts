@@ -158,6 +158,73 @@ export class LocalWorkerPool implements RuntimePort {
     });
   }
 
+  respondToHelp(taskId: string, response: { kind: 'answer'; text: string } | { kind: 'discuss' }): Promise<TaskControlResult> {
+    const session = this.liveRuns.get(taskId);
+    if (session === undefined) {
+      return Promise.resolve({ kind: 'not_running', taskId });
+    }
+
+    session.handle.send({
+      type: 'help_response',
+      taskId,
+      agentRunId: session.ref.agentRunId,
+      response,
+    });
+
+    return Promise.resolve({
+      kind: 'delivered',
+      taskId,
+      agentRunId: session.ref.agentRunId,
+    });
+  }
+
+  decideApproval(
+    taskId: string,
+    decision:
+      | { kind: 'approved' }
+      | { kind: 'approve_always' }
+      | { kind: 'reject'; comment?: string }
+      | { kind: 'discuss' },
+  ): Promise<TaskControlResult> {
+    const session = this.liveRuns.get(taskId);
+    if (session === undefined) {
+      return Promise.resolve({ kind: 'not_running', taskId });
+    }
+
+    session.handle.send({
+      type: 'approval_decision',
+      taskId,
+      agentRunId: session.ref.agentRunId,
+      decision,
+    });
+
+    return Promise.resolve({
+      kind: 'delivered',
+      taskId,
+      agentRunId: session.ref.agentRunId,
+    });
+  }
+
+  sendManualInput(taskId: string, text: string): Promise<TaskControlResult> {
+    const session = this.liveRuns.get(taskId);
+    if (session === undefined) {
+      return Promise.resolve({ kind: 'not_running', taskId });
+    }
+
+    session.handle.send({
+      type: 'manual_input',
+      taskId,
+      agentRunId: session.ref.agentRunId,
+      text,
+    });
+
+    return Promise.resolve({
+      kind: 'delivered',
+      taskId,
+      agentRunId: session.ref.agentRunId,
+    });
+  }
+
   abortTask(taskId: string): Promise<TaskControlResult> {
     const session = this.liveRuns.get(taskId);
     if (session === undefined) {

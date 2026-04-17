@@ -81,7 +81,65 @@ export async function executeSlashCommand(params: {
       params.setSelectedNodeId(created.featureId);
       return `Initialized ${created.milestoneId} and ${created.featureId}.`;
     }
+    case 'reply': {
+      const taskId = params.currentSelection.taskId;
+      if (taskId === undefined) {
+        throw new Error('select task waiting for help first');
+      }
+      const text = parsed.args.text;
+      if (typeof text !== 'string' || text.length === 0) {
+        throw new Error('--text is required');
+      }
+      return params.dataSource.respondToTaskHelp(taskId, {
+        kind: 'answer',
+        text,
+      });
+    }
+    case 'input': {
+      const taskId = params.currentSelection.taskId;
+      if (taskId === undefined) {
+        throw new Error('select task first');
+      }
+      const text = parsed.args.text;
+      if (typeof text !== 'string' || text.length === 0) {
+        throw new Error('--text is required');
+      }
+      return params.dataSource.sendTaskManualInput(taskId, text);
+    }
     default: {
+      const run = params.currentSelection.taskId
+        ? params.dataSource.getTaskRun(params.currentSelection.taskId)
+        : undefined;
+      if (parsed.name === 'approve' && params.currentSelection.taskId !== undefined) {
+        if (run?.runStatus === 'await_approval') {
+          return params.dataSource.decideTaskApproval(
+            params.currentSelection.taskId,
+            { kind: 'approved' },
+          );
+        }
+        if (run !== undefined) {
+          throw new Error(
+            `task "${params.currentSelection.taskId}" is not waiting for approval`,
+          );
+        }
+      }
+      if (parsed.name === 'reject' && params.currentSelection.taskId !== undefined) {
+        if (run?.runStatus === 'await_approval') {
+          const comment = parsed.args.comment;
+          return params.dataSource.decideTaskApproval(
+            params.currentSelection.taskId,
+            typeof comment === 'string'
+              ? { kind: 'reject', comment }
+              : { kind: 'reject' },
+          );
+        }
+        if (run !== undefined) {
+          throw new Error(
+            `task "${params.currentSelection.taskId}" is not waiting for approval`,
+          );
+        }
+      }
+
       const result = await params.proposalController.execute(
         params.input,
         params.currentSelection,

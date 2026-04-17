@@ -411,6 +411,32 @@ export function buildComposerSlashCommands({
       },
     },
     staticSlashCommand('rerun', 'Request planner rerun for pending proposal.'),
+    {
+      name: 'reply',
+      description: 'Answer selected task help request.',
+      getArgumentCompletions: (prefix) => {
+        return filterSuggestions(prefix, [
+          {
+            value: '--text ""',
+            label: 'text',
+            description: 'Reply text',
+          },
+        ]);
+      },
+    },
+    {
+      name: 'input',
+      description: 'Send manual input to selected task run.',
+      getArgumentCompletions: (prefix) => {
+        return filterSuggestions(prefix, [
+          {
+            value: '--text ""',
+            label: 'text',
+            description: 'Manual input text',
+          },
+        ]);
+      },
+    },
   ];
 }
 

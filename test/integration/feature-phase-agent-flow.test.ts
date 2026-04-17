@@ -1,5 +1,10 @@
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
+
 import { PiFeatureAgentRuntime, promptLibrary } from '@agents';
 import { InMemoryFeatureGraph } from '@core/graph/index';
+import { worktreePath } from '@core/naming/index';
 import type { GraphProposal } from '@core/proposals/index';
 import type {
   EventRecord,
@@ -14,6 +19,7 @@ import type {
   VerificationPort,
 } from '@orchestrator/ports/index';
 import { SchedulerLoop } from '@orchestrator/scheduler/index';
+import { VerificationService } from '@orchestrator/services/index';
 import type { RuntimePort } from '@runtime/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -64,6 +70,12 @@ function createRuntimeStub(): RuntimePort {
       Promise.resolve({ kind: 'not_running', taskId }),
     resumeTask: (taskId: string) =>
       Promise.resolve({ kind: 'not_running', taskId }),
+    respondToHelp: (taskId: string) =>
+      Promise.resolve({ kind: 'not_running', taskId }),
+    decideApproval: (taskId: string) =>
+      Promise.resolve({ kind: 'not_running', taskId }),
+    sendManualInput: (taskId: string) =>
+      Promise.resolve({ kind: 'not_running', taskId }),
     abortTask: (taskId: string) =>
       Promise.resolve({ kind: 'not_running', taskId }),
     idleWorkerCount: () => 1,
@@ -90,6 +102,22 @@ function createTaskFixture(overrides: Partial<Task> = {}): Task {
     collabControl: 'none',
     ...overrides,
   };
+}
+
+async function createFeatureWorktree(
+  projectRoot: string,
+  feature: Feature,
+): Promise<string> {
+  const dir = path.join(projectRoot, worktreePath(feature.featureBranch));
+  await fs.mkdir(dir, { recursive: true });
+  return dir;
+}
+
+function createFeatureVerificationPort(
+  projectRoot: string,
+  config: GvcConfig,
+): VerificationPort {
+  return new VerificationService({ config }, projectRoot);
 }
 
 function createSingleFeatureGraph(
@@ -209,10 +237,12 @@ function createFixture({
   featureOverrides = {},
   tasks = [],
   configOverrides = {},
+  verification,
 }: {
   featureOverrides?: Partial<Feature>;
   tasks?: Task[];
   configOverrides?: Partial<GvcConfig>;
+  verification?: VerificationPort;
 } = {}) {
   const graph = createSingleFeatureGraph(featureOverrides, tasks);
   const store = new InMemoryStore();
@@ -226,14 +256,15 @@ function createFixture({
     store,
     sessionStore,
   });
-  const verification: VerificationPort = {
-    verifyFeature: () => Promise.resolve({ ok: true, summary: 'ok' }),
-  };
+  const resolvedVerification: VerificationPort =
+    verification ?? {
+      verifyFeature: () => Promise.resolve({ ok: true, summary: 'ok' }),
+    };
   const ports: OrchestratorPorts = {
     store,
     runtime: createRuntimeStub(),
     agents,
-    verification,
+    verification: resolvedVerification,
     ui: createUiStub(),
     config,
   };
@@ -242,6 +273,7 @@ function createFixture({
     graph,
     store,
     sessionStore,
+    config,
     loop: new ExposedSchedulerLoop(graph, ports),
   };
 }
@@ -631,6 +663,143 @@ describe('feature-phase agent flow', () => {
         failedChecks: ['integrated flow not proven'],
       },
     });
+  });
+
+  it('runs real feature_ci verification service and advances to verifying', async () => {
+    const projectRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), 'gvc0-feature-ci-pass-'),
+    );
+
+    try {
+      const configOverrides: Partial<GvcConfig> = {
+        verification: {
+          feature: {
+            checks: [
+              {
+                description: 'feature marker exists',
+                command: 'test -f pass.marker',
+              },
+            ],
+            timeoutSecs: 1,
+            continueOnFail: false,
+          },
+        },
+      };
+      const config = createConfig(configOverrides);
+      const verification = createFeatureVerificationPort(projectRoot, config);
+      const { graph, store, loop } = createFixture({
+        featureOverrides: {
+          status: 'in_progress',
+          workControl: 'feature_ci',
+          collabControl: 'branch_open',
+          featureBranch: 'feat-feature-1-1',
+        },
+        configOverrides,
+        verification,
+      });
+      const feature = graph.features.get('f-1');
+      if (feature === undefined) {
+        throw new Error('missing feature fixture');
+      }
+      const worktree = await createFeatureWorktree(projectRoot, feature);
+      await fs.writeFile(path.join(worktree, 'pass.marker'), 'ok', 'utf-8');
+
+      await loop.dispatchReadyWorkForTest(100);
+
+      expect(graph.features.get('f-1')).toEqual(
+        expect.objectContaining({
+          workControl: 'verifying',
+          status: 'pending',
+          collabControl: 'branch_open',
+        }),
+      );
+      expect(store.getAgentRun('run-feature:f-1:feature_ci')).toEqual(
+        expect.objectContaining({ runStatus: 'completed', owner: 'system' }),
+      );
+      const featureCiEvent = findEvent(
+        store.listEvents({ entityId: 'f-1' }),
+        'feature_phase_completed',
+      );
+      expect(featureCiEvent?.payload).toMatchObject({
+        phase: 'feature_ci',
+        summary: 'Feature verification passed (1/1 checks).',
+        extra: {
+          ok: true,
+          summary: 'Feature verification passed (1/1 checks).',
+        },
+      });
+    } finally {
+      await fs.rm(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('runs real feature_ci verification service and enters repair flow on failure', async () => {
+    const projectRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), 'gvc0-feature-ci-fail-'),
+    );
+
+    try {
+      const configOverrides: Partial<GvcConfig> = {
+        verification: {
+          feature: {
+            checks: [
+              {
+                description: 'feature marker exists',
+                command: 'test -f missing.marker',
+              },
+            ],
+            timeoutSecs: 1,
+            continueOnFail: false,
+          },
+        },
+      };
+      const config = createConfig(configOverrides);
+      const verification = createFeatureVerificationPort(projectRoot, config);
+      const { graph, store, loop } = createFixture({
+        featureOverrides: {
+          status: 'in_progress',
+          workControl: 'feature_ci',
+          collabControl: 'branch_open',
+          featureBranch: 'feat-feature-1-1',
+        },
+        configOverrides,
+        verification,
+      });
+      const feature = graph.features.get('f-1');
+      if (feature === undefined) {
+        throw new Error('missing feature fixture');
+      }
+      await createFeatureWorktree(projectRoot, feature);
+
+      await loop.dispatchReadyWorkForTest(100);
+
+      expect(graph.features.get('f-1')).toEqual(
+        expect.objectContaining({
+          workControl: 'executing_repair',
+          status: 'pending',
+          collabControl: 'branch_open',
+        }),
+      );
+      const repairTask = [...graph.tasks.values()].find(
+        (task) => task.repairSource === 'feature_ci',
+      );
+      expect(repairTask?.status).toBe('ready');
+      expect(repairTask?.description).toContain('Repair feature ci issues:');
+      expect(repairTask?.description).toContain('Check: feature marker exists');
+      const featureCiEvent = findEvent(
+        store.listEvents({ entityId: 'f-1' }),
+        'feature_phase_completed',
+      );
+      expect(featureCiEvent?.payload).toMatchObject({
+        phase: 'feature_ci',
+        extra: {
+          ok: false,
+          failedChecks: ['feature marker exists'],
+        },
+      });
+    } finally {
+      await fs.rm(projectRoot, { recursive: true, force: true });
+    }
   });
 
   it('dispatches replanning proposal end-to-end and waits for approval', async () => {

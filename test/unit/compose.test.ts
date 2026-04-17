@@ -3,8 +3,95 @@ import * as path from 'node:path';
 
 import { openDatabase } from '@persistence/db';
 import { PersistentFeatureGraph } from '@persistence/feature-graph';
-import { composeApplication, initializeProjectGraph } from '@root/compose';
+import type { ApprovalPayload } from '@runtime/contracts';
+import {
+  composeApplication,
+  formatWorkerOutput,
+  initializeProjectGraph,
+  summarizeApprovalPayload,
+} from '@root/compose';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
+describe('compose helpers', () => {
+  it('formats wait and terminal worker output for monitor visibility', () => {
+    expect(
+      formatWorkerOutput({
+        type: 'request_help',
+        taskId: 't-1',
+        agentRunId: 'run-task:t-1',
+        query: 'Need operator guidance',
+      }),
+    ).toBe('help requested: Need operator guidance');
+
+    expect(
+      formatWorkerOutput({
+        type: 'request_approval',
+        taskId: 't-1',
+        agentRunId: 'run-task:t-1',
+        payload: {
+          kind: 'custom',
+          label: 'Approve destructive step',
+          detail: 'Delete generated cache files',
+        },
+      }),
+    ).toBe('approval requested: Approve destructive step');
+
+    expect(
+      formatWorkerOutput({
+        type: 'error',
+        taskId: 't-1',
+        agentRunId: 'run-task:t-1',
+        error: 'boom',
+      }),
+    ).toBe('error: boom');
+
+    expect(
+      formatWorkerOutput({
+        type: 'result',
+        taskId: 't-1',
+        agentRunId: 'run-task:t-1',
+        usage: {
+          provider: 'anthropic',
+          model: 'claude-sonnet-4-6',
+          inputTokens: 1,
+          outputTokens: 1,
+          totalTokens: 2,
+          usd: 0.01,
+        },
+        result: {
+          summary: 'done',
+          filesChanged: [],
+        },
+      }),
+    ).toBe('completed: done');
+  });
+
+  it('summarizes approval payload labels by kind', () => {
+    const payloads: ApprovalPayload[] = [
+      {
+        kind: 'custom',
+        label: 'Approve destructive step',
+        detail: 'Delete generated cache files',
+      },
+      {
+        kind: 'destructive_action',
+        description: 'Delete generated cache files',
+        affectedPaths: ['dist/cache'],
+      },
+      {
+        kind: 'replan_proposal',
+        summary: 'Switch to fallback task order',
+        proposedMutations: ['move t-2 after t-3'],
+      },
+    ];
+
+    expect(payloads.map((payload) => summarizeApprovalPayload(payload))).toEqual([
+      'Approve destructive step',
+      'Delete generated cache files',
+      'Switch to fallback task order',
+    ]);
+  });
+});
 
 describe('composeApplication', () => {
   let originalCwd = '';
@@ -76,8 +163,36 @@ describe('composeApplication', () => {
           milestoneId: 'm-1',
           workControl: 'planning',
           status: 'pending',
+          collabControl: 'branch_open',
         }),
       );
+    } finally {
+      db.close();
+      await app.stop();
+    }
+  });
+
+  it('rejects repeated project initialization', async () => {
+    const app = await composeApplication();
+    const db = openDatabase(path.join(tmpDir, '.gvc0', 'state.db'));
+    const graph = new PersistentFeatureGraph(db);
+
+    try {
+      initializeProjectGraph(graph, {
+        milestoneName: 'Milestone 1',
+        milestoneDescription: 'Initial milestone',
+        featureName: 'Project startup',
+        featureDescription: 'Plan initial project work',
+      });
+
+      expect(() =>
+        initializeProjectGraph(graph, {
+          milestoneName: 'Milestone 2',
+          milestoneDescription: 'Another milestone',
+          featureName: 'Another feature',
+          featureDescription: 'Should not be created',
+        }),
+      ).toThrow('project already initialized');
     } finally {
       db.close();
       await app.stop();

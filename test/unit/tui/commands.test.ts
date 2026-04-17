@@ -1,17 +1,57 @@
 import { CombinedAutocompleteProvider } from '@mariozechner/pi-tui';
+import type { TaskAgentRun } from '@core/types/index';
+import { executeSlashCommand } from '@tui/app-composer';
 import {
   buildComposerSlashCommands,
   INITIALIZE_PROJECT_EXAMPLE_COMMAND,
   parseInitializeProjectCommand,
   parseSlashCommand,
 } from '@tui/commands/index';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   createFeatureFixture,
   createMilestoneFixture,
   createTaskFixture,
 } from '../../helpers/graph-builders.js';
+
+function makeTaskRun(overrides: Partial<TaskAgentRun> = {}): TaskAgentRun {
+  return {
+    id: 'run-task:t-1',
+    scopeType: 'task',
+    scopeId: 't-1',
+    phase: 'execute',
+    runStatus: 'await_response',
+    owner: 'manual',
+    attention: 'none',
+    restartCount: 0,
+    maxRetries: 3,
+    ...overrides,
+  };
+}
+
+function createDataSource(taskRun?: TaskAgentRun) {
+  return {
+    snapshot: () => ({ milestones: [], features: [], tasks: [] }),
+    listAgentRuns: () => [],
+    getWorkerCounts: () => ({ runningWorkers: 0, idleWorkers: 0, totalWorkers: 0 }),
+    isAutoExecutionEnabled: () => true,
+    setAutoExecutionEnabled: () => true,
+    toggleAutoExecution: () => true,
+    initializeProject: vi.fn(),
+    toggleMilestoneQueue: vi.fn(),
+    cancelFeature: vi.fn(),
+    saveFeatureRun: vi.fn(),
+    getFeatureRun: vi.fn(),
+    getTaskRun: vi.fn(() => taskRun),
+    enqueueApprovalDecision: vi.fn(),
+    rerunFeatureProposal: vi.fn(),
+    respondToTaskHelp: vi.fn(async () => 'help sent'),
+    decideTaskApproval: vi.fn(async () => 'decision sent'),
+    sendTaskManualInput: vi.fn(async () => 'input sent'),
+    quit: vi.fn(async () => {}),
+  };
+}
 
 describe('parseSlashCommand', () => {
   it('parses quoted flag values', () => {
@@ -119,6 +159,61 @@ describe('buildComposerSlashCommands', () => {
       expect.objectContaining({
         value: '--milestone m-1 --name "" --description ""',
       }),
+    );
+  });
+
+  it('routes task help and approval commands through task runtime controls', async () => {
+    const dataSource = createDataSource();
+    const proposalController = { execute: vi.fn() };
+
+    await expect(
+      executeSlashCommand({
+        input: '/reply --text "Use option B"',
+        commandContext: {} as never,
+        notice: undefined,
+        dataSource,
+        proposalController: proposalController as never,
+        currentSelection: { taskId: 't-1' },
+        setSelectedNodeId: vi.fn(),
+      }),
+    ).resolves.toBe('help sent');
+    expect(dataSource.respondToTaskHelp).toHaveBeenCalledWith('t-1', {
+      kind: 'answer',
+      text: 'Use option B',
+    });
+
+    const approvalSource = createDataSource(
+      makeTaskRun({ runStatus: 'await_approval' }),
+    );
+    await expect(
+      executeSlashCommand({
+        input: '/approve',
+        commandContext: {} as never,
+        notice: undefined,
+        dataSource: approvalSource,
+        proposalController: proposalController as never,
+        currentSelection: { taskId: 't-1' },
+        setSelectedNodeId: vi.fn(),
+      }),
+    ).resolves.toBe('decision sent');
+    expect(approvalSource.decideTaskApproval).toHaveBeenCalledWith('t-1', {
+      kind: 'approved',
+    });
+
+    await expect(
+      executeSlashCommand({
+        input: '/input --text "continue"',
+        commandContext: {} as never,
+        notice: undefined,
+        dataSource: approvalSource,
+        proposalController: proposalController as never,
+        currentSelection: { taskId: 't-1' },
+        setSelectedNodeId: vi.fn(),
+      }),
+    ).resolves.toBe('input sent');
+    expect(approvalSource.sendTaskManualInput).toHaveBeenCalledWith(
+      't-1',
+      'continue',
     );
   });
 });

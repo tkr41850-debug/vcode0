@@ -134,6 +134,54 @@ describe('TuiViewModelBuilder', () => {
     expect(featureNode?.meta).toContain('wait: await_approval');
   });
 
+  it('builds task interaction composer status', () => {
+    const builder = new TuiViewModelBuilder();
+
+    expect(
+      builder.buildComposer({
+        text: '',
+        focusMode: 'composer',
+        pendingTaskId: 't-1',
+        pendingTaskRunStatus: 'await_response',
+        pendingTaskOwner: 'manual',
+        pendingTaskPayloadJson: JSON.stringify({ query: 'Need operator guidance' }),
+      }),
+    ).toMatchObject({
+      mode: 'task',
+      detail: 'task await_response manual t-1 q=Need operator guidance /reply',
+    });
+
+    expect(
+      builder.buildComposer({
+        text: '',
+        focusMode: 'composer',
+        pendingTaskId: 't-1',
+        pendingTaskRunStatus: 'await_approval',
+        pendingTaskOwner: 'manual',
+        pendingTaskPayloadJson: JSON.stringify({
+          summary: 'Switch to fallback task order',
+          proposedMutations: ['move t-2 after t-3'],
+        }),
+      }),
+    ).toMatchObject({
+      mode: 'task',
+      detail: 'task await_approval manual t-1 ask=Switch to fallback task order /approve /reject',
+    });
+
+    expect(
+      builder.buildComposer({
+        text: '',
+        focusMode: 'composer',
+        pendingTaskId: 't-1',
+        pendingTaskRunStatus: 'running',
+        pendingTaskOwner: 'manual',
+      }),
+    ).toMatchObject({
+      mode: 'task',
+      detail: 'task running manual t-1 /input',
+    });
+  });
+
   it('includes milestone queue order and status-bar cost totals', () => {
     const builder = new TuiViewModelBuilder();
     const tree = builder.buildMilestoneTree(

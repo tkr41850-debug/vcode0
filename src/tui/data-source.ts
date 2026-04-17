@@ -4,7 +4,12 @@ import type {
   FeatureId,
   FeaturePhaseAgentRun,
   MilestoneId,
+  TaskAgentRun,
 } from '@core/types/index';
+import type {
+  ApprovalDecision,
+  HelpResponse,
+} from '@runtime/contracts';
 import type { InitializeProjectCommand } from '@tui/commands/index';
 import type { WorkerCountsViewModel } from '@tui/view-model/index';
 
@@ -26,6 +31,7 @@ export interface TuiDataSource {
     featureId: FeatureId,
     phase: 'plan' | 'replan',
   ): FeaturePhaseAgentRun | undefined;
+  getTaskRun(taskId: string): TaskAgentRun | undefined;
   enqueueApprovalDecision(event: {
     featureId: FeatureId;
     phase: 'plan' | 'replan';
@@ -36,5 +42,14 @@ export interface TuiDataSource {
     featureId: FeatureId;
     phase: 'plan' | 'replan';
   }): void;
+  respondToTaskHelp(
+    taskId: string,
+    response: Extract<HelpResponse, { kind: 'answer' }>,
+  ): Promise<string>;
+  decideTaskApproval(
+    taskId: string,
+    decision: Extract<ApprovalDecision, { kind: 'approved' } | { kind: 'reject' }>,
+  ): Promise<string>;
+  sendTaskManualInput(taskId: string, text: string): Promise<string>;
   quit(): Promise<void>;
 }

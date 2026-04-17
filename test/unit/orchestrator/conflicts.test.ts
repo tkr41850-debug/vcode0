@@ -56,6 +56,15 @@ function createPorts(root: string): OrchestratorPorts {
           agentRunId: `run-${taskId}`,
         }),
       ),
+      respondToHelp: vi.fn((taskId: string) =>
+        Promise.resolve({ kind: 'not_running' as const, taskId }),
+      ),
+      decideApproval: vi.fn((taskId: string) =>
+        Promise.resolve({ kind: 'not_running' as const, taskId }),
+      ),
+      sendManualInput: vi.fn((taskId: string) =>
+        Promise.resolve({ kind: 'not_running' as const, taskId }),
+      ),
       abortTask: vi.fn(),
       idleWorkerCount: vi.fn(() => 0),
       stopAll: vi.fn(),

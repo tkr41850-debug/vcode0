@@ -213,6 +213,167 @@ describe('applyGraphProposal', () => {
     ).toBe(false);
   });
 
+  it('accepts valid proposal payload with reserved write paths', () => {
+    expect(
+      isGraphProposal({
+        version: 1,
+        mode: 'plan',
+        aliases: { '#1': 't-1' },
+        ops: [
+          {
+            kind: 'add_task',
+            taskId: 't-1',
+            featureId: 'f-1',
+            description: 'Task 1',
+            reservedWritePaths: ['src/a.ts', 'src/b.ts'],
+          },
+        ],
+      }),
+    ).toBe(true);
+  });
+
+  it('reuses alias for same canonical id', () => {
+    const builder = new GraphProposalBuilder('replan');
+
+    expect(builder.allocateFeatureId('f-1')).toBe('#1');
+    expect(builder.allocateFeatureId('f-1')).toBe('#1');
+    expect(builder.allocateTaskId('t-1')).toBe('#2');
+    expect(builder.allocateTaskId('t-1')).toBe('#2');
+  });
+
+  it('applies add and remove dependency operations for features and tasks', () => {
+    const graph = createGraph();
+    graph.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'Feature 1',
+      description: 'desc',
+    });
+    graph.createFeature({
+      id: 'f-2',
+      milestoneId: 'm-1',
+      name: 'Feature 2',
+      description: 'desc',
+    });
+    graph.createTask({ id: 't-1', featureId: 'f-1', description: 'Task 1' });
+    graph.createTask({ id: 't-2', featureId: 'f-1', description: 'Task 2' });
+
+    const addFeatureDependency = new GraphProposalBuilder('plan');
+    addFeatureDependency.addOp({
+      kind: 'add_dependency',
+      fromId: 'f-2',
+      toId: 'f-1',
+    });
+    const addTaskDependency = new GraphProposalBuilder('plan');
+    addTaskDependency.addOp({
+      kind: 'add_dependency',
+      fromId: 't-2',
+      toId: 't-1',
+    });
+
+    expect(applyGraphProposal(graph, addFeatureDependency.build()).applied).toHaveLength(
+      1,
+    );
+    expect(applyGraphProposal(graph, addTaskDependency.build()).applied).toHaveLength(
+      1,
+    );
+    expect(graph.features.get('f-2')?.dependsOn).toEqual(['f-1']);
+    expect(graph.tasks.get('t-2')?.dependsOn).toEqual(['t-1']);
+
+    const removeFeatureDependency = new GraphProposalBuilder('replan');
+    removeFeatureDependency.addOp({
+      kind: 'remove_dependency',
+      fromId: 'f-2',
+      toId: 'f-1',
+    });
+    const removeTaskDependency = new GraphProposalBuilder('replan');
+    removeTaskDependency.addOp({
+      kind: 'remove_dependency',
+      fromId: 't-2',
+      toId: 't-1',
+    });
+
+    expect(applyGraphProposal(graph, removeFeatureDependency.build()).applied).toHaveLength(
+      1,
+    );
+    expect(applyGraphProposal(graph, removeTaskDependency.build()).applied).toHaveLength(
+      1,
+    );
+    expect(graph.features.get('f-2')?.dependsOn).toEqual([]);
+    expect(graph.tasks.get('t-2')?.dependsOn).toEqual([]);
+  });
+
+  it('skips invalid dependency operations with exact reasons', () => {
+    const graph = createGraph();
+    graph.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'Feature 1',
+      description: 'desc',
+    });
+    graph.createFeature({
+      id: 'f-2',
+      milestoneId: 'm-1',
+      name: 'Feature 2',
+      description: 'desc',
+    });
+    graph.createTask({ id: 't-1', featureId: 'f-1', description: 'Task 1' });
+    graph.createTask({ id: 't-2', featureId: 'f-2', description: 'Task 2' });
+
+    const mixed = new GraphProposalBuilder('replan');
+    mixed.addOp({ kind: 'add_dependency', fromId: 'f-1', toId: 't-1' });
+    expect(applyGraphProposal(graph, mixed.build()).skipped[0]?.reason).toBe(
+      'Dependency endpoints must both be features or both be tasks',
+    );
+
+    const crossFeatureTasks = new GraphProposalBuilder('replan');
+    crossFeatureTasks.addOp({
+      kind: 'add_dependency',
+      fromId: 't-1',
+      toId: 't-2',
+    });
+    expect(applyGraphProposal(graph, crossFeatureTasks.build()).skipped[0]?.reason).toBe(
+      'Task "t-1" and task "t-2" belong to different features',
+    );
+
+    const removeMissing = new GraphProposalBuilder('replan');
+    removeMissing.addOp({
+      kind: 'remove_dependency',
+      fromId: 'f-2',
+      toId: 'f-1',
+    });
+    expect(applyGraphProposal(graph, removeMissing.build()).skipped[0]?.reason).toBe(
+      'Feature "f-2" does not depend on "f-1"',
+    );
+  });
+
+  it('warns when removing pending feature with started child task', () => {
+    const graph = createGraph();
+    graph.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'Feature 1',
+      description: 'desc',
+    });
+    graph.createTask({ id: 't-1', featureId: 'f-1', description: 'Task 1' });
+    graph.transitionTask('t-1', {
+      status: 'ready',
+      collabControl: 'branch_open',
+    });
+    graph.transitionTask('t-1', { status: 'running' });
+
+    const builder = new GraphProposalBuilder('replan');
+    builder.addOp({ kind: 'remove_feature', featureId: 'f-1' });
+
+    expect(collectProposalWarnings(graph, builder.build())).toEqual([
+      expect.objectContaining({
+        code: 'remove_started_feature',
+        entityId: 'f-1',
+        message: 'Feature "f-1" already has started work',
+      }),
+    ]);
+  });
+
   it('appends newly added features and tasks after deleted siblings', () => {
     const graph = createGraph();
     graph.createFeature({

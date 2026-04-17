@@ -220,6 +220,28 @@ describe('LocalWorkerPool', () => {
         expect(result.reason).toBe('session_not_found');
       }
     });
+
+    it.each(['path_mismatch', 'unsupported_by_harness'] as const)(
+      'passes through %s not_resumable reason',
+      async (reason) => {
+        const { harness, pool } = setupPool();
+        harness.resume = vi.fn(() =>
+          Promise.resolve({
+            kind: 'not_resumable' as const,
+            sessionId: 'sess-gone',
+            reason,
+          }),
+        );
+
+        const result = await pool.dispatchTask(makeTask(), {
+          mode: 'resume',
+          agentRunId: 'run-4',
+          sessionId: 'sess-gone',
+        });
+
+        expect(result).toMatchObject({ kind: 'not_resumable', reason });
+      },
+    );
   });
 
   describe('steerTask', () => {
@@ -300,6 +322,72 @@ describe('LocalWorkerPool', () => {
       expect(result.kind).toBe('delivered');
       expect(handle._sentMessages).toContainEqual(
         expect.objectContaining({ type: 'resume', reason }),
+      );
+    });
+  });
+
+  describe('respondToHelp', () => {
+    it('delivers help response to a running task', async () => {
+      const { handle, pool } = setupPool('sess-help');
+
+      await pool.dispatchTask(makeTask(), {
+        mode: 'start',
+        agentRunId: 'run-1',
+      });
+
+      const result = await pool.respondToHelp('t-task-1', {
+        kind: 'answer',
+        text: 'use option b',
+      });
+      expect(result.kind).toBe('delivered');
+      expect(handle._sentMessages).toContainEqual(
+        expect.objectContaining({
+          type: 'help_response',
+          response: { kind: 'answer', text: 'use option b' },
+        }),
+      );
+    });
+  });
+
+  describe('decideApproval', () => {
+    it('delivers approval decision to a running task', async () => {
+      const { handle, pool } = setupPool('sess-approval');
+
+      await pool.dispatchTask(makeTask(), {
+        mode: 'start',
+        agentRunId: 'run-1',
+      });
+
+      const result = await pool.decideApproval('t-task-1', {
+        kind: 'reject',
+        comment: 'needs changes',
+      });
+      expect(result.kind).toBe('delivered');
+      expect(handle._sentMessages).toContainEqual(
+        expect.objectContaining({
+          type: 'approval_decision',
+          decision: { kind: 'reject', comment: 'needs changes' },
+        }),
+      );
+    });
+  });
+
+  describe('sendManualInput', () => {
+    it('delivers manual input to a running task', async () => {
+      const { handle, pool } = setupPool('sess-input');
+
+      await pool.dispatchTask(makeTask(), {
+        mode: 'start',
+        agentRunId: 'run-1',
+      });
+
+      const result = await pool.sendManualInput('t-task-1', 'continue now');
+      expect(result.kind).toBe('delivered');
+      expect(handle._sentMessages).toContainEqual(
+        expect.objectContaining({
+          type: 'manual_input',
+          text: 'continue now',
+        }),
       );
     });
   });
@@ -565,6 +653,113 @@ describe('WorkerRuntime.handleMessage', () => {
     expect(resumeCall?.content).toContain(
       'prior_suspend: same_feature_overlap',
     );
+  });
+
+  it('forwards manual input as follow-up text', () => {
+    const transport = createTransportMock();
+    const sessionStore = createSessionStoreMock();
+    const runtime = new WorkerRuntime(transport, sessionStore, {
+      modelId: 'claude-sonnet-4-20250514',
+      projectRoot: '/tmp/project',
+    });
+    const agent = createAgentStub();
+    Object.assign(runtime, { agent });
+
+    runtime.handleMessage({
+      type: 'manual_input',
+      taskId: 't-task-1',
+      agentRunId: 'run-1',
+      text: 'please continue',
+    });
+
+    expect(agent.followUp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        role: 'user',
+        content: 'please continue',
+      }),
+    );
+  });
+
+  it('resolves pending help response only once and clears pending state', async () => {
+    const transport = createTransportMock();
+    const sessionStore = createSessionStoreMock();
+    const runtime = new WorkerRuntime(transport, sessionStore, {
+      modelId: 'claude-sonnet-4-20250514',
+      projectRoot: '/tmp/project',
+    });
+
+    const agent = createAgentStub();
+    Object.assign(runtime, { agent });
+
+    let resolved = 0;
+    const first = new Promise((resolve) => {
+      Object.assign(runtime, {
+        pendingHelp: {
+          resolve: (response: { kind: 'answer'; text: string } | { kind: 'discuss' }) => {
+            resolved += 1;
+            resolve(response);
+          },
+        },
+      });
+    });
+
+    runtime.handleMessage({
+      type: 'help_response',
+      taskId: 't-task-1',
+      agentRunId: 'run-1',
+      response: { kind: 'answer', text: 'do this' },
+    });
+    runtime.handleMessage({
+      type: 'help_response',
+      taskId: 't-task-1',
+      agentRunId: 'run-1',
+      response: { kind: 'answer', text: 'ignored' },
+    });
+
+    await expect(first).resolves.toEqual({ kind: 'answer', text: 'do this' });
+    expect(resolved).toBe(1);
+    expect((runtime as unknown as { pendingHelp?: unknown }).pendingHelp).toBeUndefined();
+  });
+
+  it('resolves pending approval decision only once and clears pending state', async () => {
+    const transport = createTransportMock();
+    const sessionStore = createSessionStoreMock();
+    const runtime = new WorkerRuntime(transport, sessionStore, {
+      modelId: 'claude-sonnet-4-20250514',
+      projectRoot: '/tmp/project',
+    });
+
+    const agent = createAgentStub();
+    Object.assign(runtime, { agent });
+
+    let resolved = 0;
+    const first = new Promise((resolve) => {
+      Object.assign(runtime, {
+        pendingApproval: {
+          resolve: (decision: { kind: 'approved' } | { kind: 'reject'; comment?: string }) => {
+            resolved += 1;
+            resolve(decision);
+          },
+        },
+      });
+    });
+
+    runtime.handleMessage({
+      type: 'approval_decision',
+      taskId: 't-task-1',
+      agentRunId: 'run-1',
+      decision: { kind: 'approved' },
+    });
+    runtime.handleMessage({
+      type: 'approval_decision',
+      taskId: 't-task-1',
+      agentRunId: 'run-1',
+      decision: { kind: 'reject', comment: 'ignored' },
+    });
+
+    await expect(first).resolves.toEqual({ kind: 'approved' });
+    expect(resolved).toBe(1);
+    expect((runtime as unknown as { pendingApproval?: unknown }).pendingApproval).toBeUndefined();
   });
 
   it('keeps abort terminal', () => {

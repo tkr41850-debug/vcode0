@@ -73,6 +73,7 @@ describe('worker ipc-coupled tools', () => {
       expect(bridge._progressMessages).toHaveLength(1);
       expect(bridge._progressMessages[0]).toContain('t-1');
       expect(bridge._progressMessages[0]).toContain('confirmed');
+      expect(bridge._lastResult).toBeUndefined();
     });
   });
 

@@ -17,10 +17,12 @@ console.warn = stderrWrite;
 import type { OrchestratorToWorkerMessage } from '@runtime/contracts';
 import { ChildNdjsonStdioTransport } from '@runtime/ipc/index';
 import { FileSessionStore } from '@runtime/sessions/index';
+import { resolveWorkerProjectRoot } from '@runtime/worker/project-root';
 import { WorkerRuntime } from '@runtime/worker/index';
 
 const transport = new ChildNdjsonStdioTransport();
-const sessionStore = new FileSessionStore(process.cwd());
+const projectRoot = resolveWorkerProjectRoot();
+const sessionStore = new FileSessionStore(projectRoot);
 
 let runtime: WorkerRuntime | undefined;
 let initialized = false;
@@ -31,7 +33,7 @@ transport.onMessage((message: OrchestratorToWorkerMessage) => {
 
     runtime = new WorkerRuntime(transport, sessionStore, {
       modelId: 'claude-sonnet-4-20250514',
-      projectRoot: process.env.GVC0_PROJECT_ROOT ?? process.cwd(),
+      projectRoot,
       getApiKey: (provider: string) => {
         if (provider === 'anthropic') return process.env.ANTHROPIC_API_KEY;
         if (provider === 'openai') return process.env.OPENAI_API_KEY;

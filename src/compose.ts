@@ -15,6 +15,10 @@ import { openDatabase } from '@persistence/db';
 import { PersistentFeatureGraph } from '@persistence/feature-graph';
 import { SqliteStore } from '@persistence/sqlite-store';
 import { JsonConfigLoader } from '@root/config';
+import type {
+  ApprovalPayload,
+  WorkerToOrchestratorMessage,
+} from '@runtime/contracts';
 import { PiSdkHarness } from '@runtime/harness/index';
 import { FileSessionStore } from '@runtime/sessions/index';
 import { LocalWorkerPool } from '@runtime/worker-pool';
@@ -100,6 +104,10 @@ export async function composeApplication(): Promise<GvcApplication> {
       const run = store.getAgentRun(`run-feature:${featureId}:${phase}`);
       return run?.scopeType === 'feature_phase' ? run : undefined;
     },
+    getTaskRun: (taskId) => {
+      const run = store.getAgentRun(`run-task:${taskId}`);
+      return run?.scopeType === 'task' ? run : undefined;
+    },
     enqueueApprovalDecision: (event) => {
       schedulerRef.current?.enqueue({
         type: 'feature_phase_approval_decision',
@@ -116,6 +124,68 @@ export async function composeApplication(): Promise<GvcApplication> {
         phase: event.phase,
       });
     },
+    respondToTaskHelp: async (taskId, response) => {
+      const run = store.getAgentRun(`run-task:${taskId}`);
+      if (run?.scopeType !== 'task') {
+        throw new Error(`task "${taskId}" has no run`);
+      }
+      if (run.runStatus !== 'await_response') {
+        throw new Error(`task "${taskId}" is not waiting for help`);
+      }
+
+      const result = await runtime.respondToHelp(taskId, response);
+      if (result.kind !== 'delivered') {
+        throw new Error(`task "${taskId}" is not running`);
+      }
+
+      store.updateAgentRun(run.id, {
+        runStatus: 'running',
+        owner: 'manual',
+      });
+      return `Sent help response to ${taskId}.`;
+    },
+    decideTaskApproval: async (taskId, decision) => {
+      const run = store.getAgentRun(`run-task:${taskId}`);
+      if (run?.scopeType !== 'task') {
+        throw new Error(`task "${taskId}" has no run`);
+      }
+      if (run.runStatus !== 'await_approval') {
+        throw new Error(`task "${taskId}" is not waiting for approval`);
+      }
+
+      const result = await runtime.decideApproval(taskId, decision);
+      if (result.kind !== 'delivered') {
+        throw new Error(`task "${taskId}" is not running`);
+      }
+
+      store.updateAgentRun(run.id, {
+        runStatus: 'running',
+        owner: 'manual',
+      });
+      return decision.kind === 'approved'
+        ? `Approved ${taskId}.`
+        : `Rejected ${taskId}.`;
+    },
+    sendTaskManualInput: async (taskId, text) => {
+      const run = store.getAgentRun(`run-task:${taskId}`);
+      if (run?.scopeType !== 'task') {
+        throw new Error(`task "${taskId}" has no run`);
+      }
+      if (run.runStatus !== 'running' || run.owner !== 'manual') {
+        throw new Error(`task "${taskId}" is not open for manual input`);
+      }
+
+      const result = await runtime.sendManualInput(taskId, text);
+      if (result.kind !== 'delivered') {
+        throw new Error(`task "${taskId}" is not running`);
+      }
+
+      store.updateAgentRun(run.id, {
+        runStatus: 'running',
+        owner: 'manual',
+      });
+      return `Sent input to ${taskId}.`;
+    },
     quit: async () => {
       await stopApplicationRef.current?.();
     },
@@ -125,11 +195,9 @@ export async function composeApplication(): Promise<GvcApplication> {
     new PiSdkHarness(sessionStore, projectRoot),
     maxWorkers,
     (message) => {
-      if (message.type === 'progress') {
-        ui.onWorkerOutput(message.agentRunId, message.taskId, message.message);
-      }
-      if (message.type === 'assistant_output') {
-        ui.onWorkerOutput(message.agentRunId, message.taskId, message.text);
+      const workerOutput = formatWorkerOutput(message);
+      if (workerOutput !== undefined) {
+        ui.onWorkerOutput(message.agentRunId, message.taskId, workerOutput);
       }
       schedulerRef.current?.enqueue({ type: 'worker_message', message });
     },
@@ -237,6 +305,36 @@ function transitionFeatureToPlanning(
     workControl: 'planning',
     status: 'pending',
   });
+}
+
+export function formatWorkerOutput(
+  message: WorkerToOrchestratorMessage,
+): string | undefined {
+  switch (message.type) {
+    case 'progress':
+      return message.message;
+    case 'assistant_output':
+      return message.text;
+    case 'request_help':
+      return `help requested: ${message.query}`;
+    case 'request_approval':
+      return `approval requested: ${summarizeApprovalPayload(message.payload)}`;
+    case 'error':
+      return `error: ${message.error}`;
+    case 'result':
+      return `completed: ${message.result.summary}`;
+  }
+}
+
+export function summarizeApprovalPayload(payload: ApprovalPayload): string {
+  switch (payload.kind) {
+    case 'custom':
+      return payload.label;
+    case 'destructive_action':
+      return payload.description;
+    case 'replan_proposal':
+      return payload.summary;
+  }
 }
 
 function getApiKey(provider: string): string | undefined {

@@ -10,6 +10,7 @@ import {
   type FauxProviderRegistration,
   fauxAssistantMessage,
   fauxText,
+  fauxToolCall,
 } from './harness/faux-stream.js';
 import { InMemorySessionStore } from './harness/in-memory-session-store.js';
 import { InProcessHarness } from './harness/in-process-harness.js';
@@ -110,5 +111,133 @@ describe('worker smoke (faux provider + in-process harness)', () => {
     const saved = await sessionStore.load(dispatchResult.sessionId);
     expect(saved).not.toBeNull();
     expect(saved?.length).toBeGreaterThan(0);
+  });
+
+  it('blocks on request_help, resumes on help response and manual input, then submits', async () => {
+    faux.setResponses([
+      fauxAssistantMessage(
+        [
+          fauxToolCall('request_help', { query: 'Need operator guidance' }),
+          fauxToolCall('submit', {
+            summary: 'completed after help',
+            filesChanged: ['src/help.ts'],
+          }),
+        ],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage([fauxText('done after help')]),
+    ]);
+
+    const task = makeTask({ id: 't-help' });
+    const dispatchResult = await pool.dispatchTask(
+      task,
+      { mode: 'start', agentRunId: 'run-help' },
+      { strategy: 'shared-summary' },
+    );
+
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const helpRequest = completions.find(
+      (message): message is WorkerToOrchestratorMessage & { type: 'request_help' } =>
+        message.type === 'request_help' && message.taskId === task.id,
+    );
+    expect(helpRequest).toMatchObject({ query: 'Need operator guidance' });
+    expect(
+      completions.some(
+        (message) => message.type === 'result' && message.taskId === task.id,
+      ),
+    ).toBe(false);
+
+    await expect(
+      pool.respondToHelp(task.id, {
+        kind: 'answer',
+        text: 'Use option B',
+      }),
+    ).resolves.toMatchObject({ kind: 'delivered', taskId: task.id });
+    await expect(
+      pool.sendManualInput(task.id, 'Continue with option B.'),
+    ).resolves.toMatchObject({ kind: 'delivered', taskId: task.id });
+
+    await harness.drain();
+
+    const result = completions.find(
+      (message): message is WorkerToOrchestratorMessage & { type: 'result' } =>
+        message.type === 'result' && message.taskId === task.id,
+    );
+    expect(dispatchResult.kind).toBe('started');
+    expect(result).toMatchObject({
+      agentRunId: 'run-help',
+      completionKind: 'submitted',
+      result: {
+        summary: 'completed after help',
+        filesChanged: ['src/help.ts'],
+      },
+    });
+  });
+
+  it('blocks on request_approval, resumes on approval decision, then submits', async () => {
+    faux.setResponses([
+      fauxAssistantMessage(
+        [
+          fauxToolCall('request_approval', {
+            kind: 'custom',
+            summary: 'Need approval',
+            detail: 'Proceed with guarded change',
+          }),
+          fauxToolCall('submit', {
+            summary: 'completed after approval',
+            filesChanged: ['src/approval.ts'],
+          }),
+        ],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage([fauxText('done after approval')]),
+    ]);
+
+    const task = makeTask({ id: 't-approval' });
+    await pool.dispatchTask(
+      task,
+      { mode: 'start', agentRunId: 'run-approval' },
+      { strategy: 'shared-summary' },
+    );
+
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const approvalRequest = completions.find(
+      (message): message is WorkerToOrchestratorMessage & {
+        type: 'request_approval';
+      } => message.type === 'request_approval' && message.taskId === task.id,
+    );
+    expect(approvalRequest).toMatchObject({
+      payload: {
+        kind: 'custom',
+        label: 'Need approval',
+        detail: 'Proceed with guarded change',
+      },
+    });
+    expect(
+      completions.some(
+        (message) => message.type === 'result' && message.taskId === task.id,
+      ),
+    ).toBe(false);
+
+    await expect(
+      pool.decideApproval(task.id, { kind: 'approved' }),
+    ).resolves.toMatchObject({ kind: 'delivered', taskId: task.id });
+
+    await harness.drain();
+
+    const result = completions.find(
+      (message): message is WorkerToOrchestratorMessage & { type: 'result' } =>
+        message.type === 'result' && message.taskId === task.id,
+    );
+    expect(result).toMatchObject({
+      agentRunId: 'run-approval',
+      completionKind: 'submitted',
+      result: {
+        summary: 'completed after approval',
+        filesChanged: ['src/approval.ts'],
+      },
+    });
   });
 });
