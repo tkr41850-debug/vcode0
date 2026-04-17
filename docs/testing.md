@@ -15,7 +15,8 @@ Current integration targets:
 
 - `test/integration/merge-train.test.ts` ↔ `src/core/merge-train/index.ts`, `src/persistence/feature-graph.ts` — merge-queue serialization, dependency legality, ejection/re-entry, conflict repair, and DB rehydration.
 - `test/integration/worker-smoke.test.ts` ↔ `src/runtime/worker-pool.ts`, `src/runtime/worker/index.ts`, `src/runtime/ipc/index.ts` — end-to-end runtime plumbing through `LocalWorkerPool`, the in-process harness, and a faux-backed worker run.
-- `test/integration/tui/**/*.test.ts` ↔ `src/main.ts`, `src/tui/app.ts` — PTY-driven terminal E2E coverage via `@microsoft/tui-test`, kept separate from Vitest, for startup, overlays, and quit behavior.
+- `test/integration/feature-phase-agent-flow.test.ts` ↔ `src/orchestrator/scheduler/index.ts`, `src/orchestrator/scheduler/dispatch.ts`, `src/agents/runtime.ts` — end-to-end feature-phase dispatch, proposal approval flow, verify/summarize/replan paths, and shared session persistence for feature phases.
+- `test/integration/tui/smoke.test.ts` ↔ `src/main.ts`, `src/tui/app.ts` — PTY-driven terminal E2E coverage via `@microsoft/tui-test`, kept separate from Vitest, for startup, overlays, draft approval flow, and quit behavior.
 
 Current unit targets include:
 
@@ -23,7 +24,7 @@ Current unit targets include:
 - `test/unit/runtime/` — worker-context assembly, routing policy, session persistence, IPC framing, and worker-pool/runtime contracts.
 - `test/unit/persistence/` — row serialization, codecs, migrations, sqlite store behavior, and `PersistentFeatureGraph` persistence semantics.
 
-The suite is still foundation-first, but integration coverage now exists for the merge-train path, the worker runtime bootstrap, and a dedicated terminal-E2E lane for the interactive pi-tui shell.
+The suite is still foundation-first, but integration coverage now exists for the merge-train path, the worker runtime bootstrap, feature-phase agent flow, and a dedicated terminal-E2E lane for the interactive pi-tui shell.
 
 ## Integration Harness: pi-sdk Faux Provider
 
@@ -39,12 +40,14 @@ Current integration targets:
 
 - merge-train integration, ejection, repair, and re-entry
 - worker runtime bootstrap through the in-process harness
-- interactive TUI startup, help modal, monitor overlay, and quit flow through `@microsoft/tui-test`
+- feature-phase dispatch, proposal approval, and replan/summarize flow through the scheduler and feature-agent runtime
+- interactive TUI startup, help modal, monitor overlay, draft approval state, and quit flow through `@microsoft/tui-test`
 
 Deferred integration targets:
 
 - worker `submit()` / `confirm()` closeout flow
-- feature-branch `feature_ci` and agent-level `verifying`
+- feature-branch shell execution in `feature_ci`
+- merge-train verification execution on rebased feature branches
 - milestone steering vs autonomous scheduler selection
 - reservation-only overlap penalties vs runtime overlap coordination
 - same-feature suspend/resume and explicit conflict steering
@@ -72,6 +75,7 @@ gvc0/
 │   ├── helpers/
 │   │   └── graph-builders.ts         -- shared deterministic graph/feature/task fixtures
 │   ├── integration/
+│   │   ├── feature-phase-agent-flow.test.ts -- feature-phase dispatch and approval integration coverage
 │   │   ├── merge-train.test.ts       -- persistent merge-train integration coverage
 │   │   ├── worker-smoke.test.ts      -- faux-backed in-process worker runtime smoke test
 │   │   └── harness/

@@ -142,6 +142,7 @@ Example:
 
 Draft commands operate on selected planning or replanning feature context.
 Starting draft work pauses auto-execution until draft is submitted or discarded.
+This composer `/submit` command submits a planning/replanning proposal draft for approval; it is unrelated to the worker-side task `submit()` tool.
 
 - `/feature-add`
 - `/feature-remove`
@@ -197,7 +198,7 @@ Illustrative layout:
 │   t-3        │ ────────────────────                  │
 │              │ Reading src/...                       │
 │              │ Running npm test                      │
-│              │ submit() complete                     │
+│              │ task t-1 confirmed                    │
 └──────────────┴──────────────────────────────────────┘
 ```
 

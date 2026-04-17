@@ -24,19 +24,19 @@ so only files being actively edited hold runtime ownership.
 
 ```text
 main
-└── feat-<name>-<feature-id>
-    ├── Worker 1 (worktree: .gvc0/worktrees/feat-<name>-<feature-id>-<task-id-a>/)
+└── feat-<slugified-name>-<feature-id>
+    ├── Worker 1 (worktree: .gvc0/worktrees/feat-<slugified-name>-<feature-id>-<task-id-a>/)
     │   └── pi-sdk Agent → executes first runnable task
-    ├── Worker 2 (worktree: .gvc0/worktrees/feat-<name>-<feature-id>-<task-id-b>/)
+    ├── Worker 2 (worktree: .gvc0/worktrees/feat-<slugified-name>-<feature-id>-<task-id-b>/)
     │   └── pi-sdk Agent → executes second runnable task
-    └── Worker 3 (worktree: .gvc0/worktrees/feat-<name>-<feature-id>-<task-id-c>/)
+    └── Worker 3 (worktree: .gvc0/worktrees/feat-<slugified-name>-<feature-id>-<task-id-c>/)
         └── pi-sdk Agent → executes third runnable task
 ```
 
 - **Max concurrency**: configurable (default: CPU count or provider rate limit, whichever is lower)
 - **Worktree lifecycle**: created on dispatch from the
   feature branch, using the same basename as the task branch
-  (`feat-<name>-<feature-id>-<task-id>`), squash-merged back into
+  (`feat-<slugified-name>-<feature-id>-<task-id>`), squash-merged back into
   the feature branch on success, and retained until the owning
   feature lands on `main` or garbage collection snapshots and
   removes the stale worktree. Stale-worktree GC should preserve
@@ -57,19 +57,20 @@ Once feature work is complete, the merge train serializes
 feature-branch integration into `main`.
 
 The branch names and commit subjects below are illustrative placeholders.
+Canonical naming comes from `featureBranchName()` and `taskBranchName()` in `src/core/naming/index.ts`, which produce `feat-<slugified-name>-<feature-id>` and `feat-<slugified-name>-<feature-id>-<task-id>` with typed prefixes stripped from the ids.
 
 ```text
-task branch in its task worktree (feat-<name>-<feature-id>-<task-id>):
+task branch in its task worktree (feat-<slugified-name>-<feature-id>-<task-id>):
   feat: add <first incremental change>
   feat: implement <second incremental change>
   fix: handle <edge case>
   test: add <targeted coverage>
          ↓ squash merge
-feat-<name>-<feature-id>:
+feat-<slugified-name>-<feature-id>:
   feat(<feature-scope>): implement <task summary> [task-<task-id>]
          ↓ merge train
 main:
-  feat(<feature-scope>): merge feat-<name>-<feature-id>
+  feat(<feature-scope>): merge feat-<slugified-name>-<feature-id>
 ```
 
 ## Feature Branch Integration
@@ -77,14 +78,15 @@ main:
 Each feature owns exactly one long-lived integration branch.
 
 1. When a feature branch is requested, the orchestrator creates
-   `feat-<name>-<feature-id>` from the current `main`
+   `feat-<slugified-name>-<feature-id>` from the current `main`
    and opens its feature worktree.
 2. Task worktrees use branch names
-   `feat-<name>-<feature-id>-<task-id>` and branch from the current
-   HEAD of `feat-<name>-<feature-id>`.
-3. Task completion is finalized by `confirm()`,
-   which merges into `feat-<name>-<feature-id>` after `submit()`
-   preflight has passed.
+   `feat-<slugified-name>-<feature-id>-<task-id>` and branch from the current
+   HEAD of `feat-<slugified-name>-<feature-id>`.
+3. Worker `submit(summary, filesChanged)` is the explicit task-complete signal.
+   `confirm()` is only a progress acknowledgement. The orchestrator treats
+   terminal results with `completionKind === 'submitted'` as landed task work
+   on the feature branch.
 4. After the last task or repair task lands, the feature runs
    `feature_ci` on the feature branch,
    then agent-level `verifying`.
@@ -92,8 +94,9 @@ Each feature owns exactly one long-lived integration branch.
    `awaiting_merge` and feature collaboration control may become
    `merge_queued`.
 6. The merge train rebases the feature branch onto the latest
-   `main`, runs merge-train verification, and either merges or
-   removes the feature from the merge train for same-branch repair.
+   `main` and coordinates final integration; merge-train verification remains
+   part of the architecture/config surface, while the currently wired
+   verification executor is the feature-level `feature_ci` path.
 7. After collaboration control reaches `merged`,
    the feature normally runs blocking `summarizing`
    and then reaches `work_complete`;
@@ -162,6 +165,7 @@ type WorkerToOrchestratorMessage =
       agentRunId: string;
       result: TaskResult;
       usage: RuntimeUsageDelta;
+      completionKind?: "submitted" | "implicit";
     }
   | {
       type: "error";
@@ -364,13 +368,15 @@ interface DepOutput {
 
 ## Crash Recovery
 
-On startup, gvc0 scans the persisted feature/task/run tables
-for orphaned work (task execution runs or feature-phase runs
-with `run_status = "running"` but no live worker process)
+On startup, gvc0 currently scans persisted task execution runs
+for orphaned work (`scopeType = "task"` with `run_status = "running"`)
 and resets or resumes them.
 Feature branches remain authoritative across restarts;
 resumed task worktrees rebase onto the current HEAD of the
 owning feature branch before continuing.
+Feature-phase runs share the same run/session model and session-store backing,
+but the current startup recovery pass is task-run focused rather than a full
+feature-phase orphan recovery sweep.
 The baseline uses `PiSdkHarness` only;
 `session_id` is an orchestrator-owned opaque reference passed
 back to the harness, and a future external session service may
@@ -434,12 +440,12 @@ At the orchestration model level, feature-level discussing,
 researching, planning, verifying, summarizing, and
 replanning phases use the same run/session plane as task execution:
 they share `agent_runs`, retry/backoff,
-help/approval/manual-ownership waits, and startup recovery.
+and help/approval/manual-ownership waits.
 In current baseline wiring, feature-phase message history also persists
 through the same session-store backing used for task sessions
-(currently `FileSessionStore` under `.gvc0/sessions/`), so restart
-recovery does not depend on separate planner/replanner-owned transcript
-files.
+(currently `FileSessionStore` under `.gvc0/sessions/`).
+The current startup recovery pass, however, only resumes or resets task
+execution runs.
 A future centralized or remote conversation/session persistence layer is a
 separate feature candidate rather than baseline architecture.
 The current `RuntimePort` surface is task-oriented because the

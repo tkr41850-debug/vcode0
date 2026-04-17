@@ -13,19 +13,21 @@ See [ARCHITECTURE.md](../../ARCHITECTURE.md) for the high-level architecture ove
 | **createTask(featureId, description, deps?)** | Add a task to a feature with in-feature task deps only |
 | **addDependency(fromId, toId)** | Add a dependency edge (`feature → feature` or `task → task` within the same feature). Edge kind is inferred from typed prefixed ids (`f-*`, `t-*`). |
 | **removeDependency(fromId, toId)** | Remove a dependency edge |
-| **splitFeature(featureId, subfeatures)** | Break a feature into smaller sub-features (pre-planning only — no tasks may exist yet). Redistributes description and dependency edges. See [in-flight split/merge](../feature-candidates/in-flight-split-merge.md) for the deferred in-flight variant. |
-| **mergeFeatures(featureIds, name)** | Combine features into one (pre-planning only). Union of deps. Redirect incoming edges |
+| **splitFeature(featureId, subfeatures)** | Validate a pre-planning split request, but current baseline still throws `Not implemented.` after precondition checks. See [in-flight split/merge](../feature-candidates/in-flight-split-merge.md) for the deferred in-flight variant. |
+| **mergeFeatures(featureIds, name)** | Validate a pre-planning merge request, but current baseline still throws `Not implemented.` after precondition checks. |
 | **cancelFeature(featureId, cascade?)** | Mark as cancelled (`collabControl → cancelled`), kill all in-flight tasks immediately, and optionally cancel transitive dependents when `cascade=true` |
+| **removeFeature(featureId)** | Remove a feature, detach incoming feature deps, and remove its tasks and task deps |
 | **changeMilestone(featureId, newMilestoneId)** | Reassign a feature to a different milestone without changing dependency semantics |
-| **editFeature(featureId, patch)** | Update a feature's name or description |
+| **editFeature(featureId, patch)** | Update feature fields such as name, description, summary, or runtime block metadata |
 | **addTask(featureId, description, deps?)** | Add a task to an existing feature |
+| **editTask(taskId, patch)** | Update task description, weight, or reserved write paths |
 | **removeTask(taskId)** | Remove a task (only if pending) |
 | **reorderTasks(featureId, taskIds)** | Reorder tasks within a feature (affects display, not scheduling) |
 | **reweight(taskId, weight)** | Update estimated cost/complexity — affects critical path calculation |
 | **queueMilestone(milestoneId)** | Append a milestone to the scheduler steering queue |
 | **dequeueMilestone(milestoneId)** | Remove a milestone from the scheduler steering queue |
 | **clearQueuedMilestones()** | Clear milestone steering and return to autonomous scheduling |
-| **enqueueFeatureMerge(featureId)** | Add a completed feature branch to the integration queue (owned by `MergeTrainCoordinator`, not `FeatureGraph`) |
+| **replaceUsageRollups(patch)** | Replace persisted task/feature token-usage aggregates in one patch |
 
 ### Validation
 
@@ -61,12 +63,14 @@ interface FeatureGraph {
   createTask(opts: CreateTaskOptions): Task;
   addDependency(opts: DependencyOptions): void;
   removeDependency(opts: DependencyOptions): void;
-  splitFeature(id: FeatureId, splits: SplitSpec[]): Feature[];   // pre-planning only
-  mergeFeatures(featureIds: FeatureId[], name: string): Feature;  // pre-planning only
+  splitFeature(id: FeatureId, splits: SplitSpec[]): Feature[];   // pre-planning only; currently throws after validation
+  mergeFeatures(featureIds: FeatureId[], name: string): Feature;  // pre-planning only; currently throws after validation
   cancelFeature(featureId: FeatureId, cascade?: boolean): void;
+  removeFeature(featureId: FeatureId): void;
   changeMilestone(featureId: FeatureId, newMilestoneId: MilestoneId): void;
   editFeature(featureId: FeatureId, patch: FeatureEditPatch): Feature;
   addTask(opts: AddTaskOptions): Task;
+  editTask(taskId: TaskId, patch: TaskEditPatch): Task;
   removeTask(taskId: TaskId): void;
   reorderTasks(featureId: FeatureId, taskIds: TaskId[]): void;
   reweight(taskId: TaskId, weight: TaskWeight): void;
@@ -80,12 +84,13 @@ interface FeatureGraph {
 
   // Merge-train metadata (used by MergeTrainCoordinator)
   updateMergeTrainState(featureId: FeatureId, fields: MergeTrainUpdate): void;
+  replaceUsageRollups(patch: UsageRollupPatch): void;
 }
 ```
 
 ## Orchestrator Coordination Model
 
-> **Implementation status**: The coordination model below is the agreed architectural design. Type-level contracts (`SchedulerEvent`, `SchedulableUnit`, `TransitionResult`, `CombinedGraphNode`, `GraphMetrics`) are defined. Behavior (tick loop, graph construction, transition tables, conflict detection) is not yet implemented.
+> **Implementation status**: The coordination model below is partly architectural and partly already implemented. Current code includes the scheduler tick loop, combined-graph construction, graph metrics, ready-work prioritization, and FSM transition validators. The main gaps in this document are the still-unimplemented pre-planning `splitFeature()` / `mergeFeatures()` mutations and any future extensions called out explicitly as candidates.
 
 The orchestrator uses a **hybrid serial core with async feature phases** (Direction D). All state-mutating coordination flows through a single serial event queue, while feature-phase agent runs (planning, verifying, summarizing, replanning) execute asynchronously and post results back as events. Those feature phases are not a separate execution plane: architecturally they share the same run/session model as task execution (`agent_runs`, `session_id`, retry/backoff, help/approval/manual waits, and recovery), even if the current concrete runtime implementation reaches them through a different adapter surface.
 
@@ -122,7 +127,7 @@ Additional reservation-level detection could be made push-based in the future. S
 
 ### State Transition Guards
 
-State transitions should be validated by pure guard functions in `core/fsm/` before being applied. Guards check both axes (work-control and collab-control) together — for example, `executing → feature_ci` should only be valid when `collabControl !== 'cancelled'`. The guard interface is defined but transition tables are not yet implemented. SQL constraint hardening may be added later as a safety net but does not replace the orchestrator guards.
+State transitions are validated by pure guard functions in `core/fsm/` before being applied. Guards check both axes (work-control and collab-control) together — for example, `executing → feature_ci` must satisfy the feature composite guard. SQL constraint hardening may be added later as a safety net but does not replace the orchestrator guards.
 
 ### Feature-Phase Concurrency
 

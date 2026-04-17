@@ -39,6 +39,7 @@ CREATE TABLE features (
   merge_train_entered_at INTEGER,
   merge_train_entry_seq INTEGER,
   merge_train_reentry_count INTEGER NOT NULL DEFAULT 0,
+  runtime_blocked_by_feature_id TEXT REFERENCES features(id),
   summary TEXT,
   token_usage TEXT,
   created_at INTEGER NOT NULL,
@@ -80,6 +81,7 @@ CREATE TABLE agent_runs (
   attention TEXT NOT NULL DEFAULT 'none',
   session_id TEXT,
   payload_json TEXT,
+  token_usage TEXT,
   max_retries INTEGER NOT NULL DEFAULT 0,
   restart_count INTEGER NOT NULL DEFAULT 0,
   retry_at INTEGER,
@@ -103,7 +105,7 @@ CREATE TABLE events (
 );
 ```
 
-The `events` table is an append-only audit log for debugging,
+The schema excerpt above reflects the current effective SQLite schema after later migrations, not just the initial `001_init` migration. The `events` table is an append-only audit log for debugging,
 progress reporting, warnings, and runtime usage audit trails.
 
 The baseline keeps IDs persisted as plain `TEXT` columns in SQLite while using typed prefixed aliases in TypeScript (`m-${string}`, `f-${string}`, `t-${string}`). This preserves simple storage and joins without introducing object-shaped reference payloads.
@@ -128,10 +130,11 @@ Warning events include budget pressure, slow verification checks,
 long feature blocking, and feature-churn signals.
 
 For cross-feature coordination, the current suspension/blocking
-relationship should be reconstructable directly from task rows
+relationship should be reconstructable directly from task/feature rows
 rather than replaying the event log.
 `blocked_by_feature_id` identifies the current primary feature
-for a secondary task blocked by cross-feature overlap.
+for a secondary task blocked by cross-feature overlap, while
+`runtime_blocked_by_feature_id` persists feature-level runtime block metadata.
 Events remain primarily a logging/debugging/audit surface,
 not the primary source of current coordination truth.
 
@@ -145,14 +148,14 @@ than in-place reinterpretation of existing payloads.
 
 Use structured SQL columns for authoritative live orchestration
 state that the scheduler/TUI/filtering logic depends on directly
-(`collab_status`, `blocked_by_feature_id`,
+(`collab_status`, `blocked_by_feature_id`, `runtime_blocked_by_feature_id`,
 sibling-order fields, merge-train ordering fields, `summary`, foreign keys,
 timestamps, and run-level retry fields on `agent_runs`).
 Use JSON-in-TEXT only for nested per-row support data that is
 naturally array/object shaped and usually read/written as one
 value.
 
-`features.status` and `milestones.status` are derived reporting fields rather than independent authority. Persisting them is acceptable as a query/cache convenience, but their meaning is defined by recomputation from work/collaboration/task state rather than by direct mutation alone.
+`features.status` and `milestones.status` are persisted lifecycle/reporting fields rather than the sole authority for orchestration decisions. Their intended meaning is still derived from the surrounding work/collaboration/task state, even though current code persists and updates them directly as part of state transitions.
 
 Containment order is child-owned in the baseline. `features.milestone_id` and `tasks.feature_id` remain the authoritative membership pointers, while sibling order should live on child rows (`features.order_in_milestone`, `tasks.order_in_feature`) rather than in parent-owned id arrays.
 

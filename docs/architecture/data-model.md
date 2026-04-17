@@ -109,10 +109,10 @@ interface Feature {
   name: string;
   description: string;
   dependsOn: FeatureId[];          // feature ids only
-  status: UnitStatus;              // derived aggregate reporting status
+  status: UnitStatus;              // persisted lifecycle/reporting status
   workControl: FeatureWorkControl;
   collabControl: FeatureCollabControl;
-  featureBranch: string;           // e.g. feat-<name>-<feature-id>
+  featureBranch: string;           // e.g. feat-<slugified-name>-<feature-id>
   featureTestPolicy?: TestPolicy;
   mergeTrainManualPosition?: number;  // manual override bucket position when explicitly ordered
   mergeTrainEnteredAt?: number;
@@ -310,15 +310,15 @@ Within F-<feature-a>:
 
 ```text
 main
-└── feat-<name>-<feature-id>
-    ├── feat-<name>-<feature-id>-<task-id-a>
-    ├── feat-<name>-<feature-id>-<task-id-b>
-    └── feat-<name>-<feature-id>-<task-id-c>
+└── feat-<slugified-name>-<feature-id>
+    ├── feat-<slugified-name>-<feature-id>-<task-id-a>
+    ├── feat-<slugified-name>-<feature-id>-<task-id-b>
+    └── feat-<slugified-name>-<feature-id>-<task-id-c>
 ```
 
 - A feature branch and feature worktree are created when that branch is requested and collaboration control enters `branch_open`; the baseline branch name is `feat-<slugified-name>-<feature-id>`.
 - Task worktrees branch from the current HEAD of the owning feature branch and use the baseline branch name `feat-<slugified-name>-<feature-id>-<task-id>`.
-- Task completion is a two-step closeout: `submit()` runs light preflight checks and returns concrete failure reasons when they fail; `confirm()` is the final terminate-session + squash-merge into the feature branch.
+- Worker `submit(summary, filesChanged)` is the explicit task-complete signal. Worker `confirm()` is only a progress acknowledgement; the orchestrator treats terminal results with `completionKind === 'submitted'` as landed task work on the feature branch.
 - After the last task or repair task lands, the feature enters `feature_ci` on the feature branch; only after that boundary passes does the feature enter agent-level `verifying`.
 - If `verifying` passes, feature work control becomes `awaiting_merge` and collaboration control may move to `merge_queued`.
 - After collaboration control reaches `merged`, the feature either enters blocking `summarizing` or, in budget mode, moves directly to `work_complete` without writing summary text.
