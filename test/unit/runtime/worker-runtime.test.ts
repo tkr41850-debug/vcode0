@@ -34,10 +34,11 @@ interface PoolTestSetup {
 function createMockHandle(sessionId = 'sess-1'): MockHandle {
   const sentMessages: OrchestratorToWorkerMessage[] = [];
   let messageHandler: ((msg: WorkerToOrchestratorMessage) => void) | undefined;
+  const abort = vi.fn();
 
   return {
     sessionId,
-    abort: vi.fn(),
+    abort,
     sendInput: vi.fn().mockResolvedValue(undefined),
     send(msg: OrchestratorToWorkerMessage) {
       sentMessages.push(msg);
@@ -112,11 +113,17 @@ function createSessionStoreMock(): SessionStore {
   };
 }
 
+type AgentMessage = {
+  role: 'user';
+  content: string;
+  timestamp: number;
+};
+
 function createAgentStub() {
   return {
-    steer: vi.fn(),
-    followUp: vi.fn(),
-    abort: vi.fn(),
+    steer: vi.fn<(message: AgentMessage) => void>(),
+    followUp: vi.fn<(message: AgentMessage) => void>(),
+    abort: vi.fn<() => void>(),
   };
 }
 
@@ -300,7 +307,7 @@ describe('LocalWorkerPool', () => {
   describe('abortTask', () => {
     it('aborts a running task and removes it from live runs', async () => {
       const { handle, pool } = setupPool('sess-abort');
-      const abort = handle.abort;
+      const abort = vi.mocked(handle.abort);
 
       await pool.dispatchTask(makeTask(), {
         mode: 'start',
@@ -346,8 +353,8 @@ describe('LocalWorkerPool', () => {
     it('aborts all live sessions and empties the pool', async () => {
       const handleA = createMockHandle('sess-a');
       const handleB = createMockHandle('sess-b');
-      const abortA = handleA.abort;
-      const abortB = handleB.abort;
+      const abortA = vi.mocked(handleA.abort);
+      const abortB = vi.mocked(handleB.abort);
 
       const harness = createMockHarness(handleA);
       harness.start = vi
@@ -496,19 +503,12 @@ describe('WorkerRuntime.handleMessage', () => {
       },
     });
 
-    expect(agent.steer).toHaveBeenCalledWith(
-      expect.objectContaining({
-        role: 'user',
-        content: expect.stringContaining(
-          'conflict_kind: same_feature_task_rebase',
-        ),
-      }),
+    const steerCall = vi.mocked(agent.steer).mock.calls[0]?.[0];
+    expect(steerCall?.role).toBe('user');
+    expect(steerCall?.content).toContain(
+      'conflict_kind: same_feature_task_rebase',
     );
-    expect(agent.steer).toHaveBeenCalledWith(
-      expect.objectContaining({
-        content: expect.stringContaining('conflicted_files: src/a.ts'),
-      }),
-    );
+    expect(steerCall?.content).toContain('conflicted_files: src/a.ts');
   });
 
   it('queues suspend as follow-up instead of aborting agent', () => {
@@ -530,12 +530,9 @@ describe('WorkerRuntime.handleMessage', () => {
     });
 
     expect(agent.abort).not.toHaveBeenCalled();
-    expect(agent.followUp).toHaveBeenCalledWith(
-      expect.objectContaining({
-        role: 'user',
-        content: expect.stringContaining('[suspend:same_feature_overlap]'),
-      }),
-    );
+    const suspendCall = vi.mocked(agent.followUp).mock.calls[0]?.[0];
+    expect(suspendCall?.role).toBe('user');
+    expect(suspendCall?.content).toContain('[suspend:same_feature_overlap]');
   });
 
   it('queues resume as follow-up with prior suspend context', () => {
@@ -562,16 +559,11 @@ describe('WorkerRuntime.handleMessage', () => {
       reason: 'same_feature_rebase',
     });
 
-    expect(agent.followUp).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        role: 'user',
-        content: expect.stringContaining('[resume:same_feature_rebase]'),
-      }),
-    );
-    expect(agent.followUp).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        content: expect.stringContaining('prior_suspend: same_feature_overlap'),
-      }),
+    const resumeCall = vi.mocked(agent.followUp).mock.lastCall?.[0];
+    expect(resumeCall?.role).toBe('user');
+    expect(resumeCall?.content).toContain('[resume:same_feature_rebase]');
+    expect(resumeCall?.content).toContain(
+      'prior_suspend: same_feature_overlap',
     );
   });
 

@@ -24,8 +24,9 @@ describe('main CLI', () => {
   it('writes startup notice before app start', async () => {
     const callOrder: string[] = [];
     const app = {
-      start: vi.fn().mockImplementation(async () => {
+      start: vi.fn().mockImplementation(() => {
         callOrder.push('start');
+        return Promise.resolve();
       }),
       stop: vi.fn().mockResolvedValue(undefined),
     };

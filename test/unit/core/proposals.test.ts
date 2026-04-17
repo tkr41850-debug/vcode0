@@ -95,16 +95,11 @@ describe('applyGraphProposal', () => {
       expect.objectContaining({ description: 'Task 1' }),
     );
     expect(result.applied).toHaveLength(2);
-    expect(result.skipped).toEqual([
-      expect.objectContaining({
-        opIndex: 1,
-        reason: expect.stringContaining('does not exist'),
-      }),
-      expect.objectContaining({
-        opIndex: 3,
-        reason: expect.stringContaining('does not exist'),
-      }),
-    ]);
+    expect(result.skipped).toHaveLength(2);
+    expect(result.skipped[0]?.opIndex).toBe(1);
+    expect(result.skipped[0]?.reason).toContain('does not exist');
+    expect(result.skipped[1]?.opIndex).toBe(3);
+    expect(result.skipped[1]?.reason).toContain('does not exist');
     expect(result.summary).toContain('2 applied');
     expect(result.summary).toContain('2 skipped');
   });
@@ -139,12 +134,9 @@ describe('applyGraphProposal', () => {
       expect.objectContaining({ code: 'remove_started_task', entityId: 't-1' }),
     ]);
     expect(result.applied).toHaveLength(0);
-    expect(result.skipped).toEqual([
-      expect.objectContaining({
-        opIndex: 0,
-        reason: expect.stringContaining('already started'),
-      }),
-    ]);
+    expect(result.skipped).toHaveLength(1);
+    expect(result.skipped[0]?.opIndex).toBe(0);
+    expect(result.skipped[0]?.reason).toContain('already started');
     expect(graph.tasks.has('t-1')).toBe(true);
   });
 
@@ -170,12 +162,9 @@ describe('applyGraphProposal', () => {
     const result = applyGraphProposal(graph, builder.build());
 
     expect(result.applied).toHaveLength(0);
-    expect(result.skipped).toEqual([
-      expect.objectContaining({
-        opIndex: 0,
-        reason: expect.stringContaining('still has dependents'),
-      }),
-    ]);
+    expect(result.skipped).toHaveLength(1);
+    expect(result.skipped[0]?.opIndex).toBe(0);
+    expect(result.skipped[0]?.reason).toContain('still has dependents');
     expect(graph.features.has('f-1')).toBe(true);
     expect(graph.features.get('f-2')?.dependsOn).toEqual(['f-1']);
   });
@@ -207,12 +196,9 @@ describe('applyGraphProposal', () => {
       }),
     ]);
     expect(result.applied).toHaveLength(0);
-    expect(result.skipped).toEqual([
-      expect.objectContaining({
-        opIndex: 0,
-        reason: expect.stringContaining('already has started work'),
-      }),
-    ]);
+    expect(result.skipped).toHaveLength(1);
+    expect(result.skipped[0]?.opIndex).toBe(0);
+    expect(result.skipped[0]?.reason).toContain('already has started work');
     expect(graph.features.has('f-1')).toBe(true);
   });
 

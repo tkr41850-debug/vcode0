@@ -1,3 +1,5 @@
+import assert from 'node:assert/strict';
+
 import { InMemoryFeatureGraph } from '@core/graph/index';
 import type { TaskAgentRun } from '@core/types/index';
 import type {
@@ -26,7 +28,7 @@ function makeTaskRun(overrides: Partial<TaskAgentRun> = {}): TaskAgentRun {
 }
 
 function createStoreMock(runs: TaskAgentRun[]): Store {
-  const byId = new Map(runs.map((run) => [run.id, run]));
+  const byId = new Map<string, TaskAgentRun>(runs.map((run) => [run.id, run]));
   return {
     getAgentRun: (id: string) => byId.get(id),
     listAgentRuns: (query) =>
@@ -46,7 +48,7 @@ function createStoreMock(runs: TaskAgentRun[]): Store {
         return true;
       }),
     createAgentRun: vi.fn(),
-    updateAgentRun: vi.fn((id, patch) => {
+    updateAgentRun: vi.fn((id: string, patch: Partial<TaskAgentRun>) => {
       const existing = byId.get(id);
       if (existing === undefined) throw new Error(`missing run ${id}`);
       byId.set(id, { ...existing, ...patch });
@@ -63,11 +65,13 @@ function createRuntimeMock(): RuntimePort & {
     dispatchTask: vi.fn(),
     steerTask: vi.fn(),
     suspendTask: vi.fn(),
-    resumeTask: vi.fn(async (taskId: string) => ({
-      kind: 'delivered' as const,
-      taskId,
-      agentRunId: `run-${taskId}`,
-    })),
+    resumeTask: vi.fn((taskId: string) =>
+      Promise.resolve({
+        kind: 'delivered' as const,
+        taskId,
+        agentRunId: `run-${taskId}`,
+      }),
+    ),
     abortTask: vi.fn(),
     idleWorkerCount: vi.fn(() => 0),
     stopAll: vi.fn(),
@@ -105,7 +109,7 @@ function createPorts(runs: TaskAgentRun[]): {
     dispose: vi.fn(),
   };
   const verification: VerificationPort = {
-    verifyFeature: vi.fn(async () => ({ ok: true })),
+    verifyFeature: vi.fn(() => Promise.resolve({ ok: true })),
   };
 
   return {
@@ -196,9 +200,7 @@ describe('RecoveryService', () => {
     });
     const { ports, runtime, store, graph } = createPorts([run]);
     const task = graph.tasks.get('t-1');
-    if (task === undefined) {
-      throw new Error('missing task fixture');
-    }
+    assert(task !== undefined, 'missing task fixture');
     graph.tasks.set('t-1', {
       ...task,
       status: 'running',

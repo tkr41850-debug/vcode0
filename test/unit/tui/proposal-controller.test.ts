@@ -1,5 +1,5 @@
 import { InMemoryFeatureGraph } from '@core/graph/index';
-import type { AgentRun, FeaturePhaseAgentRun } from '@core/types/index';
+import type { AgentRun } from '@core/types/index';
 import {
   ComposerProposalController,
   type ComposerProposalEnvironment,
@@ -30,10 +30,20 @@ function makePlanningGraph(): InMemoryFeatureGraph {
 
 function makeEnv(
   graph = makePlanningGraph(),
-  overrides: Partial<ComposerProposalEnvironment> = {},
-): ComposerProposalEnvironment {
+  overrides: Partial<
+    Omit<
+      ComposerProposalEnvironment,
+      'enqueueApprovalDecision' | 'enqueueRerun'
+    >
+  > = {},
+): ComposerProposalEnvironment & {
+  enqueueApprovalDecision: ReturnType<typeof vi.fn>;
+  enqueueRerun: ReturnType<typeof vi.fn>;
+} {
   let autoEnabled = true;
   const runs = new Map<string, AgentRun>();
+  const enqueueApprovalDecision = vi.fn();
+  const enqueueRerun = vi.fn();
 
   return {
     snapshot: () => graph.snapshot(),
@@ -49,8 +59,8 @@ function makeEnv(
     saveFeatureRun: (run) => {
       runs.set(run.id, run);
     },
-    enqueueApprovalDecision: vi.fn(),
-    enqueueRerun: vi.fn(),
+    enqueueApprovalDecision,
+    enqueueRerun,
     ...overrides,
   };
 }
@@ -89,9 +99,7 @@ describe('ComposerProposalController', () => {
     );
     const result = await controller.execute('/submit', { featureId: 'f-1' });
 
-    const run = env.getFeatureRun('f-1', 'plan') as
-      | FeaturePhaseAgentRun
-      | undefined;
+    const run = env.getFeatureRun('f-1', 'plan');
     expect(result.message).toContain('Submitted proposal');
     expect(run).toMatchObject({
       id: 'run-feature:f-1:plan',

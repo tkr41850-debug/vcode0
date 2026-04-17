@@ -2,6 +2,7 @@ import { PiFeatureAgentRuntime, promptLibrary } from '@agents';
 import { InMemoryFeatureGraph } from '@core/graph/index';
 import type { GraphProposal } from '@core/proposals/index';
 import type {
+  EventRecord,
   Feature,
   FeaturePhaseAgentRun,
   GvcConfig,
@@ -51,23 +52,28 @@ function createConfig(overrides: Partial<GvcConfig> = {}): GvcConfig {
 
 function createRuntimeStub(): RuntimePort {
   return {
-    dispatchTask: async () => {
-      throw new Error(
-        'task dispatch not expected in feature-phase integration test',
-      );
-    },
-    steerTask: async (taskId: string) => ({ kind: 'not_running', taskId }),
-    suspendTask: async (taskId: string) => ({ kind: 'not_running', taskId }),
-    resumeTask: async (taskId: string) => ({ kind: 'not_running', taskId }),
-    abortTask: async (taskId: string) => ({ kind: 'not_running', taskId }),
+    dispatchTask: () =>
+      Promise.reject(
+        new Error(
+          'task dispatch not expected in feature-phase integration test',
+        ),
+      ),
+    steerTask: (taskId: string) =>
+      Promise.resolve({ kind: 'not_running', taskId }),
+    suspendTask: (taskId: string) =>
+      Promise.resolve({ kind: 'not_running', taskId }),
+    resumeTask: (taskId: string) =>
+      Promise.resolve({ kind: 'not_running', taskId }),
+    abortTask: (taskId: string) =>
+      Promise.resolve({ kind: 'not_running', taskId }),
     idleWorkerCount: () => 1,
-    stopAll: async () => {},
+    stopAll: () => Promise.resolve(),
   };
 }
 
 function createUiStub(): UiPort {
   return {
-    show: async () => {},
+    show: () => Promise.resolve(),
     refresh: () => {},
     dispose: () => {},
   };
@@ -156,6 +162,19 @@ function appendFeaturePhaseEvent(
   });
 }
 
+function findEvent(
+  events: readonly EventRecord[],
+  eventType: string,
+): EventRecord | undefined {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index];
+    if (event?.eventType === eventType) {
+      return event;
+    }
+  }
+  return undefined;
+}
+
 function makeProposal(mode: 'plan' | 'replan' = 'plan'): GraphProposal {
   return {
     version: 1,
@@ -208,7 +227,7 @@ function createFixture({
     sessionStore,
   });
   const verification: VerificationPort = {
-    verifyFeature: async () => ({ ok: true, summary: 'ok' }),
+    verifyFeature: () => Promise.resolve({ ok: true, summary: 'ok' }),
   };
   const ports: OrchestratorPorts = {
     store,
@@ -289,21 +308,20 @@ describe('feature-phase agent flow', () => {
     await expect(
       sessionStore.load('run-feature:f-1:discuss'),
     ).resolves.not.toBeNull();
-    expect(store.listEvents({ entityId: 'f-1' })).toContainEqual(
-      expect.objectContaining({
-        eventType: 'feature_phase_completed',
-        payload: expect.objectContaining({
-          phase: 'discuss',
-          summary: 'Discussion summary.',
-          sessionId: 'run-feature:f-1:discuss',
-          extra: expect.objectContaining({
-            summary: 'Discussion summary.',
-            intent: 'Clarify feature intent',
-            successCriteria: ['User can trigger feature'],
-          }),
-        }),
-      }),
+    const discussEvent = findEvent(
+      store.listEvents({ entityId: 'f-1' }),
+      'feature_phase_completed',
     );
+    expect(discussEvent?.payload).toMatchObject({
+      phase: 'discuss',
+      summary: 'Discussion summary.',
+      sessionId: 'run-feature:f-1:discuss',
+      extra: {
+        summary: 'Discussion summary.',
+        intent: 'Clarify feature intent',
+        successCriteria: ['User can trigger feature'],
+      },
+    });
   });
 
   it('dispatches research end-to-end with structured submitResearch and advances to planning', async () => {
@@ -369,26 +387,25 @@ describe('feature-phase agent flow', () => {
     await expect(
       sessionStore.load('run-feature:f-1:research'),
     ).resolves.not.toBeNull();
-    expect(store.listEvents({ entityId: 'f-1' })).toContainEqual(
-      expect.objectContaining({
-        eventType: 'feature_phase_completed',
-        payload: expect.objectContaining({
-          phase: 'research',
-          summary: 'Research summary.',
-          sessionId: 'run-feature:f-1:research',
-          extra: expect.objectContaining({
-            summary: 'Research summary.',
-            existingBehavior: 'Current flow already renders feature shell.',
-            essentialFiles: [
-              {
-                path: 'src/feature.ts',
-                responsibility: 'Feature entrypoint',
-              },
-            ],
-          }),
-        }),
-      }),
+    const researchEvent = findEvent(
+      store.listEvents({ entityId: 'f-1' }),
+      'feature_phase_completed',
     );
+    expect(researchEvent?.payload).toMatchObject({
+      phase: 'research',
+      summary: 'Research summary.',
+      sessionId: 'run-feature:f-1:research',
+      extra: {
+        summary: 'Research summary.',
+        existingBehavior: 'Current flow already renders feature shell.',
+        essentialFiles: [
+          {
+            path: 'src/feature.ts',
+            responsibility: 'Feature entrypoint',
+          },
+        ],
+      },
+    });
   });
 
   it('dispatches planning through SchedulerLoop into real feature agent runtime', async () => {
@@ -439,16 +456,15 @@ describe('feature-phase agent flow', () => {
       }),
     );
     expect(graph.tasks.size).toBe(0);
-    expect(store.listEvents({ entityId: 'f-1' })).toContainEqual(
-      expect.objectContaining({
-        eventType: 'feature_phase_completed',
-        payload: expect.objectContaining({
-          phase: 'plan',
-          summary: 'Planning complete.',
-          sessionId: 'run-feature:f-1:plan',
-        }),
-      }),
+    const planEvent = findEvent(
+      store.listEvents({ entityId: 'f-1' }),
+      'feature_phase_completed',
     );
+    expect(planEvent?.payload).toMatchObject({
+      phase: 'plan',
+      summary: 'Planning complete.',
+      sessionId: 'run-feature:f-1:plan',
+    });
     await expect(
       sessionStore.load('run-feature:f-1:plan'),
     ).resolves.not.toBeNull();
@@ -516,20 +532,19 @@ describe('feature-phase agent flow', () => {
     await expect(
       sessionStore.load('run-feature:f-1:summarize'),
     ).resolves.not.toBeNull();
-    expect(store.listEvents({ entityId: 'f-1' })).toContainEqual(
-      expect.objectContaining({
-        eventType: 'feature_phase_completed',
-        payload: expect.objectContaining({
-          phase: 'summarize',
-          summary: 'Merged feature summary.',
-          sessionId: 'run-feature:f-1:summarize',
-          extra: expect.objectContaining({
-            summary: 'Merged feature summary.',
-            outcome: 'Merged feature delivered',
-          }),
-        }),
-      }),
+    const summarizeEvent = findEvent(
+      store.listEvents({ entityId: 'f-1' }),
+      'feature_phase_completed',
     );
+    expect(summarizeEvent?.payload).toMatchObject({
+      phase: 'summarize',
+      summary: 'Merged feature summary.',
+      sessionId: 'run-feature:f-1:summarize',
+      extra: {
+        summary: 'Merged feature summary.',
+        outcome: 'Merged feature delivered',
+      },
+    });
   });
 
   it('skips post-merge summarization in budget mode and leaves summary empty', async () => {
@@ -597,28 +612,25 @@ describe('feature-phase agent flow', () => {
         collabControl: 'branch_open',
       }),
     );
-    expect([...graph.tasks.values()]).toContainEqual(
-      expect.objectContaining({
-        status: 'ready',
-        repairSource: 'verify',
-        description: expect.stringContaining(
-          'Repair feature verification issues: Repair needed: integrated flow not proven.',
-        ),
-      }),
+    const repairTask = [...graph.tasks.values()].find(
+      (task) => task.repairSource === 'verify',
     );
-    expect(store.listEvents({ entityId: 'f-1' })).toContainEqual(
-      expect.objectContaining({
-        eventType: 'feature_phase_completed',
-        payload: expect.objectContaining({
-          phase: 'verify',
-          summary: 'Repair needed: integrated flow not proven.',
-          extra: expect.objectContaining({
-            outcome: 'repair_needed',
-            failedChecks: ['integrated flow not proven'],
-          }),
-        }),
-      }),
+    expect(repairTask?.status).toBe('ready');
+    expect(repairTask?.description).toContain(
+      'Repair feature verification issues: Repair needed: integrated flow not proven.',
     );
+    const verifyEvent = findEvent(
+      store.listEvents({ entityId: 'f-1' }),
+      'feature_phase_completed',
+    );
+    expect(verifyEvent?.payload).toMatchObject({
+      phase: 'verify',
+      summary: 'Repair needed: integrated flow not proven.',
+      extra: {
+        outcome: 'repair_needed',
+        failedChecks: ['integrated flow not proven'],
+      },
+    });
   });
 
   it('dispatches replanning proposal end-to-end and waits for approval', async () => {
@@ -671,22 +683,24 @@ describe('feature-phase agent flow', () => {
       }),
     );
     expect(run?.payloadJson).toBeDefined();
-    expect(JSON.parse(run?.payloadJson ?? '{}')).toEqual(
-      expect.objectContaining({
-        mode: 'replan',
-        ops: expect.arrayContaining([
-          expect.objectContaining({
-            kind: 'edit_task',
-            taskId: 't-stuck',
-            patch: { description: 'Existing stuck task (replanned)' },
-          }),
-          expect.objectContaining({
-            kind: 'add_task',
-            featureId: 'f-1',
-            description: 'Follow-up fix task',
-          }),
-        ]),
-      }),
+    const payload = JSON.parse(run?.payloadJson ?? '{}') as {
+      mode?: string;
+      ops?: Array<Record<string, unknown>>;
+    };
+    expect(payload.mode).toBe('replan');
+    expect(payload.ops).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'edit_task',
+          taskId: 't-stuck',
+          patch: { description: 'Existing stuck task (replanned)' },
+        }),
+        expect.objectContaining({
+          kind: 'add_task',
+          featureId: 'f-1',
+          description: 'Follow-up fix task',
+        }),
+      ]),
     );
     expect(graph.tasks.get('t-stuck')).toEqual(
       expect.objectContaining({
@@ -699,16 +713,15 @@ describe('feature-phase agent flow', () => {
     await expect(
       sessionStore.load('run-feature:f-1:replan'),
     ).resolves.not.toBeNull();
-    expect(store.listEvents({ entityId: 'f-1' })).toContainEqual(
-      expect.objectContaining({
-        eventType: 'feature_phase_completed',
-        payload: expect.objectContaining({
-          phase: 'replan',
-          summary: 'Replanning complete.',
-          sessionId: 'run-feature:f-1:replan',
-        }),
-      }),
+    const replanEvent = findEvent(
+      store.listEvents({ entityId: 'f-1' }),
+      'feature_phase_completed',
     );
+    expect(replanEvent?.payload).toMatchObject({
+      phase: 'replan',
+      summary: 'Replanning complete.',
+      sessionId: 'run-feature:f-1:replan',
+    });
   });
 
   it('applies approved replanning proposal and restores executable flow', async () => {
@@ -774,14 +787,13 @@ describe('feature-phase agent flow', () => {
         payloadJson: JSON.stringify(makeProposal('replan')),
       }),
     );
-    expect(store.listEvents({ entityId: 'f-1' })).toContainEqual(
-      expect.objectContaining({
-        eventType: 'proposal_applied',
-        payload: expect.objectContaining({
-          phase: 'replan',
-          mode: 'replan',
-        }),
-      }),
+    const proposalAppliedEvent = findEvent(
+      store.listEvents({ entityId: 'f-1' }),
+      'proposal_applied',
     );
+    expect(proposalAppliedEvent?.payload).toMatchObject({
+      phase: 'replan',
+      mode: 'replan',
+    });
   });
 });

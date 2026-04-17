@@ -288,7 +288,7 @@ export function buildComposerSlashCommands({
     {
       name: 'init',
       description: 'Create first milestone and planning feature.',
-      getArgumentCompletions: async (prefix) => {
+      getArgumentCompletions: (prefix) => {
         return filterSuggestions(prefix, [
           {
             value: INITIALIZE_PROJECT_EXAMPLE_COMMAND,
@@ -301,7 +301,7 @@ export function buildComposerSlashCommands({
     {
       name: 'feature-add',
       description: 'Add feature to proposal draft.',
-      getArgumentCompletions: async (prefix) => {
+      getArgumentCompletions: (prefix) => {
         return filterSuggestions(prefix, [
           ...(selectedMilestoneId !== undefined
             ? [
@@ -319,14 +319,14 @@ export function buildComposerSlashCommands({
     {
       name: 'feature-remove',
       description: 'Remove feature from proposal draft.',
-      getArgumentCompletions: async (prefix) => {
+      getArgumentCompletions: (prefix) => {
         return filterSuggestions(prefix, featureIdSuggestions);
       },
     },
     {
       name: 'feature-edit',
       description: 'Edit feature in proposal draft.',
-      getArgumentCompletions: async (prefix) => {
+      getArgumentCompletions: (prefix) => {
         const suggestions = featureIds.map((featureId) => ({
           value: `--feature ${featureId} --name "" --description ""`,
           label: featureId,
@@ -338,7 +338,7 @@ export function buildComposerSlashCommands({
     {
       name: 'task-add',
       description: 'Add task to proposal draft.',
-      getArgumentCompletions: async (prefix) => {
+      getArgumentCompletions: (prefix) => {
         const featureId = selectedFeatureId ?? featureIds[0];
         return filterSuggestions(prefix, [
           ...(featureId !== undefined
@@ -361,7 +361,7 @@ export function buildComposerSlashCommands({
     {
       name: 'task-remove',
       description: 'Remove task from proposal draft.',
-      getArgumentCompletions: async (prefix) => {
+      getArgumentCompletions: (prefix) => {
         const suggestions = taskIds.map((taskId) => ({
           value: `--task ${taskId}`,
           label: taskId,
@@ -373,21 +373,21 @@ export function buildComposerSlashCommands({
     {
       name: 'task-edit',
       description: 'Edit task in proposal draft.',
-      getArgumentCompletions: async (prefix) => {
+      getArgumentCompletions: (prefix) => {
         return filterSuggestions(prefix, taskIdSuggestions);
       },
     },
     {
       name: 'dep-add',
       description: 'Add dependency in proposal draft.',
-      getArgumentCompletions: async (prefix) => {
+      getArgumentCompletions: (prefix) => {
         return filterSuggestions(prefix, buildDependencySuggestions(snapshot));
       },
     },
     {
       name: 'dep-remove',
       description: 'Remove dependency in proposal draft.',
-      getArgumentCompletions: async (prefix) => {
+      getArgumentCompletions: (prefix) => {
         return filterSuggestions(prefix, buildDependencySuggestions(snapshot));
       },
     },
@@ -400,7 +400,7 @@ export function buildComposerSlashCommands({
     {
       name: 'reject',
       description: 'Reject pending proposal.',
-      getArgumentCompletions: async (prefix) => {
+      getArgumentCompletions: (prefix) => {
         return filterSuggestions(prefix, [
           {
             value: '--comment ""',

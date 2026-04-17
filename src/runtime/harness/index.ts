@@ -15,10 +15,11 @@ import type { SessionStore } from '@runtime/sessions/index';
 
 export interface SessionHandle {
   sessionId: string;
-  abort(): void;
-  sendInput(text: string): Promise<void>;
-  send(message: OrchestratorToWorkerMessage): void;
+  abort(this: void): void;
+  sendInput(this: void, text: string): Promise<void>;
+  send(this: void, message: OrchestratorToWorkerMessage): void;
   onWorkerMessage(
+    this: void,
     handler: (message: WorkerToOrchestratorMessage) => void,
   ): void;
 }

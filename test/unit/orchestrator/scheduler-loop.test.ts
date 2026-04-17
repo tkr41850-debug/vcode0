@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
@@ -28,7 +29,6 @@ import type {
   OrchestratorPorts,
   Store,
   UiPort,
-  VerificationPort,
 } from '@orchestrator/ports/index';
 import {
   type SchedulerEvent,
@@ -171,19 +171,25 @@ function createRuntimeMock(order: string[]): RuntimePort & {
   stopAll: ReturnType<typeof vi.fn>;
 } {
   return {
-    dispatchTask: async (_task: Task, _dispatch) => ({
-      kind: 'started',
-      taskId: 't-1',
-      agentRunId: 'run-1',
-      sessionId: 'sess-1',
-    }),
-    steerTask: async (taskId: string) => ({ kind: 'not_running', taskId }),
-    suspendTask: async (taskId: string) => ({ kind: 'not_running', taskId }),
-    resumeTask: async (taskId: string) => ({ kind: 'not_running', taskId }),
-    abortTask: async (taskId: string) => ({ kind: 'not_running', taskId }),
+    dispatchTask: (_task: Task, _dispatch) =>
+      Promise.resolve({
+        kind: 'started',
+        taskId: 't-1',
+        agentRunId: 'run-1',
+        sessionId: 'sess-1',
+      }),
+    steerTask: (taskId: string) =>
+      Promise.resolve({ kind: 'not_running', taskId }),
+    suspendTask: (taskId: string) =>
+      Promise.resolve({ kind: 'not_running', taskId }),
+    resumeTask: (taskId: string) =>
+      Promise.resolve({ kind: 'not_running', taskId }),
+    abortTask: (taskId: string) =>
+      Promise.resolve({ kind: 'not_running', taskId }),
     idleWorkerCount: () => 4,
-    stopAll: vi.fn(async () => {
+    stopAll: vi.fn(() => {
       order.push('stopAll');
+      return Promise.resolve();
     }),
   };
 }
@@ -256,26 +262,28 @@ function createAgentMock(): PlannerAgent & ReplannerAgent {
   const verificationResult: VerificationSummary = { ok: true };
 
   return {
-    discussFeature: async (_feature: Feature, _run: FeaturePhaseRunContext) =>
-      discussResult,
-    researchFeature: async (_feature: Feature, _run: FeaturePhaseRunContext) =>
-      researchResult,
-    planFeature: async (_feature: Feature, _run: FeaturePhaseRunContext) => ({
-      summary: 'ok',
-      proposal: makeProposal('plan'),
-    }),
-    verifyFeature: async (_feature: Feature, _run: FeaturePhaseRunContext) =>
-      verificationResult,
-    summarizeFeature: async (_feature: Feature, _run: FeaturePhaseRunContext) =>
-      summarizeResult,
-    replanFeature: async (
+    discussFeature: (_feature: Feature, _run: FeaturePhaseRunContext) =>
+      Promise.resolve(discussResult),
+    researchFeature: (_feature: Feature, _run: FeaturePhaseRunContext) =>
+      Promise.resolve(researchResult),
+    planFeature: (_feature: Feature, _run: FeaturePhaseRunContext) =>
+      Promise.resolve({
+        summary: 'ok',
+        proposal: makeProposal('plan'),
+      }),
+    verifyFeature: (_feature: Feature, _run: FeaturePhaseRunContext) =>
+      Promise.resolve(verificationResult),
+    summarizeFeature: (_feature: Feature, _run: FeaturePhaseRunContext) =>
+      Promise.resolve(summarizeResult),
+    replanFeature: (
       _feature: Feature,
       _reason: string,
       _run: FeaturePhaseRunContext,
-    ) => ({
-      summary: 'ok',
-      proposal: makeProposal('replan'),
-    }),
+    ) =>
+      Promise.resolve({
+        summary: 'ok',
+        proposal: makeProposal('replan'),
+      }),
   };
 }
 
@@ -309,28 +317,20 @@ function createPorts(
   const runtime = createRuntimeMock(order);
   const ui = createUiMock(order);
 
+  const base = {
+    store: createStoreMock(),
+    runtime,
+    agents: createAgentMock(),
+    ui,
+    config: createConfig(configOverrides),
+  };
+  const verification = new VerificationService({ config: base.config });
+
   return {
-    ports: (() => {
-      const base = {
-        store: createStoreMock(),
-        runtime,
-        agents: createAgentMock(),
-        ui,
-        config: createConfig(configOverrides),
-      };
-      let verification: VerificationPort;
-      const ports = {
-        ...base,
-        get verification() {
-          return verification;
-        },
-      } as OrchestratorPorts;
-      verification = new VerificationService(ports);
-      return {
-        ...base,
-        verification,
-      };
-    })(),
+    ports: {
+      ...base,
+      verification,
+    },
     runtime,
     ui,
   };
@@ -460,7 +460,9 @@ async function git(dir: string, ...args: string[]): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     execFile('git', args, { cwd: dir }, (error) => {
       if (error) {
-        reject(error);
+        reject(
+          error instanceof Error ? error : new Error('git command failed'),
+        );
         return;
       }
       resolve();
@@ -1231,14 +1233,18 @@ describe('SchedulerLoop', () => {
         collabControl: 'branch_open',
       }),
     );
+    const retryTaskRunPatch = updateAgentRun.mock.calls.find(
+      ([runId, patch]) =>
+        runId === 'run-task:t-1' && patch.runStatus === 'retry_await',
+    )?.[1];
     expect(updateAgentRun).toHaveBeenCalledWith(
       'run-task:t-1',
       expect.objectContaining({
         runStatus: 'retry_await',
         owner: 'system',
-        retryAt: expect.any(Number),
       }),
     );
+    expect(retryTaskRunPatch?.retryAt).toEqual(expect.any(Number));
   });
 
   it('moves a task run to await_response manual ownership on request_help', async () => {
@@ -1468,14 +1474,19 @@ describe('SchedulerLoop', () => {
 
     await loop.dispatchReadyWorkForTest(100);
 
+    const retryFeatureCiPatch = updateAgentRun.mock.calls.find(
+      ([runId, patch]) =>
+        runId === 'run-feature:f-1:feature_ci' &&
+        patch.runStatus === 'retry_await',
+    )?.[1];
     expect(updateAgentRun).toHaveBeenCalledWith(
       'run-feature:f-1:feature_ci',
       expect.objectContaining({
         runStatus: 'retry_await',
         owner: 'system',
-        retryAt: expect.any(Number),
       }),
     );
+    expect(retryFeatureCiPatch?.retryAt).toEqual(expect.any(Number));
   });
 
   it('dispatches verify feature phases through the agent port', async () => {
@@ -1786,16 +1797,15 @@ describe('SchedulerLoop', () => {
       owner: 'manual',
       payloadJson: '{bad-json',
     });
-    expect(appendEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        eventType: 'proposal_apply_failed',
-        entityId: 'f-1',
-        payload: expect.objectContaining({
-          phase: 'plan',
-          error: expect.stringContaining('JSON'),
-        }),
-      }),
-    );
+    const proposalApplyFailedEvent = appendEvent.mock.calls[0]?.[0];
+    expect(proposalApplyFailedEvent).toMatchObject({
+      eventType: 'proposal_apply_failed',
+      entityId: 'f-1',
+    });
+    expect(proposalApplyFailedEvent?.payload).toMatchObject({
+      phase: 'plan',
+    });
+    expect(proposalApplyFailedEvent?.payload?.error).toContain('JSON');
   });
 
   it('keeps feature in planning when approved proposal applies no ops', async () => {
@@ -1872,16 +1882,15 @@ describe('SchedulerLoop', () => {
       decision: 'approved',
     });
 
-    expect(appendEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        eventType: 'proposal_apply_failed',
-        entityId: 'f-1',
-        payload: expect.objectContaining({
-          phase: 'plan',
-          error: 'invalid proposal payload',
-        }),
-      }),
-    );
+    const invalidProposalEvent = appendEvent.mock.calls[0]?.[0];
+    expect(invalidProposalEvent).toMatchObject({
+      eventType: 'proposal_apply_failed',
+      entityId: 'f-1',
+    });
+    expect(invalidProposalEvent?.payload).toMatchObject({
+      phase: 'plan',
+      error: 'invalid proposal payload',
+    });
   });
 
   it('moves feature_ci success into verifying', async () => {
@@ -1956,29 +1965,28 @@ describe('SchedulerLoop', () => {
       runStatus: 'completed',
       owner: 'system',
     });
-    expect(appendEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        eventType: 'feature_phase_completed',
-        entityId: 'f-1',
-        payload: expect.objectContaining({
-          phase: 'feature_ci',
-          summary: 'green',
-          extra: expect.objectContaining({
-            ok: true,
-            summary: 'green',
-          }),
-        }),
-      }),
+    const featureCiEvent = appendEvent.mock.calls.find(
+      ([event]) => event.eventType === 'feature_phase_completed',
+    )?.[0];
+    expect(featureCiEvent).toMatchObject({
+      eventType: 'feature_phase_completed',
+      entityId: 'f-1',
+    });
+    expect(featureCiEvent?.payload).toMatchObject({
+      phase: 'feature_ci',
+      summary: 'green',
+      extra: {
+        ok: true,
+        summary: 'green',
+      },
+    });
+    const emptyCheckWarning = appendEvent.mock.calls.find(
+      ([event]) =>
+        event.eventType === 'warning_emitted' &&
+        event.entityId === 'f-1' &&
+        event.payload?.category === 'empty_verification_checks',
     );
-    expect(appendEvent).not.toHaveBeenCalledWith(
-      expect.objectContaining({
-        eventType: 'warning_emitted',
-        entityId: 'f-1',
-        payload: expect.objectContaining({
-          category: 'empty_verification_checks',
-        }),
-      }),
-    );
+    expect(emptyCheckWarning).toBeUndefined();
   });
 
   it('keeps empty-check warning deduped across later ticks when warning history is unavailable', async () => {
@@ -2022,13 +2030,9 @@ describe('SchedulerLoop', () => {
           event.payload?.category === 'empty_verification_checks',
       );
     expect(warningEvents).toHaveLength(1);
-    expect(warningEvents[0]).toEqual(
-      expect.objectContaining({
-        payload: expect.objectContaining({
-          extra: { layer: 'feature' },
-        }),
-      }),
-    );
+    expect(warningEvents[0]?.payload).toMatchObject({
+      extra: { layer: 'feature' },
+    });
   });
 
   it('does not emit empty-check warning when mergeTrain is omitted but feature checks exist', async () => {
@@ -2172,14 +2176,12 @@ describe('SchedulerLoop', () => {
       (task) => task.featureId === 'f-1' && task.id !== 't-1',
     );
     expect(repairTasks).toHaveLength(1);
-    expect(repairTasks[0]).toEqual(
-      expect.objectContaining({
-        status: 'ready',
-        collabControl: 'none',
-        description: expect.stringContaining('Repair feature ci issues'),
-        repairSource: 'feature_ci',
-      }),
-    );
+    expect(repairTasks[0]).toMatchObject({
+      status: 'ready',
+      collabControl: 'none',
+      repairSource: 'feature_ci',
+    });
+    expect(repairTasks[0]?.description).toContain('Repair feature ci issues');
   });
 
   it('moves verify failure into executing_repair and creates a ready repair task', async () => {
@@ -2232,14 +2234,12 @@ describe('SchedulerLoop', () => {
     );
     const repairTasks = [...graph.tasks.values()];
     expect(repairTasks).toHaveLength(1);
-    expect(repairTasks[0]).toEqual(
-      expect.objectContaining({
-        status: 'ready',
-        description: expect.stringContaining(
-          'Repair feature verification issues',
-        ),
-        repairSource: 'verify',
-      }),
+    expect(repairTasks[0]).toMatchObject({
+      status: 'ready',
+      repairSource: 'verify',
+    });
+    expect(repairTasks[0]?.description).toContain(
+      'Repair feature verification issues',
     );
   });
 
@@ -2305,13 +2305,9 @@ describe('SchedulerLoop', () => {
       (task) => task.repairSource !== undefined,
     );
     expect(repairTasks).toHaveLength(1);
-    expect(repairTasks[0]).toEqual(
-      expect.objectContaining({
-        repairSource: 'verify',
-        description: expect.stringContaining(
-          'Repair feature verification issues',
-        ),
-      }),
+    expect(repairTasks[0]?.repairSource).toBe('verify');
+    expect(repairTasks[0]?.description).toContain(
+      'Repair feature verification issues',
     );
   });
 
@@ -3282,11 +3278,13 @@ describe('SchedulerLoop', () => {
     vi.spyOn(ports.runtime, 'idleWorkerCount').mockReturnValue(0);
     const resumeTask = vi
       .spyOn(runtime, 'resumeTask')
-      .mockImplementation(async (taskId: string) => ({
-        kind: 'delivered',
-        taskId,
-        agentRunId: `run-${taskId}`,
-      }));
+      .mockImplementation((taskId: string) =>
+        Promise.resolve({
+          kind: 'delivered',
+          taskId,
+          agentRunId: `run-${taskId}`,
+        }),
+      );
     const graph = new InMemoryFeatureGraph({
       milestones: [
         {
@@ -3348,15 +3346,12 @@ describe('SchedulerLoop', () => {
 
     const blockedFeature = graph.features.get('f-2');
     const blockedTask = graph.tasks.get('t-2');
-    expect(blockedFeature).toBeDefined();
-    expect(blockedTask).toBeDefined();
-    if (
-      blockedFeature === undefined ||
-      blockedTask === undefined ||
-      blockedTask.worktreeBranch === undefined
-    ) {
-      throw new Error('missing blocked feature fixture state');
-    }
+    assert(
+      blockedFeature !== undefined &&
+        blockedTask !== undefined &&
+        blockedTask.worktreeBranch !== undefined,
+      'missing blocked feature fixture state',
+    );
 
     const featureDir = await writeFeatureRebaseRepo(root, blockedFeature);
     await git(featureDir, 'checkout', 'main');
@@ -3476,16 +3471,15 @@ describe('SchedulerLoop', () => {
       ([event]) => event.eventType === 'warning_emitted',
     );
     expect(warningCalls).toHaveLength(1);
-    expect(warningCalls[0]?.[0]).toEqual(
-      expect.objectContaining({
-        eventType: 'warning_emitted',
-        entityId: 'f-2',
-        timestamp: 1001,
-        payload: expect.objectContaining({
-          category: 'long_feature_blocking',
-        }),
-      }),
-    );
+    const warningEvent = warningCalls[0]?.[0];
+    expect(warningEvent).toMatchObject({
+      eventType: 'warning_emitted',
+      entityId: 'f-2',
+      timestamp: 1001,
+    });
+    expect(warningEvent?.payload).toMatchObject({
+      category: 'long_feature_blocking',
+    });
   });
 
   it('creates integration repair and keeps tasks suspended when secondary rebase conflicts', async () => {
@@ -3552,10 +3546,10 @@ describe('SchedulerLoop', () => {
     });
 
     const blockedFeature = graph.features.get('f-2');
-    expect(blockedFeature).toBeDefined();
-    if (blockedFeature === undefined) {
-      throw new Error('missing blocked feature fixture state');
-    }
+    assert(
+      blockedFeature !== undefined,
+      'missing blocked feature fixture state',
+    );
 
     const featureDir = await writeFeatureRebaseRepo(root, blockedFeature);
     await git(featureDir, 'checkout', blockedFeature.featureBranch);
@@ -3610,10 +3604,12 @@ describe('SchedulerLoop', () => {
     vi.spyOn(ports.runtime, 'idleWorkerCount').mockReturnValue(0);
     const resumeTask = vi
       .spyOn(runtime, 'resumeTask')
-      .mockImplementation(async (taskId: string) => ({
-        kind: 'not_running',
-        taskId,
-      }));
+      .mockImplementation((taskId: string) =>
+        Promise.resolve({
+          kind: 'not_running',
+          taskId,
+        }),
+      );
     const graph = new InMemoryFeatureGraph({
       milestones: [
         {
@@ -3675,15 +3671,12 @@ describe('SchedulerLoop', () => {
 
     const blockedFeature = graph.features.get('f-2');
     const blockedTask = graph.tasks.get('t-2');
-    expect(blockedFeature).toBeDefined();
-    expect(blockedTask).toBeDefined();
-    if (
-      blockedFeature === undefined ||
-      blockedTask === undefined ||
-      blockedTask.worktreeBranch === undefined
-    ) {
-      throw new Error('missing blocked feature fixture state');
-    }
+    assert(
+      blockedFeature !== undefined &&
+        blockedTask !== undefined &&
+        blockedTask.worktreeBranch !== undefined,
+      'missing blocked feature fixture state',
+    );
 
     const featureDir = await writeFeatureRebaseRepo(root, blockedFeature);
     await git(featureDir, 'checkout', 'main');
@@ -3794,15 +3787,12 @@ describe('SchedulerLoop', () => {
 
     const blockedFeature = graph.features.get('f-2');
     const blockedTask = graph.tasks.get('t-2');
-    expect(blockedFeature).toBeDefined();
-    expect(blockedTask).toBeDefined();
-    if (
-      blockedFeature === undefined ||
-      blockedTask === undefined ||
-      blockedTask.worktreeBranch === undefined
-    ) {
-      throw new Error('missing blocked feature fixture state');
-    }
+    assert(
+      blockedFeature !== undefined &&
+        blockedTask !== undefined &&
+        blockedTask.worktreeBranch !== undefined,
+      'missing blocked feature fixture state',
+    );
 
     const featureDir = await writeFeatureRebaseRepo(root, blockedFeature);
     await git(featureDir, 'checkout', 'main');
@@ -3923,10 +3913,10 @@ describe('SchedulerLoop', () => {
     });
 
     const blockedFeature = graph.features.get('f-2');
-    expect(blockedFeature).toBeDefined();
-    if (blockedFeature === undefined) {
-      throw new Error('missing blocked feature fixture state');
-    }
+    assert(
+      blockedFeature !== undefined,
+      'missing blocked feature fixture state',
+    );
 
     const featureDir = await writeFeatureRebaseRepo(root, blockedFeature);
     await git(featureDir, 'checkout', 'main');
@@ -4226,13 +4216,17 @@ describe('SchedulerLoop', () => {
       error: 'boom',
     });
 
+    const retryPlanPatch = updateAgentRun.mock.calls.find(
+      ([runId, patch]) =>
+        runId === 'run-feature:f-1:plan' && patch.runStatus === 'retry_await',
+    )?.[1];
     expect(updateAgentRun).toHaveBeenCalledWith(
       'run-feature:f-1:plan',
       expect.objectContaining({
         runStatus: 'retry_await',
         owner: 'system',
-        retryAt: expect.any(Number),
       }),
     );
+    expect(retryPlanPatch?.retryAt).toEqual(expect.any(Number));
   });
 });

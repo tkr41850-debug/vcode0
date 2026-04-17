@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
@@ -7,6 +8,7 @@ import { worktreePath } from '@core/naming/index';
 import type { Feature, GvcConfig, Task } from '@core/types/index';
 import { ConflictCoordinator } from '@orchestrator/conflicts/index';
 import type { OrchestratorPorts } from '@orchestrator/ports/index';
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -33,21 +35,27 @@ function createPorts(root: string): OrchestratorPorts {
     config: createConfig(),
     runtime: {
       dispatchTask: vi.fn(),
-      steerTask: vi.fn(async (taskId: string) => ({
-        kind: 'delivered' as const,
-        taskId,
-        agentRunId: `run-${taskId}`,
-      })),
-      suspendTask: vi.fn(async (taskId: string) => ({
-        kind: 'delivered' as const,
-        taskId,
-        agentRunId: `run-${taskId}`,
-      })),
-      resumeTask: vi.fn(async (taskId: string) => ({
-        kind: 'delivered' as const,
-        taskId,
-        agentRunId: `run-${taskId}`,
-      })),
+      steerTask: vi.fn((taskId: string) =>
+        Promise.resolve({
+          kind: 'delivered' as const,
+          taskId,
+          agentRunId: `run-${taskId}`,
+        }),
+      ),
+      suspendTask: vi.fn((taskId: string) =>
+        Promise.resolve({
+          kind: 'delivered' as const,
+          taskId,
+          agentRunId: `run-${taskId}`,
+        }),
+      ),
+      resumeTask: vi.fn((taskId: string) =>
+        Promise.resolve({
+          kind: 'delivered' as const,
+          taskId,
+          agentRunId: `run-${taskId}`,
+        }),
+      ),
       abortTask: vi.fn(),
       idleWorkerCount: vi.fn(() => 0),
       stopAll: vi.fn(),
@@ -114,7 +122,9 @@ async function git(dir: string, ...args: string[]): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     execFile('git', args, { cwd: dir }, (error) => {
       if (error) {
-        reject(error);
+        reject(
+          error instanceof Error ? error : new Error('git command failed'),
+        );
         return;
       }
       resolve();
@@ -126,7 +136,9 @@ async function gitOutput(dir: string, ...args: string[]): Promise<string> {
   return await new Promise<string>((resolve, reject) => {
     execFile('git', args, { cwd: dir }, (error, stdout) => {
       if (error) {
-        reject(error);
+        reject(
+          error instanceof Error ? error : new Error('git command failed'),
+        );
         return;
       }
       resolve(stdout);
@@ -222,16 +234,12 @@ describe('ConflictCoordinator', () => {
     const dominant = graph.tasks.get('t-dominant');
     const secondary = graph.tasks.get('t-secondary');
 
-    expect(feature).toBeDefined();
-    expect(dominant).toBeDefined();
-    expect(secondary).toBeDefined();
-    if (
-      feature === undefined ||
-      dominant === undefined ||
-      secondary === undefined
-    ) {
-      throw new Error('missing fixture state');
-    }
+    assert(
+      feature !== undefined &&
+        dominant !== undefined &&
+        secondary !== undefined,
+      'missing fixture state',
+    );
 
     await coordinator.handleSameFeatureOverlap(
       feature,
@@ -302,15 +310,12 @@ describe('ConflictCoordinator', () => {
     const suspended = graph.tasks.get('t-suspended');
     const dominant = graph.tasks.get('t-dominant');
 
-    expect(suspended).toBeDefined();
-    expect(dominant).toBeDefined();
-    if (
-      suspended === undefined ||
-      suspended.worktreeBranch === undefined ||
-      dominant === undefined
-    ) {
-      throw new Error('missing suspended task');
-    }
+    assert(
+      suspended !== undefined &&
+        suspended.worktreeBranch !== undefined &&
+        dominant !== undefined,
+      'missing suspended task',
+    );
 
     const taskDir = await writeTaskRebaseRepo(
       root,
@@ -391,15 +396,12 @@ describe('ConflictCoordinator', () => {
     const suspended = graph.tasks.get('t-suspended');
     const dominant = graph.tasks.get('t-dominant');
 
-    expect(suspended).toBeDefined();
-    expect(dominant).toBeDefined();
-    if (
-      suspended === undefined ||
-      suspended.worktreeBranch === undefined ||
-      dominant === undefined
-    ) {
-      throw new Error('missing suspended task');
-    }
+    assert(
+      suspended !== undefined &&
+        suspended.worktreeBranch !== undefined &&
+        dominant !== undefined,
+      'missing suspended task',
+    );
 
     const taskDir = await writeTaskRebaseRepo(
       root,
@@ -431,23 +433,26 @@ describe('ConflictCoordinator', () => {
       collabControl: 'conflict',
       status: 'running',
     });
-    expect(ports.runtime.steerTask).toHaveBeenCalledWith(
-      suspended.id,
-      expect.objectContaining({
-        kind: 'conflict_steer',
-        timing: 'immediate',
-        gitConflictContext: expect.objectContaining({
-          kind: 'same_feature_task_rebase',
-          taskId: suspended.id,
-          featureId: feature.id,
-          files: ['src/a.ts'],
-          conflictedFiles: ['src/a.ts'],
-          pauseReason: 'same_feature_overlap',
-          dominantTaskId: 't-dominant',
-          dominantTaskSummary: 'dominant landed',
-        }),
-      }),
+    const steerDirective = vi.mocked(ports.runtime.steerTask).mock
+      .calls[0]?.[1];
+    expect(steerDirective).toMatchObject({
+      kind: 'conflict_steer',
+      timing: 'immediate',
+    });
+    assert(
+      steerDirective?.kind === 'conflict_steer',
+      'expected conflict_steer directive',
     );
+    expect(steerDirective.gitConflictContext).toMatchObject({
+      kind: 'same_feature_task_rebase',
+      taskId: suspended.id,
+      featureId: feature.id,
+      files: ['src/a.ts'],
+      conflictedFiles: ['src/a.ts'],
+      pauseReason: 'same_feature_overlap',
+      dominantTaskId: 't-dominant',
+      dominantTaskSummary: 'dominant landed',
+    });
     expect(ports.runtime.resumeTask).not.toHaveBeenCalled();
   }, 20000);
 
@@ -486,11 +491,10 @@ describe('ConflictCoordinator', () => {
     const suspended = graph.tasks.get('t-suspended');
     const dominant = graph.tasks.get('t-dominant');
 
-    expect(suspended).toBeDefined();
-    expect(dominant).toBeDefined();
-    if (suspended === undefined || dominant === undefined) {
-      throw new Error('missing suspended task');
-    }
+    assert(
+      suspended !== undefined && dominant !== undefined,
+      'missing suspended task',
+    );
 
     await coordinator.handleSameFeatureOverlap(
       feature,
@@ -516,10 +520,12 @@ describe('ConflictCoordinator', () => {
   it('keeps task suspended when resume delivery fails after clean rebase', async () => {
     const root = getTmpDir();
     const ports = createPorts(root);
-    ports.runtime.resumeTask = vi.fn(async (taskId: string) => ({
-      kind: 'not_running' as const,
-      taskId,
-    }));
+    ports.runtime.resumeTask = vi.fn((taskId: string) =>
+      Promise.resolve({
+        kind: 'not_running' as const,
+        taskId,
+      }),
+    );
     const feature = createFeature({
       milestoneId: 'm-1',
       status: 'in_progress',
@@ -554,15 +560,12 @@ describe('ConflictCoordinator', () => {
     const suspended = graph.tasks.get('t-suspended');
     const dominant = graph.tasks.get('t-dominant');
 
-    expect(suspended).toBeDefined();
-    expect(dominant).toBeDefined();
-    if (
-      suspended === undefined ||
-      suspended.worktreeBranch === undefined ||
-      dominant === undefined
-    ) {
-      throw new Error('missing suspended task');
-    }
+    assert(
+      suspended !== undefined &&
+        suspended.worktreeBranch !== undefined &&
+        dominant !== undefined,
+      'missing suspended task',
+    );
 
     const taskDir = await writeTaskRebaseRepo(
       root,
@@ -646,15 +649,12 @@ describe('ConflictCoordinator', () => {
     const dominant = graph.tasks.get('t-dominant');
     const overlap = graph.tasks.get('t-overlap');
 
-    expect(dominant).toBeDefined();
-    expect(overlap).toBeDefined();
-    if (
-      dominant === undefined ||
-      overlap === undefined ||
-      overlap.worktreeBranch === undefined
-    ) {
-      throw new Error('missing overlap fixture state');
-    }
+    assert(
+      dominant !== undefined &&
+        overlap !== undefined &&
+        overlap.worktreeBranch !== undefined,
+      'missing overlap fixture state',
+    );
 
     const overlapDir = await writeTaskRebaseRepo(
       root,
@@ -751,15 +751,12 @@ describe('ConflictCoordinator', () => {
     const dominant = graph.tasks.get('t-dominant');
     const suspended = graph.tasks.get('t-suspended');
 
-    expect(dominant).toBeDefined();
-    expect(suspended).toBeDefined();
-    if (
-      dominant === undefined ||
-      suspended === undefined ||
-      suspended.worktreeBranch === undefined
-    ) {
-      throw new Error('missing dirty fixture state');
-    }
+    assert(
+      dominant !== undefined &&
+        suspended !== undefined &&
+        suspended.worktreeBranch !== undefined,
+      'missing dirty fixture state',
+    );
 
     const taskDir = await writeTaskRebaseRepo(
       root,
@@ -785,18 +782,21 @@ describe('ConflictCoordinator', () => {
       status: 'running',
     });
     expect(ports.runtime.resumeTask).not.toHaveBeenCalled();
-    expect(ports.runtime.steerTask).toHaveBeenCalledWith(
-      suspended.id,
-      expect.objectContaining({
-        kind: 'conflict_steer',
-        timing: 'immediate',
-        gitConflictContext: expect.objectContaining({
-          kind: 'same_feature_task_rebase',
-          conflictedFiles: ['src/a.ts'],
-          files: ['src/a.ts'],
-        }),
-      }),
+    const dirtySteerDirective = vi.mocked(ports.runtime.steerTask).mock
+      .calls[0]?.[1];
+    expect(dirtySteerDirective).toMatchObject({
+      kind: 'conflict_steer',
+      timing: 'immediate',
+    });
+    assert(
+      dirtySteerDirective?.kind === 'conflict_steer',
+      'expected conflict_steer directive',
     );
+    expect(dirtySteerDirective.gitConflictContext).toMatchObject({
+      kind: 'same_feature_task_rebase',
+      conflictedFiles: ['src/a.ts'],
+      files: ['src/a.ts'],
+    });
   }, 20000);
 
   it('matches dominant changed files after normalizing path variants', async () => {
@@ -837,15 +837,12 @@ describe('ConflictCoordinator', () => {
     const dominant = graph.tasks.get('t-dominant');
     const suspended = graph.tasks.get('t-suspended');
 
-    expect(dominant).toBeDefined();
-    expect(suspended).toBeDefined();
-    if (
-      dominant === undefined ||
-      suspended === undefined ||
-      suspended.worktreeBranch === undefined
-    ) {
-      throw new Error('missing normalized fixture state');
-    }
+    assert(
+      dominant !== undefined &&
+        suspended !== undefined &&
+        suspended.worktreeBranch !== undefined,
+      'missing normalized fixture state',
+    );
 
     const taskDir = await writeTaskRebaseRepo(
       root,
@@ -901,19 +898,13 @@ describe('ConflictCoordinator', () => {
     const runningTask = graph.tasks.get('t-feature-2-running');
     const readyTask = graph.tasks.get('t-feature-2-ready');
 
-    expect(primary).toBeDefined();
-    expect(secondary).toBeDefined();
-    expect(runningTask).toBeDefined();
-    expect(readyTask).toBeDefined();
-
-    if (
-      primary === undefined ||
-      secondary === undefined ||
-      runningTask === undefined ||
-      readyTask === undefined
-    ) {
-      throw new Error('missing graph fixture state');
-    }
+    assert(
+      primary !== undefined &&
+        secondary !== undefined &&
+        runningTask !== undefined &&
+        readyTask !== undefined,
+      'missing graph fixture state',
+    );
 
     await coordinator.handleCrossFeatureOverlap(
       primary,
@@ -964,18 +955,13 @@ describe('ConflictCoordinator', () => {
     const secondary = graph.features.get('f-feature-2');
     const runningTask = graph.tasks.get('t-feature-2-running');
 
-    expect(primary).toBeDefined();
-    expect(secondary).toBeDefined();
-    expect(runningTask).toBeDefined();
-
-    if (
-      primary === undefined ||
-      secondary === undefined ||
-      runningTask === undefined ||
-      runningTask.worktreeBranch === undefined
-    ) {
-      throw new Error('missing graph fixture state');
-    }
+    assert(
+      primary !== undefined &&
+        secondary !== undefined &&
+        runningTask !== undefined &&
+        runningTask.worktreeBranch !== undefined,
+      'missing graph fixture state',
+    );
 
     const featureDir = await writeFeatureRebaseRepo(root, secondary);
     await git(featureDir, 'checkout', 'main');
@@ -1044,17 +1030,12 @@ describe('ConflictCoordinator', () => {
     const secondary = graph.features.get('f-feature-2');
     const runningTask = graph.tasks.get('t-feature-2-running');
 
-    expect(primary).toBeDefined();
-    expect(secondary).toBeDefined();
-    expect(runningTask).toBeDefined();
-
-    if (
-      primary === undefined ||
-      secondary === undefined ||
-      runningTask === undefined
-    ) {
-      throw new Error('missing graph fixture state');
-    }
+    assert(
+      primary !== undefined &&
+        secondary !== undefined &&
+        runningTask !== undefined,
+      'missing graph fixture state',
+    );
 
     const featureDir = await writeFeatureRebaseRepo(root, secondary);
     await git(featureDir, 'checkout', secondary.featureBranch);
@@ -1104,10 +1085,12 @@ describe('ConflictCoordinator', () => {
   it('marks task ready when runtime resume delivery fails after clean cross-feature rebase', async () => {
     const root = getTmpDir();
     const ports = createPorts(root);
-    ports.runtime.resumeTask = vi.fn(async (taskId: string) => ({
-      kind: 'not_running' as const,
-      taskId,
-    }));
+    ports.runtime.resumeTask = vi.fn((taskId: string) =>
+      Promise.resolve({
+        kind: 'not_running' as const,
+        taskId,
+      }),
+    );
     const graph = createGraph();
     updateTask(graph, 't-feature-2-running', {
       status: 'running',
@@ -1120,17 +1103,13 @@ describe('ConflictCoordinator', () => {
     const secondary = graph.features.get('f-feature-2');
     const runningTask = graph.tasks.get('t-feature-2-running');
 
-    expect(primary).toBeDefined();
-    expect(secondary).toBeDefined();
-    expect(runningTask).toBeDefined();
-    if (
-      primary === undefined ||
-      secondary === undefined ||
-      runningTask === undefined ||
-      runningTask.worktreeBranch === undefined
-    ) {
-      throw new Error('missing graph fixture state');
-    }
+    assert(
+      primary !== undefined &&
+        secondary !== undefined &&
+        runningTask !== undefined &&
+        runningTask.worktreeBranch !== undefined,
+      'missing graph fixture state',
+    );
 
     const featureDir = await writeFeatureRebaseRepo(root, secondary);
     await git(featureDir, 'checkout', 'main');
@@ -1189,16 +1168,12 @@ describe('ConflictCoordinator', () => {
     const secondary = graph.features.get('f-feature-2');
     const runningTask = graph.tasks.get('t-feature-2-running');
 
-    expect(primary).toBeDefined();
-    expect(secondary).toBeDefined();
-    expect(runningTask).toBeDefined();
-    if (
-      primary === undefined ||
-      secondary === undefined ||
-      runningTask === undefined
-    ) {
-      throw new Error('missing graph fixture state');
-    }
+    assert(
+      primary !== undefined &&
+        secondary !== undefined &&
+        runningTask !== undefined,
+      'missing graph fixture state',
+    );
 
     await coordinator.handleCrossFeatureOverlap(primary, secondary, [
       runningTask,
@@ -1233,17 +1208,13 @@ describe('ConflictCoordinator', () => {
     const secondary = graph.features.get('f-feature-2');
     const runningTask = graph.tasks.get('t-feature-2-running');
 
-    expect(primary).toBeDefined();
-    expect(secondary).toBeDefined();
-    expect(runningTask).toBeDefined();
-    if (
-      primary === undefined ||
-      secondary === undefined ||
-      runningTask === undefined ||
-      runningTask.worktreeBranch === undefined
-    ) {
-      throw new Error('missing graph fixture state');
-    }
+    assert(
+      primary !== undefined &&
+        secondary !== undefined &&
+        runningTask !== undefined &&
+        runningTask.worktreeBranch !== undefined,
+      'missing graph fixture state',
+    );
 
     const featureDir = await writeFeatureRebaseRepo(root, secondary);
     await git(featureDir, 'checkout', 'main');
@@ -1307,16 +1278,12 @@ describe('ConflictCoordinator', () => {
     const secondary = graph.features.get('f-feature-2');
     const runningTask = graph.tasks.get('t-feature-2-running');
 
-    expect(primary).toBeDefined();
-    expect(secondary).toBeDefined();
-    expect(runningTask).toBeDefined();
-    if (
-      primary === undefined ||
-      secondary === undefined ||
-      runningTask === undefined
-    ) {
-      throw new Error('missing graph fixture state');
-    }
+    assert(
+      primary !== undefined &&
+        secondary !== undefined &&
+        runningTask !== undefined,
+      'missing graph fixture state',
+    );
 
     const featureDir = await writeFeatureRebaseRepo(root, secondary);
     await git(featureDir, 'checkout', 'main');

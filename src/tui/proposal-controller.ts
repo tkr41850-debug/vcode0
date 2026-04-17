@@ -25,21 +25,28 @@ import {
 } from '@tui/commands/index';
 
 export interface ComposerProposalEnvironment {
-  snapshot(): GraphSnapshot;
-  isAutoExecutionEnabled(): boolean;
-  setAutoExecutionEnabled(enabled: boolean): boolean;
+  snapshot(this: void): GraphSnapshot;
+  isAutoExecutionEnabled(this: void): boolean;
+  setAutoExecutionEnabled(this: void, enabled: boolean): boolean;
   getFeatureRun(
+    this: void,
     featureId: FeatureId,
     phase: GraphProposalMode,
   ): FeaturePhaseAgentRun | undefined;
-  saveFeatureRun(run: FeaturePhaseAgentRun): void;
-  enqueueApprovalDecision(event: {
-    featureId: FeatureId;
-    phase: GraphProposalMode;
-    decision: 'approved' | 'rejected';
-    comment?: string;
-  }): void;
-  enqueueRerun(event: { featureId: FeatureId; phase: GraphProposalMode }): void;
+  saveFeatureRun(this: void, run: FeaturePhaseAgentRun): void;
+  enqueueApprovalDecision(
+    this: void,
+    event: {
+      featureId: FeatureId;
+      phase: GraphProposalMode;
+      decision: 'approved' | 'rejected';
+      comment?: string;
+    },
+  ): void;
+  enqueueRerun(
+    this: void,
+    event: { featureId: FeatureId; phase: GraphProposalMode },
+  ): void;
 }
 
 export interface ComposerCommandResult {

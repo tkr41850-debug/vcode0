@@ -67,6 +67,35 @@ Keep `specs/test_*.md` focused on end-to-end scenarios that are likely to become
 - runtime / recovery / waits
 - warnings / candidates
 
+## Assertion style
+
+Use inline `assert(...)` from `node:assert/strict` when test code needs type narrowing before later assertions or setup steps.
+
+Prefer:
+
+```ts
+assert(task !== undefined, 'missing task fixture');
+assert(
+  directive?.kind === 'conflict_steer',
+  'expected conflict_steer directive',
+);
+```
+
+Avoid splitting same invariant across matcher plus manual branch:
+
+```ts
+expect(directive?.kind).toBe('conflict_steer');
+if (directive?.kind !== 'conflict_steer') {
+  throw new Error('expected conflict_steer directive');
+}
+```
+
+Rule:
+
+- use `assert(...)` for local preconditions and type narrowing
+- use `expect(...)` for behavioral checks, rich diffs, and payload matching after value is narrowed
+- include explicit failure messages on asserts so fixture/setup failures stay readable
+
 ## Test Utilities
 
 ```text

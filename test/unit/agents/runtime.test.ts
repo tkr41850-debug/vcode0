@@ -1,3 +1,5 @@
+import assert from 'node:assert/strict';
+
 import {
   createPromptLibrary,
   PiFeatureAgentRuntime,
@@ -6,6 +8,7 @@ import {
 } from '@agents';
 import type {
   DiscussPhaseDetails,
+  EventRecord,
   Feature,
   FeaturePhaseAgentRun,
   GvcConfig,
@@ -41,9 +44,7 @@ function createFeatureGraph(): {
     description: 'Implement feature 1',
   });
   const feature = graph.features.get('f-1');
-  if (feature === undefined) {
-    throw new Error('feature f-1 not found');
-  }
+  assert(feature !== undefined, 'feature f-1 not found');
 
   return { graph, feature };
 }
@@ -164,6 +165,13 @@ function appendFeaturePhaseEvent(
   });
 }
 
+function findEvent(
+  events: readonly EventRecord[],
+  eventType: string,
+): EventRecord | undefined {
+  return events.find((event) => event.eventType === eventType);
+}
+
 describe('PiFeatureAgentRuntime', () => {
   let faux: FauxProviderRegistration;
 
@@ -216,20 +224,19 @@ describe('PiFeatureAgentRuntime', () => {
       expect.objectContaining({ sessionId: run.id }),
     );
     await expect(sessionStore.load(run.id)).resolves.not.toBeNull();
-    expect(store.listEvents({ entityId: feature.id })).toContainEqual(
-      expect.objectContaining({
-        eventType: 'feature_phase_completed',
-        payload: expect.objectContaining({
-          phase: 'discuss',
-          summary: 'Discussion summary.',
-          sessionId: run.id,
-          extra: expect.objectContaining({
-            summary: 'Discussion summary.',
-            intent: 'Clarify feature intent',
-          }),
-        }),
-      }),
+    const discussEvent = findEvent(
+      store.listEvents({ entityId: feature.id }),
+      'feature_phase_completed',
     );
+    expect(discussEvent?.payload).toMatchObject({
+      phase: 'discuss',
+      summary: 'Discussion summary.',
+      sessionId: run.id,
+      extra: {
+        summary: 'Discussion summary.',
+        intent: 'Clarify feature intent',
+      },
+    });
   });
 
   it('persists token usage on feature-phase runs after completion', async () => {
@@ -254,14 +261,9 @@ describe('PiFeatureAgentRuntime', () => {
 
     await runtime.summarizeFeature(feature, { agentRunId: run.id });
 
-    expect(store.getAgentRun(run.id)).toEqual(
-      expect.objectContaining({
-        tokenUsage: expect.objectContaining({
-          llmCalls: 2,
-          totalTokens: expect.any(Number),
-        }),
-      }),
-    );
+    const storedRun = store.getAgentRun(run.id);
+    expect(storedRun?.tokenUsage?.llmCalls).toBe(2);
+    expect(storedRun?.tokenUsage?.totalTokens).toEqual(expect.any(Number));
   });
 
   it('exposes feature inspection tools during summarize', async () => {
@@ -408,19 +410,18 @@ describe('PiFeatureAgentRuntime', () => {
     expect(store.getAgentRun(run.id)).toEqual(
       expect.objectContaining({ sessionId: run.id }),
     );
-    expect(store.listEvents({ entityId: feature.id })).toContainEqual(
-      expect.objectContaining({
-        eventType: 'feature_phase_completed',
-        payload: expect.objectContaining({
-          phase: 'plan',
-          summary: 'Plan ready.',
-          sessionId: run.id,
-          extra: expect.objectContaining({
-            mode: 'plan',
-          }),
-        }),
-      }),
+    const planEvent = findEvent(
+      store.listEvents({ entityId: feature.id }),
+      'feature_phase_completed',
     );
+    expect(planEvent?.payload).toMatchObject({
+      phase: 'plan',
+      summary: 'Plan ready.',
+      sessionId: run.id,
+      extra: {
+        mode: 'plan',
+      },
+    });
   });
 
   it('returns structured verify repair-needed failures from submitVerify', async () => {
@@ -462,28 +463,22 @@ describe('PiFeatureAgentRuntime', () => {
       criteriaEvidence,
       repairFocus: ['prove integrated behavior'],
     });
-    expect(store.getAgentRun(run.id)).toEqual(
-      expect.objectContaining({
-        sessionId: run.id,
-        tokenUsage: expect.objectContaining({
-          llmCalls: 2,
-        }),
-      }),
+    const storedRun = store.getAgentRun(run.id);
+    expect(storedRun?.sessionId).toBe(run.id);
+    expect(storedRun?.tokenUsage?.llmCalls).toBe(2);
+    const verifyEvent = findEvent(
+      store.listEvents({ entityId: feature.id }),
+      'feature_phase_completed',
     );
-    expect(store.listEvents({ entityId: feature.id })).toContainEqual(
-      expect.objectContaining({
-        eventType: 'feature_phase_completed',
-        payload: expect.objectContaining({
-          phase: 'verify',
-          summary: 'Repair needed: missing proof for success criteria.',
-          sessionId: run.id,
-          extra: expect.objectContaining({
-            outcome: 'repair_needed',
-            failedChecks: ['missing proof for success criteria'],
-          }),
-        }),
-      }),
-    );
+    expect(verifyEvent?.payload).toMatchObject({
+      phase: 'verify',
+      summary: 'Repair needed: missing proof for success criteria.',
+      sessionId: run.id,
+      extra: {
+        outcome: 'repair_needed',
+        failedChecks: ['missing proof for success criteria'],
+      },
+    });
   });
 
   it.each([
@@ -576,9 +571,7 @@ describe('PiFeatureAgentRuntime', () => {
     );
     graph.editFeature(feature.id, { summary: 'stale old summary' });
     const currentFeature = graph.features.get(feature.id);
-    if (currentFeature === undefined) {
-      throw new Error(`feature ${feature.id} not found`);
-    }
+    assert(currentFeature !== undefined, `feature ${feature.id} not found`);
     addMergedTask(graph, feature.id, 't-1', 'Task 1', {
       summary: 'Implemented API path',
       filesChanged: ['src/api.ts', 'src/feature.ts'],

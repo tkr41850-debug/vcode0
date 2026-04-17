@@ -163,7 +163,7 @@ export class GraphProposalBuilder {
       return existing;
     }
 
-    const alias = `#${this.nextAlias}` as ProposalAlias;
+    const alias: ProposalAlias = `#${this.nextAlias}`;
     this.nextAlias += 1;
     this.aliases.set(alias, id);
     this.reverseAliases.set(id, alias);

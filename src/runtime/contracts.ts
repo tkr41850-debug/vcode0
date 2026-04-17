@@ -107,25 +107,29 @@ export type HelpResponse =
 
 export interface RuntimePort {
   dispatchTask(
+    this: void,
     task: Task,
     dispatch: TaskRuntimeDispatch,
   ): Promise<DispatchTaskResult>;
   steerTask(
+    this: void,
     taskId: string,
     directive: RuntimeSteeringDirective,
   ): Promise<TaskControlResult>;
   suspendTask(
+    this: void,
     taskId: string,
     reason: TaskSuspendReason,
     files?: string[],
   ): Promise<TaskControlResult>;
   resumeTask(
+    this: void,
     taskId: string,
     reason: TaskResumeReason,
   ): Promise<TaskControlResult>;
-  abortTask(taskId: string): Promise<TaskControlResult>;
-  idleWorkerCount(): number;
-  stopAll(): Promise<void>;
+  abortTask(this: void, taskId: string): Promise<TaskControlResult>;
+  idleWorkerCount(this: void): number;
+  stopAll(this: void): Promise<void>;
 }
 
 export type OrchestratorToWorkerMessage =

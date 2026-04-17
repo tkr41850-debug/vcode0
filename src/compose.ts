@@ -5,10 +5,7 @@ import * as path from 'node:path';
 import { PiFeatureAgentRuntime, promptLibrary } from '@agents';
 import { type ApplicationLifecycle, GvcApplication } from '@app/index';
 import type { AppMode, FeatureId, MilestoneId } from '@core/types/index';
-import type {
-  OrchestratorPorts,
-  VerificationPort,
-} from '@orchestrator/ports/index';
+import type { OrchestratorPorts } from '@orchestrator/ports/index';
 import { SchedulerLoop } from '@orchestrator/scheduler/index';
 import {
   RecoveryService,
@@ -36,8 +33,12 @@ export async function composeApplication(): Promise<GvcApplication> {
   const sessionStore = new FileSessionStore(projectRoot);
   const maxWorkers = Math.max(1, os.availableParallelism());
 
-  let scheduler: SchedulerLoop | undefined;
-  let stopApplication: (() => Promise<void>) | undefined;
+  const schedulerRef: { current: SchedulerLoop | undefined } = {
+    current: undefined,
+  };
+  const stopApplicationRef: { current: (() => Promise<void>) | undefined } = {
+    current: undefined,
+  };
 
   const ui = new TuiApp({
     snapshot: () => graph.snapshot(),
@@ -50,13 +51,14 @@ export async function composeApplication(): Promise<GvcApplication> {
         totalWorkers: maxWorkers,
       };
     },
-    isAutoExecutionEnabled: () => scheduler?.isAutoExecutionEnabled() ?? false,
+    isAutoExecutionEnabled: () =>
+      schedulerRef.current?.isAutoExecutionEnabled() ?? false,
     setAutoExecutionEnabled: (enabled) => {
-      return scheduler?.setAutoExecutionEnabled(enabled) ?? enabled;
+      return schedulerRef.current?.setAutoExecutionEnabled(enabled) ?? enabled;
     },
     toggleAutoExecution: () => {
-      const next = !(scheduler?.isAutoExecutionEnabled() ?? false);
-      return scheduler?.setAutoExecutionEnabled(next) ?? next;
+      const next = !(schedulerRef.current?.isAutoExecutionEnabled() ?? false);
+      return schedulerRef.current?.setAutoExecutionEnabled(next) ?? next;
     },
     toggleMilestoneQueue: (milestoneId) => {
       const milestone = graph
@@ -99,7 +101,7 @@ export async function composeApplication(): Promise<GvcApplication> {
       return run?.scopeType === 'feature_phase' ? run : undefined;
     },
     enqueueApprovalDecision: (event) => {
-      scheduler?.enqueue({
+      schedulerRef.current?.enqueue({
         type: 'feature_phase_approval_decision',
         featureId: event.featureId,
         phase: event.phase,
@@ -108,18 +110,17 @@ export async function composeApplication(): Promise<GvcApplication> {
       });
     },
     rerunFeatureProposal: (event) => {
-      scheduler?.enqueue({
+      schedulerRef.current?.enqueue({
         type: 'feature_phase_rerun_requested',
         featureId: event.featureId,
         phase: event.phase,
       });
     },
     quit: async () => {
-      await stopApplication?.();
+      await stopApplicationRef.current?.();
     },
   });
 
-  let verification: VerificationPort;
   const runtime = new LocalWorkerPool(
     new PiSdkHarness(sessionStore, projectRoot),
     maxWorkers,
@@ -130,7 +131,7 @@ export async function composeApplication(): Promise<GvcApplication> {
       if (message.type === 'assistant_output') {
         ui.onWorkerOutput(message.agentRunId, message.taskId, message.text);
       }
-      scheduler?.enqueue({ type: 'worker_message', message });
+      schedulerRef.current?.enqueue({ type: 'worker_message', message });
     },
   );
   const agents = new PiFeatureAgentRuntime({
@@ -143,41 +144,38 @@ export async function composeApplication(): Promise<GvcApplication> {
     getApiKey,
   });
 
+  const verification = new VerificationService({ config }, projectRoot);
   const ports: OrchestratorPorts = {
     store,
     runtime,
     agents,
-    get verification() {
-      return verification;
-    },
+    verification,
     ui,
     config,
   };
 
-  verification = new VerificationService(ports, projectRoot);
-  scheduler = new SchedulerLoop(graph, ports);
+  const scheduler = new SchedulerLoop(graph, ports);
   const recovery = new RecoveryService(ports, graph, projectRoot);
+  schedulerRef.current = scheduler;
 
-  const lifecycle: ApplicationLifecycle = {
+  const app = new GvcApplication(ports, {
     prepare: (mode: AppMode) => {
-      scheduler?.setAutoExecutionEnabled(mode === 'auto');
+      scheduler.setAutoExecutionEnabled(mode === 'auto');
     },
     start: async () => {
       await recovery.recoverOrphanedRuns();
-      await scheduler?.run();
+      await scheduler.run();
       ui.refresh();
     },
     stop: async () => {
       try {
-        await scheduler?.stop();
+        await scheduler.stop();
       } finally {
         db.close();
       }
     },
-  };
-
-  const app = new GvcApplication(ports, lifecycle);
-  stopApplication = () => app.stop();
+  } satisfies ApplicationLifecycle);
+  stopApplicationRef.current = () => app.stop();
   return app;
 }
 

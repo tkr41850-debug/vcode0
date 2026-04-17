@@ -21,7 +21,7 @@ import {
 
 export class VerificationService implements VerificationPort {
   constructor(
-    private readonly ports: OrchestratorPorts,
+    private readonly ports: Pick<OrchestratorPorts, 'config'>,
     private readonly projectRoot = process.cwd(),
   ) {}
 

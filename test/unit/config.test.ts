@@ -32,9 +32,8 @@ describe('JsonConfigLoader', () => {
     });
 
     await expect(fs.stat(configPath)).resolves.toBeTruthy();
-    await expect(
-      fs.readFile(configPath, 'utf-8').then((raw) => JSON.parse(raw)),
-    ).resolves.toEqual(config);
+    const raw = await fs.readFile(configPath, 'utf-8');
+    expect(JSON.parse(raw) as unknown).toEqual(config);
   });
 
   it('normalizes configured sections and merges stage defaults', async () => {
@@ -152,7 +151,7 @@ describe('JsonConfigLoader', () => {
     });
   });
 
-  it('resolves mergeTrain to feature layer when mergeTrain is omitted', async () => {
+  it('resolves mergeTrain to feature layer when mergeTrain is omitted', () => {
     const config = {
       tokenProfile: 'balanced' as const,
       verification: {
@@ -169,7 +168,7 @@ describe('JsonConfigLoader', () => {
     );
   });
 
-  it('keeps explicit empty mergeTrain checks instead of inheriting feature', async () => {
+  it('keeps explicit empty mergeTrain checks instead of inheriting feature', () => {
     const config = {
       tokenProfile: 'balanced' as const,
       verification: {
