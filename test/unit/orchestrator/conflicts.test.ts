@@ -11,6 +11,8 @@ import type { OrchestratorPorts } from '@orchestrator/ports/index';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { InMemorySessionStore } from '../../integration/harness/in-memory-session-store.js';
+
 import {
   createFeatureFixture,
   createTaskFixture,
@@ -32,6 +34,7 @@ function createPorts(root: string): OrchestratorPorts {
     agents: {} as OrchestratorPorts['agents'],
     verification: {} as OrchestratorPorts['verification'],
     ui: {} as OrchestratorPorts['ui'],
+    sessionStore: new InMemorySessionStore(),
     config: createConfig(),
     runtime: {
       dispatchTask: vi.fn(),

@@ -1,9 +1,14 @@
 import type { GraphProposal } from '@core/proposals/index';
-import type { Feature, FeaturePhaseRunContext } from '@core/types/index';
+import type {
+  Feature,
+  FeaturePhaseRunContext,
+  ProposalPhaseDetails,
+} from '@core/types/index';
 
 export interface ProposalPhaseResult {
   summary: string;
   proposal: GraphProposal;
+  details: ProposalPhaseDetails;
 }
 
 export interface ProposalAgent {

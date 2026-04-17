@@ -36,6 +36,17 @@ export interface SummarizePhaseDetails {
   carryForwardNotes: string[];
 }
 
+export interface ProposalPhaseDetails {
+  summary: string;
+  chosenApproach: string;
+  keyConstraints: string[];
+  decompositionRationale: string[];
+  orderingRationale: string[];
+  verificationExpectations: string[];
+  risksTradeoffs: string[];
+  assumptions: string[];
+}
+
 export interface FeaturePhaseResult<TExtra = unknown> {
   summary: string;
   extra?: TExtra;

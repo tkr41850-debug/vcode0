@@ -1,5 +1,6 @@
 import type { AgentRun, EventRecord } from '@core/types/index';
 import type {
+  AgentRunPatch,
   AgentRunQuery,
   EventQuery,
   Store,
@@ -17,8 +18,6 @@ const AGENT_RUN_COLUMNS =
   'id, scope_type, scope_id, phase, run_status, owner, attention, session_id, payload_json, token_usage, max_retries, restart_count, retry_at, created_at, updated_at';
 
 const EVENT_COLUMNS = 'id, timestamp, event_type, entity_id, payload';
-
-type AgentRunPatch = Partial<Omit<AgentRun, 'id' | 'scopeType' | 'scopeId'>>;
 
 interface AgentRunInsertParams {
   id: string;

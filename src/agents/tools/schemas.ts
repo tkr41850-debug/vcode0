@@ -70,6 +70,17 @@ const summarizeSubmitSchema = Type.Object({
   carryForwardNotes: Type.Array(Type.String()),
 });
 
+const proposalSubmitSchema = Type.Object({
+  summary: Type.String(),
+  chosenApproach: Type.String(),
+  keyConstraints: Type.Array(Type.String()),
+  decompositionRationale: Type.Array(Type.String()),
+  orderingRationale: Type.Array(Type.String()),
+  verificationExpectations: Type.Array(Type.String()),
+  risksTradeoffs: Type.Array(Type.String()),
+  assumptions: Type.Array(Type.String()),
+});
+
 export const proposalToolParameters = {
   addFeature: Type.Object({
     milestoneId: Type.String(),
@@ -105,7 +116,7 @@ export const proposalToolParameters = {
   }),
   addDependency: dependencySchema,
   removeDependency: dependencySchema,
-  submit: Type.Object({}),
+  submit: proposalSubmitSchema,
 } as const;
 
 export const featurePhaseToolParameters = {

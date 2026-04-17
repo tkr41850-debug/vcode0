@@ -81,8 +81,8 @@ export function createPlannerToolset(host: ProposalToolHost): PlannerToolset {
       {
         name: 'submit',
         description: 'Finalize the proposal graph for approval.',
-        execute: (_args: SubmitProposalOptions) => {
-          host.submit();
+        execute: (args: SubmitProposalOptions) => {
+          host.submit(args);
           return Promise.resolve(undefined);
         },
       },

@@ -11,6 +11,7 @@ import type {
   Feature,
   FeaturePhaseAgentRun,
   GvcConfig,
+  ProposalPhaseDetails,
   Task,
 } from '@core/types/index';
 import type {
@@ -233,6 +234,22 @@ function makeProposal(mode: 'plan' | 'replan' = 'plan'): GraphProposal {
   };
 }
 
+const proposalDetails: ProposalPhaseDetails = {
+  summary: 'Planning complete.',
+  chosenApproach: 'Stage prompt/runtime contract fixes first.',
+  keyConstraints: ['Keep approval payload in payloadJson'],
+  decompositionRationale: ['Separate contract fixes from broader UX work'],
+  orderingRationale: ['Make reruns fresh before depending on replanning'],
+  verificationExpectations: ['Run integration and runtime tests'],
+  risksTradeoffs: ['Structured payload increases fixture size'],
+  assumptions: ['Approval path still parses raw proposal'],
+};
+
+const replanDetails: ProposalPhaseDetails = {
+  ...proposalDetails,
+  summary: 'Replanning complete.',
+};
+
 function createFixture({
   featureOverrides = {},
   tasks = [],
@@ -255,6 +272,7 @@ function createFixture({
     graph,
     store,
     sessionStore,
+    projectRoot: '/repo',
   });
   const resolvedVerification: VerificationPort =
     verification ?? {
@@ -263,6 +281,7 @@ function createFixture({
   const ports: OrchestratorPorts = {
     store,
     runtime: createRuntimeStub(),
+    sessionStore,
     agents,
     verification: resolvedVerification,
     ui: createUiStub(),
@@ -362,6 +381,11 @@ describe('feature-phase agent flow', () => {
         [
           fauxToolCall('getFeatureState', {}),
           fauxToolCall('listFeatureEvents', { phase: 'discuss' }),
+          fauxToolCall('read_file', { path: 'src/feature.ts' }),
+          fauxToolCall('search_files', {
+            pattern: 'Feature entrypoint',
+            directory: 'src',
+          }),
           fauxToolCall('submitResearch', {
             summary: 'Research summary.',
             existingBehavior: 'Current flow already renders feature shell.',
@@ -449,7 +473,7 @@ describe('feature-phase agent flow', () => {
             description: 'Implement core flow',
             reservedWritePaths: ['src/feature.ts'],
           }),
-          fauxToolCall('submit', {}),
+          fauxToolCall('submit', proposalDetails),
         ],
         { stopReason: 'toolUse' },
       ),
@@ -496,6 +520,7 @@ describe('feature-phase agent flow', () => {
       phase: 'plan',
       summary: 'Planning complete.',
       sessionId: 'run-feature:f-1:plan',
+      extra: proposalDetails,
     });
     await expect(
       sessionStore.load('run-feature:f-1:plan'),
@@ -814,7 +839,7 @@ describe('feature-phase agent flow', () => {
             featureId: 'f-1',
             description: 'Follow-up fix task',
           }),
-          fauxToolCall('submit', {}),
+          fauxToolCall('submit', replanDetails),
         ],
         { stopReason: 'toolUse' },
       ),
@@ -890,6 +915,7 @@ describe('feature-phase agent flow', () => {
       phase: 'replan',
       summary: 'Replanning complete.',
       sessionId: 'run-feature:f-1:replan',
+      extra: replanDetails,
     });
   });
 

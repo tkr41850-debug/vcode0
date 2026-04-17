@@ -16,12 +16,14 @@ import type {
   ProposalToolHost,
   RemoveFeatureOptions,
   RemoveTaskOptions,
+  SubmitProposalOptions,
 } from './types.js';
 
 export class GraphProposalToolHost implements ProposalToolHost {
   readonly draft: InMemoryFeatureGraph;
   private readonly builder: GraphProposalBuilder;
   private submitted = false;
+  private proposalDetails: SubmitProposalOptions | undefined;
 
   constructor(
     graph: FeatureGraph,
@@ -32,6 +34,7 @@ export class GraphProposalToolHost implements ProposalToolHost {
   }
 
   addFeature(args: AddFeatureOptions): Feature {
+    this.assertMutable();
     const featureId = this.nextFeatureId();
     const feature = this.draft.createFeature({
       id: featureId,
@@ -51,6 +54,7 @@ export class GraphProposalToolHost implements ProposalToolHost {
   }
 
   removeFeature(args: RemoveFeatureOptions): void {
+    this.assertMutable();
     this.draft.removeFeature(args.featureId);
     this.builder.addOp({
       kind: 'remove_feature',
@@ -59,6 +63,7 @@ export class GraphProposalToolHost implements ProposalToolHost {
   }
 
   editFeature(args: EditFeatureOptions): Feature {
+    this.assertMutable();
     const feature = this.draft.editFeature(args.featureId, args.patch);
     this.builder.addOp({
       kind: 'edit_feature',
@@ -69,6 +74,7 @@ export class GraphProposalToolHost implements ProposalToolHost {
   }
 
   addTask(args: AddTaskOptions): Task {
+    this.assertMutable();
     const task = this.draft.addTask({
       featureId: args.featureId,
       description: args.description,
@@ -92,6 +98,7 @@ export class GraphProposalToolHost implements ProposalToolHost {
   }
 
   removeTask(args: RemoveTaskOptions): void {
+    this.assertMutable();
     this.draft.removeTask(args.taskId);
     this.builder.addOp({
       kind: 'remove_task',
@@ -100,6 +107,7 @@ export class GraphProposalToolHost implements ProposalToolHost {
   }
 
   editTask(args: EditTaskOptions): Task {
+    this.assertMutable();
     const task = this.draft.editTask(args.taskId, args.patch);
     this.builder.addOp({
       kind: 'edit_task',
@@ -110,6 +118,7 @@ export class GraphProposalToolHost implements ProposalToolHost {
   }
 
   addDependency(args: DependencyOptions): void {
+    this.assertMutable();
     this.draft.addDependency(args);
     this.builder.addOp({
       kind: 'add_dependency',
@@ -119,6 +128,7 @@ export class GraphProposalToolHost implements ProposalToolHost {
   }
 
   removeDependency(args: DependencyOptions): void {
+    this.assertMutable();
     this.draft.removeDependency(args);
     this.builder.addOp({
       kind: 'remove_dependency',
@@ -127,8 +137,12 @@ export class GraphProposalToolHost implements ProposalToolHost {
     });
   }
 
-  submit(): void {
+  submit(args: SubmitProposalOptions): void {
+    if (this.submitted) {
+      throw new Error('proposal already submitted');
+    }
     this.submitted = true;
+    this.proposalDetails = args;
   }
 
   wasSubmitted(): boolean {
@@ -140,6 +154,19 @@ export class GraphProposalToolHost implements ProposalToolHost {
       throw new Error('proposal not submitted');
     }
     return this.builder.build();
+  }
+
+  getProposalDetails(): SubmitProposalOptions {
+    if (this.proposalDetails === undefined) {
+      throw new Error('proposal details not submitted');
+    }
+    return this.proposalDetails;
+  }
+
+  private assertMutable(): void {
+    if (this.submitted) {
+      throw new Error('proposal already submitted');
+    }
   }
 
   private nextFeatureId(): FeatureId {

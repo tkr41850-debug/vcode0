@@ -9,6 +9,7 @@ import {
 import type {
   AgentRun,
   AgentRunPhase,
+  EventRecord,
   Feature,
   Task,
   TaskAgentRun,
@@ -315,7 +316,7 @@ export async function dispatchFeaturePhaseUnit(params: {
       case 'replan': {
         const result = await params.ports.agents.replanFeature(
           params.feature,
-          'scheduler',
+          deriveReplanReason(params.ports, params.feature.id),
           runContext,
         );
         params.ports.store.updateAgentRun(run.id, {
@@ -337,6 +338,86 @@ export async function dispatchFeaturePhaseUnit(params: {
     });
     return true;
   }
+}
+
+function deriveReplanReason(
+  ports: OrchestratorPorts,
+  featureId: Feature['id'],
+): string {
+  const events = ports.store.listEvents({ entityId: featureId });
+  const latestRerun = findLatestEvent(events, 'proposal_rerun_requested');
+  const latestApplyFailed = findLatestEvent(events, 'proposal_apply_failed');
+  const latestRejected = findLatestEvent(events, 'proposal_rejected');
+  const latestVerify = findLatestPhaseCompletion(events, 'verify');
+  const latestFeatureCi = findLatestPhaseCompletion(events, 'feature_ci');
+
+  return (
+    readEventSummary(latestRerun) ??
+    readEventSummary(latestApplyFailed) ??
+    readEventSummary(latestRejected) ??
+    readFailedVerificationSummary(latestVerify) ??
+    readFailedVerificationSummary(latestFeatureCi) ??
+    'Scheduler requested replanning.'
+  );
+}
+
+function findLatestEvent(
+  events: readonly EventRecord[],
+  eventType: string,
+): EventRecord | undefined {
+  return [...events].reverse().find((event) => event.eventType === eventType);
+}
+
+function findLatestPhaseCompletion(
+  events: readonly EventRecord[],
+  phase: AgentRun['phase'],
+): EventRecord | undefined {
+  return [...events].reverse().find(
+    (event) =>
+      event.eventType === 'feature_phase_completed' &&
+      event.payload?.phase === phase,
+  );
+}
+
+function readEventSummary(event: EventRecord | undefined): string | undefined {
+  if (event === undefined) {
+    return undefined;
+  }
+  const payload = event.payload;
+  if (typeof payload?.summary === 'string' && payload.summary.length > 0) {
+    return payload.summary;
+  }
+  if (typeof payload?.error === 'string' && payload.error.length > 0) {
+    return payload.error;
+  }
+  if (typeof payload?.comment === 'string' && payload.comment.length > 0) {
+    return payload.comment;
+  }
+  const extra = payload?.extra;
+  if (typeof extra !== 'object' || extra === null || Array.isArray(extra)) {
+    return undefined;
+  }
+  const summary = (extra as Record<string, unknown>).summary;
+  return typeof summary === 'string' && summary.length > 0
+    ? summary
+    : undefined;
+}
+
+function readFailedVerificationSummary(
+  event: EventRecord | undefined,
+): string | undefined {
+  if (event === undefined) {
+    return undefined;
+  }
+  const extra = event.payload?.extra;
+  if (typeof extra !== 'object' || extra === null || Array.isArray(extra)) {
+    return undefined;
+  }
+  const record = extra as Record<string, unknown>;
+  if (record.ok === false || record.outcome === 'repair_needed') {
+    return readEventSummary(event);
+  }
+  return undefined;
 }
 
 export async function dispatchReadyWork(params: {

@@ -17,6 +17,7 @@ import type {
   FeaturePhaseAgentRun,
   FeaturePhaseRunContext,
   GvcConfig,
+  ProposalPhaseDetails,
   ResearchPhaseDetails,
   SummarizePhaseDetails,
   Task,
@@ -24,12 +25,14 @@ import type {
   VerificationSummary,
 } from '@core/types/index';
 import type {
+  AgentRunPatch,
   AgentRunQuery,
   EventQuery,
   OrchestratorPorts,
   Store,
   UiPort,
 } from '@orchestrator/ports/index';
+import { InMemorySessionStore } from '../../integration/harness/in-memory-session-store.js';
 import {
   type SchedulerEvent,
   SchedulerLoop,
@@ -130,7 +133,7 @@ function createStoreMock(): Store {
     },
     updateAgentRun: (
       runId: string,
-      patch: Partial<Omit<AgentRun, 'id' | 'scopeType' | 'scopeId'>>,
+      patch: AgentRunPatch,
     ) => {
       const existing = runs.get(runId);
       if (existing === undefined) {
@@ -230,6 +233,17 @@ function makeProposal(mode: 'plan' | 'replan' = 'plan'): GraphProposal {
   };
 }
 
+const proposalDetails: ProposalPhaseDetails = {
+  summary: 'ok',
+  chosenApproach: 'Use existing proposal graph flow.',
+  keyConstraints: ['Keep raw proposal in payloadJson'],
+  decompositionRationale: ['Change contracts before downstream prompts'],
+  orderingRationale: ['Fix reruns before relying on replan'],
+  verificationExpectations: ['Run scheduler and runtime tests'],
+  risksTradeoffs: ['More structured events widen assertions'],
+  assumptions: ['Approval still parses raw proposal'],
+};
+
 function createAgentMock(): PlannerAgent & ReplannerAgent {
   const discussResult = {
     summary: 'ok',
@@ -276,6 +290,7 @@ function createAgentMock(): PlannerAgent & ReplannerAgent {
       Promise.resolve({
         summary: 'ok',
         proposal: makeProposal('plan'),
+        details: proposalDetails,
       }),
     verifyFeature: (_feature: Feature, _run: FeaturePhaseRunContext) =>
       Promise.resolve(verificationResult),
@@ -289,6 +304,7 @@ function createAgentMock(): PlannerAgent & ReplannerAgent {
       Promise.resolve({
         summary: 'ok',
         proposal: makeProposal('replan'),
+        details: { ...proposalDetails, summary: 'ok' },
       }),
   };
 }
@@ -326,6 +342,7 @@ function createPorts(
   const base = {
     store: createStoreMock(),
     runtime,
+    sessionStore: new InMemorySessionStore(),
     agents: createAgentMock(),
     ui,
     config: createConfig(configOverrides),
@@ -1643,6 +1660,14 @@ describe('SchedulerLoop', () => {
       expect.objectContaining({
         eventType: 'proposal_applied',
         entityId: 'f-1',
+        payload: expect.objectContaining({
+          phase: 'plan',
+          summary: '3 applied, 0 skipped, 0 warnings',
+          mode: 'plan',
+          appliedCount: 3,
+          skippedCount: 0,
+          warningCount: 0,
+        }),
       }),
     );
   });
@@ -1652,12 +1677,14 @@ describe('SchedulerLoop', () => {
     const { ports } = createPorts(order);
     const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
     const appendEvent = vi.spyOn(ports.store, 'appendEvent');
+    const deleteSession = vi.spyOn(ports.sessionStore, 'delete');
     const planFeature = vi.spyOn(ports.agents, 'planFeature');
     const graph = createProposalApprovalGraph();
     ports.store.createAgentRun(
       makeFeaturePhaseRun('plan', {
         runStatus: 'await_approval',
         owner: 'manual',
+        sessionId: 'sess-1',
         payloadJson: JSON.stringify(makeProposal('plan')),
       }),
     );
@@ -1682,6 +1709,7 @@ describe('SchedulerLoop', () => {
     expect(updateAgentRun).toHaveBeenCalledWith('run-feature:f-1:plan', {
       runStatus: 'completed',
       owner: 'manual',
+      sessionId: 'sess-1',
       payloadJson: JSON.stringify(makeProposal('plan')),
     });
     expect(appendEvent).toHaveBeenCalledWith(
@@ -1700,14 +1728,96 @@ describe('SchedulerLoop', () => {
       featureId: 'f-1',
       phase: 'plan',
     });
+    expect(deleteSession).toHaveBeenCalledWith('sess-1');
     expect(updateAgentRun).toHaveBeenCalledWith('run-feature:f-1:plan', {
       runStatus: 'ready',
       owner: 'system',
+      sessionId: undefined,
+      payloadJson: undefined,
     });
 
     planFeature.mockClear();
     await loop.dispatchReadyWorkForTest(100);
     expect(planFeature).toHaveBeenCalledOnce();
+  });
+
+  it('passes derived rerun reason into replanning', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const replanFeature = vi.spyOn(ports.agents, 'replanFeature');
+    const graph = createProposalApprovalGraph(
+      {
+        workControl: 'replanning',
+        collabControl: 'branch_open',
+      },
+      [
+        createTaskFixture({
+          id: 't-stuck',
+          description: 'Existing stuck task',
+          status: 'stuck',
+          collabControl: 'branch_open',
+        }),
+      ],
+    );
+    ports.store.appendEvent({
+      eventType: 'proposal_rerun_requested',
+      entityId: 'f-1',
+      timestamp: Date.now(),
+      payload: {
+        phase: 'replan',
+        summary: 'Need fresh proposal after review.',
+      },
+    });
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+
+    await loop.dispatchReadyWorkForTest(100);
+
+    expect(replanFeature).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'f-1' }),
+      'Need fresh proposal after review.',
+      { agentRunId: 'run-feature:f-1:replan' },
+    );
+  });
+
+  it('ignores successful verify summaries when deriving replan reason', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const replanFeature = vi.spyOn(ports.agents, 'replanFeature');
+    const graph = createProposalApprovalGraph(
+      {
+        workControl: 'replanning',
+        collabControl: 'branch_open',
+      },
+      [
+        createTaskFixture({
+          id: 't-stuck',
+          description: 'Existing stuck task',
+          status: 'stuck',
+          collabControl: 'branch_open',
+        }),
+      ],
+    );
+    ports.store.appendEvent({
+      eventType: 'feature_phase_completed',
+      entityId: 'f-1',
+      timestamp: Date.now(),
+      payload: {
+        phase: 'verify',
+        summary: 'verify green',
+        extra: { ok: true, summary: 'verify green' },
+      },
+    });
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+
+    await loop.dispatchReadyWorkForTest(100);
+
+    expect(replanFeature).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'f-1' }),
+      'Scheduler requested replanning.',
+      { agentRunId: 'run-feature:f-1:replan' },
+    );
   });
 
   it('approves replanning proposal, restores stuck task, and makes approved work executable immediately', async () => {

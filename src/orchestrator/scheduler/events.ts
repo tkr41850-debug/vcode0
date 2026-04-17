@@ -123,15 +123,23 @@ export async function handleSchedulerEvent(params: {
       return;
     }
 
+    if (run.sessionId !== undefined) {
+      await ports.sessionStore.delete(run.sessionId);
+    }
     ports.store.updateAgentRun(run.id, {
       runStatus: 'ready',
       owner: 'system',
+      sessionId: undefined,
+      payloadJson: undefined,
     });
     ports.store.appendEvent({
       eventType: 'proposal_rerun_requested',
       entityId: event.featureId,
       timestamp: Date.now(),
-      payload: { phase: event.phase },
+      payload: {
+        phase: event.phase,
+        ...(event.reason !== undefined ? { summary: event.reason } : {}),
+      },
     });
     return;
   }
@@ -168,6 +176,7 @@ export async function handleSchedulerEvent(params: {
           timestamp: Date.now(),
           payload: {
             phase: event.phase,
+            summary: result.summary,
             ...summarizeProposalApply(result),
           },
         });

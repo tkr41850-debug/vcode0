@@ -68,6 +68,7 @@ function createPorts(
 ): OrchestratorPorts {
   return {
     config: createConfig(configOverrides),
+    sessionStore: {} as OrchestratorPorts['sessionStore'],
   } as OrchestratorPorts;
 }
 

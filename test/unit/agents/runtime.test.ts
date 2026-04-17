@@ -6,12 +6,17 @@ import {
   type PromptLibrary,
   promptLibrary,
 } from '@agents';
+import {
+  createFeaturePhaseToolHost,
+  createProposalToolHost,
+} from '@agents/tools';
 import type {
   DiscussPhaseDetails,
   EventRecord,
   Feature,
   FeaturePhaseAgentRun,
   GvcConfig,
+  ProposalPhaseDetails,
   SummarizePhaseDetails,
   VerificationCriterionEvidence,
 } from '@core/types/index';
@@ -92,6 +97,7 @@ function createRuntimeFixture(
     graph,
     store,
     sessionStore,
+    projectRoot: '/repo',
   });
 
   return { graph, feature, store, sessionStore, run, runtime };
@@ -123,9 +129,9 @@ function addMergedTask(
 
 function createPromptCapturingLibrary(): {
   library: PromptLibrary;
-  captured: { summarize?: string; plan?: string };
+  captured: { summarize?: string; plan?: string; verify?: string };
 } {
-  const captured: { summarize?: string; plan?: string } = {};
+  const captured: { summarize?: string; plan?: string; verify?: string } = {};
   const library = createPromptLibrary({
     summarize: {
       name: 'summarize',
@@ -141,6 +147,13 @@ function createPromptCapturingLibrary(): {
         return captured.plan;
       },
     },
+    verify: {
+      name: 'verify',
+      render(input) {
+        captured.verify = promptLibrary.get('verify').render(input);
+        return captured.verify;
+      },
+    },
   });
 
   return { library, captured };
@@ -151,7 +164,7 @@ function appendFeaturePhaseEvent(
   featureId: string,
   phase: FeaturePhaseAgentRun['phase'],
   summary: string,
-  extra?: Record<string, unknown>,
+  extra?: unknown,
 ): void {
   store.appendEvent({
     eventType: 'feature_phase_completed',
@@ -171,6 +184,17 @@ function findEvent(
 ): EventRecord | undefined {
   return events.find((event) => event.eventType === eventType);
 }
+
+const proposalDetails: ProposalPhaseDetails = {
+  summary: 'Plan ready.',
+  chosenApproach: 'Reuse existing prompt registry and proposal host.',
+  keyConstraints: ['Keep approval payload as raw proposal JSON'],
+  decompositionRationale: ['Split prompt/runtime contract fixes from execution'],
+  orderingRationale: ['Make prompt contract truthful before downstream verify uses it'],
+  verificationExpectations: ['Run prompt tests and runtime tests'],
+  risksTradeoffs: ['More structured payload means broader test updates'],
+  assumptions: ['Proposal apply path still reads payloadJson'],
+};
 
 describe('PiFeatureAgentRuntime', () => {
   let faux: FauxProviderRegistration;
@@ -348,7 +372,7 @@ describe('PiFeatureAgentRuntime', () => {
             description: 'Draft task',
             reservedWritePaths: ['src/new.ts'],
           }),
-          fauxToolCall('submit', {}),
+          fauxToolCall('submit', proposalDetails),
         ],
         { stopReason: 'toolUse' },
       ),
@@ -360,6 +384,7 @@ describe('PiFeatureAgentRuntime', () => {
     });
 
     expect(result.summary).toBe('Plan ready.');
+    expect(result.details).toEqual(proposalDetails);
     expect(captured.plan).toContain(
       'Intent: Implement canonical prompt source',
     );
@@ -382,7 +407,7 @@ describe('PiFeatureAgentRuntime', () => {
             description: 'Draft task',
             reservedWritePaths: ['src/new.ts'],
           }),
-          fauxToolCall('submit', {}),
+          fauxToolCall('submit', proposalDetails),
         ],
         { stopReason: 'toolUse' },
       ),
@@ -397,6 +422,7 @@ describe('PiFeatureAgentRuntime', () => {
     });
 
     expect(result.summary).toBe('Plan ready.');
+    expect(result.details).toEqual(proposalDetails);
     expect(result.proposal.mode).toBe('plan');
     expect(result.proposal.ops).toEqual([
       expect.objectContaining({
@@ -418,9 +444,7 @@ describe('PiFeatureAgentRuntime', () => {
       phase: 'plan',
       summary: 'Plan ready.',
       sessionId: run.id,
-      extra: {
-        mode: 'plan',
-      },
+      extra: proposalDetails,
     });
   });
 
@@ -479,6 +503,123 @@ describe('PiFeatureAgentRuntime', () => {
         failedChecks: ['missing proof for success criteria'],
       },
     });
+  });
+
+  it('exposes repo inspection tools during research', async () => {
+    faux.setResponses([
+      fauxAssistantMessage(
+        [
+          fauxToolCall('read_file', { path: 'src/agents/prompts/index.ts' }),
+          fauxToolCall('list_files', { directory: 'src/agents', recursive: false }),
+          fauxToolCall('search_files', {
+            pattern: 'planPromptTemplate',
+            directory: 'src/agents/prompts',
+          }),
+          fauxToolCall('git_status', {}),
+          fauxToolCall('git_diff', { ref: 'HEAD' }),
+          fauxToolCall('submitResearch', {
+            summary: 'Research summary.',
+            existingBehavior: 'Repo inspection tools are available.',
+            essentialFiles: [
+              {
+                path: 'src/agents/prompts/index.ts',
+                responsibility: 'Prompt exports',
+              },
+            ],
+            reusePatterns: ['Reuse worker inspection tool behavior'],
+            riskyBoundaries: ['Prompt/runtime mismatch'],
+            proofsNeeded: ['Prove research can inspect repo'],
+            verificationSurfaces: ['runtime tests'],
+            planningNotes: ['Keep tools read-only'],
+          }),
+        ],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage([fauxText('Research structured.')]),
+    ]);
+
+    const { feature, run, runtime } = createRuntimeFixture('research');
+
+    const result = await runtime.researchFeature(feature, {
+      agentRunId: run.id,
+    });
+
+    expect(result.summary).toBe('Research summary.');
+  });
+
+  it('builds verify prompt from structured plan summary instead of raw proposal json', async () => {
+    const { library, captured } = createPromptCapturingLibrary();
+    const { feature, store, run, runtime } = createRuntimeFixture('verify', {
+      promptLibrary: library,
+    });
+    appendFeaturePhaseEvent(store, feature.id, 'plan', 'Plan ready.', proposalDetails);
+
+    faux.setResponses([
+      fauxAssistantMessage(
+        [
+          fauxToolCall('submitVerify', {
+            outcome: 'pass',
+            summary: 'Verified.',
+            criteriaEvidence: [],
+          }),
+        ],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage([fauxText('Verification structured.')]),
+    ]);
+
+    await runtime.verifyFeature(feature, {
+      agentRunId: run.id,
+    });
+
+    expect(captured.verify).toContain(
+      'Chosen approach: Reuse existing prompt registry and proposal host.',
+    );
+    expect(captured.verify).toContain('Verification expectations:');
+    expect(captured.verify).toContain('Run prompt tests and runtime tests');
+    expect(captured.verify).not.toContain('"mode":"plan"');
+    expect(captured.verify).not.toContain('"ops"');
+  });
+
+  it('rejects duplicate submit and post-submit mutation on hosts', () => {
+    const { graph, feature } = createFeatureGraph();
+    const store = new InMemoryStore();
+
+    const proposalHost = createProposalToolHost(graph, 'plan');
+    proposalHost.submit(proposalDetails);
+    expect(() => proposalHost.submit(proposalDetails)).toThrow(
+      'proposal already submitted',
+    );
+    expect(() =>
+      proposalHost.addTask({
+        featureId: feature.id,
+        description: 'late task',
+      }),
+    ).toThrow('proposal already submitted');
+
+    const phaseHost = createFeaturePhaseToolHost(feature.id, graph, store);
+    phaseHost.submitResearch({
+      summary: 'Research summary.',
+      existingBehavior: 'Repo inspection tools are available.',
+      essentialFiles: [],
+      reusePatterns: [],
+      riskyBoundaries: [],
+      proofsNeeded: [],
+      verificationSurfaces: [],
+      planningNotes: [],
+    });
+    expect(() =>
+      phaseHost.submitResearch({
+        summary: 'Research summary.',
+        existingBehavior: 'Repo inspection tools are available.',
+        essentialFiles: [],
+        reusePatterns: [],
+        riskyBoundaries: [],
+        proofsNeeded: [],
+        verificationSurfaces: [],
+        planningNotes: [],
+      }),
+    ).toThrow('research phase already submitted');
   });
 
   it.each([

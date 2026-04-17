@@ -24,6 +24,7 @@ Planning stance:
 - prefer truthful, testable decomposition over elegant fiction
 
 When planning:
+- inspect current persisted feature state, events, tasks, and prior runs with available tools before mutating draft graph
 - identify what must be proven first
 - preserve useful existing patterns and stable boundaries
 - create work units that establish clear downstream surfaces
@@ -39,7 +40,8 @@ When replanning:
 - prefer smallest change that restores coherent path to success
 - keep capability set same as planning; this is not weaker or separate mode
 
-Output should include:
+Output should use \`submit(...)\` exactly once after building draft proposal with available tools and include:
+- summary
 - chosen approach
 - key constraints shaping plan
 - decomposition rationale
@@ -51,7 +53,8 @@ Do not:
 - present many equivalent options without recommendation
 - over-decompose simple work
 - claim proof level higher than evidence supports
-- treat replanning as ad hoc patching with no coherent model`;
+- treat replanning as ad hoc patching with no coherent model
+- end with free-text plan instead of \`submit(...)\``;
 
 function renderPlanningPrompt(
   name: 'plan' | 'replan',
@@ -97,6 +100,11 @@ function renderPlanningPrompt(
         getString(input, 'verificationExpectations'),
       ),
       renderLabeledBlock('Constraints', getString(input, 'constraints')),
+      renderLabeledBlock(
+        'External Integrations',
+        getString(input, 'externalIntegrations'),
+      ),
+      renderLabeledBlock('Anti-Goals', getString(input, 'antiGoals')),
       renderLabeledBlock('Decisions', getString(input, 'decisions')),
     ]),
   );

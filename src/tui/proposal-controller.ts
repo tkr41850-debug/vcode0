@@ -15,6 +15,7 @@ import type {
   FeatureId,
   FeaturePhaseAgentRun,
   MilestoneId,
+  ProposalPhaseDetails,
   TaskId,
 } from '@core/types/index';
 import {
@@ -71,6 +72,17 @@ interface ActiveDraft {
 interface PendingProposalRun extends FeaturePhaseAgentRun {
   phase: GraphProposalMode;
 }
+
+const TUI_SUBMIT_DETAILS: ProposalPhaseDetails = {
+  summary: 'Submitted from TUI draft.',
+  chosenApproach: 'Use current TUI draft proposal as approval payload.',
+  keyConstraints: ['TUI submit does not capture structured planner rationale yet'],
+  decompositionRationale: ['Preserve current TUI approval workflow'],
+  orderingRationale: ['Allow approval flow without blocking on richer TUI inputs'],
+  verificationExpectations: ['Review proposal before approval'],
+  risksTradeoffs: ['Less planning context than agent-generated proposals'],
+  assumptions: ['Reviewer will inspect proposal diff directly'],
+};
 
 export class ComposerProposalController {
   private draft: ActiveDraft | undefined;
@@ -247,7 +259,7 @@ export class ComposerProposalController {
       throw new Error('no active draft to submit');
     }
 
-    draft.host.submit();
+    draft.host.submit(TUI_SUBMIT_DETAILS);
     const proposal = draft.host.buildProposal();
     const run: FeaturePhaseAgentRun = {
       id: `run-feature:${draft.featureId}:${draft.phase}`,

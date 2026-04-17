@@ -21,6 +21,7 @@ import type {
   FeaturePhaseResult,
   FeaturePhaseRunContext,
   GvcConfig,
+  ProposalPhaseDetails,
   ResearchPhaseDetails,
   ResearchPhaseResult,
   SummarizePhaseDetails,
@@ -44,6 +45,7 @@ export interface FeatureAgentRuntimeConfig {
   graph: FeatureGraph;
   store: Store;
   sessionStore: SessionStore;
+  projectRoot?: string;
   getApiKey?: (
     provider: string,
   ) => Promise<string | undefined> | string | undefined;
@@ -129,7 +131,11 @@ export class PiFeatureAgentRuntime implements AgentPort {
       this.deps.graph,
       this.deps.store,
     );
-    const tools = buildFeaturePhaseAgentToolset(host, phase);
+    const tools = buildFeaturePhaseAgentToolset(
+      host,
+      phase,
+      this.deps.projectRoot,
+    );
     const messages = await this.loadMessages(run.sessionId);
     const { agent, model } = this.createAgent(
       phase,
@@ -175,7 +181,12 @@ export class PiFeatureAgentRuntime implements AgentPort {
       ...(reason !== undefined ? { reason } : {}),
     });
     const host = createProposalToolHost(this.deps.graph, phase);
-    const tools = buildProposalAgentToolset(host);
+    const inspectionHost = createFeaturePhaseToolHost(
+      feature.id,
+      this.deps.graph,
+      this.deps.store,
+    );
+    const tools = buildProposalAgentToolset(host, inspectionHost);
     const messages = await this.loadMessages(run.sessionId);
     const { agent, model } = this.createAgent(
       phase,
@@ -197,14 +208,13 @@ export class PiFeatureAgentRuntime implements AgentPort {
       model.provider,
       model.id,
     );
-    const summary =
-      extractLastAssistantText(finalMessages) ||
-      `${phase === 'plan' ? 'Planned' : 'Replanned'} ${feature.name}`;
     const proposal = host.buildProposal();
+    const details = host.getProposalDetails();
+    const summary = details.summary;
 
-    this.recordPhaseCompletion(feature.id, phase, summary, sessionId, proposal);
+    this.recordPhaseCompletion(feature.id, phase, summary, sessionId, details);
 
-    return { summary, proposal };
+    return { summary, proposal, details };
   }
 
   private async runVerifyPhase(
@@ -264,18 +274,8 @@ export class PiFeatureAgentRuntime implements AgentPort {
     const tasks = [...this.deps.graph.tasks.values()]
       .filter((task) => task.featureId === feature.id)
       .sort((a, b) => a.orderInFeature - b.orderInFeature);
-    const runs = this.deps.store.listAgentRuns({
-      scopeType: 'feature_phase',
-      scopeId: feature.id,
-    });
-    const lastProposalRun = [...runs]
-      .reverse()
-      .find(
-        (candidate) =>
-          candidate.phase === 'plan' || candidate.phase === 'replan',
-      );
     const summaryContext = buildSummaryContext(events, tasks);
-    const proposalSummary = lastProposalRun?.payloadJson;
+    const proposalSummary = summaryContext.planSummary;
 
     return template.render({
       feature,
@@ -312,6 +312,7 @@ export class PiFeatureAgentRuntime implements AgentPort {
         summaryContext.importantFiles ?? collectImportantFiles(events),
       codebaseMap: renderCodebaseMap(feature, feature.summary),
       externalIntegrations: summaryContext.externalIntegrations,
+      antiGoals: summaryContext.antiGoals,
       replanReason: reason,
       reason,
     });
@@ -483,9 +484,11 @@ function buildSummaryContext(
 ): {
   discussionSummary?: string;
   researchSummary?: string;
+  planSummary?: string;
   successCriteria?: string;
   constraints?: string;
   externalIntegrations?: string;
+  antiGoals?: string;
   executionEvidence?: string;
   integratedOutcome?: string;
   verificationSummary?: string;
@@ -494,6 +497,7 @@ function buildSummaryContext(
 } {
   const latestDiscussEvent = findLatestPhaseEvent(events, 'discuss');
   const latestResearchEvent = findLatestPhaseEvent(events, 'research');
+  const latestPlanEvent = findLatestPlanEvent(events);
   const latestDiscussExtra = readEventExtraRecord(latestDiscussEvent);
   const latestResearchExtra = readEventExtraRecord(latestResearchEvent);
   const discussionSummary =
@@ -506,6 +510,7 @@ function buildSummaryContext(
     summarizeEvents(events, ['feature_phase_completed'], {
       phases: ['research'],
     });
+  const planSummary = formatProposalSummary(latestPlanEvent);
   const successCriteria = renderPromptList(
     readStringArrayRecord(latestDiscussExtra, 'successCriteria'),
   );
@@ -514,6 +519,9 @@ function buildSummaryContext(
   );
   const externalIntegrations = renderPromptList(
     readStringArrayRecord(latestDiscussExtra, 'externalIntegrations'),
+  );
+  const antiGoals = renderPromptList(
+    readStringArrayRecord(latestDiscussExtra, 'antiGoals'),
   );
   const verificationSummary = joinPromptValues(
     summarizeEvents(events, ['feature_phase_completed'], {
@@ -538,9 +546,11 @@ function buildSummaryContext(
   return {
     ...(discussionSummary !== undefined ? { discussionSummary } : {}),
     ...(researchSummary !== undefined ? { researchSummary } : {}),
+    ...(planSummary !== undefined ? { planSummary } : {}),
     ...(successCriteria !== undefined ? { successCriteria } : {}),
     ...(constraints !== undefined ? { constraints } : {}),
     ...(externalIntegrations !== undefined ? { externalIntegrations } : {}),
+    ...(antiGoals !== undefined ? { antiGoals } : {}),
     ...(executionHighlights !== undefined
       ? {
           executionEvidence: executionHighlights,
@@ -591,6 +601,20 @@ function findLatestPhaseEvent(
         event.eventType === 'feature_phase_completed' &&
         readPayloadPhase(event.payload) === phase,
     );
+}
+
+function findLatestPlanEvent(
+  events: readonly EventRecord[],
+): EventRecord | undefined {
+  return [...events]
+    .reverse()
+    .find((event) => {
+      if (event.eventType !== 'feature_phase_completed') {
+        return false;
+      }
+      const phase = readPayloadPhase(event.payload);
+      return phase === 'plan' || phase === 'replan';
+    });
 }
 
 function readEventExtraRecord(
@@ -709,6 +733,10 @@ function formatDiscussSummary(
   const openQuestions = renderPromptList(
     readStringArrayRecord(extra, 'openQuestions'),
   );
+  const externalIntegrations = renderPromptList(
+    readStringArrayRecord(extra, 'externalIntegrations'),
+  );
+  const antiGoals = renderPromptList(readStringArrayRecord(extra, 'antiGoals'));
   return joinPromptValues(
     readSummaryValue(event?.payload),
     intent !== undefined ? `Intent: ${intent}` : undefined,
@@ -716,6 +744,10 @@ function formatDiscussSummary(
       ? `Success criteria:\n${successCriteria}`
       : undefined,
     constraints !== undefined ? `Constraints:\n${constraints}` : undefined,
+    externalIntegrations !== undefined
+      ? `External integrations:\n${externalIntegrations}`
+      : undefined,
+    antiGoals !== undefined ? `Anti-goals:\n${antiGoals}` : undefined,
     risks !== undefined ? `Risks and unknowns:\n${risks}` : undefined,
     openQuestions !== undefined
       ? `Open questions:\n${openQuestions}`
@@ -765,6 +797,43 @@ function formatResearchSummary(
     planningNotes !== undefined
       ? `Planning notes:\n${planningNotes}`
       : undefined,
+  );
+}
+
+function formatProposalSummary(
+  event: EventRecord | undefined,
+): string | undefined {
+  const extra = readEventExtraRecord(event) as ProposalPhaseDetails | undefined;
+  if (extra === undefined) {
+    return undefined;
+  }
+  const keyConstraints = renderPromptList(extra.keyConstraints);
+  const decompositionRationale = renderPromptList(extra.decompositionRationale);
+  const orderingRationale = renderPromptList(extra.orderingRationale);
+  const verificationExpectations = renderPromptList(
+    extra.verificationExpectations,
+  );
+  const risksTradeoffs = renderPromptList(extra.risksTradeoffs);
+  const assumptions = renderPromptList(extra.assumptions);
+  return joinPromptValues(
+    extra.summary,
+    `Chosen approach: ${extra.chosenApproach}`,
+    keyConstraints !== undefined
+      ? `Key constraints:\n${keyConstraints}`
+      : undefined,
+    decompositionRationale !== undefined
+      ? `Decomposition rationale:\n${decompositionRationale}`
+      : undefined,
+    orderingRationale !== undefined
+      ? `Ordering rationale:\n${orderingRationale}`
+      : undefined,
+    verificationExpectations !== undefined
+      ? `Verification expectations:\n${verificationExpectations}`
+      : undefined,
+    risksTradeoffs !== undefined
+      ? `Risks and trade-offs:\n${risksTradeoffs}`
+      : undefined,
+    assumptions !== undefined ? `Assumptions:\n${assumptions}` : undefined,
   );
 }
 

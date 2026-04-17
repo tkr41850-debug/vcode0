@@ -10,6 +10,7 @@ import type {
 } from '@orchestrator/ports/index';
 import { RecoveryService } from '@orchestrator/services/index';
 import type { RuntimePort } from '@runtime/contracts';
+import { InMemorySessionStore } from '../../integration/harness/in-memory-session-store.js';
 import { describe, expect, it, vi } from 'vitest';
 
 function makeTaskRun(overrides: Partial<TaskAgentRun> = {}): TaskAgentRun {
@@ -149,6 +150,7 @@ function createPorts(runs: TaskAgentRun[]): {
     ports: {
       store,
       runtime,
+      sessionStore: new InMemorySessionStore(),
       agents: {} as OrchestratorPorts['agents'],
       verification,
       ui,

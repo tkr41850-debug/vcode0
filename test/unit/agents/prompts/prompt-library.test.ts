@@ -51,6 +51,7 @@ function buildInput() {
     codebaseMap:
       'src/agents/prompts for feature phases; src/runtime/worker for execute.',
     externalIntegrations: 'None.',
+    antiGoals: 'Do not redesign task execution.',
     replanReason: 'Dependency seam changed after execution evidence.',
   } satisfies Record<string, unknown>;
 }
@@ -96,6 +97,12 @@ describe('promptLibrary', () => {
     expect(replanPrompt).toContain("You are gvc0's feature planning agent.");
     expect(planPrompt).toContain('## Planning Mode');
     expect(planPrompt).toContain('Initial planning mode.');
+    expect(planPrompt).toContain('inspect current persisted feature state');
+    expect(planPrompt).toContain('`submit(...)` exactly once');
+    expect(planPrompt).toContain('chosen approach');
+    expect(planPrompt).toContain('verification expectations');
+    expect(planPrompt).toContain('### External Integrations');
+    expect(planPrompt).toContain('### Anti-Goals');
     expect(planPrompt).not.toContain(
       'Reason: Dependency seam changed after execution evidence.',
     );
@@ -113,6 +120,10 @@ describe('promptLibrary', () => {
 
     expect(discussPrompt).toContain('`submitDiscuss(...)` exactly once');
     expect(researchPrompt).toContain('`submitResearch(...)` exactly once');
+    expect(researchPrompt).toContain('repo state with available tools');
+    expect(researchPrompt).toContain('read real code with repo inspection tools');
+    expect(researchPrompt).toContain('### External Integrations');
+    expect(researchPrompt).toContain('### Anti-Goals');
     expect(summarizePrompt).toContain('`submitSummarize(...)` exactly once');
     expect(summarizePrompt).toContain(
       "You are gvc0's feature summarization agent.",

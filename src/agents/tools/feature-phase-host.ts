@@ -107,6 +107,9 @@ class DefaultFeaturePhaseToolHost implements FeaturePhaseToolHost {
   }
 
   submitDiscuss(args: SubmitDiscussOptions): DiscussPhaseResult {
+    if (this.discuss !== undefined) {
+      throw new Error('discuss phase already submitted');
+    }
     const { summary, ...extra } = args;
     const result: DiscussPhaseResult = {
       summary,
@@ -117,6 +120,9 @@ class DefaultFeaturePhaseToolHost implements FeaturePhaseToolHost {
   }
 
   submitResearch(args: SubmitResearchOptions): ResearchPhaseResult {
+    if (this.research !== undefined) {
+      throw new Error('research phase already submitted');
+    }
     const { summary, ...extra } = args;
     const result: ResearchPhaseResult = {
       summary,
@@ -127,6 +133,9 @@ class DefaultFeaturePhaseToolHost implements FeaturePhaseToolHost {
   }
 
   submitSummarize(args: SubmitSummarizeOptions): SummarizePhaseResult {
+    if (this.summarize !== undefined) {
+      throw new Error('summarize phase already submitted');
+    }
     const { summary, ...extra } = args;
     const result: SummarizePhaseResult = {
       summary,
@@ -137,6 +146,9 @@ class DefaultFeaturePhaseToolHost implements FeaturePhaseToolHost {
   }
 
   submitVerify(args: SubmitVerifyOptions): VerificationSummary {
+    if (this.verification !== undefined) {
+      throw new Error('verify phase already submitted');
+    }
     const fallbackFailedChecks =
       args.outcome === 'repair_needed'
         ? args.failedChecks && args.failedChecks.length > 0

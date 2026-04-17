@@ -7,6 +7,7 @@ import type {
   VerificationSummary,
 } from '@core/types/index';
 import type { RuntimePort } from '@runtime';
+import type { SessionStore } from '@runtime/sessions/index';
 
 export interface AgentRunQuery {
   scopeType?: AgentRun['scopeType'];
@@ -23,6 +24,12 @@ export interface EventQuery {
   until?: number;
 }
 
+export type AgentRunPatch = {
+  [Key in keyof Omit<AgentRun, 'id' | 'scopeType' | 'scopeId'>]?:
+    | Omit<AgentRun, 'id' | 'scopeType' | 'scopeId'>[Key]
+    | undefined;
+};
+
 export interface Store {
   // Agent runs
   getAgentRun(id: string): AgentRun | undefined;
@@ -30,7 +37,7 @@ export interface Store {
   createAgentRun(run: AgentRun): void;
   updateAgentRun(
     runId: string,
-    patch: Partial<Omit<AgentRun, 'id' | 'scopeType' | 'scopeId'>>,
+    patch: AgentRunPatch,
   ): void;
 
   // Events
@@ -51,6 +58,7 @@ export interface VerificationPort {
 export interface OrchestratorPorts {
   store: Store;
   runtime: RuntimePort;
+  sessionStore: SessionStore;
   agents: AgentPort;
   verification: VerificationPort;
   ui: UiPort;

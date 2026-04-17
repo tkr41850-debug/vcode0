@@ -28,6 +28,7 @@ export type {
   ResearchFileDetail,
   ResearchPhaseDetails,
   ResearchPhaseResult,
+  ProposalPhaseDetails,
   SummarizePhaseDetails,
   SummarizePhaseResult,
   TaskResult,

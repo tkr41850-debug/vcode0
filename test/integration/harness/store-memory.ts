@@ -1,5 +1,6 @@
 import type { AgentRun, EventRecord } from '@core/types/index';
 import type {
+  AgentRunPatch,
   AgentRunQuery,
   EventQuery,
   Store,
@@ -55,7 +56,7 @@ export class InMemoryStore implements Store {
 
   updateAgentRun(
     runId: string,
-    patch: Partial<Omit<AgentRun, 'id' | 'scopeType' | 'scopeId'>>,
+    patch: AgentRunPatch,
   ): void {
     const existing = this.runs.get(runId);
     if (existing === undefined) {

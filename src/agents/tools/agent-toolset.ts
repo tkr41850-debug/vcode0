@@ -1,3 +1,8 @@
+import { createGitDiffTool } from '@agents/worker/tools/git-diff';
+import { createGitStatusTool } from '@agents/worker/tools/git-status';
+import { createListFilesTool } from '@agents/worker/tools/list-files';
+import { createReadFileTool } from '@agents/worker/tools/read-file';
+import { createSearchFilesTool } from '@agents/worker/tools/search-files';
 import type { AgentTool, AgentToolResult } from '@mariozechner/pi-agent-core';
 import type { TextContent } from '@mariozechner/pi-ai';
 import type { TSchema } from '@sinclair/typebox';
@@ -39,29 +44,10 @@ function buildToolResult<T>(
   });
 }
 
-export function buildProposalAgentToolset(
-  host: ProposalToolHost,
-): ProposalAgentTool[] {
-  const toolset = createPlannerToolset(host);
-
-  return toolset.tools.map((tool) => ({
-    name: tool.name,
-    label: tool.name,
-    description: tool.description,
-    parameters: proposalToolParameters[tool.name],
-    execute: (_toolCallId: string, args: unknown) =>
-      tool.execute(args as never).then((result) => ({
-        content: buildTextContent(formatToolText(tool.name, result)),
-        details: result,
-      })),
-  }));
-}
-
-export function buildFeaturePhaseAgentToolset(
+function buildFeatureInspectionTools(
   host: FeaturePhaseToolHost,
-  phase: 'discuss' | 'research' | 'summarize' | 'verify',
 ): FeaturePhaseAgentTool[] {
-  const tools: FeaturePhaseAgentTool[] = [
+  return [
     {
       name: 'getFeatureState',
       label: 'Get Feature State',
@@ -144,6 +130,52 @@ export function buildFeaturePhaseAgentToolset(
       },
     },
   ];
+}
+
+function buildRepoInspectionTools(workdir: string): FeaturePhaseAgentTool[] {
+  return [
+    createReadFileTool(workdir),
+    createListFilesTool(workdir),
+    createSearchFilesTool(workdir),
+    createGitStatusTool(workdir),
+    createGitDiffTool(workdir),
+  ] as unknown as FeaturePhaseAgentTool[];
+}
+
+export function buildProposalAgentToolset(
+  host: ProposalToolHost,
+  inspectionHost?: FeaturePhaseToolHost,
+): ProposalAgentTool[] {
+  const toolset = createPlannerToolset(host);
+  const inspectionTools =
+    inspectionHost !== undefined ? buildFeatureInspectionTools(inspectionHost) : [];
+
+  return [
+    ...inspectionTools,
+    ...toolset.tools.map((tool) => ({
+      name: tool.name,
+      label: tool.name,
+      description: tool.description,
+      parameters: proposalToolParameters[tool.name],
+      execute: (_toolCallId: string, args: unknown) =>
+        tool.execute(args as never).then((result) => ({
+          content: buildTextContent(formatToolText(tool.name, result)),
+          details: result,
+        })),
+    })),
+  ];
+}
+
+export function buildFeaturePhaseAgentToolset(
+  host: FeaturePhaseToolHost,
+  phase: 'discuss' | 'research' | 'summarize' | 'verify',
+  projectRoot?: string,
+): FeaturePhaseAgentTool[] {
+  const tools: FeaturePhaseAgentTool[] = buildFeatureInspectionTools(host);
+
+  if (phase === 'research' && projectRoot !== undefined) {
+    tools.push(...buildRepoInspectionTools(projectRoot));
+  }
 
   switch (phase) {
     case 'discuss':

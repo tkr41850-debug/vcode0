@@ -27,8 +27,8 @@ Calibrate depth to uncertainty:
 - deep research for unfamiliar subsystems, new runtime boundaries, or ambiguous architecture
 
 Research rules:
-- inspect persisted feature state, events, task results, and prior runs with available tools before filling gaps from prompt context
-- read real code and name exact files
+- inspect persisted feature state, events, task results, prior runs, and repo state with available tools before filling gaps from prompt context
+- read real code with repo inspection tools and name exact files
 - identify entry points, abstractions, state transitions, and persistence/runtime boundaries
 - distinguish facts from recommendations
 - surface likely pitfalls, hidden coupling, and hotspots
@@ -68,6 +68,11 @@ export const researchPromptTemplate: PromptTemplate = {
           'Known Constraints',
           getString(input, 'constraints'),
         ),
+        renderLabeledBlock(
+          'External Integrations',
+          getString(input, 'externalIntegrations'),
+        ),
+        renderLabeledBlock('Anti-Goals', getString(input, 'antiGoals')),
         renderLabeledBlock('Codebase Hints', getString(input, 'codebaseMap')),
         renderLabeledBlock('Prior Decisions', getString(input, 'decisions')),
       ]),

@@ -209,6 +209,7 @@ export async function composeApplication(): Promise<GvcApplication> {
     graph,
     store,
     sessionStore,
+    projectRoot,
     getApiKey,
   });
 
@@ -216,6 +217,7 @@ export async function composeApplication(): Promise<GvcApplication> {
   const ports: OrchestratorPorts = {
     store,
     runtime,
+    sessionStore,
     agents,
     verification,
     ui,

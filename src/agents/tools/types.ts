@@ -13,6 +13,7 @@ import type {
   Feature,
   FeatureId,
   MilestoneId,
+  ProposalPhaseDetails,
   ResearchPhaseDetails,
   ResearchPhaseResult,
   SummarizePhaseDetails,
@@ -56,7 +57,7 @@ export interface EditTaskOptions {
   patch: TaskEditPatch;
 }
 
-export type SubmitProposalOptions = Record<string, never>;
+export interface SubmitProposalOptions extends ProposalPhaseDetails {}
 
 export interface GetFeatureStateOptions {
   featureId?: FeatureId;
@@ -238,9 +239,10 @@ export interface ProposalToolHost {
   editTask(args: EditTaskOptions): Task;
   addDependency(args: DependencyOptions): void;
   removeDependency(args: DependencyOptions): void;
-  submit(): void;
+  submit(args: SubmitProposalOptions): void;
   wasSubmitted(): boolean;
   buildProposal(): GraphProposal;
+  getProposalDetails(): ProposalPhaseDetails;
 }
 
 export interface FeaturePhaseToolHost {

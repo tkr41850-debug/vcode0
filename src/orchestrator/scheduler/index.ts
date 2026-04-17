@@ -57,6 +57,7 @@ export type SchedulerEvent =
       type: 'feature_phase_rerun_requested';
       featureId: FeatureId;
       phase: ProposalPhase;
+      reason?: string;
     }
   | {
       type: 'feature_phase_error';
