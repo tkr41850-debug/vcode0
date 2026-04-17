@@ -7,7 +7,7 @@ It does not own task-worker execution tools; those live under [Worker Agent](../
 
 ## Current surface
 
-- `index.ts` currently holds shared tool types, default hosts, schemas, and toolset builders in one module.
+- `index.ts` is barrel only; concrete pieces live in `types.ts`, `proposal-host.ts`, `feature-phase-host.ts`, `schemas.ts`, `planner-toolset.ts`, and `agent-toolset.ts`.
 - Proposal tools operate on a cloned draft graph: `addFeature`, `removeFeature`, `editFeature`, `addTask`, `removeTask`, `editTask`, `addDependency`, `removeDependency`, `submit`.
 - Feature-phase tools inspect authoritative state and return structured phase outputs: `getFeatureState`, `listFeatureTasks`, `getTaskResult`, `listFeatureEvents`, `listFeatureRuns`, `getChangedFiles`, `submitDiscuss`, `submitResearch`, `submitSummarize`, `submitVerify`.
 - `GraphProposalToolHost` mutates only an `InMemoryFeatureGraph` draft until `submit()` builds a proposal.

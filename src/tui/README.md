@@ -7,7 +7,8 @@ It does not own scheduling or persistence logic; it reads snapshots and run stat
 
 ## Layout
 
-- `app.ts` — `TuiApp`, overlay wiring, selection state, and command callbacks.
+- `app.ts` — `TuiApp` public shell and composition root for TUI helpers.
+- `app-command-context.ts`, `app-composer.ts`, `app-navigation.ts`, `app-overlays.ts`, `app-state.ts`, `data-source.ts` — command callbacks, slash-command execution, navigation/input flow, overlay handling, selection/snapshot helpers, and TUI data contract.
 - `commands/` — current keybind registry and user-facing command labels.
 - `components/` — DAG, status bar, help, dependency detail, and agent monitor rendering.
 - `view-model/` — derived DAG/status/worker/dependency view models from graph snapshots and agent runs.

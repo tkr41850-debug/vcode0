@@ -7,7 +7,7 @@ It may depend on `@core/*` contracts and adapter-facing ports, but not on concre
 
 ## Layout
 
-- `scheduler/` — event queue, ready-work dispatch, retry windows, and UI refresh triggers.
+- `scheduler/` — event queue, ready-work dispatch, overlap scans, warning emission, event handling, and UI refresh triggers.
 - `features/` — feature lifecycle progression, repair/replan escalation, and merge-train handoff.
 - `proposals/` — parse, validate, apply, and summarize planner/replanner proposals.
 - `conflicts/` — same-feature and cross-feature overlap coordination.

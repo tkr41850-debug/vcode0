@@ -35,6 +35,7 @@ import type { Store } from '@orchestrator/ports/index';
 import { resolveModel } from '@runtime/routing/model-bridge';
 import type { SessionStore } from '@runtime/sessions/index';
 import { messagesToTokenUsageAggregate } from '@runtime/usage';
+import type { TSchema } from '@sinclair/typebox';
 
 export interface FeatureAgentRuntimeConfig {
   modelId: string;
@@ -322,7 +323,7 @@ export class PiFeatureAgentRuntime implements AgentPort {
       'discuss' | 'research' | 'plan' | 'verify' | 'summarize' | 'replan'
     >,
     systemPrompt: string,
-    tools: AgentTool[],
+    tools: AgentTool<TSchema, unknown>[],
     run: FeaturePhaseRunContext,
     messages: AgentMessage[],
   ): { agent: Agent; model: ReturnType<typeof resolveModel> } {

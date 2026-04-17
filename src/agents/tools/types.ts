@@ -1,0 +1,265 @@
+import type {
+  DependencyOptions,
+  FeatureEditPatch,
+  FeatureGraph,
+  TaskEditPatch,
+} from '@core/graph/index';
+import type { GraphProposal, GraphProposalMode } from '@core/proposals/index';
+import type {
+  AgentRun,
+  DiscussPhaseDetails,
+  DiscussPhaseResult,
+  EventRecord,
+  Feature,
+  FeatureId,
+  MilestoneId,
+  ResearchPhaseDetails,
+  ResearchPhaseResult,
+  SummarizePhaseDetails,
+  SummarizePhaseResult,
+  Task,
+  TaskResult,
+  VerificationCriterionEvidence,
+  VerificationSummary,
+} from '@core/types/index';
+
+export type { DependencyOptions, FeatureEditPatch, TaskEditPatch };
+
+export interface AddFeatureOptions {
+  milestoneId: MilestoneId;
+  name: string;
+  description: string;
+}
+
+export interface RemoveFeatureOptions {
+  featureId: FeatureId;
+}
+
+export interface EditFeatureOptions {
+  featureId: FeatureId;
+  patch: FeatureEditPatch;
+}
+
+export interface AddTaskOptions {
+  featureId: FeatureId;
+  description: string;
+  weight?: Task['weight'];
+  reservedWritePaths?: string[];
+}
+
+export interface RemoveTaskOptions {
+  taskId: Task['id'];
+}
+
+export interface EditTaskOptions {
+  taskId: Task['id'];
+  patch: TaskEditPatch;
+}
+
+export type SubmitProposalOptions = Record<string, never>;
+
+export interface GetFeatureStateOptions {
+  featureId?: FeatureId;
+}
+
+export interface ListFeatureTasksOptions {
+  featureId?: FeatureId;
+}
+
+export interface GetTaskResultOptions {
+  taskId: Task['id'];
+}
+
+export interface ListFeatureEventsOptions {
+  featureId?: FeatureId;
+  phase?: AgentRun['phase'];
+  limit?: number;
+}
+
+export interface ListFeatureRunsOptions {
+  featureId?: FeatureId;
+  phase?: AgentRun['phase'];
+}
+
+export interface GetChangedFilesOptions {
+  featureId?: FeatureId;
+}
+
+export interface SubmitDiscussOptions extends DiscussPhaseDetails {
+  summary: string;
+}
+
+export interface SubmitResearchOptions extends ResearchPhaseDetails {
+  summary: string;
+}
+
+export interface SubmitSummarizeOptions extends SummarizePhaseDetails {
+  summary: string;
+}
+
+export interface SubmitVerifyOptions {
+  outcome: 'pass' | 'repair_needed';
+  summary: string;
+  failedChecks?: string[];
+  criteriaEvidence?: VerificationCriterionEvidence[];
+  repairFocus?: string[];
+}
+
+export interface TaskResultLookup {
+  taskId: Task['id'];
+  featureId: FeatureId;
+  result: TaskResult;
+}
+
+export type ProposalToolName =
+  | 'addFeature'
+  | 'removeFeature'
+  | 'editFeature'
+  | 'addTask'
+  | 'removeTask'
+  | 'editTask'
+  | 'addDependency'
+  | 'removeDependency'
+  | 'submit';
+
+export type PlannerToolName = ProposalToolName;
+export type ReplannerToolName = ProposalToolName;
+export type AgentToolName = ProposalToolName;
+
+export type FeatureInspectionToolName =
+  | 'getFeatureState'
+  | 'listFeatureTasks'
+  | 'getTaskResult'
+  | 'listFeatureEvents'
+  | 'listFeatureRuns'
+  | 'getChangedFiles';
+
+export type FeaturePhaseToolName =
+  | FeatureInspectionToolName
+  | 'submitDiscuss'
+  | 'submitResearch'
+  | 'submitSummarize'
+  | 'submitVerify';
+
+export interface PlannerToolArgsMap {
+  addFeature: AddFeatureOptions;
+  removeFeature: RemoveFeatureOptions;
+  editFeature: EditFeatureOptions;
+  addTask: AddTaskOptions;
+  removeTask: RemoveTaskOptions;
+  editTask: EditTaskOptions;
+  addDependency: DependencyOptions;
+  removeDependency: DependencyOptions;
+  submit: SubmitProposalOptions;
+}
+
+export interface PlannerToolResultMap {
+  addFeature: Feature;
+  removeFeature: undefined;
+  editFeature: Feature;
+  addTask: Task;
+  removeTask: undefined;
+  editTask: Task;
+  addDependency: undefined;
+  removeDependency: undefined;
+  submit: undefined;
+}
+
+export interface FeaturePhaseToolArgsMap {
+  getFeatureState: GetFeatureStateOptions;
+  listFeatureTasks: ListFeatureTasksOptions;
+  getTaskResult: GetTaskResultOptions;
+  listFeatureEvents: ListFeatureEventsOptions;
+  listFeatureRuns: ListFeatureRunsOptions;
+  getChangedFiles: GetChangedFilesOptions;
+  submitDiscuss: SubmitDiscussOptions;
+  submitResearch: SubmitResearchOptions;
+  submitSummarize: SubmitSummarizeOptions;
+  submitVerify: SubmitVerifyOptions;
+}
+
+export interface FeaturePhaseToolResultMap {
+  getFeatureState: Feature;
+  listFeatureTasks: Task[];
+  getTaskResult: TaskResultLookup;
+  listFeatureEvents: EventRecord[];
+  listFeatureRuns: AgentRun[];
+  getChangedFiles: string[];
+  submitDiscuss: DiscussPhaseResult;
+  submitResearch: ResearchPhaseResult;
+  submitSummarize: SummarizePhaseResult;
+  submitVerify: VerificationSummary;
+}
+
+export type PlannerToolArgs<Name extends AgentToolName = AgentToolName> =
+  PlannerToolArgsMap[Name];
+
+export type PlannerToolResult<Name extends AgentToolName = AgentToolName> =
+  PlannerToolResultMap[Name];
+
+export type FeaturePhaseToolArgs<
+  Name extends FeaturePhaseToolName = FeaturePhaseToolName,
+> = FeaturePhaseToolArgsMap[Name];
+
+export type FeaturePhaseToolResult<
+  Name extends FeaturePhaseToolName = FeaturePhaseToolName,
+> = FeaturePhaseToolResultMap[Name];
+
+export interface PlannerToolDefinition<
+  Name extends AgentToolName = AgentToolName,
+> {
+  name: Name;
+  description: string;
+  execute(args: PlannerToolArgs<Name>): Promise<PlannerToolResult<Name>>;
+}
+
+export interface FeaturePhaseToolDefinition<
+  Name extends FeaturePhaseToolName = FeaturePhaseToolName,
+> {
+  name: Name;
+  description: string;
+  execute(
+    args: FeaturePhaseToolArgs<Name>,
+  ): Promise<FeaturePhaseToolResult<Name>>;
+}
+
+export interface PlannerToolset {
+  readonly tools: readonly PlannerToolDefinition[];
+}
+
+export interface ProposalToolHost {
+  readonly draft: FeatureGraph;
+  readonly mode: GraphProposalMode;
+  addFeature(args: AddFeatureOptions): Feature;
+  removeFeature(args: RemoveFeatureOptions): void;
+  editFeature(args: EditFeatureOptions): Feature;
+  addTask(args: AddTaskOptions): Task;
+  removeTask(args: RemoveTaskOptions): void;
+  editTask(args: EditTaskOptions): Task;
+  addDependency(args: DependencyOptions): void;
+  removeDependency(args: DependencyOptions): void;
+  submit(): void;
+  wasSubmitted(): boolean;
+  buildProposal(): GraphProposal;
+}
+
+export interface FeaturePhaseToolHost {
+  getFeatureState(args: GetFeatureStateOptions): Feature;
+  listFeatureTasks(args: ListFeatureTasksOptions): Task[];
+  getTaskResult(args: GetTaskResultOptions): TaskResultLookup;
+  listFeatureEvents(args: ListFeatureEventsOptions): EventRecord[];
+  listFeatureRuns(args: ListFeatureRunsOptions): AgentRun[];
+  getChangedFiles(args: GetChangedFilesOptions): string[];
+  submitDiscuss(args: SubmitDiscussOptions): DiscussPhaseResult;
+  submitResearch(args: SubmitResearchOptions): ResearchPhaseResult;
+  submitSummarize(args: SubmitSummarizeOptions): SummarizePhaseResult;
+  submitVerify(args: SubmitVerifyOptions): VerificationSummary;
+  wasDiscussSubmitted(): boolean;
+  wasResearchSubmitted(): boolean;
+  wasSummarizeSubmitted(): boolean;
+  wasVerifySubmitted(): boolean;
+  getDiscussSummary(): DiscussPhaseResult;
+  getResearchSummary(): ResearchPhaseResult;
+  getSummarizeSummary(): SummarizePhaseResult;
+  getVerificationSummary(): VerificationSummary;
+}
