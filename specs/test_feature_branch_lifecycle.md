@@ -41,15 +41,16 @@ Capture the expected lifecycle of a feature branch and its task worktrees.
 - And the run returns to `running`
 
 ### Task merges back into feature branch
-- Given a task passes `submit()` preflight successfully
-- When the task is finalized with `confirm()`
+- Given a task worker calls `submit(summary, filesChanged)` successfully
+- And the terminal result carries `completionKind === "submitted"`
+- When the orchestrator finalizes the task
 - Then the task worktree is squash-merged into the feature branch
 - And the task is not merged directly to `main`
 - And task collaboration control becomes `merged`
 
 ### Feature enters merge queue only after feature CI and spec verification pass
 - Given all tasks in a feature have merged into the feature branch
-- And feature work control has reached `feature_ci`
+- And feature work control has reached `ci_check`
 - When heavy feature CI passes and agent-level `verifying` also passes
 - Then feature work control becomes `awaiting_merge`
 - And the feature enters `merge_queued` only after that
