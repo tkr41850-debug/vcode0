@@ -92,6 +92,13 @@ function createUiStub(): UiPort {
   };
 }
 
+function createWorktreeStub(): OrchestratorPorts['worktree'] {
+  return {
+    ensureFeatureWorktree: () => Promise.resolve('/repo'),
+    ensureTaskWorktree: () => Promise.resolve('/repo'),
+  };
+}
+
 function createTaskFixture(overrides: Partial<Task> = {}): Task {
   return {
     id: 't-1',
@@ -283,6 +290,7 @@ function createFixture({
     sessionStore,
     agents,
     verification: resolvedVerification,
+    worktree: createWorktreeStub(),
     ui: createUiStub(),
     config,
   };

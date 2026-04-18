@@ -34,12 +34,17 @@ main
 ```
 
 - **Max concurrency**: configurable (default: CPU count or provider rate limit, whichever is lower)
-- **Worktree lifecycle**: created on dispatch from the
-  feature branch, using the same basename as the task branch
-  (`feat-<slugified-name>-<feature-id>-<task-id>`), squash-merged back into
-  the feature branch on success, and retained until the owning
-  feature lands on `main` or garbage collection snapshots and
-  removes the stale worktree. Stale-worktree GC should preserve
+- **Worktree lifecycle**: worktrees are created lazily on first
+  dispatch by the orchestrator's scheduler — task worktrees when
+  the task is dispatched, the feature worktree when a task or
+  feature-phase agent first needs it. The feature *branch* is
+  created eagerly when the feature enters `in_progress`; only the
+  checkout directory is lazy. Task worktrees branch from feature
+  branch HEAD using the same basename as the task branch
+  (`feat-<slugified-name>-<feature-id>-<task-id>`), squash-merged
+  back into the feature branch on success, and retained until the
+  owning feature lands on `main` or garbage collection snapshots
+  and removes the stale worktree. Stale-worktree GC should preserve
   resumability by first creating a reversible `WIP snapshot`
   commit with a dedicated snapshot author/email; when that
   worktree/branch is later reloaded, the synthetic snapshot commit
@@ -399,12 +404,20 @@ plus pi-sdk's tool/model contracts,
 not on provider-specific session details.
 
 ```typescript
+interface SessionExitInfo {
+  code: number | null;
+  signal: NodeJS.Signals | null;
+  error?: Error;
+}
+
 interface SessionHandle {
   sessionId: string;
   abort(): void;
   sendInput(text: string): Promise<void>;
   send(message: OrchestratorToWorkerMessage): void;
   onWorkerMessage(handler: (message: WorkerToOrchestratorMessage) => void): void;
+  /** Fires once when the underlying worker exits (normally or via crash/error). */
+  onExit(handler: (info: SessionExitInfo) => void): void;
 }
 
 type ResumeSessionResult =
@@ -417,7 +430,7 @@ type ResumeSessionResult =
 
 interface SessionHarness {
   /** Start a new session for a task */
-  start(task: Task, context: WorkerContext): Promise<SessionHandle>;
+  start(task: Task, context: WorkerContext, agentRunId: string): Promise<SessionHandle>;
   /** Resume from authoritative persisted run/session state */
   resume(task: Task, run: ResumableTaskExecutionRunRef): Promise<ResumeSessionResult>;
 }
@@ -425,6 +438,21 @@ interface SessionHarness {
 // Baseline implementation
 class PiSdkHarness implements SessionHarness { /* default — native pi-sdk Agent loop */ }
 ```
+
+The harness owns child-exit detection: `PiSdkHarness` wires
+`child.on('exit', …)` and `child.on('error', …)` through
+`onExit`. When the worker pool receives an `onExit` while a
+`liveRuns` entry is still present, it synthesizes a
+`{ type: 'error', error: 'worker_exited: …' }` worker message so
+the scheduler's existing completion path marks the run failed
+instead of leaving it in `running` until the next startup
+recovery pass. Normal completion deletes `liveRuns` first, so
+subsequent exit fires as a no-op.
+
+The harness also threads the orchestrator-supplied `agentRunId`
+into every `OrchestratorToWorkerMessage` emitted on behalf of
+the `SessionHandle` (`abort`, `manual_input`, `run`). Backend is
+swappable, but the IDs on the wire are real.
 
 A `ClaudeCodeHarness` that wraps Claude Code sessions as worker backends is a [feature candidate](./feature-candidates/claude-code-harness.md), not part of the baseline.
 

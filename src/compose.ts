@@ -29,6 +29,7 @@ import type {
 import { PiSdkHarness } from '@runtime/harness/index';
 import { FileSessionStore } from '@runtime/sessions/index';
 import { LocalWorkerPool } from '@runtime/worker-pool';
+import { GitWorktreeProvisioner } from '@runtime/worktree/index';
 import { TuiApp } from '@tui/app';
 
 const DEFAULT_MODEL_ID = 'claude-sonnet-4-6';
@@ -221,12 +222,14 @@ export async function composeApplication(): Promise<GvcApplication> {
   });
 
   const verification = new VerificationService({ config }, projectRoot);
+  const worktree = new GitWorktreeProvisioner(projectRoot);
   const ports: OrchestratorPorts = {
     store,
     runtime,
     sessionStore,
     agents,
     verification,
+    worktree,
     ui,
     config,
   };

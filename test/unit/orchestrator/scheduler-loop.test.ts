@@ -350,6 +350,10 @@ function createPorts(
     ports: {
       ...base,
       verification,
+      worktree: {
+        ensureFeatureWorktree: () => Promise.resolve('/repo'),
+        ensureTaskWorktree: () => Promise.resolve('/repo'),
+      },
     },
     runtime,
     ui,

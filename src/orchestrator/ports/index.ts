@@ -8,6 +8,7 @@ import type {
 } from '@core/types/index';
 import type { RuntimePort } from '@runtime';
 import type { SessionStore } from '@runtime/sessions/index';
+import type { WorktreeProvisioner } from '@runtime/worktree/index';
 
 export interface AgentRunQuery {
   scopeType?: AgentRun['scopeType'];
@@ -58,6 +59,7 @@ export interface OrchestratorPorts {
   sessionStore: SessionStore;
   agents: AgentPort;
   verification: VerificationPort;
+  worktree: WorktreeProvisioner;
   ui: UiPort;
   config: GvcConfig;
 }

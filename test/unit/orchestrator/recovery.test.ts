@@ -163,6 +163,10 @@ function createPorts(runs: TaskAgentRun[]): {
       sessionStore: new InMemorySessionStore(),
       agents: {} as OrchestratorPorts['agents'],
       verification,
+      worktree: {
+        ensureFeatureWorktree: () => Promise.resolve('/repo'),
+        ensureTaskWorktree: () => Promise.resolve('/repo'),
+      },
       ui,
       config: { tokenProfile: 'balanced' },
     },

@@ -1,3 +1,4 @@
+import type { FeatureGraph } from '@core/graph/index';
 import {
   buildCombinedGraph,
   computeGraphMetrics,
@@ -190,11 +191,22 @@ export function markFeaturePhaseRunning(
 
 export async function dispatchTaskUnit(params: {
   task: Task;
+  graph: FeatureGraph;
   ports: OrchestratorPorts;
   markTaskRunning: (task: Task) => void;
 }): Promise<void> {
   const run = ensureTaskRun(params.ports, params.task);
   const dispatch = taskDispatchForRun(run);
+
+  const feature = params.graph.features.get(params.task.featureId);
+  if (feature === undefined) {
+    throw new Error(
+      `dispatchTaskUnit: feature ${params.task.featureId} not found for task ${params.task.id}`,
+    );
+  }
+  await params.ports.worktree.ensureFeatureWorktree(feature);
+  await params.ports.worktree.ensureTaskWorktree(params.task, feature);
+
   const result = await params.ports.runtime.dispatchTask(params.task, dispatch);
 
   if (result.kind === 'not_resumable' && dispatch.mode === 'resume') {
@@ -230,6 +242,7 @@ export async function dispatchFeaturePhaseUnit(params: {
   });
 
   try {
+    await params.ports.worktree.ensureFeatureWorktree(params.feature);
     const runContext = {
       agentRunId: run.id,
       ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
@@ -423,7 +436,7 @@ function readFailedVerificationSummary(
 }
 
 export async function dispatchReadyWork(params: {
-  graph: Parameters<typeof prioritizeReadyWork>[0];
+  graph: FeatureGraph;
   ports: OrchestratorPorts;
   now: number;
   autoExecutionEnabled: boolean;
@@ -462,6 +475,7 @@ export async function dispatchReadyWork(params: {
     if (unit.kind === 'task') {
       await dispatchTaskUnit({
         task: unit.task,
+        graph: params.graph,
         ports: params.ports,
         markTaskRunning: params.markTaskRunning,
       });

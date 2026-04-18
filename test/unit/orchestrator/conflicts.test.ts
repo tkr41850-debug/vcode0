@@ -27,11 +27,14 @@ function createConfig(overrides: Partial<GvcConfig> = {}): GvcConfig {
 }
 
 function createPorts(root: string): OrchestratorPorts {
-  void root;
   return {
     store: {} as OrchestratorPorts['store'],
     agents: {} as OrchestratorPorts['agents'],
     verification: {} as OrchestratorPorts['verification'],
+    worktree: {
+      ensureFeatureWorktree: () => Promise.resolve(root),
+      ensureTaskWorktree: () => Promise.resolve(root),
+    },
     ui: {} as OrchestratorPorts['ui'],
     sessionStore: new InMemorySessionStore(),
     config: createConfig(),
