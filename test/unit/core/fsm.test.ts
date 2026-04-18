@@ -504,6 +504,7 @@ describe('validateTaskStatusTransition', () => {
     ['stuck', 'running', 'branch_open'],
     ['stuck', 'failed', 'branch_open'],
     ['stuck', 'cancelled', 'branch_open'],
+    ['failed', 'cancelled', 'branch_open'],
   ] as const)('allows %s -> %s (collab=%s)', (from, to, collab) => {
     expect(validateTaskStatusTransition(from, to, collab)).toEqual({
       valid: true,

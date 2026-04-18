@@ -1496,6 +1496,25 @@ describe('InMemoryFeatureGraph', () => {
     expect(g.tasks.has('t-1')).toBe(false);
   });
 
+  it.each([
+    'done',
+    'failed',
+    'stuck',
+  ] as const)('removeTask rejects removing a %s task', (status) => {
+    const g = createGraphWithTask();
+    updateTask(g, 't-1', { status });
+
+    expect(() => g.removeTask('t-1')).toThrow(GraphValidationError);
+    try {
+      g.removeTask('t-1');
+    } catch (error) {
+      const message = (error as Error).message;
+      expect(message).toContain(status);
+      expect(message).toContain('cancel the task first');
+    }
+    expect(g.tasks.has('t-1')).toBe(true);
+  });
+
   it('removeTask cleans up dependsOn references', () => {
     const g = createGraphWithTask();
     g.createTask({
