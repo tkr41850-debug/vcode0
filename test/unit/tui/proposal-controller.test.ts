@@ -6,10 +6,7 @@ import {
 } from '@tui/proposal-controller';
 import { describe, expect, it, vi } from 'vitest';
 
-import {
-  updateFeature,
-  updateTask,
-} from '../../helpers/graph-builders.js';
+import { updateFeature, updateTask } from '../../helpers/graph-builders.js';
 
 function makePlanningGraph(): InMemoryFeatureGraph {
   const graph = new InMemoryFeatureGraph();
@@ -69,6 +66,28 @@ function makeEnv(
 }
 
 describe('ComposerProposalController', () => {
+  it('starts draft, stages milestone op, and exposes draft snapshot', async () => {
+    const graph = makePlanningGraph();
+    const env = makeEnv(graph);
+    const controller = new ComposerProposalController(env);
+
+    const result = await controller.execute(
+      '/milestone-add --name "Milestone 2" --description "Added from TUI"',
+      {
+        featureId: 'f-1',
+      },
+    );
+
+    expect(result.message).toContain('Added milestone');
+    expect(env.isAutoExecutionEnabled()).toBe(false);
+    expect(controller.getDraftSnapshot()?.milestones).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'Milestone 2' }),
+      ]),
+    );
+    expect(graph.milestones.has('m-2')).toBe(false);
+  });
+
   it('starts draft, stages feature op, and exposes draft snapshot', async () => {
     const graph = makePlanningGraph();
     const env = makeEnv(graph);
@@ -97,6 +116,10 @@ describe('ComposerProposalController', () => {
     const controller = new ComposerProposalController(env);
 
     await controller.execute(
+      '/milestone-add --name "Milestone 2" --description "Added from TUI"',
+      { featureId: 'f-1' },
+    );
+    await controller.execute(
       '/task-add --feature f-1 --description "Draft task" --weight medium',
       { featureId: 'f-1' },
     );
@@ -112,6 +135,7 @@ describe('ComposerProposalController', () => {
       runStatus: 'await_approval',
       owner: 'manual',
     });
+    expect(run?.payloadJson).toContain('add_milestone');
     expect(run?.payloadJson).toContain('add_task');
     expect(env.isAutoExecutionEnabled()).toBe(true);
     expect(controller.getDraftSnapshot()).toBeUndefined();
@@ -221,7 +245,9 @@ describe('ComposerProposalController', () => {
       expect.objectContaining({ description: 'Edited task' }),
     );
     expect(
-      draftSnapshot?.features.some((feature) => feature.name === 'Selection feature'),
+      draftSnapshot?.features.some(
+        (feature) => feature.name === 'Selection feature',
+      ),
     ).toBe(true);
   });
 
@@ -229,7 +255,9 @@ describe('ComposerProposalController', () => {
     const controller = new ComposerProposalController(makeEnv());
 
     await expect(
-      controller.execute('/task-add --description "Draft task" --weight medium'),
+      controller.execute(
+        '/task-add --description "Draft task" --weight medium',
+      ),
     ).rejects.toThrow('select planning or replanning feature first');
     await expect(controller.execute('/submit')).rejects.toThrow(
       'no active draft to submit',
@@ -246,13 +274,15 @@ describe('ComposerProposalController', () => {
     const planningGraph = makePlanningGraph();
     const controller = new ComposerProposalController(makeEnv(planningGraph));
 
-    await expect(controller.execute('/approve', { featureId: 'f-1' })).rejects.toThrow(
-      'feature "f-1" has no pending proposal',
-    );
+    await expect(
+      controller.execute('/approve', { featureId: 'f-1' }),
+    ).rejects.toThrow('feature "f-1" has no pending proposal');
 
     const graph = makePlanningGraph();
     updateFeature(graph, 'f-1', { workControl: 'executing' });
-    const controllerForExecuting = new ComposerProposalController(makeEnv(graph));
+    const controllerForExecuting = new ComposerProposalController(
+      makeEnv(graph),
+    );
 
     await expect(
       controllerForExecuting.execute('/approve', { featureId: 'f-1' }),

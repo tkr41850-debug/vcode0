@@ -76,9 +76,13 @@ interface PendingProposalRun extends FeaturePhaseAgentRun {
 const TUI_SUBMIT_DETAILS: ProposalPhaseDetails = {
   summary: 'Submitted from TUI draft.',
   chosenApproach: 'Use current TUI draft proposal as approval payload.',
-  keyConstraints: ['TUI submit does not capture structured planner rationale yet'],
+  keyConstraints: [
+    'TUI submit does not capture structured planner rationale yet',
+  ],
   decompositionRationale: ['Preserve current TUI approval workflow'],
-  orderingRationale: ['Allow approval flow without blocking on richer TUI inputs'],
+  orderingRationale: [
+    'Allow approval flow without blocking on richer TUI inputs',
+  ],
   verificationExpectations: ['Review proposal before approval'],
   risksTradeoffs: ['Less planning context than agent-generated proposals'],
   assumptions: ['Reviewer will inspect proposal diff directly'],
@@ -112,6 +116,14 @@ export class ComposerProposalController {
     const parsed = parseSlashCommand(input);
 
     switch (parsed.name) {
+      case 'milestone-add': {
+        const draft = this.requireDraft(selection, true);
+        const milestone = await this.executePlannerTool(draft, 'addMilestone', {
+          name: readStringArg(parsed, 'name'),
+          description: readStringArg(parsed, 'description'),
+        });
+        return { message: `Added milestone ${milestone.id}.` };
+      }
       case 'feature-add': {
         const draft = this.requireDraft(selection, true);
         const feature = await this.executePlannerTool(draft, 'addFeature', {

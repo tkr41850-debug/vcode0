@@ -14,6 +14,7 @@ export {
 } from './proposal-host.js';
 export type {
   AddFeatureOptions,
+  AddMilestoneOptions,
   AddTaskOptions,
   AgentToolName,
   DependencyOptions,

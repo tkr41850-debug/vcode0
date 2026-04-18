@@ -1,7 +1,8 @@
-import type { Feature, Task } from '@core/types/index';
+import type { Feature, Milestone, Task } from '@core/types/index';
 
 import type {
   AddFeatureOptions,
+  AddMilestoneOptions,
   AddTaskOptions,
   DependencyOptions,
   EditFeatureOptions,
@@ -19,6 +20,12 @@ import type {
 export function createPlannerToolset(host: ProposalToolHost): PlannerToolset {
   return {
     tools: [
+      {
+        name: 'addMilestone',
+        description: 'Add a new milestone to the proposal graph.',
+        execute: (args: AddMilestoneOptions) =>
+          Promise.resolve(host.addMilestone(args)),
+      },
       {
         name: 'addFeature',
         description:
@@ -95,6 +102,10 @@ export function formatToolText(
   result: PlannerToolResult,
 ): string {
   switch (toolName) {
+    case 'addMilestone': {
+      const milestone = result as Milestone;
+      return `Added milestone ${milestone.id} (${milestone.name}).`;
+    }
     case 'addFeature': {
       const feature = result as Feature;
       return `Added feature ${feature.id} (${feature.name}).`;

@@ -1,5 +1,5 @@
-import { CombinedAutocompleteProvider } from '@mariozechner/pi-tui';
 import type { TaskAgentRun } from '@core/types/index';
+import { CombinedAutocompleteProvider } from '@mariozechner/pi-tui';
 import { executeSlashCommand } from '@tui/app-composer';
 import {
   buildComposerSlashCommands,
@@ -34,7 +34,11 @@ function createDataSource(taskRun?: TaskAgentRun) {
   return {
     snapshot: () => ({ milestones: [], features: [], tasks: [] }),
     listAgentRuns: () => [],
-    getWorkerCounts: () => ({ runningWorkers: 0, idleWorkers: 0, totalWorkers: 0 }),
+    getWorkerCounts: () => ({
+      runningWorkers: 0,
+      idleWorkers: 0,
+      totalWorkers: 0,
+    }),
     isAutoExecutionEnabled: () => true,
     setAutoExecutionEnabled: () => true,
     toggleAutoExecution: () => true,
@@ -158,6 +162,27 @@ describe('buildComposerSlashCommands', () => {
     expect(suggestions).toContainEqual(
       expect.objectContaining({
         value: '--milestone m-1 --name "" --description ""',
+      }),
+    );
+  });
+
+  it('completes milestone-add template', async () => {
+    const command = buildComposerSlashCommands({
+      snapshot: {
+        milestones: [createMilestoneFixture()],
+        features: [
+          createFeatureFixture({ id: 'f-1', workControl: 'planning' }),
+        ],
+        tasks: [],
+      },
+      selection: { featureId: 'f-1' },
+    }).find((entry) => entry.name === 'milestone-add');
+
+    const suggestions = await command?.getArgumentCompletions?.('');
+
+    expect(suggestions).toContainEqual(
+      expect.objectContaining({
+        value: '--name "" --description ""',
       }),
     );
   });

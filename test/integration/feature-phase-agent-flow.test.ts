@@ -274,10 +274,9 @@ function createFixture({
     sessionStore,
     projectRoot: '/repo',
   });
-  const resolvedVerification: VerificationPort =
-    verification ?? {
-      verifyFeature: () => Promise.resolve({ ok: true, summary: 'ok' }),
-    };
+  const resolvedVerification: VerificationPort = verification ?? {
+    verifyFeature: () => Promise.resolve({ ok: true, summary: 'ok' }),
+  };
   const ports: OrchestratorPorts = {
     store,
     runtime: createRuntimeStub(),
@@ -464,14 +463,18 @@ describe('feature-phase agent flow', () => {
     });
   });
 
-  it('dispatches planning through SchedulerLoop into real feature agent runtime', async () => {
+  it('dispatches milestone proposal through SchedulerLoop into real feature agent runtime', async () => {
     faux.setResponses([
       fauxAssistantMessage(
         [
-          fauxToolCall('addTask', {
-            featureId: 'f-1',
-            description: 'Implement core flow',
-            reservedWritePaths: ['src/feature.ts'],
+          fauxToolCall('addMilestone', {
+            name: 'Milestone 2',
+            description: 'Second milestone',
+          }),
+          fauxToolCall('addFeature', {
+            milestoneId: 'm-2',
+            name: 'Follow-up feature',
+            description: 'Added under new milestone',
           }),
           fauxToolCall('submit', proposalDetails),
         ],
@@ -503,15 +506,23 @@ describe('feature-phase agent flow', () => {
         mode: 'plan',
         ops: [
           expect.objectContaining({
-            kind: 'add_task',
-            featureId: 'f-1',
-            description: 'Implement core flow',
-            reservedWritePaths: ['src/feature.ts'],
+            kind: 'add_milestone',
+            milestoneId: 'm-2',
+            name: 'Milestone 2',
+            description: 'Second milestone',
+          }),
+          expect.objectContaining({
+            kind: 'add_feature',
+            featureId: 'f-2',
+            milestoneId: 'm-2',
+            name: 'Follow-up feature',
+            description: 'Added under new milestone',
           }),
         ],
       }),
     );
-    expect(graph.tasks.size).toBe(0);
+    expect(graph.milestones.has('m-2')).toBe(false);
+    expect(graph.features.has('f-2')).toBe(false);
     const planEvent = findEvent(
       store.listEvents({ entityId: 'f-1' }),
       'feature_phase_completed',

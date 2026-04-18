@@ -5,10 +5,17 @@ import {
   GraphProposalBuilder,
   type GraphProposalMode,
 } from '@core/proposals/index';
-import type { Feature, FeatureId, Task } from '@core/types/index';
+import type {
+  Feature,
+  FeatureId,
+  Milestone,
+  MilestoneId,
+  Task,
+} from '@core/types/index';
 
 import type {
   AddFeatureOptions,
+  AddMilestoneOptions,
   AddTaskOptions,
   DependencyOptions,
   EditFeatureOptions,
@@ -31,6 +38,23 @@ export class GraphProposalToolHost implements ProposalToolHost {
   ) {
     this.draft = new InMemoryFeatureGraph(graph.snapshot());
     this.builder = new GraphProposalBuilder(mode);
+  }
+
+  addMilestone(args: AddMilestoneOptions): Milestone {
+    this.assertMutable();
+    const milestoneId = this.nextMilestoneId();
+    const milestone = this.draft.createMilestone({
+      id: milestoneId,
+      name: args.name,
+      description: args.description,
+    });
+    this.builder.addOp({
+      kind: 'add_milestone',
+      milestoneId: milestone.id,
+      name: args.name,
+      description: args.description,
+    });
+    return milestone;
   }
 
   addFeature(args: AddFeatureOptions): Feature {
@@ -167,6 +191,17 @@ export class GraphProposalToolHost implements ProposalToolHost {
     if (this.submitted) {
       throw new Error('proposal already submitted');
     }
+  }
+
+  private nextMilestoneId(): MilestoneId {
+    let max = 0;
+    for (const milestoneId of this.draft.milestones.keys()) {
+      const numeric = Number.parseInt(milestoneId.slice(2), 10);
+      if (!Number.isNaN(numeric) && numeric > max) {
+        max = numeric;
+      }
+    }
+    return `m-${max + 1}`;
   }
 
   private nextFeatureId(): FeatureId {

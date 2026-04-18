@@ -82,6 +82,10 @@ const proposalSubmitSchema = Type.Object({
 });
 
 export const proposalToolParameters = {
+  addMilestone: Type.Object({
+    name: Type.String(),
+    description: Type.String(),
+  }),
   addFeature: Type.Object({
     milestoneId: Type.String(),
     name: Type.String(),

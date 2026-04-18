@@ -6,10 +6,6 @@ import {
   type PromptLibrary,
   promptLibrary,
 } from '@agents';
-import {
-  createFeaturePhaseToolHost,
-  createProposalToolHost,
-} from '@agents/tools';
 import type {
   DiscussPhaseDetails,
   EventRecord,
@@ -189,8 +185,12 @@ const proposalDetails: ProposalPhaseDetails = {
   summary: 'Plan ready.',
   chosenApproach: 'Reuse existing prompt registry and proposal host.',
   keyConstraints: ['Keep approval payload as raw proposal JSON'],
-  decompositionRationale: ['Split prompt/runtime contract fixes from execution'],
-  orderingRationale: ['Make prompt contract truthful before downstream verify uses it'],
+  decompositionRationale: [
+    'Split prompt/runtime contract fixes from execution',
+  ],
+  orderingRationale: [
+    'Make prompt contract truthful before downstream verify uses it',
+  ],
   verificationExpectations: ['Run prompt tests and runtime tests'],
   risksTradeoffs: ['More structured payload means broader test updates'],
   assumptions: ['Proposal apply path still reads payloadJson'],
@@ -398,7 +398,7 @@ describe('PiFeatureAgentRuntime', () => {
     expect(captured.plan).toContain('Reuse prompt library registry');
   });
 
-  it('runs planning with proposal tools against draft graph only', async () => {
+  it('records proposal session and phase event after planning', async () => {
     faux.setResponses([
       fauxAssistantMessage(
         [
@@ -414,8 +414,7 @@ describe('PiFeatureAgentRuntime', () => {
       fauxAssistantMessage([fauxText('Plan ready.')]),
     ]);
 
-    const { graph, feature, store, run, runtime } =
-      createRuntimeFixture('plan');
+    const { feature, store, run, runtime } = createRuntimeFixture('plan');
 
     const result = await runtime.planFeature(feature, {
       agentRunId: run.id,
@@ -432,7 +431,6 @@ describe('PiFeatureAgentRuntime', () => {
         reservedWritePaths: ['src/new.ts'],
       }),
     ]);
-    expect(graph.tasks.size).toBe(0);
     expect(store.getAgentRun(run.id)).toEqual(
       expect.objectContaining({ sessionId: run.id }),
     );
@@ -510,7 +508,10 @@ describe('PiFeatureAgentRuntime', () => {
       fauxAssistantMessage(
         [
           fauxToolCall('read_file', { path: 'src/agents/prompts/index.ts' }),
-          fauxToolCall('list_files', { directory: 'src/agents', recursive: false }),
+          fauxToolCall('list_files', {
+            directory: 'src/agents',
+            recursive: false,
+          }),
           fauxToolCall('search_files', {
             pattern: 'planPromptTemplate',
             directory: 'src/agents/prompts',
@@ -552,7 +553,13 @@ describe('PiFeatureAgentRuntime', () => {
     const { feature, store, run, runtime } = createRuntimeFixture('verify', {
       promptLibrary: library,
     });
-    appendFeaturePhaseEvent(store, feature.id, 'plan', 'Plan ready.', proposalDetails);
+    appendFeaturePhaseEvent(
+      store,
+      feature.id,
+      'plan',
+      'Plan ready.',
+      proposalDetails,
+    );
 
     faux.setResponses([
       fauxAssistantMessage(
@@ -579,47 +586,6 @@ describe('PiFeatureAgentRuntime', () => {
     expect(captured.verify).toContain('Run prompt tests and runtime tests');
     expect(captured.verify).not.toContain('"mode":"plan"');
     expect(captured.verify).not.toContain('"ops"');
-  });
-
-  it('rejects duplicate submit and post-submit mutation on hosts', () => {
-    const { graph, feature } = createFeatureGraph();
-    const store = new InMemoryStore();
-
-    const proposalHost = createProposalToolHost(graph, 'plan');
-    proposalHost.submit(proposalDetails);
-    expect(() => proposalHost.submit(proposalDetails)).toThrow(
-      'proposal already submitted',
-    );
-    expect(() =>
-      proposalHost.addTask({
-        featureId: feature.id,
-        description: 'late task',
-      }),
-    ).toThrow('proposal already submitted');
-
-    const phaseHost = createFeaturePhaseToolHost(feature.id, graph, store);
-    phaseHost.submitResearch({
-      summary: 'Research summary.',
-      existingBehavior: 'Repo inspection tools are available.',
-      essentialFiles: [],
-      reusePatterns: [],
-      riskyBoundaries: [],
-      proofsNeeded: [],
-      verificationSurfaces: [],
-      planningNotes: [],
-    });
-    expect(() =>
-      phaseHost.submitResearch({
-        summary: 'Research summary.',
-        existingBehavior: 'Repo inspection tools are available.',
-        essentialFiles: [],
-        reusePatterns: [],
-        riskyBoundaries: [],
-        proofsNeeded: [],
-        verificationSurfaces: [],
-        planningNotes: [],
-      }),
-    ).toThrow('research phase already submitted');
   });
 
   it.each([

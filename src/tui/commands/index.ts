@@ -299,6 +299,19 @@ export function buildComposerSlashCommands({
       },
     },
     {
+      name: 'milestone-add',
+      description: 'Add milestone to proposal draft.',
+      getArgumentCompletions: (prefix) => {
+        return filterSuggestions(prefix, [
+          {
+            value: '--name "" --description ""',
+            label: 'milestone',
+            description: 'Add milestone',
+          },
+        ]);
+      },
+    },
+    {
       name: 'feature-add',
       description: 'Add feature to proposal draft.',
       getArgumentCompletions: (prefix) => {

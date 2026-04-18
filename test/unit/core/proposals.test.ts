@@ -57,6 +57,85 @@ describe('GraphProposalBuilder', () => {
 });
 
 describe('applyGraphProposal', () => {
+  it('applies milestone creation ops', () => {
+    const graph = createGraph();
+    const builder = new GraphProposalBuilder('plan');
+    builder.addOp({
+      kind: 'add_milestone',
+      milestoneId: 'm-2',
+      name: 'Milestone 2',
+      description: 'second milestone',
+    });
+
+    const result = applyGraphProposal(graph, builder.build());
+
+    expect(result.applied).toHaveLength(1);
+    expect(result.skipped).toHaveLength(0);
+    expect(graph.milestones.get('m-2')).toEqual(
+      expect.objectContaining({
+        id: 'm-2',
+        name: 'Milestone 2',
+        description: 'second milestone',
+      }),
+    );
+  });
+
+  it('applies add_milestone before add_feature in same proposal', () => {
+    const graph = createGraph();
+    const builder = new GraphProposalBuilder('plan');
+    builder.addOp({
+      kind: 'add_milestone',
+      milestoneId: 'm-2',
+      name: 'Milestone 2',
+      description: 'second milestone',
+    });
+    builder.addOp({
+      kind: 'add_feature',
+      featureId: 'f-1',
+      milestoneId: 'm-2',
+      name: 'Feature 1',
+      description: 'desc',
+    });
+
+    const result = applyGraphProposal(graph, builder.build());
+
+    expect(result.applied.map((op) => op.kind)).toEqual([
+      'add_milestone',
+      'add_feature',
+    ]);
+    expect(result.skipped).toHaveLength(0);
+    expect(graph.features.get('f-1')).toEqual(
+      expect.objectContaining({
+        id: 'f-1',
+        milestoneId: 'm-2',
+        name: 'Feature 1',
+      }),
+    );
+  });
+
+  it('skips duplicate milestone ids as stale ops', () => {
+    const graph = createGraph();
+    const builder = new GraphProposalBuilder('plan');
+    builder.addOp({
+      kind: 'add_milestone',
+      milestoneId: 'm-1',
+      name: 'Milestone 1 duplicate',
+      description: 'dup',
+    });
+
+    const result = applyGraphProposal(graph, builder.build());
+
+    expect(result.applied).toHaveLength(0);
+    expect(result.skipped).toHaveLength(1);
+    expect(result.skipped[0]?.reason).toBe('Milestone "m-1" already exists');
+    expect(graph.milestones.get('m-1')).toEqual(
+      expect.objectContaining({
+        id: 'm-1',
+        name: 'Milestone 1',
+      }),
+    );
+  });
+
   it('skips stale ops in order and reports applied vs skipped results', () => {
     const graph = createGraph();
     graph.createFeature({
@@ -232,6 +311,39 @@ describe('applyGraphProposal', () => {
     ).toBe(true);
   });
 
+  it('validates milestone op payload shape', () => {
+    expect(
+      isGraphProposal({
+        version: 1,
+        mode: 'plan',
+        aliases: {},
+        ops: [
+          {
+            kind: 'add_milestone',
+            milestoneId: 'm-2',
+            name: 'Milestone 2',
+            description: 'second milestone',
+          },
+        ],
+      }),
+    ).toBe(true);
+
+    expect(
+      isGraphProposal({
+        version: 1,
+        mode: 'plan',
+        aliases: {},
+        ops: [
+          {
+            kind: 'add_milestone',
+            milestoneId: 'm-2',
+            name: 'Milestone 2',
+          },
+        ],
+      }),
+    ).toBe(false);
+  });
+
   it('reuses alias for same canonical id', () => {
     const builder = new GraphProposalBuilder('replan');
 
@@ -271,12 +383,12 @@ describe('applyGraphProposal', () => {
       toId: 't-1',
     });
 
-    expect(applyGraphProposal(graph, addFeatureDependency.build()).applied).toHaveLength(
-      1,
-    );
-    expect(applyGraphProposal(graph, addTaskDependency.build()).applied).toHaveLength(
-      1,
-    );
+    expect(
+      applyGraphProposal(graph, addFeatureDependency.build()).applied,
+    ).toHaveLength(1);
+    expect(
+      applyGraphProposal(graph, addTaskDependency.build()).applied,
+    ).toHaveLength(1);
     expect(graph.features.get('f-2')?.dependsOn).toEqual(['f-1']);
     expect(graph.tasks.get('t-2')?.dependsOn).toEqual(['t-1']);
 
@@ -293,12 +405,12 @@ describe('applyGraphProposal', () => {
       toId: 't-1',
     });
 
-    expect(applyGraphProposal(graph, removeFeatureDependency.build()).applied).toHaveLength(
-      1,
-    );
-    expect(applyGraphProposal(graph, removeTaskDependency.build()).applied).toHaveLength(
-      1,
-    );
+    expect(
+      applyGraphProposal(graph, removeFeatureDependency.build()).applied,
+    ).toHaveLength(1);
+    expect(
+      applyGraphProposal(graph, removeTaskDependency.build()).applied,
+    ).toHaveLength(1);
     expect(graph.features.get('f-2')?.dependsOn).toEqual([]);
     expect(graph.tasks.get('t-2')?.dependsOn).toEqual([]);
   });
@@ -332,9 +444,9 @@ describe('applyGraphProposal', () => {
       fromId: 't-1',
       toId: 't-2',
     });
-    expect(applyGraphProposal(graph, crossFeatureTasks.build()).skipped[0]?.reason).toBe(
-      'Task "t-1" and task "t-2" belong to different features',
-    );
+    expect(
+      applyGraphProposal(graph, crossFeatureTasks.build()).skipped[0]?.reason,
+    ).toBe('Task "t-1" and task "t-2" belong to different features');
 
     const removeMissing = new GraphProposalBuilder('replan');
     removeMissing.addOp({
@@ -342,9 +454,9 @@ describe('applyGraphProposal', () => {
       fromId: 'f-2',
       toId: 'f-1',
     });
-    expect(applyGraphProposal(graph, removeMissing.build()).skipped[0]?.reason).toBe(
-      'Feature "f-2" does not depend on "f-1"',
-    );
+    expect(
+      applyGraphProposal(graph, removeMissing.build()).skipped[0]?.reason,
+    ).toBe('Feature "f-2" does not depend on "f-1"');
   });
 
   it('warns when removing pending feature with started child task', () => {

@@ -98,7 +98,10 @@ describe('promptLibrary', () => {
     expect(planPrompt).toContain('## Planning Mode');
     expect(planPrompt).toContain('Initial planning mode.');
     expect(planPrompt).toContain('inspect current persisted feature state');
+    expect(planPrompt).toContain('proposal tools');
+    expect(planPrompt).toContain('`addMilestone(...)`');
     expect(planPrompt).toContain('`submit(...)` exactly once');
+    expect(planPrompt).toContain('concise rationale after tool use');
     expect(planPrompt).toContain('chosen approach');
     expect(planPrompt).toContain('verification expectations');
     expect(planPrompt).toContain('### External Integrations');
@@ -107,6 +110,10 @@ describe('promptLibrary', () => {
       'Reason: Dependency seam changed after execution evidence.',
     );
     expect(replanPrompt).toContain('Replanning mode.');
+    expect(replanPrompt).toContain('proposal tools');
+    expect(replanPrompt).toContain('`addMilestone(...)`');
+    expect(replanPrompt).toContain('`submit(...)` exactly once');
+    expect(replanPrompt).toContain('concise rationale after tool use');
     expect(replanPrompt).toContain(
       'Reason: Dependency seam changed after execution evidence.',
     );
@@ -121,7 +128,9 @@ describe('promptLibrary', () => {
     expect(discussPrompt).toContain('`submitDiscuss(...)` exactly once');
     expect(researchPrompt).toContain('`submitResearch(...)` exactly once');
     expect(researchPrompt).toContain('repo state with available tools');
-    expect(researchPrompt).toContain('read real code with repo inspection tools');
+    expect(researchPrompt).toContain(
+      'read real code with repo inspection tools',
+    );
     expect(researchPrompt).toContain('### External Integrations');
     expect(researchPrompt).toContain('### Anti-Goals');
     expect(summarizePrompt).toContain('`submitSummarize(...)` exactly once');

@@ -16,6 +16,13 @@ import type {
 export type GraphProposalMode = 'plan' | 'replan';
 export type ProposalAlias = `#${number}`;
 
+export interface AddMilestoneProposalOp {
+  kind: 'add_milestone';
+  milestoneId: MilestoneId;
+  name: string;
+  description: string;
+}
+
 export interface AddFeatureProposalOp {
   kind: 'add_feature';
   featureId: FeatureId;
@@ -68,6 +75,7 @@ export interface RemoveDependencyProposalOp {
 }
 
 export type GraphProposalOp =
+  | AddMilestoneProposalOp
   | AddFeatureProposalOp
   | RemoveFeatureProposalOp
   | EditFeatureProposalOp
@@ -256,6 +264,13 @@ export function applyGraphProposal(
 
 function applyProposalOp(graph: FeatureGraph, op: GraphProposalOp): void {
   switch (op.kind) {
+    case 'add_milestone':
+      graph.createMilestone({
+        id: op.milestoneId,
+        name: op.name,
+        description: op.description,
+      });
+      return;
     case 'add_feature':
       graph.createFeature({
         id: op.featureId,
@@ -312,6 +327,10 @@ function staleReasonForOp(
   op: GraphProposalOp,
 ): string | undefined {
   switch (op.kind) {
+    case 'add_milestone':
+      return graph.milestones.has(op.milestoneId)
+        ? `Milestone "${op.milestoneId}" already exists`
+        : undefined;
     case 'add_feature':
       if (graph.features.has(op.featureId)) {
         return `Feature "${op.featureId}" already exists`;
@@ -444,6 +463,12 @@ function isGraphProposalOp(value: unknown): value is GraphProposalOp {
   }
 
   switch (value.kind) {
+    case 'add_milestone':
+      return (
+        typeof value.milestoneId === 'string' &&
+        typeof value.name === 'string' &&
+        typeof value.description === 'string'
+      );
     case 'add_feature':
       return (
         typeof value.featureId === 'string' &&

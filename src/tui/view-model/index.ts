@@ -370,7 +370,7 @@ export class TuiViewModelBuilder {
       mode: 'command',
       focusMode: input.focusMode,
       text: input.text,
-      detail: 'composer /help /feature-add /task-add /dep-add',
+      detail: 'composer /help /milestone-add /feature-add /task-add /dep-add',
     };
   }
 

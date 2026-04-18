@@ -46,15 +46,17 @@ export function approveFeatureProposal(
     restoreReplannedStuckTasks(graph, featureTasks, result);
     featureTasks = tasksForFeature(graph, featureId);
   }
-  if (featureTasks.length === 0) {
-    return result;
+  if (featureTasks.length > 0) {
+    promoteReadyTasks(graph, featureTasks);
+    featureTasks = tasksForFeature(graph, featureId);
   }
-  promoteReadyTasks(graph, featureTasks);
-  featureTasks = tasksForFeature(graph, featureId);
   if (!shouldAdvanceAfterApproval(phase, result, featureTasks)) {
     return result;
   }
-  advanceFeatureAfterApproval(graph, featureId, phase);
+  advanceFeatureAfterApproval(graph, featureId);
+  if (featureTasks.length === 0) {
+    advanceTasklessFeatureAfterApproval(graph, featureId);
+  }
   return result;
 }
 
@@ -117,6 +119,9 @@ function shouldAdvanceAfterApproval(
   result: ProposalApplyResult,
   featureTasks: readonly Task[],
 ): boolean {
+  if (featureTasks.length === 0) {
+    return result.applied.length > 0;
+  }
   if (phase === 'replan') {
     return featureTasks.some((task) => task.status === 'ready');
   }
@@ -126,7 +131,6 @@ function shouldAdvanceAfterApproval(
 function advanceFeatureAfterApproval(
   graph: FeatureGraph,
   featureId: FeatureId,
-  phase: ProposalPhase,
 ): void {
   const feature = graph.features.get(featureId);
   if (feature === undefined) {
@@ -141,7 +145,23 @@ function advanceFeatureAfterApproval(
   }
 
   graph.transitionFeature(featureId, {
-    workControl: phase === 'plan' ? 'executing' : 'executing',
+    workControl: 'executing',
+    status: 'pending',
+  });
+}
+
+function advanceTasklessFeatureAfterApproval(
+  graph: FeatureGraph,
+  featureId: FeatureId,
+): void {
+  if (graph.features.get(featureId)?.status === 'pending') {
+    graph.transitionFeature(featureId, { status: 'in_progress' });
+  }
+  if (graph.features.get(featureId)?.status !== 'done') {
+    graph.transitionFeature(featureId, { status: 'done' });
+  }
+  graph.transitionFeature(featureId, {
+    workControl: 'feature_ci',
     status: 'pending',
   });
 }

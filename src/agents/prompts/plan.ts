@@ -25,6 +25,8 @@ Planning stance:
 
 When planning:
 - inspect current persisted feature state, events, tasks, and prior runs with available tools before mutating draft graph
+- build proposal with proposal tools, not free-text plan prose alone
+- use proposal tools such as \`addMilestone(...)\`, \`addFeature(...)\`, \`addTask(...)\`, and dependency edits to shape draft graph
 - identify what must be proven first
 - preserve useful existing patterns and stable boundaries
 - create work units that establish clear downstream surfaces
@@ -48,12 +50,14 @@ Output should use \`submit(...)\` exactly once after building draft proposal wit
 - ordering rationale
 - verification expectations
 - risks, trade-offs, and assumptions that still matter downstream
+- concise rationale after tool use so downstream summary text stays readable
 
 Do not:
 - present many equivalent options without recommendation
 - over-decompose simple work
 - claim proof level higher than evidence supports
 - treat replanning as ad hoc patching with no coherent model
+- skip proposal tools and jump straight to free-text plan
 - end with free-text plan instead of \`submit(...)\``;
 
 function renderPlanningPrompt(

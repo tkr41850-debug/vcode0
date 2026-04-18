@@ -32,7 +32,6 @@ import type {
   Store,
   UiPort,
 } from '@orchestrator/ports/index';
-import { InMemorySessionStore } from '../../integration/harness/in-memory-session-store.js';
 import {
   type SchedulerEvent,
   SchedulerLoop,
@@ -40,13 +39,13 @@ import {
 import { VerificationService } from '@orchestrator/services/index';
 import type { RuntimePort } from '@runtime/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
 import {
   createFeatureFixture,
   createMilestoneFixture,
   createTaskFixture,
 } from '../../helpers/graph-builders.js';
 import { useTmpDir } from '../../helpers/tmp-dir.js';
+import { InMemorySessionStore } from '../../integration/harness/in-memory-session-store.js';
 
 class ExposedSchedulerLoop extends SchedulerLoop {
   async tickForTest(now: number): Promise<void> {
@@ -131,10 +130,7 @@ function createStoreMock(): Store {
     createAgentRun: (run: AgentRun) => {
       runs.set(run.id, run);
     },
-    updateAgentRun: (
-      runId: string,
-      patch: AgentRunPatch,
-    ) => {
+    updateAgentRun: (runId: string, patch: AgentRunPatch) => {
       const existing = runs.get(runId);
       if (existing === undefined) {
         throw new Error(`agent run "${runId}" does not exist`);
@@ -1969,6 +1965,86 @@ describe('SchedulerLoop', () => {
       owner: 'system',
       payloadJson: JSON.stringify(noOpProposal),
     });
+  });
+
+  it('advances planning feature when approved proposal adds only milestone and sibling feature', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
+    const appendEvent = vi.spyOn(ports.store, 'appendEvent');
+    const graph = createProposalApprovalGraph();
+    const siblingFeatureProposal: GraphProposal = {
+      version: 1,
+      mode: 'plan',
+      aliases: {},
+      ops: [
+        {
+          kind: 'add_milestone',
+          milestoneId: 'm-2',
+          name: 'Milestone 2',
+          description: 'second milestone',
+        },
+        {
+          kind: 'add_feature',
+          featureId: 'f-2',
+          milestoneId: 'm-2',
+          name: 'Interface feature',
+          description: 'shared prerequisite work',
+        },
+      ],
+    };
+    ports.store.createAgentRun(
+      makeFeaturePhaseRun('plan', {
+        runStatus: 'await_approval',
+        owner: 'manual',
+        payloadJson: JSON.stringify(siblingFeatureProposal),
+      }),
+    );
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+
+    await loop.handleEventForTest({
+      type: 'feature_phase_approval_decision',
+      featureId: 'f-1',
+      phase: 'plan',
+      decision: 'approved',
+    });
+
+    expect(graph.milestones.get('m-2')).toEqual(
+      expect.objectContaining({ name: 'Milestone 2' }),
+    );
+    expect(graph.features.get('f-2')).toEqual(
+      expect.objectContaining({
+        milestoneId: 'm-2',
+        name: 'Interface feature',
+      }),
+    );
+    expect(graph.features.get('f-1')).toEqual(
+      expect.objectContaining({
+        workControl: 'feature_ci',
+        status: 'pending',
+        collabControl: 'none',
+      }),
+    );
+    expect(graph.tasks.size).toBe(0);
+    expect(updateAgentRun).toHaveBeenCalledWith('run-feature:f-1:plan', {
+      runStatus: 'completed',
+      owner: 'system',
+      payloadJson: JSON.stringify(siblingFeatureProposal),
+    });
+    expect(appendEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'proposal_applied',
+        entityId: 'f-1',
+        payload: expect.objectContaining({
+          phase: 'plan',
+          summary: '2 applied, 0 skipped, 0 warnings',
+          appliedCount: 2,
+          skippedCount: 0,
+          warningCount: 0,
+        }),
+      }),
+    );
   });
 
   it('records proposal_apply_failed when proposal op shape is invalid', async () => {

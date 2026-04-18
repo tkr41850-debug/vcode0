@@ -12,6 +12,7 @@ import type {
   EventRecord,
   Feature,
   FeatureId,
+  Milestone,
   MilestoneId,
   ProposalPhaseDetails,
   ResearchPhaseDetails,
@@ -25,6 +26,11 @@ import type {
 } from '@core/types/index';
 
 export type { DependencyOptions, FeatureEditPatch, TaskEditPatch };
+
+export interface AddMilestoneOptions {
+  name: string;
+  description: string;
+}
 
 export interface AddFeatureOptions {
   milestoneId: MilestoneId;
@@ -113,6 +119,7 @@ export interface TaskResultLookup {
 }
 
 export type ProposalToolName =
+  | 'addMilestone'
   | 'addFeature'
   | 'removeFeature'
   | 'editFeature'
@@ -143,6 +150,7 @@ export type FeaturePhaseToolName =
   | 'submitVerify';
 
 export interface PlannerToolArgsMap {
+  addMilestone: AddMilestoneOptions;
   addFeature: AddFeatureOptions;
   removeFeature: RemoveFeatureOptions;
   editFeature: EditFeatureOptions;
@@ -155,6 +163,7 @@ export interface PlannerToolArgsMap {
 }
 
 export interface PlannerToolResultMap {
+  addMilestone: Milestone;
   addFeature: Feature;
   removeFeature: undefined;
   editFeature: Feature;
@@ -231,6 +240,7 @@ export interface PlannerToolset {
 export interface ProposalToolHost {
   readonly draft: FeatureGraph;
   readonly mode: GraphProposalMode;
+  addMilestone(args: AddMilestoneOptions): Milestone;
   addFeature(args: AddFeatureOptions): Feature;
   removeFeature(args: RemoveFeatureOptions): void;
   editFeature(args: EditFeatureOptions): Feature;
