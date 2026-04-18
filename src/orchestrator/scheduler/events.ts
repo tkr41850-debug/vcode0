@@ -9,6 +9,7 @@ import {
   summarizeProposalApply,
 } from '@orchestrator/proposals/index';
 import type { SummaryCoordinator } from '@orchestrator/summaries/index';
+import { runtimeUsageToTokenUsageAggregate } from '@runtime/usage';
 
 import type { SchedulerEvent } from './index.js';
 
@@ -16,7 +17,7 @@ function completeTaskRun(
   ports: OrchestratorPorts,
   run: AgentRun,
   owner: 'system' | 'manual',
-  extra: Partial<Pick<AgentRun, 'payloadJson'>> = {},
+  extra: Partial<Pick<AgentRun, 'payloadJson' | 'tokenUsage'>> = {},
 ): void {
   ports.store.updateAgentRun(run.id, {
     runStatus: 'completed',
@@ -89,7 +90,9 @@ export async function handleSchedulerEvent(params: {
           );
         }
       }
-      completeTaskRun(ports, run, 'system');
+      completeTaskRun(ports, run, 'system', {
+        tokenUsage: runtimeUsageToTokenUsageAggregate(message.usage),
+      });
       return;
     }
 
@@ -102,6 +105,9 @@ export async function handleSchedulerEvent(params: {
         owner: 'system',
         retryAt: Date.now() + 1000,
         ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
+        ...(message.usage !== undefined
+          ? { tokenUsage: runtimeUsageToTokenUsageAggregate(message.usage) }
+          : {}),
       });
       return;
     }

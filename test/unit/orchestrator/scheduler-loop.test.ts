@@ -37,7 +37,8 @@ import {
   SchedulerLoop,
 } from '@orchestrator/scheduler/index';
 import { VerificationService } from '@orchestrator/services/index';
-import type { RuntimePort } from '@runtime/contracts';
+import type { RuntimePort, RuntimeUsageDelta } from '@runtime/contracts';
+import { runtimeUsageToTokenUsageAggregate } from '@runtime/usage';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createFeatureFixture,
@@ -917,7 +918,119 @@ describe('SchedulerLoop', () => {
       runStatus: 'completed',
       owner: 'system',
       sessionId: 'sess-1',
+      tokenUsage: runtimeUsageToTokenUsageAggregate({
+        provider: 'test',
+        model: 'fake',
+        inputTokens: 1,
+        outputTokens: 2,
+        totalTokens: 3,
+        usd: 0,
+      }),
     });
+  });
+
+  it('persists token usage from worker result message onto the task agent run', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const graph = createSingleFeatureGraph(
+      {
+        status: 'in_progress',
+        workControl: 'executing',
+        collabControl: 'branch_open',
+      },
+      [
+        createTaskFixture({
+          id: 't-1',
+          description: 'Task 1',
+          status: 'running',
+          collabControl: 'branch_open',
+        }),
+      ],
+    );
+    ports.store.createAgentRun(
+      makeTaskRun({
+        id: 'run-task:t-1',
+        runStatus: 'running',
+        sessionId: 'sess-1',
+      }),
+    );
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+    const usage: RuntimeUsageDelta = {
+      provider: 'test',
+      model: 'fake',
+      inputTokens: 10,
+      outputTokens: 20,
+      totalTokens: 30,
+      usd: 0.5,
+    };
+
+    await loop.handleEventForTest({
+      type: 'worker_message',
+      message: {
+        type: 'result',
+        taskId: 't-1',
+        agentRunId: 'run-task:t-1',
+        result: { summary: 'done', filesChanged: [] },
+        usage,
+        completionKind: 'submitted',
+      },
+    });
+
+    const run = ports.store.getAgentRun('run-task:t-1');
+    expect(run?.tokenUsage).toEqual(runtimeUsageToTokenUsageAggregate(usage));
+  });
+
+  it('persists token usage from worker error message onto the task agent run', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const graph = createSingleFeatureGraph(
+      {
+        status: 'pending',
+        workControl: 'executing',
+        collabControl: 'none',
+      },
+      [
+        createTaskFixture({
+          id: 't-1',
+          description: 'Task 1',
+          status: 'running',
+          collabControl: 'branch_open',
+        }),
+      ],
+    );
+    ports.store.createAgentRun(
+      makeTaskRun({
+        id: 'run-task:t-1',
+        runStatus: 'running',
+        sessionId: 'sess-1',
+        restartCount: 1,
+      }),
+    );
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+    const usage: RuntimeUsageDelta = {
+      provider: 'test',
+      model: 'fake',
+      inputTokens: 4,
+      outputTokens: 8,
+      totalTokens: 12,
+      usd: 0.25,
+    };
+
+    await loop.handleEventForTest({
+      type: 'worker_message',
+      message: {
+        type: 'error',
+        taskId: 't-1',
+        agentRunId: 'run-task:t-1',
+        error: 'transient',
+        usage,
+      },
+    });
+
+    const run = ports.store.getAgentRun('run-task:t-1');
+    expect(run?.tokenUsage).toEqual(runtimeUsageToTokenUsageAggregate(usage));
   });
 
   it('suspends lower-priority running tasks when same-feature runtime overlap appears', async () => {
