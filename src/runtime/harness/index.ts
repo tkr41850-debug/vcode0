@@ -14,6 +14,12 @@ import type {
 import { NdjsonStdioTransport } from '@runtime/ipc/index';
 import type { SessionStore } from '@runtime/sessions/index';
 
+export interface SessionExitInfo {
+  code: number | null;
+  signal: NodeJS.Signals | null;
+  error?: Error;
+}
+
 export interface SessionHandle {
   sessionId: string;
   abort(this: void): void;
@@ -23,6 +29,7 @@ export interface SessionHandle {
     this: void,
     handler: (message: WorkerToOrchestratorMessage) => void,
   ): void;
+  onExit(this: void, handler: (info: SessionExitInfo) => void): void;
 }
 
 export type ResumeSessionResult =
@@ -37,7 +44,11 @@ export type ResumeSessionResult =
     };
 
 export interface SessionHarness {
-  start(task: Task, context: WorkerContext): Promise<SessionHandle>;
+  start(
+    task: Task,
+    context: WorkerContext,
+    agentRunId: string,
+  ): Promise<SessionHandle>;
   resume(
     task: Task,
     run: ResumableTaskExecutionRunRef,
@@ -53,6 +64,18 @@ const WORKER_ENTRY = path.resolve(
 
 const ABORT_GRACE_MS = 5_000;
 
+interface ChildLike {
+  stdin: Writable | null;
+  stdout: Readable | null;
+  kill(signal?: NodeJS.Signals): void;
+  killed: boolean;
+  on(
+    event: 'exit',
+    handler: (code: number | null, signal: NodeJS.Signals | null) => void,
+  ): unknown;
+  on(event: 'error', handler: (err: Error) => void): unknown;
+}
+
 export class PiSdkHarness implements SessionHarness {
   constructor(
     private readonly sessionStore: SessionStore,
@@ -60,23 +83,33 @@ export class PiSdkHarness implements SessionHarness {
     private readonly entryPath: string = WORKER_ENTRY,
   ) {}
 
-  start(task: Task, context: WorkerContext): Promise<SessionHandle> {
+  start(
+    task: Task,
+    context: WorkerContext,
+    agentRunId: string,
+  ): Promise<SessionHandle> {
     const sessionId = crypto.randomUUID();
-    const worktreePath = this.resolveWorktreePath(task);
+    const worktreeDir = this.resolveWorktreePath(task);
 
-    const child = this.forkWorker(worktreePath);
+    const child = this.forkWorker(worktreeDir);
     const transport = new NdjsonStdioTransport({
       stdin: child.stdin as Writable,
       stdout: child.stdout as Readable,
     });
 
-    const handle = createSessionHandle(sessionId, child, transport);
+    const handle = createSessionHandle(
+      task.id,
+      agentRunId,
+      sessionId,
+      child,
+      transport,
+    );
 
     transport.send({
       type: 'run',
       taskId: task.id,
-      agentRunId: sessionId,
-      dispatch: { mode: 'start', agentRunId: sessionId },
+      agentRunId,
+      dispatch: { mode: 'start', agentRunId },
       task,
       context,
     });
@@ -97,14 +130,20 @@ export class PiSdkHarness implements SessionHarness {
       };
     }
 
-    const worktreePath = this.resolveWorktreePath(task);
-    const child = this.forkWorker(worktreePath);
+    const worktreeDir = this.resolveWorktreePath(task);
+    const child = this.forkWorker(worktreeDir);
     const transport = new NdjsonStdioTransport({
       stdin: child.stdin as Writable,
       stdout: child.stdout as Readable,
     });
 
-    const handle = createSessionHandle(run.sessionId, child, transport);
+    const handle = createSessionHandle(
+      task.id,
+      run.agentRunId,
+      run.sessionId,
+      child,
+      transport,
+    );
 
     transport.send({
       type: 'run',
@@ -150,18 +189,36 @@ export class PiSdkHarness implements SessionHarness {
 }
 
 function createSessionHandle(
+  taskId: string,
+  agentRunId: string,
   sessionId: string,
-  child: child_process.ChildProcess,
+  child: ChildLike,
   transport: NdjsonStdioTransport,
 ): SessionHandle {
+  let exitInfo: SessionExitInfo | undefined;
+  const exitHandlers: Array<(info: SessionExitInfo) => void> = [];
+
+  const fireExit = (info: SessionExitInfo): void => {
+    if (exitInfo !== undefined) return;
+    exitInfo = info;
+    for (const handler of exitHandlers) handler(info);
+  };
+
+  child.on('exit', (code, signal) => {
+    fireExit({ code, signal });
+  });
+  child.on('error', (error) => {
+    fireExit({ code: null, signal: null, error });
+  });
+
   return {
     sessionId,
 
     abort() {
       transport.send({
         type: 'abort',
-        taskId: '',
-        agentRunId: '',
+        taskId,
+        agentRunId,
       });
 
       setTimeout(() => {
@@ -174,8 +231,8 @@ function createSessionHandle(
     sendInput(text: string): Promise<void> {
       transport.send({
         type: 'manual_input',
-        taskId: '',
-        agentRunId: '',
+        taskId,
+        agentRunId,
         text,
       });
       return Promise.resolve();
@@ -189,6 +246,14 @@ function createSessionHandle(
       handler: (message: WorkerToOrchestratorMessage) => void,
     ): void {
       transport.onMessage(handler);
+    },
+
+    onExit(handler: (info: SessionExitInfo) => void): void {
+      if (exitInfo !== undefined) {
+        handler(exitInfo);
+        return;
+      }
+      exitHandlers.push(handler);
     },
   };
 }

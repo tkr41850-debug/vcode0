@@ -23,6 +23,11 @@ import { createTaskFixture } from '../../helpers/graph-builders.js';
 interface MockHandle extends SessionHandle {
   _sentMessages: OrchestratorToWorkerMessage[];
   _emitWorkerMessage: (msg: WorkerToOrchestratorMessage) => void;
+  _emitExit: (info: {
+    code: number | null;
+    signal: NodeJS.Signals | null;
+    error?: Error;
+  }) => void;
 }
 
 interface PoolTestSetup {
@@ -34,6 +39,13 @@ interface PoolTestSetup {
 function createMockHandle(sessionId = 'sess-1'): MockHandle {
   const sentMessages: OrchestratorToWorkerMessage[] = [];
   let messageHandler: ((msg: WorkerToOrchestratorMessage) => void) | undefined;
+  let exitHandler:
+    | ((info: {
+        code: number | null;
+        signal: NodeJS.Signals | null;
+        error?: Error;
+      }) => void)
+    | undefined;
   const abort = vi.fn();
 
   return {
@@ -46,11 +58,17 @@ function createMockHandle(sessionId = 'sess-1'): MockHandle {
     onWorkerMessage(handler: (msg: WorkerToOrchestratorMessage) => void) {
       messageHandler = handler;
     },
+    onExit(handler) {
+      exitHandler = handler;
+    },
     get _sentMessages() {
       return sentMessages;
     },
     _emitWorkerMessage(msg: WorkerToOrchestratorMessage) {
       messageHandler?.(msg);
+    },
+    _emitExit(info) {
+      exitHandler?.(info);
     },
   };
 }
@@ -61,7 +79,7 @@ function createMockHarness(
   const h = handle ?? createMockHandle();
   const harness = {
     lastStartContext: undefined as WorkerContext | undefined,
-    start: vi.fn((_task: Task, context: WorkerContext) => {
+    start: vi.fn((_task: Task, context: WorkerContext, _agentRunId: string) => {
       harness.lastStartContext = context;
       return Promise.resolve(h);
     }),
@@ -526,6 +544,64 @@ describe('LocalWorkerPool', () => {
 
       expect(completedMessages).toHaveLength(1);
       expect(pool.idleWorkerCount()).toBe(4);
+    });
+
+    it('synthesizes error message when worker exits unexpectedly', async () => {
+      const completedMessages: WorkerToOrchestratorMessage[] = [];
+      const { handle, pool } = setupPool('sess-exit', 4, (msg) =>
+        completedMessages.push(msg),
+      );
+
+      await pool.dispatchTask(makeTask(), {
+        mode: 'start',
+        agentRunId: 'run-xyz',
+      });
+
+      handle._emitExit({ code: 137, signal: 'SIGKILL' });
+
+      expect(completedMessages).toHaveLength(1);
+      expect(completedMessages[0]).toMatchObject({
+        type: 'error',
+        taskId: 't-task-1',
+        agentRunId: 'run-xyz',
+      });
+      const first = completedMessages[0];
+      if (first?.type === 'error') {
+        expect(first.error).toContain('worker_exited');
+      }
+      expect(pool.idleWorkerCount()).toBe(4);
+    });
+
+    it('does not double-fire when exit follows normal completion', async () => {
+      const completedMessages: WorkerToOrchestratorMessage[] = [];
+      const { handle, pool } = setupPool('sess-done', 4, (msg) =>
+        completedMessages.push(msg),
+      );
+
+      await pool.dispatchTask(makeTask(), {
+        mode: 'start',
+        agentRunId: 'run-done',
+      });
+
+      handle._emitWorkerMessage({
+        type: 'result',
+        taskId: 't-task-1',
+        agentRunId: 'run-done',
+        result: { summary: 'ok', filesChanged: [] },
+        usage: {
+          provider: 'anthropic',
+          model: 'claude-sonnet-4-20250514',
+          llmCalls: 1,
+          inputTokens: 1,
+          outputTokens: 1,
+          totalTokens: 2,
+          usd: 0,
+        },
+      });
+      handle._emitExit({ code: 0, signal: null });
+
+      expect(completedMessages).toHaveLength(1);
+      expect(completedMessages[0]?.type).toBe('result');
     });
 
     it('fires callback for non-terminal messages without cleanup', async () => {

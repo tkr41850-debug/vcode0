@@ -1,4 +1,5 @@
 import type { ChildProcess } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import { PassThrough, Writable } from 'node:stream';
 
 import { InMemoryFeatureGraph } from '@core/graph/index';
@@ -31,21 +32,34 @@ class CollectingWritable extends Writable {
   }
 }
 
-function createForkedChild(): ChildProcess & {
+type FakeChild = ChildProcess & {
   writes: string[];
   kill: ReturnType<typeof vi.fn>;
-} {
+  emitExit: (code: number | null, signal: NodeJS.Signals | null) => void;
+  emitError: (err: Error) => void;
+};
+
+function createForkedChild(): FakeChild {
   const stdin = new CollectingWritable();
-  return {
+  const emitter = new EventEmitter();
+  const child = {
     stdin,
     stdout: new PassThrough(),
     kill: vi.fn(),
     killed: false,
     writes: stdin.writes,
-  } as unknown as ChildProcess & {
-    writes: string[];
-    kill: ReturnType<typeof vi.fn>;
-  };
+    on(event: string, handler: (...args: unknown[]) => void) {
+      emitter.on(event, handler);
+      return child;
+    },
+    emitExit(code: number | null, signal: NodeJS.Signals | null) {
+      emitter.emit('exit', code, signal);
+    },
+    emitError(err: Error) {
+      emitter.emit('error', err);
+    },
+  } as unknown as FakeChild;
+  return child;
 }
 
 describe('PiSdkHarness', () => {
@@ -69,10 +83,11 @@ describe('PiSdkHarness', () => {
       worktreeBranch: 'feat-custom-branch',
     });
 
-    const handle = await harness.start(task, {
-      strategy: 'fresh',
-      planSummary: 'Plan here',
-    });
+    const handle = await harness.start(
+      task,
+      { strategy: 'fresh', planSummary: 'Plan here' },
+      'run-42',
+    );
 
     expect(forkWorker).toHaveBeenCalledWith(
       '/tmp/project-root/.gvc0/worktrees/feat-custom-branch',
@@ -82,8 +97,8 @@ describe('PiSdkHarness', () => {
     expect(JSON.parse(child.writes[0] ?? '')).toMatchObject({
       type: 'run',
       taskId: 't-1',
-      agentRunId: handle.sessionId,
-      dispatch: { mode: 'start', agentRunId: handle.sessionId },
+      agentRunId: 'run-42',
+      dispatch: { mode: 'start', agentRunId: 'run-42' },
       context: { strategy: 'fresh', planSummary: 'Plan here' },
     });
   });
@@ -98,9 +113,11 @@ describe('PiSdkHarness', () => {
     );
     Object.assign(harness as object, { forkWorker });
 
-    await harness.start(createTaskFixture({ id: 't-7', featureId: 'f-9' }), {
-      strategy: 'shared-summary',
-    });
+    await harness.start(
+      createTaskFixture({ id: 't-7', featureId: 'f-9' }),
+      { strategy: 'shared-summary' },
+      'run-7',
+    );
 
     expect(forkWorker).toHaveBeenCalledWith(
       '/tmp/project-root/.gvc0/worktrees/feat-f-9-task-t-7',
@@ -130,7 +147,7 @@ describe('PiSdkHarness', () => {
       description: 'desc',
     });
 
-    await harness.start(task, { strategy: 'shared-summary' });
+    await harness.start(task, { strategy: 'shared-summary' }, 'run-7');
 
     expect(forkWorker).toHaveBeenCalledWith(
       '/tmp/project-root/.gvc0/worktrees/feat-feature-9-9-7',
@@ -196,7 +213,7 @@ describe('PiSdkHarness', () => {
     });
   });
 
-  it('wires handle sendInput, send, and abort messages', async () => {
+  it('wires handle sendInput, send, and abort messages with real ids', async () => {
     vi.useFakeTimers();
     const child = createForkedChild();
     const forkWorker = vi.fn(() => child);
@@ -206,15 +223,17 @@ describe('PiSdkHarness', () => {
       '/tmp/custom-entry.ts',
     );
     Object.assign(harness as object, { forkWorker });
-    const handle = await harness.start(createTaskFixture({ id: 't-1' }), {
-      strategy: 'shared-summary',
-    });
+    const handle = await harness.start(
+      createTaskFixture({ id: 't-1' }),
+      { strategy: 'shared-summary' },
+      'run-abc',
+    );
 
     await handle.sendInput('hello worker');
     handle.send({
       type: 'resume',
       taskId: 't-1',
-      agentRunId: 'run-1',
+      agentRunId: 'run-abc',
       reason: 'manual',
     });
     handle.abort();
@@ -222,19 +241,75 @@ describe('PiSdkHarness', () => {
 
     expect(JSON.parse(child.writes[1] ?? '')).toMatchObject({
       type: 'manual_input',
+      taskId: 't-1',
+      agentRunId: 'run-abc',
       text: 'hello worker',
     });
     expect(JSON.parse(child.writes[2] ?? '')).toMatchObject({
       type: 'resume',
       taskId: 't-1',
-      agentRunId: 'run-1',
+      agentRunId: 'run-abc',
       reason: 'manual',
     });
     expect(JSON.parse(child.writes[3] ?? '')).toMatchObject({
       type: 'abort',
-      taskId: '',
-      agentRunId: '',
+      taskId: 't-1',
+      agentRunId: 'run-abc',
     });
     expect(child.kill).toHaveBeenCalledWith('SIGKILL');
+  });
+
+  it('fires onExit handler with exit code and signal', async () => {
+    const child = createForkedChild();
+    const forkWorker = vi.fn(() => child);
+    const harness = new PiSdkHarness(
+      createSessionStoreMock(),
+      '/tmp/project-root',
+      '/tmp/custom-entry.ts',
+    );
+    Object.assign(harness as object, { forkWorker });
+    const handle = await harness.start(
+      createTaskFixture({ id: 't-1' }),
+      { strategy: 'shared-summary' },
+      'run-ex',
+    );
+
+    const exits: Array<{
+      code: number | null;
+      signal: NodeJS.Signals | null;
+      error?: Error;
+    }> = [];
+    handle.onExit((info) => exits.push(info));
+
+    child.emitExit(137, 'SIGKILL');
+
+    expect(exits).toHaveLength(1);
+    expect(exits[0]).toMatchObject({ code: 137, signal: 'SIGKILL' });
+  });
+
+  it('fires onExit handler with error when child errors', async () => {
+    const child = createForkedChild();
+    const forkWorker = vi.fn(() => child);
+    const harness = new PiSdkHarness(
+      createSessionStoreMock(),
+      '/tmp/project-root',
+      '/tmp/custom-entry.ts',
+    );
+    Object.assign(harness as object, { forkWorker });
+    const handle = await harness.start(
+      createTaskFixture({ id: 't-1' }),
+      { strategy: 'shared-summary' },
+      'run-err',
+    );
+
+    const errors: Error[] = [];
+    handle.onExit((info) => {
+      if (info.error !== undefined) errors.push(info.error);
+    });
+
+    child.emitError(new Error('spawn ENOENT'));
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0]?.message).toBe('spawn ENOENT');
   });
 });

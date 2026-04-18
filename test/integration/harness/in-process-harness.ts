@@ -1,5 +1,3 @@
-import * as crypto from 'node:crypto';
-
 import type { Task } from '@core/types/index';
 import type { WorkerContext } from '@runtime/context/index';
 import type {
@@ -10,6 +8,7 @@ import type {
 } from '@runtime/contracts';
 import type {
   ResumeSessionResult,
+  SessionExitInfo,
   SessionHandle,
   SessionHarness,
 } from '@runtime/harness/index';
@@ -46,11 +45,18 @@ export class InProcessHarness implements SessionHarness {
     private readonly config: InProcessHarnessConfig,
   ) {}
 
-  start(task: Task, context: WorkerContext): Promise<SessionHandle> {
-    const sessionId = crypto.randomUUID();
+  start(
+    task: Task,
+    context: WorkerContext,
+    agentRunId: string,
+  ): Promise<SessionHandle> {
+    // In-process harness reuses agentRunId as the sessionId so the
+    // `dispatchResult.sessionId` reported to callers matches the storage key
+    // `WorkerRuntime` persists under (start-mode key = dispatch.agentRunId).
+    const sessionId = agentRunId;
     const dispatch: TaskRuntimeDispatch = {
       mode: 'start',
-      agentRunId: sessionId,
+      agentRunId,
     };
     const handle = this.spawnRuntime(sessionId, task, context, dispatch);
     return Promise.resolve(handle);
@@ -89,6 +95,13 @@ export class InProcessHarness implements SessionHarness {
     const { orchestrator, worker } = createLoopbackTransportPair();
 
     const runtime = new WorkerRuntime(worker, this.sessionStore, this.config);
+    const exitHandlers: Array<(info: SessionExitInfo) => void> = [];
+    let exitInfo: SessionExitInfo | undefined;
+    const fireExit = (info: SessionExitInfo): void => {
+      if (exitInfo !== undefined) return;
+      exitInfo = info;
+      for (const handler of exitHandlers) handler(info);
+    };
 
     // Wire the worker side so control messages sent via `handle.send` reach
     // `runtime.handleMessage`, matching what `entry.ts` does for real forks.
@@ -124,6 +137,7 @@ export class InProcessHarness implements SessionHarness {
       })
       .finally(() => {
         this.runtimes.delete(sessionId);
+        fireExit({ code: 0, signal: null });
       });
 
     this.runtimes.set(sessionId, { runtime, done });
@@ -153,6 +167,13 @@ export class InProcessHarness implements SessionHarness {
         handler: (message: WorkerToOrchestratorMessage) => void,
       ) => {
         orchestrator.onMessage(handler);
+      },
+      onExit: (handler: (info: SessionExitInfo) => void) => {
+        if (exitInfo !== undefined) {
+          handler(exitInfo);
+          return;
+        }
+        exitHandlers.push(handler);
       },
     };
   }

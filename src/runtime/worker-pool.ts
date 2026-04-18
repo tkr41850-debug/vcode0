@@ -70,7 +70,7 @@ export class LocalWorkerPool implements RuntimePort {
       };
     }
 
-    const handle = await this.harness.start(task, context);
+    const handle = await this.harness.start(task, context, dispatch.agentRunId);
 
     const session: LiveSession = {
       ref: { taskId: task.id, agentRunId: dispatch.agentRunId },
@@ -275,6 +275,21 @@ export class LocalWorkerPool implements RuntimePort {
       } else {
         this.onTaskComplete?.(normalizedMessage);
       }
+    });
+
+    session.handle.onExit((info) => {
+      if (!this.liveRuns.has(taskId)) return;
+      this.liveRuns.delete(taskId);
+      const reason =
+        info.error !== undefined
+          ? `worker_exited: ${info.error.message}`
+          : `worker_exited: code=${info.code ?? 'null'} signal=${info.signal ?? 'null'}`;
+      this.onTaskComplete?.({
+        type: 'error',
+        taskId,
+        agentRunId: session.ref.agentRunId,
+        error: reason,
+      });
     });
   }
 }
