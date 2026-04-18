@@ -1,7 +1,7 @@
 import type {
   DependencyOptions,
-  FeatureEditPatch,
   FeatureGraph,
+  PlannerFeatureEditPatch,
   TaskEditPatch,
 } from '@core/graph/index';
 import type { GraphProposal, GraphProposalMode } from '@core/proposals/index';
@@ -25,7 +25,7 @@ import type {
   VerificationSummary,
 } from '@core/types/index';
 
-export type { DependencyOptions, FeatureEditPatch, TaskEditPatch };
+export type { DependencyOptions, PlannerFeatureEditPatch, TaskEditPatch };
 
 export interface AddMilestoneOptions {
   name: string;
@@ -44,7 +44,7 @@ export interface RemoveFeatureOptions {
 
 export interface EditFeatureOptions {
   featureId: FeatureId;
-  patch: FeatureEditPatch;
+  patch: PlannerFeatureEditPatch;
 }
 
 export interface AddTaskOptions {

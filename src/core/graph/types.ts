@@ -61,10 +61,13 @@ export interface SplitSpec {
   deps?: FeatureId[];
 }
 
-export interface FeatureEditPatch {
+export interface PlannerFeatureEditPatch {
   name?: string;
   description?: string;
   summary?: string;
+}
+
+export interface FeatureEditPatch extends PlannerFeatureEditPatch {
   runtimeBlockedByFeatureId?: FeatureId | undefined;
 }
 

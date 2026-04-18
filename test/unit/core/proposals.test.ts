@@ -295,6 +295,80 @@ describe('applyGraphProposal', () => {
     ).toBe(false);
   });
 
+  it('rejects edit_feature patch with runtime-block field', () => {
+    expect(
+      isGraphProposal({
+        version: 1,
+        mode: 'plan',
+        aliases: {},
+        ops: [
+          {
+            kind: 'edit_feature',
+            featureId: 'f-1',
+            patch: { runtimeBlockedByFeatureId: 'f-2' },
+          },
+        ],
+      }),
+    ).toBe(false);
+  });
+
+  it('rejects edit_feature patch with unknown keys', () => {
+    expect(
+      isGraphProposal({
+        version: 1,
+        mode: 'plan',
+        aliases: {},
+        ops: [
+          {
+            kind: 'edit_feature',
+            featureId: 'f-1',
+            patch: { name: 'ok', bogus: 'x' },
+          },
+        ],
+      }),
+    ).toBe(false);
+  });
+
+  it('does not apply runtime-block via edit_feature proposal', () => {
+    const graph = createGraph();
+    graph.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'Feature 1',
+      description: 'desc',
+    });
+    graph.createFeature({
+      id: 'f-2',
+      milestoneId: 'm-1',
+      name: 'Feature 2',
+      description: 'desc',
+    });
+
+    const proposal = {
+      version: 1,
+      mode: 'plan',
+      aliases: {},
+      ops: [
+        {
+          kind: 'edit_feature',
+          featureId: 'f-1',
+          patch: {
+            name: 'renamed',
+            runtimeBlockedByFeatureId: 'f-2',
+          },
+        },
+      ],
+    } as unknown as Parameters<typeof applyGraphProposal>[1];
+
+    expect(() => applyGraphProposal(graph, proposal)).toThrow(
+      /invalid proposal payload/,
+    );
+    expect(
+      graph.features.get('f-1')?.runtimeBlockedByFeatureId,
+    ).toBeUndefined();
+    expect(graph.features.get('f-1')?.name).toBe('Feature 1');
+  });
+
   it('accepts valid proposal payload with reserved write paths', () => {
     expect(
       isGraphProposal({

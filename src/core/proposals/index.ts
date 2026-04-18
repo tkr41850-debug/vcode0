@@ -1,6 +1,6 @@
 import type {
-  FeatureEditPatch,
   FeatureGraph,
+  PlannerFeatureEditPatch,
   TaskEditPatch,
 } from '@core/graph/index';
 import { GraphValidationError } from '@core/graph/index';
@@ -39,7 +39,7 @@ export interface RemoveFeatureProposalOp {
 export interface EditFeatureProposalOp {
   kind: 'edit_feature';
   featureId: FeatureId;
-  patch: FeatureEditPatch;
+  patch: PlannerFeatureEditPatch;
 }
 
 export interface AddTaskProposalOp {
@@ -508,7 +508,18 @@ function isGraphProposalOp(value: unknown): value is GraphProposalOp {
   }
 }
 
+const ALLOWED_FEATURE_PATCH_KEYS: ReadonlySet<string> = new Set([
+  'name',
+  'description',
+  'summary',
+]);
+
 function featurePatchIsValid(patch: Record<string, unknown>): boolean {
+  for (const key of Object.keys(patch)) {
+    if (!ALLOWED_FEATURE_PATCH_KEYS.has(key)) {
+      return false;
+    }
+  }
   return (
     (patch.name === undefined || typeof patch.name === 'string') &&
     (patch.description === undefined ||
