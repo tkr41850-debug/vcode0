@@ -217,8 +217,36 @@ describe('applyGraphProposal', () => {
     expect(result.applied).toHaveLength(0);
     expect(result.skipped).toHaveLength(1);
     expect(result.skipped[0]?.opIndex).toBe(0);
-    expect(result.skipped[0]?.reason).toContain('already started');
+    expect(result.skipped[0]?.reason).toContain('cancel the task first');
     expect(graph.tasks.has('t-1')).toBe(true);
+  });
+
+  it('applies remove_task for a cancelled task without warnings', () => {
+    const graph = createGraph();
+    graph.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'Feature 1',
+      description: 'desc',
+    });
+    graph.createTask({
+      id: 't-1',
+      featureId: 'f-1',
+      description: 'Task 1',
+    });
+    graph.transitionTask('t-1', { status: 'cancelled' });
+
+    const builder = new GraphProposalBuilder('replan');
+    builder.addOp({ kind: 'remove_task', taskId: 't-1' });
+
+    const proposal = builder.build();
+    const warnings = collectProposalWarnings(graph, proposal);
+    const result = applyGraphProposal(graph, proposal);
+
+    expect(warnings).toEqual([]);
+    expect(result.applied).toHaveLength(1);
+    expect(result.skipped).toHaveLength(0);
+    expect(graph.tasks.has('t-1')).toBe(false);
   });
 
   it('skips feature removal when downstream features still depend on it', () => {

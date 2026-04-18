@@ -21,7 +21,7 @@ See [ARCHITECTURE.md](../../ARCHITECTURE.md) for the high-level architecture ove
 | **editFeature(featureId, patch)** | Update feature fields such as name, description, summary, or runtime block metadata |
 | **addTask(featureId, description, deps?)** | Add a task to an existing feature |
 | **editTask(taskId, patch)** | Update task description, weight, or reserved write paths |
-| **removeTask(taskId)** | Remove a task (only if pending) |
+| **removeTask(taskId)** | Remove a task (only when status is `pending` or `cancelled`; other statuses must be cancelled first so worktree/run cleanup runs) |
 | **reorderTasks(featureId, taskIds)** | Reorder tasks within a feature (affects display, not scheduling) |
 | **reweight(taskId, weight)** | Update estimated cost/complexity — affects critical path calculation |
 | **queueMilestone(milestoneId)** | Append a milestone to the scheduler steering queue |

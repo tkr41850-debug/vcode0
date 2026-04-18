@@ -195,12 +195,12 @@ export function collectProposalWarnings(
   for (const [opIndex, op] of proposal.ops.entries()) {
     if (op.kind === 'remove_task') {
       const task = graph.tasks.get(op.taskId);
-      if (task !== undefined && taskHasStarted(task)) {
+      if (task !== undefined && !taskIsRemovable(task)) {
         warnings.push({
           code: 'remove_started_task',
           opIndex,
           entityId: task.id,
-          message: `Task "${task.id}" already started`,
+          message: `Task "${task.id}" cannot be removed while status="${task.status}"; cancel the task first`,
         });
       }
       continue;
@@ -370,9 +370,9 @@ function staleReasonForOp(
       if (task === undefined) {
         return `Task "${op.taskId}" does not exist`;
       }
-      return taskHasStarted(task)
-        ? `Task "${op.taskId}" already started`
-        : undefined;
+      return taskIsRemovable(task)
+        ? undefined
+        : `Task "${op.taskId}" cannot be removed while status="${task.status}"; cancel the task first`;
     }
     case 'edit_task':
       return graph.tasks.has(op.taskId)
@@ -437,6 +437,10 @@ function dependencyReason(
 
 function taskHasStarted(task: Task): boolean {
   return task.status !== 'pending' || task.collabControl !== 'none';
+}
+
+function taskIsRemovable(task: Task): boolean {
+  return task.status === 'pending' || task.status === 'cancelled';
 }
 
 function featureHasStarted(graph: FeatureGraph, feature: Feature): boolean {

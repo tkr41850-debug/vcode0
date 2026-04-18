@@ -1472,9 +1472,25 @@ describe('InMemoryFeatureGraph', () => {
     expect(g.tasks.has('t-1')).toBe(false);
   });
 
-  it('removeTask allows removing started task directly', () => {
+  it('removeTask rejects removing a running task with cancel-first guidance', () => {
     const g = createGraphWithTask();
     updateTask(g, 't-1', { status: 'running' });
+
+    expect(() => g.removeTask('t-1')).toThrow(GraphValidationError);
+    try {
+      g.removeTask('t-1');
+    } catch (error) {
+      expect(error).toBeInstanceOf(GraphValidationError);
+      const message = (error as Error).message;
+      expect(message).toContain('running');
+      expect(message).toContain('cancel the task first');
+    }
+    expect(g.tasks.has('t-1')).toBe(true);
+  });
+
+  it('removeTask removes a cancelled task', () => {
+    const g = createGraphWithTask();
+    updateTask(g, 't-1', { status: 'cancelled' });
 
     expect(() => g.removeTask('t-1')).not.toThrow();
     expect(g.tasks.has('t-1')).toBe(false);

@@ -73,6 +73,12 @@ export function removeTask(graph: MutableGraphInternals, taskId: TaskId): void {
     throw new GraphValidationError(`Task "${taskId}" does not exist`);
   }
 
+  if (task.status !== 'pending' && task.status !== 'cancelled') {
+    throw new GraphValidationError(
+      `Task "${taskId}" cannot be removed while status="${task.status}"; cancel the task first`,
+    );
+  }
+
   for (const [id, entry] of graph.tasks) {
     if (entry.dependsOn.includes(taskId)) {
       graph.tasks.set(id, {
