@@ -8,3 +8,4 @@ Current entries:
 
 - [Planner Write-Reservation Accuracy](./planner-write-reservation-accuracy.md)
 - [Verification and Repair Churn](./verification-and-repair-churn.md)
+- [Worker Runaway](./worker-runaway.md)
