@@ -108,7 +108,7 @@ Most single-key commands only work in graph focus. While composer is focused, re
 | `w` | Cycle active worker selection in agent monitor. |
 | `h` | Show or hide keyboard help. |
 | `d` | Show dependency detail for selected feature. Task selection resolves to its feature. |
-| `x` | Cancel selected feature. Task selection resolves to its feature. |
+| `x` | Cancel selected feature and abort its running task work. Task selection resolves to its feature. |
 | `q` | Quit TUI when no overlay is open. |
 
 ## Composer and Slash Commands
@@ -135,7 +135,7 @@ Example:
 - `/worker-next` — cycle active worker selection
 - `/help` — show or hide keyboard help
 - `/deps` — show dependency detail for selected feature
-- `/cancel` — cancel selected feature
+- `/cancel` — cancel selected feature and abort any running task work for it
 - `/quit` — quit TUI
 
 ### Draft editing commands

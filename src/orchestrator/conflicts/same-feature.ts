@@ -66,6 +66,7 @@ export async function reconcileSameFeatureTasks(
     if (
       task.featureId !== featureId ||
       task.id === dominantTaskId ||
+      task.status === 'cancelled' ||
       task.collabControl !== 'suspended' ||
       task.suspendReason !== 'same_feature_overlap' ||
       !wasSuspendedByDominantTask(task, dominantTask)

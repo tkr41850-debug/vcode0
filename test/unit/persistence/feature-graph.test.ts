@@ -1,3 +1,5 @@
+import assert from 'node:assert/strict';
+
 import type {
   FeatureId,
   FeatureWorkControl,
@@ -398,6 +400,78 @@ describe('PersistentFeatureGraph', () => {
       expect(task?.status).toBe('cancelled');
     });
 
+    it('persists cleared feature runtime block and preserved task suspend metadata on cancel', () => {
+      graph.createMilestone({ id: 'm-1', name: 'M1', description: 'd' });
+      graph.createMilestone({ id: 'm-2', name: 'M2', description: 'd' });
+      graph.createFeature({
+        id: 'f-1',
+        milestoneId: 'm-1',
+        name: 'F1',
+        description: 'd',
+      });
+      graph.createFeature({
+        id: 'f-2',
+        milestoneId: 'm-2',
+        name: 'F2',
+        description: 'd',
+      });
+      graph.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+      const task = graph.tasks.get('t-1');
+      assert(task !== undefined, 'missing t-1 fixture');
+      graph.tasks.set('t-1', {
+        ...task,
+        status: 'running',
+        collabControl: 'suspended',
+        suspendReason: 'cross_feature_overlap',
+        suspendedAt: 1000,
+        suspendedFiles: ['src/a.ts'],
+        blockedByFeatureId: 'f-2',
+      });
+      graph.editFeature('f-1', { runtimeBlockedByFeatureId: 'f-2' });
+
+      graph.cancelFeature('f-1');
+
+      const featureRow = db
+        .prepare<
+          [string],
+          {
+            collab_status: string;
+            runtime_blocked_by_feature_id: string | null;
+          }
+        >(
+          'SELECT collab_status, runtime_blocked_by_feature_id FROM features WHERE id = ?',
+        )
+        .get('f-1');
+      expect(featureRow).toEqual({
+        collab_status: 'cancelled',
+        runtime_blocked_by_feature_id: null,
+      });
+
+      const taskRow = db
+        .prepare<
+          [string],
+          {
+            status: string;
+            collab_status: string;
+            suspend_reason: string | null;
+            suspended_at: number | null;
+            blocked_by_feature_id: string | null;
+            suspended_files: string | null;
+          }
+        >(
+          'SELECT status, collab_status, suspend_reason, suspended_at, blocked_by_feature_id, suspended_files FROM tasks WHERE id = ?',
+        )
+        .get('t-1');
+      expect(taskRow).toEqual({
+        status: 'cancelled',
+        collab_status: 'suspended',
+        suspend_reason: 'cross_feature_overlap',
+        suspended_at: 1000,
+        blocked_by_feature_id: 'f-2',
+        suspended_files: '["src/a.ts"]',
+      });
+    });
+
     it('persists splitFeature rewrites, task deletion, and rehydration', () => {
       graph.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
       graph.createFeature({
@@ -444,7 +518,7 @@ describe('PersistentFeatureGraph', () => {
       ]);
 
       const taskCount = db
-        .prepare<[], { c: number }>(
+        .prepare<[string], { c: number }>(
           'SELECT COUNT(*) AS c FROM tasks WHERE feature_id = ?',
         )
         .get('f-1');

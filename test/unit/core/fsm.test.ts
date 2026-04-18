@@ -314,7 +314,12 @@ describe('validateFeatureCollabTransition', () => {
 
   it('allows branch_open from none during executing', () => {
     expect(
-      validateFeatureCollabTransition('none', 'branch_open', 'executing', 'pending'),
+      validateFeatureCollabTransition(
+        'none',
+        'branch_open',
+        'executing',
+        'pending',
+      ),
     ).toEqual({
       valid: true,
     });

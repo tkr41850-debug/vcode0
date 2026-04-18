@@ -26,6 +26,13 @@ function completeTaskRun(
   });
 }
 
+function isFeatureCancelled(
+  graph: FeatureGraph,
+  featureId: FeatureId,
+): boolean {
+  return graph.features.get(featureId)?.collabControl === 'cancelled';
+}
+
 export async function handleSchedulerEvent(params: {
   event: SchedulerEvent;
   graph: FeatureGraph;
@@ -45,6 +52,11 @@ export async function handleSchedulerEvent(params: {
     const message = event.message;
     const run = ports.store.getAgentRun(message.agentRunId);
     if (run?.scopeType !== 'task') {
+      return;
+    }
+
+    const task = graph.tasks.get(run.scopeId);
+    if (run.runStatus === 'cancelled' || task?.status === 'cancelled') {
       return;
     }
 
@@ -116,6 +128,10 @@ export async function handleSchedulerEvent(params: {
   }
 
   if (event.type === 'feature_phase_rerun_requested') {
+    if (isFeatureCancelled(graph, event.featureId)) {
+      return;
+    }
+
     const run = ports.store.getAgentRun(
       `run-feature:${event.featureId}:${event.phase}`,
     );
@@ -145,6 +161,10 @@ export async function handleSchedulerEvent(params: {
   }
 
   if (event.type === 'feature_phase_approval_decision') {
+    if (isFeatureCancelled(graph, event.featureId)) {
+      return;
+    }
+
     const run = ports.store.getAgentRun(
       `run-feature:${event.featureId}:${event.phase}`,
     );
@@ -219,6 +239,10 @@ export async function handleSchedulerEvent(params: {
   }
 
   if (event.type === 'feature_phase_complete') {
+    if (isFeatureCancelled(graph, event.featureId)) {
+      return;
+    }
+
     const run = ports.store.getAgentRun(
       `run-feature:${event.featureId}:${event.phase}`,
     );
@@ -261,6 +285,10 @@ export async function handleSchedulerEvent(params: {
   }
 
   if (event.type === 'feature_phase_error') {
+    if (isFeatureCancelled(graph, event.featureId)) {
+      return;
+    }
+
     const run = ports.store.getAgentRun(
       `run-feature:${event.featureId}:${event.phase}`,
     );

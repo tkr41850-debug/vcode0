@@ -3,6 +3,7 @@ import * as crypto from 'node:crypto';
 import * as path from 'node:path';
 import type { Readable, Writable } from 'node:stream';
 
+import { resolveTaskWorktreeBranch, worktreePath } from '@core/naming/index';
 import type { Task } from '@core/types/index';
 import type { WorkerContext } from '@runtime/context/index';
 import type {
@@ -141,9 +142,10 @@ export class PiSdkHarness implements SessionHarness {
   }
 
   private resolveWorktreePath(task: Task): string {
-    const branch =
-      task.worktreeBranch ?? `feat-${task.featureId}-task-${task.id}`;
-    return path.resolve(this.projectRoot, '.gvc0', 'worktrees', branch);
+    return path.resolve(
+      this.projectRoot,
+      worktreePath(resolveTaskWorktreeBranch(task)),
+    );
   }
 }
 

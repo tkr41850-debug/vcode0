@@ -54,10 +54,7 @@ export class InMemoryStore implements Store {
     this.runs.set(run.id, run);
   }
 
-  updateAgentRun(
-    runId: string,
-    patch: AgentRunPatch,
-  ): void {
+  updateAgentRun(runId: string, patch: AgentRunPatch): void {
     const existing = this.runs.get(runId);
     if (existing === undefined) {
       throw new Error(`agent run "${runId}" does not exist`);

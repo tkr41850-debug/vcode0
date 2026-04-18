@@ -151,6 +151,26 @@ describe('WarningEvaluator', () => {
       ]);
       expect(warnings).toHaveLength(0);
     });
+
+    it('ignores cancelled suspended tasks for long_feature_blocking warnings', () => {
+      const feature = createFeatureFixture({
+        runtimeBlockedByFeatureId: 'f-2',
+      });
+      const now = 8 * 60 * 60 * 1000 + 1;
+      const warnings = evaluator.evaluateFeature(feature, now, [
+        createTaskFixture({
+          id: 't-1',
+          featureId: 'f-1',
+          status: 'cancelled',
+          collabControl: 'suspended',
+          suspendReason: 'cross_feature_overlap',
+          blockedByFeatureId: 'f-2',
+          suspendedAt: 0,
+        }),
+      ]);
+
+      expect(warnings).toHaveLength(0);
+    });
   });
 
   describe('empty verification checks warning', () => {

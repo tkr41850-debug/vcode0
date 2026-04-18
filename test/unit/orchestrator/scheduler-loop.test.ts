@@ -1266,6 +1266,124 @@ describe('SchedulerLoop', () => {
     expect(retryTaskRunPatch?.retryAt).toEqual(expect.any(Number));
   });
 
+  it('ignores late worker result for cancelled task runs', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const graph = createSingleFeatureGraph(
+      {
+        status: 'pending',
+        workControl: 'executing',
+        collabControl: 'none',
+      },
+      [
+        createTaskFixture({
+          id: 't-1',
+          description: 'Task 1',
+          status: 'cancelled',
+          collabControl: 'suspended',
+          suspendReason: 'cross_feature_overlap',
+          blockedByFeatureId: 'f-2',
+          suspendedAt: 100,
+        }),
+      ],
+    );
+    ports.store.createAgentRun(
+      makeTaskRun({
+        id: 'run-task:t-1',
+        runStatus: 'cancelled',
+        sessionId: 'sess-1',
+      }),
+    );
+    const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+
+    await loop.handleEventForTest({
+      type: 'worker_message',
+      message: {
+        type: 'result',
+        taskId: 't-1',
+        agentRunId: 'run-task:t-1',
+        result: {
+          summary: 'done',
+          filesChanged: ['src/a.ts'],
+        },
+        usage: {
+          provider: 'test',
+          model: 'fake',
+          inputTokens: 1,
+          outputTokens: 2,
+          totalTokens: 3,
+          usd: 0,
+        },
+        completionKind: 'submitted',
+      },
+    });
+
+    expect(graph.tasks.get('t-1')).toMatchObject({
+      status: 'cancelled',
+      collabControl: 'suspended',
+      blockedByFeatureId: 'f-2',
+    });
+    expect(updateAgentRun).not.toHaveBeenCalledWith(
+      'run-task:t-1',
+      expect.objectContaining({ runStatus: 'completed' }),
+    );
+  });
+
+  it('ignores late worker error for cancelled task runs', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const graph = createSingleFeatureGraph(
+      {
+        status: 'pending',
+        workControl: 'executing',
+        collabControl: 'none',
+      },
+      [
+        createTaskFixture({
+          id: 't-1',
+          description: 'Task 1',
+          status: 'cancelled',
+          collabControl: 'suspended',
+          suspendReason: 'cross_feature_overlap',
+          blockedByFeatureId: 'f-2',
+          suspendedAt: 100,
+        }),
+      ],
+    );
+    ports.store.createAgentRun(
+      makeTaskRun({
+        id: 'run-task:t-1',
+        runStatus: 'cancelled',
+        sessionId: 'sess-1',
+      }),
+    );
+    const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+
+    await loop.handleEventForTest({
+      type: 'worker_message',
+      message: {
+        type: 'error',
+        taskId: 't-1',
+        agentRunId: 'run-task:t-1',
+        error: 'provider overloaded',
+      },
+    });
+
+    expect(graph.tasks.get('t-1')).toMatchObject({
+      status: 'cancelled',
+      collabControl: 'suspended',
+      blockedByFeatureId: 'f-2',
+    });
+    expect(updateAgentRun).not.toHaveBeenCalledWith(
+      'run-task:t-1',
+      expect.objectContaining({ runStatus: 'retry_await' }),
+    );
+  });
+
   it('moves a task run to await_response manual ownership on request_help', async () => {
     const order: string[] = [];
     const { ports } = createPorts(order);
@@ -1564,6 +1682,73 @@ describe('SchedulerLoop', () => {
     expect(loop.handledEvents).toEqual([]);
   });
 
+  it('ignores feature-phase completion for cancelled features', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
+    const graph = createProposalApprovalGraph({
+      collabControl: 'cancelled',
+      workControl: 'planning',
+      status: 'in_progress',
+    });
+    ports.store.createAgentRun(
+      makeFeaturePhaseRun('plan', {
+        runStatus: 'running',
+        sessionId: 'sess-1',
+      }),
+    );
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+
+    await loop.handleEventForTest({
+      type: 'feature_phase_complete',
+      featureId: 'f-1',
+      phase: 'plan',
+      summary: 'planned',
+    });
+
+    expect(graph.features.get('f-1')).toMatchObject({
+      collabControl: 'cancelled',
+      workControl: 'planning',
+      status: 'in_progress',
+    });
+    expect(updateAgentRun).not.toHaveBeenCalledWith(
+      'run-feature:f-1:plan',
+      expect.objectContaining({ runStatus: 'completed' }),
+    );
+  });
+
+  it('ignores feature-phase errors for cancelled features', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
+    const graph = createProposalApprovalGraph({
+      collabControl: 'cancelled',
+      workControl: 'planning',
+      status: 'in_progress',
+    });
+    ports.store.createAgentRun(
+      makeFeaturePhaseRun('plan', {
+        runStatus: 'running',
+        sessionId: 'sess-1',
+      }),
+    );
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+
+    await loop.handleEventForTest({
+      type: 'feature_phase_error',
+      featureId: 'f-1',
+      phase: 'plan',
+      error: 'boom',
+    });
+
+    expect(updateAgentRun).not.toHaveBeenCalledWith(
+      'run-feature:f-1:plan',
+      expect.objectContaining({ runStatus: 'retry_await' }),
+    );
+  });
+
   it('enqueues feature_phase_error after failed feature-phase work', async () => {
     const order: string[] = [];
     const { ports } = createPorts(order);
@@ -1602,6 +1787,23 @@ describe('SchedulerLoop', () => {
       status: 'pending',
       workControl: 'planning',
       collabControl: 'none',
+    });
+
+    const loop = new ExposedSchedulerLoop(graph, ports);
+
+    await loop.dispatchReadyWorkForTest(100);
+
+    expect(planFeature).not.toHaveBeenCalled();
+  });
+
+  it('does not dispatch cancelled feature phases', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const planFeature = vi.spyOn(ports.agents, 'planFeature');
+    const graph = createProposalApprovalGraph({
+      status: 'in_progress',
+      workControl: 'planning',
+      collabControl: 'cancelled',
     });
 
     const loop = new ExposedSchedulerLoop(graph, ports);

@@ -158,7 +158,10 @@ export class LocalWorkerPool implements RuntimePort {
     });
   }
 
-  respondToHelp(taskId: string, response: { kind: 'answer'; text: string } | { kind: 'discuss' }): Promise<TaskControlResult> {
+  respondToHelp(
+    taskId: string,
+    response: { kind: 'answer'; text: string } | { kind: 'discuss' },
+  ): Promise<TaskControlResult> {
     const session = this.liveRuns.get(taskId);
     if (session === undefined) {
       return Promise.resolve({ kind: 'not_running', taskId });

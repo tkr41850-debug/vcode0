@@ -148,7 +148,9 @@ export function buildProposalAgentToolset(
 ): ProposalAgentTool[] {
   const toolset = createPlannerToolset(host);
   const inspectionTools =
-    inspectionHost !== undefined ? buildFeatureInspectionTools(inspectionHost) : [];
+    inspectionHost !== undefined
+      ? buildFeatureInspectionTools(inspectionHost)
+      : [];
 
   return [
     ...inspectionTools,

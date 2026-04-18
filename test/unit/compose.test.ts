@@ -1,16 +1,55 @@
+import assert from 'node:assert/strict';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-
+import { InMemoryFeatureGraph } from '@core/graph/index';
+import type {
+  AgentRun,
+  FeaturePhaseAgentRun,
+  TaskAgentRun,
+} from '@core/types/index';
 import { openDatabase } from '@persistence/db';
 import { PersistentFeatureGraph } from '@persistence/feature-graph';
-import type { ApprovalPayload } from '@runtime/contracts';
 import {
+  cancelFeatureRunWork,
   composeApplication,
   formatWorkerOutput,
   initializeProjectGraph,
   summarizeApprovalPayload,
 } from '@root/compose';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { ApprovalPayload, RuntimePort } from '@runtime/contracts';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+function makeTaskRun(overrides: Partial<TaskAgentRun> = {}): TaskAgentRun {
+  return {
+    id: 'run-task:t-1',
+    scopeType: 'task',
+    scopeId: 't-1',
+    phase: 'execute',
+    runStatus: 'running',
+    owner: 'system',
+    attention: 'none',
+    restartCount: 0,
+    maxRetries: 3,
+    ...overrides,
+  };
+}
+
+function makeFeaturePhaseRun(
+  overrides: Partial<FeaturePhaseAgentRun> = {},
+): FeaturePhaseAgentRun {
+  return {
+    id: 'run-feature:f-1:plan',
+    scopeType: 'feature_phase',
+    scopeId: 'f-1',
+    phase: 'plan',
+    runStatus: 'running',
+    owner: 'system',
+    attention: 'none',
+    restartCount: 0,
+    maxRetries: 3,
+    ...overrides,
+  };
+}
 
 describe('compose helpers', () => {
   it('formats wait and terminal worker output for monitor visibility', () => {
@@ -85,11 +124,100 @@ describe('compose helpers', () => {
       },
     ];
 
-    expect(payloads.map((payload) => summarizeApprovalPayload(payload))).toEqual([
+    expect(
+      payloads.map((payload) => summarizeApprovalPayload(payload)),
+    ).toEqual([
       'Approve destructive step',
       'Delete generated cache files',
       'Switch to fallback task order',
     ]);
+  });
+
+  it('cancels feature runs and aborts running tasks while leaving non-running tasks alone', async () => {
+    const graph = new InMemoryFeatureGraph();
+    graph.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    graph.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'Feature 1',
+      description: 'desc',
+    });
+    graph.createTask({ id: 't-1', featureId: 'f-1', description: 'Task 1' });
+    graph.createTask({ id: 't-2', featureId: 'f-1', description: 'Task 2' });
+    const task1 = graph.tasks.get('t-1');
+    const task2 = graph.tasks.get('t-2');
+    assert(task1 !== undefined, 'missing t-1 fixture');
+    assert(task2 !== undefined, 'missing t-2 fixture');
+    graph.tasks.set('t-1', {
+      ...task1,
+      status: 'running',
+      collabControl: 'branch_open',
+    });
+    graph.tasks.set('t-2', {
+      ...task2,
+      status: 'ready',
+      collabControl: 'suspended',
+      suspendReason: 'cross_feature_overlap',
+      blockedByFeatureId: 'f-2',
+      suspendedAt: 100,
+    });
+
+    const runs = new Map<string, AgentRun>([
+      ['run-task:t-1', makeTaskRun()],
+      [
+        'run-task:t-2',
+        makeTaskRun({
+          id: 'run-task:t-2',
+          scopeId: 't-2',
+          runStatus: 'ready',
+        }),
+      ],
+      ['run-feature:f-1:plan', makeFeaturePhaseRun()],
+    ]);
+    const store = {
+      listAgentRuns: () => [...runs.values()],
+      updateAgentRun: vi.fn((runId: string, patch: Partial<AgentRun>) => {
+        const existing = runs.get(runId);
+        if (existing !== undefined) {
+          runs.set(runId, { ...existing, ...patch } as AgentRun);
+        }
+      }),
+    };
+    const runtime = {
+      abortTask: vi.fn((taskId: string) =>
+        Promise.resolve({
+          kind: 'delivered' as const,
+          taskId,
+          agentRunId: `run-task:${taskId}`,
+        }),
+      ),
+    } as Pick<RuntimePort, 'abortTask'>;
+
+    await cancelFeatureRunWork({ graph, store, runtime }, 'f-1');
+
+    expect(graph.features.get('f-1')).toMatchObject({
+      collabControl: 'cancelled',
+    });
+    expect(graph.tasks.get('t-1')).toMatchObject({ status: 'cancelled' });
+    expect(graph.tasks.get('t-2')).toMatchObject({
+      status: 'cancelled',
+      collabControl: 'suspended',
+      suspendReason: 'cross_feature_overlap',
+    });
+    expect(runtime.abortTask).toHaveBeenCalledTimes(1);
+    expect(runtime.abortTask).toHaveBeenCalledWith('t-1');
+    expect(store.updateAgentRun).toHaveBeenCalledWith('run-task:t-1', {
+      runStatus: 'cancelled',
+      owner: 'system',
+    });
+    expect(store.updateAgentRun).toHaveBeenCalledWith('run-task:t-2', {
+      runStatus: 'cancelled',
+      owner: 'system',
+    });
+    expect(store.updateAgentRun).toHaveBeenCalledWith('run-feature:f-1:plan', {
+      runStatus: 'cancelled',
+      owner: 'system',
+    });
   });
 });
 

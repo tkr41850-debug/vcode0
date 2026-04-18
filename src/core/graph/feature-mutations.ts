@@ -132,6 +132,9 @@ export function mergeFeatures(
 
   const featureTestPolicy = resolveMergedFeatureTestPolicy(features);
   const retainedId = mergedFeatureIds[0];
+  if (retainedId === undefined) {
+    throw new GraphValidationError('mergeFeatures requires existing features');
+  }
   const earliestOrderInMilestone = Math.min(
     ...features.map((feature) => feature.orderInMilestone),
   );
@@ -211,8 +214,9 @@ export function cancelFeature(
     throw new GraphValidationError(`Feature "${featureId}" does not exist`);
   }
 
+  const { runtimeBlockedByFeatureId: _blocked, ...rest } = feature;
   graph.features.set(featureId, {
-    ...feature,
+    ...rest,
     collabControl: 'cancelled',
   });
 

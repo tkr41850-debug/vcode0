@@ -145,6 +145,9 @@ export async function resumeCrossFeatureTasks(
       summary: `Blocked feature missing from graph: ${featureId}`,
     };
   }
+  if (feature.collabControl === 'cancelled') {
+    return { kind: 'resumed' };
+  }
   if (feature.runtimeBlockedByFeatureId !== undefined) {
     return {
       kind: 'blocked',
@@ -155,6 +158,7 @@ export async function resumeCrossFeatureTasks(
   for (const task of graph.tasks.values()) {
     if (
       task.featureId !== featureId ||
+      task.status === 'cancelled' ||
       task.collabControl !== 'suspended' ||
       task.suspendReason !== 'cross_feature_overlap'
     ) {
@@ -215,13 +219,17 @@ function findBlockedFeatureIds(
 ): FeatureId[] {
   const blockedFeatureIds = new Set<FeatureId>();
   for (const feature of graph.features.values()) {
-    if (feature.runtimeBlockedByFeatureId === primaryFeatureId) {
+    if (
+      feature.collabControl !== 'cancelled' &&
+      feature.runtimeBlockedByFeatureId === primaryFeatureId
+    ) {
       blockedFeatureIds.add(feature.id);
     }
   }
 
   for (const task of graph.tasks.values()) {
     if (
+      task.status !== 'cancelled' &&
       task.collabControl === 'suspended' &&
       task.blockedByFeatureId === primaryFeatureId
     ) {

@@ -9,7 +9,7 @@ This document uses two main state axes plus a run/session overlay:
 - **Collaboration control** — branch / merge / suspension / conflict coordination (`none`, `branch_open`, `merge_queued`, `integrating`, `merged`, task-level `suspended`, feature/task `conflict`)
 - **Run/session state** — retry windows, help/approval waits, and manual ownership on `agent_runs`
 
-A task becoming **stuck** is a work-control problem. A task or feature entering **conflict** is a collaboration-control problem. Merge progress stays in collaboration control; work control waits in `awaiting_merge` until collaboration control reaches `merged`. Retry/backoff, help waits, approval waits, and manual takeover do not add new task enums; they live on the execution run and surface as derived blocked/reporting state when relevant.
+A task becoming **stuck** is a work-control problem. A task or feature entering **conflict** is a collaboration-control problem. Merge progress stays in collaboration control; work control waits in `awaiting_merge` until collaboration control reaches `merged`. Retry/backoff, help waits, approval waits, and manual takeover do not add new task enums; they live on the execution run and surface as derived blocked/reporting state when relevant. Cancelled tasks are terminal for active recovery/dispatch even if they still retain suspension metadata from earlier overlap handling.
 
 ## Retry: Exponential Backoff up to 1 Week
 

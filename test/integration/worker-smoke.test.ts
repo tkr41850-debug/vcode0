@@ -138,7 +138,9 @@ describe('worker smoke (faux provider + in-process harness)', () => {
     await new Promise((resolve) => setImmediate(resolve));
 
     const helpRequest = completions.find(
-      (message): message is WorkerToOrchestratorMessage & { type: 'request_help' } =>
+      (
+        message,
+      ): message is WorkerToOrchestratorMessage & { type: 'request_help' } =>
         message.type === 'request_help' && message.taskId === task.id,
     );
     expect(helpRequest).toMatchObject({ query: 'Need operator guidance' });
@@ -204,7 +206,9 @@ describe('worker smoke (faux provider + in-process harness)', () => {
     await new Promise((resolve) => setImmediate(resolve));
 
     const approvalRequest = completions.find(
-      (message): message is WorkerToOrchestratorMessage & {
+      (
+        message,
+      ): message is WorkerToOrchestratorMessage & {
         type: 'request_approval';
       } => message.type === 'request_approval' && message.taskId === task.id,
     );

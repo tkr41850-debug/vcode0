@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
 
 import { InMemoryFeatureGraph } from '@core/graph/index';
 import type { TaskAgentRun } from '@core/types/index';
@@ -10,8 +13,8 @@ import type {
 } from '@orchestrator/ports/index';
 import { RecoveryService } from '@orchestrator/services/index';
 import type { RuntimePort } from '@runtime/contracts';
-import { InMemorySessionStore } from '../../integration/harness/in-memory-session-store.js';
 import { describe, expect, it, vi } from 'vitest';
+import { InMemorySessionStore } from '../../integration/harness/in-memory-session-store.js';
 
 function makeTaskRun(overrides: Partial<TaskAgentRun> = {}): TaskAgentRun {
   return {
@@ -65,7 +68,14 @@ function createRuntimeMock(): RuntimePort & {
 } {
   return {
     dispatchTask: vi.fn(
-      (_task, dispatch: { mode: 'start' | 'resume'; agentRunId: string; sessionId?: string }) =>
+      (
+        _task,
+        dispatch: {
+          mode: 'start' | 'resume';
+          agentRunId: string;
+          sessionId?: string;
+        },
+      ) =>
         Promise.resolve(
           dispatch.mode === 'resume'
             ? {
@@ -259,7 +269,10 @@ describe('RecoveryService', () => {
       sessionId: 'sess-approval',
       restartCount: 1,
     });
-    expect(store.updateAgentRun).not.toHaveBeenCalledWith('run-retry', expect.anything());
+    expect(store.updateAgentRun).not.toHaveBeenCalledWith(
+      'run-retry',
+      expect.anything(),
+    );
   });
 
   it('does not resume suspended task runs across restart', async () => {
@@ -288,5 +301,52 @@ describe('RecoveryService', () => {
       owner: 'system',
       sessionId: 'sess-1',
     });
+  });
+
+  it('does not resume cancelled suspended task runs across restart', async () => {
+    const run = makeTaskRun({
+      runStatus: 'running',
+      sessionId: 'sess-1',
+    });
+    const { ports, runtime, store, graph } = createPorts([run]);
+    const task = graph.tasks.get('t-1');
+    assert(task !== undefined, 'missing task fixture');
+    graph.tasks.set('t-1', {
+      ...task,
+      status: 'cancelled',
+      collabControl: 'suspended',
+      suspendReason: 'cross_feature_overlap',
+      suspendedAt: 100,
+      blockedByFeatureId: 'f-2',
+    });
+    const service = new RecoveryService(ports, graph);
+
+    await service.recoverOrphanedRuns();
+
+    expect(runtime.dispatchTask).not.toHaveBeenCalled();
+    expect(runtime.resumeTask).not.toHaveBeenCalled();
+    expect(store.updateAgentRun).toHaveBeenCalledWith(run.id, {
+      runStatus: 'cancelled',
+      owner: 'system',
+      sessionId: 'sess-1',
+    });
+  });
+
+  it('writes recovery marker into canonical worktree directory for graph-created tasks before resume', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'gvc0-recovery-'));
+    const run = makeTaskRun({
+      runStatus: 'running',
+      sessionId: 'sess-1',
+    });
+    const { ports, graph } = createPorts([run]);
+    const taskDir = path.join(root, '.gvc0', 'worktrees', 'feat-feature-1-1-1');
+    await fs.mkdir(taskDir, { recursive: true });
+    const service = new RecoveryService(ports, graph, root);
+
+    await service.recoverOrphanedRuns();
+
+    await expect(
+      fs.readFile(path.join(taskDir, 'RECOVERY_REBASE'), 'utf-8'),
+    ).resolves.toBe('feat-feature-1-1');
   });
 });

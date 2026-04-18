@@ -4,7 +4,13 @@ import * as path from 'node:path';
 
 import { PiFeatureAgentRuntime, promptLibrary } from '@agents';
 import { type ApplicationLifecycle, GvcApplication } from '@app/index';
-import type { AppMode, FeatureId, MilestoneId } from '@core/types/index';
+import type { FeatureGraph } from '@core/graph/index';
+import type {
+  AgentRun,
+  AppMode,
+  FeatureId,
+  MilestoneId,
+} from '@core/types/index';
 import type { OrchestratorPorts } from '@orchestrator/ports/index';
 import { SchedulerLoop } from '@orchestrator/scheduler/index';
 import {
@@ -17,6 +23,7 @@ import { SqliteStore } from '@persistence/sqlite-store';
 import { JsonConfigLoader } from '@root/config';
 import type {
   ApprovalPayload,
+  RuntimePort,
   WorkerToOrchestratorMessage,
 } from '@runtime/contracts';
 import { PiSdkHarness } from '@runtime/harness/index';
@@ -77,8 +84,8 @@ export async function composeApplication(): Promise<GvcApplication> {
     initializeProject: (input) => {
       return initializeProjectGraph(graph, input);
     },
-    cancelFeature: (featureId) => {
-      graph.cancelFeature(featureId);
+    cancelFeature: async (featureId) => {
+      await cancelFeatureRunWork({ graph, store, runtime }, featureId);
     },
     saveFeatureRun: (run) => {
       const existing = store.getAgentRun(run.id);
@@ -324,6 +331,48 @@ export function formatWorkerOutput(
       return `error: ${message.error}`;
     case 'result':
       return `completed: ${message.result.summary}`;
+  }
+}
+
+interface CancelFeatureRunDeps {
+  graph: Pick<FeatureGraph, 'tasks' | 'cancelFeature'>;
+  store: {
+    listAgentRuns: () => readonly AgentRun[];
+    updateAgentRun: (runId: string, patch: Partial<AgentRun>) => void;
+  };
+  runtime: Pick<RuntimePort, 'abortTask'>;
+}
+
+export async function cancelFeatureRunWork(
+  deps: CancelFeatureRunDeps,
+  featureId: FeatureId,
+): Promise<void> {
+  const { graph, store, runtime } = deps;
+
+  const featureTaskIds = new Set<string>();
+  for (const task of graph.tasks.values()) {
+    if (task.featureId === featureId) {
+      featureTaskIds.add(task.id);
+    }
+  }
+
+  const affectedRuns = store.listAgentRuns().filter((run) => {
+    if (run.scopeType === 'task') {
+      return featureTaskIds.has(run.scopeId);
+    }
+    return run.scopeType === 'feature_phase' && run.scopeId === featureId;
+  });
+
+  graph.cancelFeature(featureId);
+
+  for (const run of affectedRuns) {
+    if (run.scopeType === 'task' && run.runStatus === 'running') {
+      await runtime.abortTask(run.scopeId);
+    }
+    store.updateAgentRun(run.id, {
+      runStatus: 'cancelled',
+      owner: 'system',
+    });
   }
 }
 

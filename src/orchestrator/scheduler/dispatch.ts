@@ -372,11 +372,13 @@ function findLatestPhaseCompletion(
   events: readonly EventRecord[],
   phase: AgentRun['phase'],
 ): EventRecord | undefined {
-  return [...events].reverse().find(
-    (event) =>
-      event.eventType === 'feature_phase_completed' &&
-      event.payload?.phase === phase,
-  );
+  return [...events]
+    .reverse()
+    .find(
+      (event) =>
+        event.eventType === 'feature_phase_completed' &&
+        event.payload?.phase === phase,
+    );
 }
 
 function readEventSummary(event: EventRecord | undefined): string | undefined {

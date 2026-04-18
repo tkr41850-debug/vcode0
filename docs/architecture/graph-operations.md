@@ -15,7 +15,7 @@ See [ARCHITECTURE.md](../../ARCHITECTURE.md) for the high-level architecture ove
 | **removeDependency(fromId, toId)** | Remove a dependency edge |
 | **splitFeature(featureId, subfeatures)** | Split a feature while it is still pre-execution and pre-branch (`workControl` is `discussing`, `researching`, or `planning`, and `collabControl = none`). Planned tasks on the source feature are discarded, and downstream feature deps are rewritten to the terminal split children. See [in-flight split/merge](../feature-candidates/in-flight-split-merge.md) for the deferred in-flight variant. |
 | **mergeFeatures(featureIds, name)** | Merge multiple features while they are still pre-execution and pre-branch. Planned tasks on the source features are discarded, and downstream feature deps are rewritten to the retained merged feature. |
-| **cancelFeature(featureId, cascade?)** | Mark as cancelled (`collabControl → cancelled`), kill all in-flight tasks immediately, and optionally cancel transitive dependents when `cascade=true` |
+| **cancelFeature(featureId, cascade?)** | Mark as cancelled (`collabControl → cancelled`), clear feature runtime block metadata, cancel feature-scoped and task-scoped runs, abort in-flight task runs, preserve existing task suspension metadata for worktree context, and optionally cancel transitive dependents when `cascade=true` |
 | **removeFeature(featureId)** | Remove a feature, detach incoming feature deps, and remove its tasks and task deps |
 | **changeMilestone(featureId, newMilestoneId)** | Reassign a feature to a different milestone without changing dependency semantics |
 | **editFeature(featureId, patch)** | Update feature fields such as name, description, summary, or runtime block metadata |

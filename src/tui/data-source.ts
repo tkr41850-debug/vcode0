@@ -6,10 +6,7 @@ import type {
   MilestoneId,
   TaskAgentRun,
 } from '@core/types/index';
-import type {
-  ApprovalDecision,
-  HelpResponse,
-} from '@runtime/contracts';
+import type { ApprovalDecision, HelpResponse } from '@runtime/contracts';
 import type { InitializeProjectCommand } from '@tui/commands/index';
 import type { WorkerCountsViewModel } from '@tui/view-model/index';
 
@@ -25,7 +22,7 @@ export interface TuiDataSource {
     featureId: FeatureId;
   };
   toggleMilestoneQueue(milestoneId: MilestoneId): void;
-  cancelFeature(featureId: FeatureId): void;
+  cancelFeature(featureId: FeatureId): Promise<void>;
   saveFeatureRun(run: FeaturePhaseAgentRun): void;
   getFeatureRun(
     featureId: FeatureId,
@@ -48,7 +45,10 @@ export interface TuiDataSource {
   ): Promise<string>;
   decideTaskApproval(
     taskId: string,
-    decision: Extract<ApprovalDecision, { kind: 'approved' } | { kind: 'reject' }>,
+    decision: Extract<
+      ApprovalDecision,
+      { kind: 'approved' } | { kind: 'reject' }
+    >,
   ): Promise<string>;
   sendTaskManualInput(taskId: string, text: string): Promise<string>;
   quit(): Promise<void>;

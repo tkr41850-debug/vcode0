@@ -27,6 +27,10 @@ export function deriveTaskBlocked(
   run?: AgentRun,
   now = Date.now(),
 ): boolean {
+  if (task.status === 'cancelled') {
+    return false;
+  }
+
   if (task.collabControl === 'suspended' || task.collabControl === 'conflict') {
     return true;
   }

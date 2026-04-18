@@ -606,15 +606,13 @@ function findLatestPhaseEvent(
 function findLatestPlanEvent(
   events: readonly EventRecord[],
 ): EventRecord | undefined {
-  return [...events]
-    .reverse()
-    .find((event) => {
-      if (event.eventType !== 'feature_phase_completed') {
-        return false;
-      }
-      const phase = readPayloadPhase(event.payload);
-      return phase === 'plan' || phase === 'replan';
-    });
+  return [...events].reverse().find((event) => {
+    if (event.eventType !== 'feature_phase_completed') {
+      return false;
+    }
+    const phase = readPayloadPhase(event.payload);
+    return phase === 'plan' || phase === 'replan';
+  });
 }
 
 function readEventExtraRecord(

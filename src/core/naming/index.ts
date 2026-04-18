@@ -1,4 +1,4 @@
-import type { FeatureId, TaskId } from '@core/types/index';
+import type { FeatureId, Task, TaskId } from '@core/types/index';
 
 /** Strip the typed prefix from a FeatureId (e.g. `f-foo` → `foo`). */
 function stripFeaturePrefix(featureId: FeatureId): string {
@@ -33,6 +33,12 @@ export function taskBranchName(
   taskId: TaskId,
 ): string {
   return `feat-${slugify(featureName)}-${stripFeaturePrefix(featureId)}-${stripTaskPrefix(taskId)}`;
+}
+
+export function resolveTaskWorktreeBranch(
+  task: Pick<Task, 'featureId' | 'id' | 'worktreeBranch'>,
+): string {
+  return task.worktreeBranch ?? `feat-${task.featureId}-task-${task.id}`;
 }
 
 /** Canonical worktree path for a given branch name. */

@@ -88,6 +88,19 @@ describe('core state contracts', () => {
     );
   });
 
+  it('treats cancelled suspended tasks as not blocked', () => {
+    expect(
+      deriveTaskBlocked(
+        makeTask({ status: 'cancelled', collabControl: 'suspended' }),
+      ),
+    ).toBe(false);
+    expect(
+      deriveTaskPresentationStatus(
+        makeTask({ status: 'cancelled', collabControl: 'suspended' }),
+      ),
+    ).toBe('cancelled');
+  });
+
   it('treats await_approval runs as blocked', () => {
     expect(
       deriveTaskBlocked(

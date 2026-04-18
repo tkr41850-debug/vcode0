@@ -199,7 +199,7 @@ Baseline derived ranks:
 
 ## Persistence Notes
 
-Cross-feature blocking is expressed as `Feature.runtimeBlockedByFeatureId` plus `blockedByFeatureId` on suspended task rows. The feature-level runtime block is the scheduling authority; task-level fields are for reconstruction and UI display. Suspension fields (`suspendedAt`, `suspendReason`, `suspendedFiles`, `blockedByFeatureId`) live on task rows and back `suspended` collaboration state. The event log remains a debugging and audit surface, not the primary source of current coordination truth.
+Cross-feature blocking is expressed as `Feature.runtimeBlockedByFeatureId` plus `blockedByFeatureId` on suspended task rows. The feature-level runtime block is the scheduling authority; task-level fields are for reconstruction and UI display. Suspension fields (`suspendedAt`, `suspendReason`, `suspendedFiles`, `blockedByFeatureId`) live on task rows and back `suspended` collaboration state. If a feature or task is later cancelled, active warning/release/recovery logic ignores those cancelled rows even if suspension metadata remains for historical or worktree context. The event log remains a debugging and audit surface, not the primary source of current coordination truth.
 
 ## Related
 

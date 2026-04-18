@@ -144,7 +144,9 @@ describe('TuiViewModelBuilder', () => {
         pendingTaskId: 't-1',
         pendingTaskRunStatus: 'await_response',
         pendingTaskOwner: 'manual',
-        pendingTaskPayloadJson: JSON.stringify({ query: 'Need operator guidance' }),
+        pendingTaskPayloadJson: JSON.stringify({
+          query: 'Need operator guidance',
+        }),
       }),
     ).toMatchObject({
       mode: 'task',
@@ -165,7 +167,8 @@ describe('TuiViewModelBuilder', () => {
       }),
     ).toMatchObject({
       mode: 'task',
-      detail: 'task await_approval manual t-1 ask=Switch to fallback task order /approve /reject',
+      detail:
+        'task await_approval manual t-1 ask=Switch to fallback task order /approve /reject',
     });
 
     expect(

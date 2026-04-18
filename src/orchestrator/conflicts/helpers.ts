@@ -1,12 +1,9 @@
 import * as path from 'node:path';
 
+import { resolveTaskWorktreeBranch } from '@core/naming/index';
 import type { Task, TaskId } from '@core/types/index';
 
-export function defaultTaskBranch(
-  task: Pick<Task, 'featureId' | 'id'>,
-): string {
-  return `feat-${task.featureId}-task-${task.id}`;
-}
+export { resolveTaskWorktreeBranch as defaultTaskBranch };
 
 export function normalizeRepoRelativePath(filePath: string): string {
   const normalized = path.posix.normalize(filePath.replaceAll('\\', '/'));

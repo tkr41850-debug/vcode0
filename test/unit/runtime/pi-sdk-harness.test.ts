@@ -1,13 +1,16 @@
 import type { ChildProcess } from 'node:child_process';
 import { PassThrough, Writable } from 'node:stream';
 
+import { InMemoryFeatureGraph } from '@core/graph/index';
 import { PiSdkHarness } from '@runtime/harness/index';
 import type { SessionStore } from '@runtime/sessions/index';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createTaskFixture } from '../../helpers/graph-builders.js';
 
-function createSessionStoreMock(loadResult: unknown[] | null = null): SessionStore {
+function createSessionStoreMock(
+  loadResult: unknown[] | null = null,
+): SessionStore {
   return {
     save: vi.fn().mockResolvedValue(undefined),
     load: vi.fn().mockResolvedValue(loadResult),
@@ -28,7 +31,10 @@ class CollectingWritable extends Writable {
   }
 }
 
-function createForkedChild(): ChildProcess & { writes: string[]; kill: ReturnType<typeof vi.fn> } {
+function createForkedChild(): ChildProcess & {
+  writes: string[];
+  kill: ReturnType<typeof vi.fn>;
+} {
   const stdin = new CollectingWritable();
   return {
     stdin,
@@ -82,7 +88,7 @@ describe('PiSdkHarness', () => {
     });
   });
 
-  it('uses default worktree naming when task branch is absent', async () => {
+  it('uses legacy fallback naming when task branch is absent', async () => {
     const child = createForkedChild();
     const forkWorker = vi.fn(() => child);
     const harness = new PiSdkHarness(
@@ -92,13 +98,42 @@ describe('PiSdkHarness', () => {
     );
     Object.assign(harness as object, { forkWorker });
 
-    await harness.start(
-      createTaskFixture({ id: 't-7', featureId: 'f-9' }),
-      { strategy: 'shared-summary' },
-    );
+    await harness.start(createTaskFixture({ id: 't-7', featureId: 'f-9' }), {
+      strategy: 'shared-summary',
+    });
 
     expect(forkWorker).toHaveBeenCalledWith(
       '/tmp/project-root/.gvc0/worktrees/feat-f-9-task-t-7',
+    );
+  });
+
+  it('uses canonical worktree branch from graph-created tasks', async () => {
+    const child = createForkedChild();
+    const forkWorker = vi.fn(() => child);
+    const harness = new PiSdkHarness(
+      createSessionStoreMock(),
+      '/tmp/project-root',
+      '/tmp/custom-entry.ts',
+    );
+    Object.assign(harness as object, { forkWorker });
+    const graph = new InMemoryFeatureGraph();
+    graph.createMilestone({ id: 'm-1', name: 'M1', description: 'desc' });
+    graph.createFeature({
+      id: 'f-9',
+      milestoneId: 'm-1',
+      name: 'Feature 9',
+      description: 'desc',
+    });
+    const task = graph.createTask({
+      id: 't-7',
+      featureId: 'f-9',
+      description: 'desc',
+    });
+
+    await harness.start(task, { strategy: 'shared-summary' });
+
+    expect(forkWorker).toHaveBeenCalledWith(
+      '/tmp/project-root/.gvc0/worktrees/feat-feature-9-9-7',
     );
   });
 

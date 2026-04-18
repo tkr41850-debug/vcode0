@@ -6,19 +6,18 @@ import * as path from 'node:path';
 import { InMemoryFeatureGraph } from '@core/graph/index';
 import { worktreePath } from '@core/naming/index';
 import type { Feature, GvcConfig, Task } from '@core/types/index';
+import { defaultTaskBranch } from '@orchestrator/conflicts/helpers';
 import { ConflictCoordinator } from '@orchestrator/conflicts/index';
 import type { OrchestratorPorts } from '@orchestrator/ports/index';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
-import { InMemorySessionStore } from '../../integration/harness/in-memory-session-store.js';
-
 import {
   createFeatureFixture,
   createTaskFixture,
   updateTask,
 } from '../../helpers/graph-builders.js';
 import { useTmpDir } from '../../helpers/tmp-dir.js';
+import { InMemorySessionStore } from '../../integration/harness/in-memory-session-store.js';
 
 function createConfig(overrides: Partial<GvcConfig> = {}): GvcConfig {
   return {
@@ -198,6 +197,28 @@ async function writeFeatureRebaseRepo(
   await git(featureDir, 'checkout', '-b', feature.featureBranch);
   return featureDir;
 }
+
+describe('conflict helper naming', () => {
+  it('prefers stored worktree branch but preserves legacy fallback when absent', () => {
+    expect(
+      defaultTaskBranch(
+        createTaskFixture({
+          id: 't-feature-2-running',
+          featureId: 'f-feature-2',
+          worktreeBranch: 'feat-feature-2-2-running',
+        }),
+      ),
+    ).toBe('feat-feature-2-2-running');
+    expect(
+      defaultTaskBranch(
+        createTaskFixture({
+          id: 't-feature-2-running',
+          featureId: 'f-feature-2',
+        }),
+      ),
+    ).toBe('feat-f-feature-2-task-t-feature-2-running');
+  });
+});
 
 describe('ConflictCoordinator', () => {
   const getTmpDir = useTmpDir('orchestrator-conflicts');
@@ -724,6 +745,59 @@ describe('ConflictCoordinator', () => {
       'same_feature_rebase',
     );
   }, 20000);
+
+  it('ignores cancelled suspended tasks during same-feature reconcile', async () => {
+    const root = getTmpDir();
+    const ports = createPorts(root);
+    const feature = createFeature({
+      milestoneId: 'm-1',
+      status: 'in_progress',
+    });
+    const graph = new InMemoryFeatureGraph({
+      milestones: [
+        {
+          id: 'm-1',
+          name: 'M1',
+          description: 'd',
+          status: 'pending',
+          order: 0,
+        },
+      ],
+      features: [feature],
+      tasks: [
+        createTask({
+          id: 't-dominant',
+          orderInFeature: 0,
+          worktreeBranch: 'feat-feature-1-1-dominant',
+          reservedWritePaths: ['src/a.ts'],
+          result: { summary: 'dominant landed', filesChanged: ['src/a.ts'] },
+        }),
+        createTask({
+          id: 't-cancelled',
+          orderInFeature: 1,
+          worktreeBranch: 'feat-feature-1-1-cancelled',
+          reservedWritePaths: ['src/a.ts'],
+          status: 'cancelled',
+          collabControl: 'suspended',
+          suspendReason: 'same_feature_overlap',
+          suspendedAt: 100,
+          suspendedFiles: ['src/a.ts'],
+        }),
+      ],
+    });
+    const coordinator = new ConflictCoordinator(ports, graph);
+
+    await coordinator.reconcileSameFeatureTasks(feature.id, 't-dominant');
+
+    expect(graph.tasks.get('t-cancelled')).toMatchObject({
+      status: 'cancelled',
+      collabControl: 'suspended',
+      suspendReason: 'same_feature_overlap',
+      suspendedFiles: ['src/a.ts'],
+    });
+    expect(ports.runtime.resumeTask).not.toHaveBeenCalled();
+    expect(ports.runtime.steerTask).not.toHaveBeenCalled();
+  });
 
   it('steers suspended task when dirty worktree blocks same-feature rebase', async () => {
     const root = getTmpDir();
@@ -1326,4 +1400,31 @@ describe('ConflictCoordinator', () => {
       blockedByFeatureId: 'f-feature-1',
     });
   }, 20000);
+
+  it('ignores cancelled suspended tasks when releasing cross-feature overlap', async () => {
+    const root = getTmpDir();
+    const ports = createPorts(root);
+    const graph = createGraph();
+    updateTask(graph, 't-feature-2-running', {
+      status: 'cancelled',
+      collabControl: 'suspended',
+      suspendReason: 'cross_feature_overlap',
+      suspendedAt: 75,
+      blockedByFeatureId: 'f-feature-1',
+      suspendedFiles: ['src/a.ts'],
+    });
+    const coordinator = new ConflictCoordinator(ports, graph);
+
+    const results = await coordinator.releaseCrossFeatureOverlap('f-feature-1');
+
+    expect(results).toEqual([]);
+    expect(graph.tasks.get('t-feature-2-running')).toMatchObject({
+      status: 'cancelled',
+      collabControl: 'suspended',
+      blockedByFeatureId: 'f-feature-1',
+      suspendReason: 'cross_feature_overlap',
+    });
+    expect(ports.runtime.resumeTask).not.toHaveBeenCalled();
+    expect(ports.runtime.steerTask).not.toHaveBeenCalled();
+  });
 });

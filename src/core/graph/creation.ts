@@ -1,4 +1,4 @@
-import { featureBranchName } from '@core/naming/index';
+import { featureBranchName, taskBranchName } from '@core/naming/index';
 import type {
   Feature,
   FeatureId,
@@ -213,6 +213,7 @@ export function createTask(
     dependsOn,
     status: 'pending',
     collabControl: 'none',
+    worktreeBranch: taskBranchName(feature.id, feature.name, opts.id),
   };
   if (opts.weight !== undefined) {
     task.weight = opts.weight;

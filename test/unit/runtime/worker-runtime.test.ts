@@ -221,27 +221,27 @@ describe('LocalWorkerPool', () => {
       }
     });
 
-    it.each(['path_mismatch', 'unsupported_by_harness'] as const)(
-      'passes through %s not_resumable reason',
-      async (reason) => {
-        const { harness, pool } = setupPool();
-        harness.resume = vi.fn(() =>
-          Promise.resolve({
-            kind: 'not_resumable' as const,
-            sessionId: 'sess-gone',
-            reason,
-          }),
-        );
-
-        const result = await pool.dispatchTask(makeTask(), {
-          mode: 'resume',
-          agentRunId: 'run-4',
+    it.each([
+      'path_mismatch',
+      'unsupported_by_harness',
+    ] as const)('passes through %s not_resumable reason', async (reason) => {
+      const { harness, pool } = setupPool();
+      harness.resume = vi.fn(() =>
+        Promise.resolve({
+          kind: 'not_resumable' as const,
           sessionId: 'sess-gone',
-        });
+          reason,
+        }),
+      );
 
-        expect(result).toMatchObject({ kind: 'not_resumable', reason });
-      },
-    );
+      const result = await pool.dispatchTask(makeTask(), {
+        mode: 'resume',
+        agentRunId: 'run-4',
+        sessionId: 'sess-gone',
+      });
+
+      expect(result).toMatchObject({ kind: 'not_resumable', reason });
+    });
   });
 
   describe('steerTask', () => {
@@ -695,7 +695,9 @@ describe('WorkerRuntime.handleMessage', () => {
     const first = new Promise((resolve) => {
       Object.assign(runtime, {
         pendingHelp: {
-          resolve: (response: { kind: 'answer'; text: string } | { kind: 'discuss' }) => {
+          resolve: (
+            response: { kind: 'answer'; text: string } | { kind: 'discuss' },
+          ) => {
             resolved += 1;
             resolve(response);
           },
@@ -718,7 +720,9 @@ describe('WorkerRuntime.handleMessage', () => {
 
     await expect(first).resolves.toEqual({ kind: 'answer', text: 'do this' });
     expect(resolved).toBe(1);
-    expect((runtime as unknown as { pendingHelp?: unknown }).pendingHelp).toBeUndefined();
+    expect(
+      (runtime as unknown as { pendingHelp?: unknown }).pendingHelp,
+    ).toBeUndefined();
   });
 
   it('resolves pending approval decision only once and clears pending state', async () => {
@@ -736,7 +740,11 @@ describe('WorkerRuntime.handleMessage', () => {
     const first = new Promise((resolve) => {
       Object.assign(runtime, {
         pendingApproval: {
-          resolve: (decision: { kind: 'approved' } | { kind: 'reject'; comment?: string }) => {
+          resolve: (
+            decision:
+              | { kind: 'approved' }
+              | { kind: 'reject'; comment?: string },
+          ) => {
             resolved += 1;
             resolve(decision);
           },
@@ -759,7 +767,9 @@ describe('WorkerRuntime.handleMessage', () => {
 
     await expect(first).resolves.toEqual({ kind: 'approved' });
     expect(resolved).toBe(1);
-    expect((runtime as unknown as { pendingApproval?: unknown }).pendingApproval).toBeUndefined();
+    expect(
+      (runtime as unknown as { pendingApproval?: unknown }).pendingApproval,
+    ).toBeUndefined();
   });
 
   it('keeps abort terminal', () => {

@@ -1,4 +1,5 @@
 import { GraphValidationError, InMemoryFeatureGraph } from '@core/graph/index';
+import { taskBranchName } from '@core/naming/index';
 import type { TokenUsageAggregate } from '@core/types/index';
 import { describe, expect, it } from 'vitest';
 import {
@@ -253,6 +254,7 @@ describe('InMemoryFeatureGraph', () => {
     expect(t.collabControl).toBe('none');
     expect(t.dependsOn).toEqual([]);
     expect(t.orderInFeature).toBe(0);
+    expect(t.worktreeBranch).toBe(taskBranchName('f-1', 'F', 't-1'));
     expect(g.tasks.get('t-1')).toEqual(t);
   });
 
@@ -850,6 +852,47 @@ describe('InMemoryFeatureGraph', () => {
     expect(g.features.get('f-1')?.collabControl).toBe('cancelled');
     expect(g.tasks.get('t-1')?.status).toBe('cancelled');
     expect(g.tasks.get('t-2')?.status).toBe('cancelled');
+  });
+
+  it('cancelFeature clears feature runtime block metadata', () => {
+    const g = createGraphWithTask();
+    updateFeature(g, 'f-1', { runtimeBlockedByFeatureId: 'f-2' });
+
+    g.cancelFeature('f-1');
+
+    expect(g.features.get('f-1')?.collabControl).toBe('cancelled');
+    expect(g.features.get('f-1')?.runtimeBlockedByFeatureId).toBeUndefined();
+  });
+
+  it('cancelFeature preserves suspended task overlap metadata', () => {
+    const g = createGraphWithTask();
+    g.createMilestone({ id: 'm-2', name: 'M2', description: 'd' });
+    g.createFeature({
+      id: 'f-2',
+      milestoneId: 'm-2',
+      name: 'F2',
+      description: 'd',
+    });
+    updateTask(g, 't-1', {
+      status: 'running',
+      collabControl: 'suspended',
+      suspendReason: 'cross_feature_overlap',
+      suspendedAt: 1000,
+      suspendedFiles: ['src/a.ts'],
+      blockedByFeatureId: 'f-2',
+    });
+    updateFeature(g, 'f-1', { runtimeBlockedByFeatureId: 'f-2' });
+
+    g.cancelFeature('f-1');
+
+    expect(g.tasks.get('t-1')).toMatchObject({
+      status: 'cancelled',
+      collabControl: 'suspended',
+      suspendReason: 'cross_feature_overlap',
+      suspendedAt: 1000,
+      suspendedFiles: ['src/a.ts'],
+      blockedByFeatureId: 'f-2',
+    });
   });
 
   it('cancelFeature with cascade cancels transitive dependents', () => {

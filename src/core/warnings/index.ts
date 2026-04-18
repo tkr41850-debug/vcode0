@@ -104,6 +104,7 @@ export class WarningEvaluator {
       const blockedTasks = tasks.filter(
         (task) =>
           task.featureId === feature.id &&
+          task.status !== 'cancelled' &&
           task.collabControl === 'suspended' &&
           task.suspendReason === 'cross_feature_overlap' &&
           task.blockedByFeatureId === feature.runtimeBlockedByFeatureId &&

@@ -35,10 +35,7 @@ export interface Store {
   getAgentRun(id: string): AgentRun | undefined;
   listAgentRuns(query?: AgentRunQuery): AgentRun[];
   createAgentRun(run: AgentRun): void;
-  updateAgentRun(
-    runId: string,
-    patch: AgentRunPatch,
-  ): void;
+  updateAgentRun(runId: string, patch: AgentRunPatch): void;
 
   // Events
   listEvents(query?: EventQuery): EventRecord[];

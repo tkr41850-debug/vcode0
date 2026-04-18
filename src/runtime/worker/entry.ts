@@ -17,8 +17,8 @@ console.warn = stderrWrite;
 import type { OrchestratorToWorkerMessage } from '@runtime/contracts';
 import { ChildNdjsonStdioTransport } from '@runtime/ipc/index';
 import { FileSessionStore } from '@runtime/sessions/index';
-import { resolveWorkerProjectRoot } from '@runtime/worker/project-root';
 import { WorkerRuntime } from '@runtime/worker/index';
+import { resolveWorkerProjectRoot } from '@runtime/worker/project-root';
 
 const transport = new ChildNdjsonStdioTransport();
 const projectRoot = resolveWorkerProjectRoot();

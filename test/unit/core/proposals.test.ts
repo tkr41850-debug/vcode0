@@ -8,6 +8,8 @@ import {
 } from '@core/proposals/index';
 import { describe, expect, it } from 'vitest';
 
+import { updateFeature } from '../../helpers/graph-builders.js';
+
 function createGraph(): InMemoryFeatureGraph {
   const graph = new InMemoryFeatureGraph();
   graph.createMilestone({
@@ -256,7 +258,8 @@ describe('applyGraphProposal', () => {
       name: 'Feature 1',
       description: 'desc',
     });
-    graph.transitionFeature('f-1', {
+    updateFeature(graph, 'f-1', {
+      workControl: 'executing',
       status: 'in_progress',
       collabControl: 'branch_open',
     });

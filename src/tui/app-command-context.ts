@@ -65,14 +65,14 @@ export function createTuiCommandContext({
     toggleDependencyDetail: () => {
       toggleDependencyDetail();
     },
-    cancelSelectedFeature: () => {
+    cancelSelectedFeature: async () => {
       const featureId = selectedFeatureId();
       if (featureId === undefined) {
         setNotice('select feature first');
         refresh();
         return;
       }
-      dataSource.cancelFeature(featureId);
+      await dataSource.cancelFeature(featureId);
       setNotice(`cancelled ${featureId}`);
       refresh();
     },

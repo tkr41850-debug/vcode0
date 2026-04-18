@@ -45,7 +45,7 @@ export interface TuiCommandContext {
   selectNextWorker(): void;
   toggleHelp(): void;
   toggleDependencyDetail(): void;
-  cancelSelectedFeature(): void;
+  cancelSelectedFeature(): Promise<void>;
   requestQuit(): void;
 }
 
@@ -142,9 +142,7 @@ const DEFAULT_COMMANDS: readonly TuiCommand[] = [
     key: 'x',
     label: 'cancel',
     description: 'Cancel selected feature.',
-    execute: (context) => {
-      context.cancelSelectedFeature();
-    },
+    execute: (context) => context.cancelSelectedFeature(),
   },
   {
     name: 'quit',

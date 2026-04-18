@@ -69,7 +69,7 @@ export async function executeSlashCommand(params: {
       params.commandContext.toggleDependencyDetail();
       return params.notice ?? 'toggled dependency detail';
     case 'cancel':
-      params.commandContext.cancelSelectedFeature();
+      await params.commandContext.cancelSelectedFeature();
       return params.notice ?? 'cancelled feature';
     case 'quit':
       params.commandContext.requestQuit();
@@ -110,7 +110,10 @@ export async function executeSlashCommand(params: {
       const run = params.currentSelection.taskId
         ? params.dataSource.getTaskRun(params.currentSelection.taskId)
         : undefined;
-      if (parsed.name === 'approve' && params.currentSelection.taskId !== undefined) {
+      if (
+        parsed.name === 'approve' &&
+        params.currentSelection.taskId !== undefined
+      ) {
         if (run?.runStatus === 'await_approval') {
           return params.dataSource.decideTaskApproval(
             params.currentSelection.taskId,
@@ -123,7 +126,10 @@ export async function executeSlashCommand(params: {
           );
         }
       }
-      if (parsed.name === 'reject' && params.currentSelection.taskId !== undefined) {
+      if (
+        parsed.name === 'reject' &&
+        params.currentSelection.taskId !== undefined
+      ) {
         if (run?.runStatus === 'await_approval') {
           const comment = parsed.args.comment;
           return params.dataSource.decideTaskApproval(

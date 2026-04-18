@@ -2,7 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
 import type { FeatureGraph } from '@core/graph/index';
-import { worktreePath } from '@core/naming/index';
+import { resolveTaskWorktreeBranch, worktreePath } from '@core/naming/index';
 import type { Task, TaskAgentRun } from '@core/types/index';
 import type { OrchestratorPorts } from '@orchestrator/ports/index';
 import { taskDispatchForRun } from '@orchestrator/scheduler/dispatch';
@@ -33,12 +33,27 @@ export class RecoveryService {
         continue;
       }
 
+      if (task.status === 'cancelled') {
+        if (run.runStatus !== 'completed' && run.runStatus !== 'cancelled') {
+          this.ports.store.updateAgentRun(run.id, {
+            runStatus: 'cancelled',
+            owner: 'system',
+            ...(run.sessionId !== undefined
+              ? { sessionId: run.sessionId }
+              : {}),
+          });
+        }
+        continue;
+      }
+
       if (task.collabControl === 'suspended') {
         if (run.runStatus === 'running') {
           this.ports.store.updateAgentRun(run.id, {
             runStatus: 'ready',
             owner: 'system',
-            ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
+            ...(run.sessionId !== undefined
+              ? { sessionId: run.sessionId }
+              : {}),
           });
         }
         continue;
@@ -63,10 +78,7 @@ export class RecoveryService {
     }
   }
 
-  private async resumeTaskRun(
-    task: Task,
-    run: TaskAgentRun,
-  ): Promise<boolean> {
+  private async resumeTaskRun(task: Task, run: TaskAgentRun): Promise<boolean> {
     if (run.sessionId === undefined) {
       return false;
     }
@@ -95,9 +107,10 @@ export class RecoveryService {
       return;
     }
 
-    const branch =
-      task.worktreeBranch ?? `feat-${task.featureId}-task-${task.id}`;
-    const taskDir = path.resolve(this.projectRoot, worktreePath(branch));
+    const taskDir = path.resolve(
+      this.projectRoot,
+      worktreePath(resolveTaskWorktreeBranch(task)),
+    );
 
     try {
       await fs.stat(taskDir);
