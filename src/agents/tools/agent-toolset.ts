@@ -21,6 +21,7 @@ import type {
   ListFeatureRunsOptions,
   ListFeatureTasksOptions,
   ProposalToolHost,
+  RaiseIssueOptions,
   SubmitDiscussOptions,
   SubmitResearchOptions,
   SubmitSummarizeOptions,
@@ -229,6 +230,20 @@ export function buildFeaturePhaseAgentToolset(
       });
       break;
     case 'verify':
+      tools.push({
+        name: 'raiseIssue',
+        label: 'Raise Verify Issue',
+        description:
+          'Record a blocking, concern, or nit issue that the replanner should address. Call once per distinct issue before submitting the verdict.',
+        parameters: featurePhaseToolParameters.raiseIssue,
+        execute: (_toolCallId: string, args: unknown) => {
+          const issue = host.raiseIssue(args as RaiseIssueOptions);
+          return buildToolResult(
+            `Raised ${issue.severity} issue ${issue.id}.`,
+            issue,
+          );
+        },
+      });
       tools.push({
         name: 'submitVerify',
         label: 'Submit Verify Verdict',

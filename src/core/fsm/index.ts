@@ -36,7 +36,7 @@ const PHASE_ORDER: readonly FeatureWorkControl[] = [
   'researching',
   'planning',
   'executing',
-  'feature_ci',
+  'ci_check',
   'verifying',
   'awaiting_merge',
   'summarizing',
@@ -54,7 +54,7 @@ function nextPhase(
 // Phases where failure triggers the repair→replan escalation ladder.
 const REPAIRABLE_PHASES = new Set<FeatureWorkControl>([
   'executing',
-  'feature_ci',
+  'ci_check',
   'verifying',
   'awaiting_merge',
 ]);
@@ -138,13 +138,13 @@ export function validateFeatureWorkTransition(
     return { valid: true };
   }
 
-  // Repair succeeded → return to executing or feature_ci.
-  // Repair always re-enters through feature_ci (not verifying directly),
+  // Repair succeeded → return to executing or ci_check.
+  // Repair always re-enters through ci_check (not verifying directly),
   // because CI must re-validate after any code change. If the original
   // failure was in executing, return to executing to finish remaining work.
   if (
     current === 'executing_repair' &&
-    (proposed === 'executing' || proposed === 'feature_ci') &&
+    (proposed === 'executing' || proposed === 'ci_check') &&
     status === 'done'
   ) {
     return { valid: true };
@@ -153,6 +153,15 @@ export function validateFeatureWorkTransition(
   // Repair failed → escalate to replan
   if (
     current === 'executing_repair' &&
+    proposed === 'replanning' &&
+    FAILURE_STATUSES.has(status)
+  ) {
+    return { valid: true };
+  }
+
+  // Verify failure (typed issues or !ok) → replanner decides fixes.
+  if (
+    current === 'verifying' &&
     proposed === 'replanning' &&
     FAILURE_STATUSES.has(status)
   ) {

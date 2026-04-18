@@ -195,7 +195,7 @@ Deferred ranking signals:
 Baseline derived ranks:
 
 - `collabRank`: `integrating=3`, `merge_queued=2`, `branch_open=1`, `none=0`, `conflict=-1`, `merged=-2`, `cancelled=-2`
-- `workRank`: `awaiting_merge=5`, `verifying=4`, `feature_ci=3`, `executing_repair=2`, `executing=1`, `planning|researching|discussing=0`, `replanning=-1`, `summarizing|work_complete=-1`
+- `workRank`: `awaiting_merge=5`, `verifying=4`, `ci_check=3`, `executing_repair=2`, `executing=1`, `planning|researching|discussing=0`, `replanning=-1`, `summarizing|work_complete=-1`
 
 ## Persistence Notes
 

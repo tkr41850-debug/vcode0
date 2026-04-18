@@ -19,7 +19,7 @@ The main difference is that our **feature** is not just a planning unit; it is a
 | Milestone → slice → task hierarchy | Milestone → feature → task | Close match. Our `feature` is roughly gsd-2's `slice`, but it also owns dependency edges and branch/integration lifecycle. |
 | Autonomous long-running execution | Yes | Covered by scheduler loop, worker pool, retries, crash recovery, and merge train. |
 | Step mode / one-unit-at-a-time review | Partial | We have TUI + steering, but no explicitly documented `next one unit then pause` mode yet. |
-| Fresh context per task | Yes | `WorkerContext` + codebase/knowledge/decision injection covers this. |
+| Fresh context per task | Yes | Planner-baked `TaskPayload` (objective/scope/expectedFiles/references/outcomeVerification + feature DoD) gives each task a fresh, typed brief. |
 | Context engineering / decisions register | Yes | `CODEBASE.md`, `KNOWLEDGE.md`, and `DECISIONS.md`. |
 | Git isolation | Yes, stronger | gsd-2 exposes milestone worktrees/branches; we use feature branches plus task worktrees and a merge train. |
 | Verification enforcement | Yes, stronger layering | We separate task, feature, and merge-train verification. |

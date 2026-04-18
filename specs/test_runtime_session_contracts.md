@@ -2,13 +2,13 @@
 
 ## Goal
 
-Capture the session, IPC, and worker-context contracts used by the local task runtime.
+Capture the session, IPC, and task-payload contracts used by the local task runtime.
 
 ## Scenarios
 
 ### Starting a task creates a resumable live session handle
-- Given a task is about to execute with an assembled `WorkerContext`
-- When `SessionHarness.start(task, context)` succeeds
+- Given a task is about to execute with a planner-baked `TaskPayload`
+- When `SessionHarness.start(task, payload, agentRunId)` succeeds
 - Then it returns a `SessionHandle` with a `sessionId`, `abort()`, and `sendInput(text)`
 - And the public handle stays provider-neutral rather than exposing a provider agent object
 
@@ -18,6 +18,7 @@ Capture the session, IPC, and worker-context contracts used by the local task ru
 - When `SessionHarness.resume(task, run)` is called
 - Then the harness returns either `resumed` with a live `SessionHandle` or `not_resumable` with a typed reason
 - And recovery continues from the persisted session pointer rather than silently starting unrelated new work
+- And resume does not rebuild payload state — session history already carries working context
 
 ### Aborting and manual input act on the live session handle
 - Given a `SessionHandle` is still active
@@ -25,10 +26,10 @@ Capture the session, IPC, and worker-context contracts used by the local task ru
 - Then the live session is told to stop
 - And when `sendInput(text)` is invoked the live session receives manual/operator input through the same provider-neutral handle
 
-### IPC run messages carry task identity, run identity, dispatch mode, and worker context
+### IPC run messages carry task identity, run identity, dispatch mode, and payload
 - Given the orchestrator dispatches work to a worker process
 - When it sends a `run` message
-- Then that message includes `taskId`, `agentRunId`, `dispatch`, `Task`, and the assembled `WorkerContext`
+- Then that message includes `taskId`, `agentRunId`, `dispatch`, `Task`, and the planner-baked `TaskPayload`
 - And worker execution does not need to guess task identity, run identity, or recovery mode
 
 ### IPC control messages cover steering, suspension, resume, abort, and human responses
@@ -49,14 +50,10 @@ Capture the session, IPC, and worker-context contracts used by the local task ru
 - Then the transport exposes `send()`, `onMessage()`, and `close()` as the common contract
 - And the runtime can swap transport implementations without changing higher-level orchestration semantics
 
-### Worker context defaults to the configured strategy
-- Given a `WorkerContextBuilder` is created with config defaults
-- When `build()` is called without a more specific override
-- Then the returned context uses `config.context.defaults.strategy` when present
-- And otherwise defaults to `shared-summary`
-
-### Worker context adds optional inputs only when available
-- Given plan summaries, dependency outputs, or knowledge-file content may or may not exist for a task stage
-- When worker context is assembled
-- Then optional fields such as `planSummary`, `dependencyOutputs`, `codebaseMap`, `knowledge`, and `decisions` are included only when the relevant input exists
-- And absent context inputs remain omitted rather than being fabricated with placeholder values
+### TaskPayload carries planner-baked fields from Task + Feature rows
+- Given a task that the planner has annotated with `objective`, `scope`, `expectedFiles`, `references`, and `outcomeVerification`
+- And a feature that the planner has annotated with `featureObjective` and `featureDoD`
+- When runtime calls `buildTaskPayload(task, feature, extras)` at dispatch time
+- Then the returned `TaskPayload` includes every populated field on the Task row plus `featureObjective` and `featureDoD` from the Feature row
+- And any field absent on the row is omitted from the payload rather than being fabricated
+- And optional extras such as `planSummary` and `dependencyOutputs` are merged in only when the dispatcher supplies them

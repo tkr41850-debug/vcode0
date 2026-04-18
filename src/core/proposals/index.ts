@@ -49,6 +49,11 @@ export interface AddTaskProposalOp {
   description: string;
   weight?: TaskWeight;
   reservedWritePaths?: string[];
+  objective?: string;
+  scope?: string;
+  expectedFiles?: string[];
+  references?: string[];
+  outcomeVerification?: string;
 }
 
 export interface RemoveTaskProposalOp {
@@ -294,6 +299,15 @@ function applyProposalOp(graph: FeatureGraph, op: GraphProposalOp): void {
         ...(op.reservedWritePaths !== undefined
           ? { reservedWritePaths: op.reservedWritePaths }
           : {}),
+        ...(op.objective !== undefined ? { objective: op.objective } : {}),
+        ...(op.scope !== undefined ? { scope: op.scope } : {}),
+        ...(op.expectedFiles !== undefined
+          ? { expectedFiles: op.expectedFiles }
+          : {}),
+        ...(op.references !== undefined ? { references: op.references } : {}),
+        ...(op.outcomeVerification !== undefined
+          ? { outcomeVerification: op.outcomeVerification }
+          : {}),
       });
       return;
     case 'remove_task':
@@ -494,7 +508,14 @@ function isGraphProposalOp(value: unknown): value is GraphProposalOp {
         typeof value.featureId === 'string' &&
         typeof value.description === 'string' &&
         (value.weight === undefined || isTaskWeight(value.weight)) &&
-        stringArrayOrUndefined(value.reservedWritePaths)
+        stringArrayOrUndefined(value.reservedWritePaths) &&
+        (value.objective === undefined ||
+          typeof value.objective === 'string') &&
+        (value.scope === undefined || typeof value.scope === 'string') &&
+        stringArrayOrUndefined(value.expectedFiles) &&
+        stringArrayOrUndefined(value.references) &&
+        (value.outcomeVerification === undefined ||
+          typeof value.outcomeVerification === 'string')
       );
     case 'remove_task':
       return typeof value.taskId === 'string';
@@ -516,6 +537,9 @@ const ALLOWED_FEATURE_PATCH_KEYS: ReadonlySet<string> = new Set([
   'name',
   'description',
   'summary',
+  'roughDraft',
+  'featureObjective',
+  'featureDoD',
 ]);
 
 function featurePatchIsValid(patch: Record<string, unknown>): boolean {
@@ -528,7 +552,11 @@ function featurePatchIsValid(patch: Record<string, unknown>): boolean {
     (patch.name === undefined || typeof patch.name === 'string') &&
     (patch.description === undefined ||
       typeof patch.description === 'string') &&
-    (patch.summary === undefined || typeof patch.summary === 'string')
+    (patch.summary === undefined || typeof patch.summary === 'string') &&
+    (patch.roughDraft === undefined || typeof patch.roughDraft === 'string') &&
+    (patch.featureObjective === undefined ||
+      typeof patch.featureObjective === 'string') &&
+    stringArrayOrUndefined(patch.featureDoD)
   );
 }
 
@@ -537,7 +565,13 @@ function taskPatchIsValid(patch: Record<string, unknown>): boolean {
     (patch.description === undefined ||
       typeof patch.description === 'string') &&
     (patch.weight === undefined || isTaskWeight(patch.weight)) &&
-    stringArrayOrUndefined(patch.reservedWritePaths)
+    stringArrayOrUndefined(patch.reservedWritePaths) &&
+    (patch.objective === undefined || typeof patch.objective === 'string') &&
+    (patch.scope === undefined || typeof patch.scope === 'string') &&
+    stringArrayOrUndefined(patch.expectedFiles) &&
+    stringArrayOrUndefined(patch.references) &&
+    (patch.outcomeVerification === undefined ||
+      typeof patch.outcomeVerification === 'string')
   );
 }
 

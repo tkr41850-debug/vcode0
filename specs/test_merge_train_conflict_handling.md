@@ -23,7 +23,7 @@ Capture how integration-stage rebase and merge-train verification failures are h
 - Given a queued feature branch rebases cleanly onto the latest `main`
 - When the configured merge-train verification checks fail
 - Then the feature is removed from the merge queue
-- And it is no longer merge-ready until repair work lands and the normal `feature_ci -> verifying` path passes again
+- And it is no longer merge-ready until repair work lands and the normal `ci_check -> verifying` path passes again
 
 ### Conflict triggers repair work on the same feature branch first
 - Given a feature hits integration rebase or merge-train verification failure
@@ -33,7 +33,7 @@ Capture how integration-stage rebase and merge-train verification failures are h
 
 ### Successful repair re-enters under the normal queue policy
 - Given integration repair work lands on the same feature branch
-- When the feature passes the normal `feature_ci` then `verifying` path again
+- When the feature passes the normal `ci_check` then `verifying` path again
 - Then feature collaboration control clears from `conflict`
 - And the feature returns to `awaiting_merge`
 - And it re-enters `merge_queued` under the normal automatic queue policy

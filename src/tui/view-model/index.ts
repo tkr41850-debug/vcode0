@@ -504,8 +504,8 @@ function phaseForFeatureWorkControl(
       return 'research';
     case 'planning':
       return 'plan';
-    case 'feature_ci':
-      return 'feature_ci';
+    case 'ci_check':
+      return 'ci_check';
     case 'verifying':
       return 'verify';
     case 'summarizing':

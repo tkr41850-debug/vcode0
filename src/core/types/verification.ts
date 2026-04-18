@@ -24,6 +24,7 @@ export interface VerificationSummary {
   outcome?: VerificationOutcome;
   criteriaEvidence?: VerificationCriterionEvidence[];
   repairFocus?: string[];
+  issues?: VerifyIssue[];
 }
 
 export interface VerificationCheck {
@@ -41,4 +42,14 @@ export interface VerificationConfig {
   task?: VerificationLayerConfig;
   feature?: VerificationLayerConfig;
   mergeTrain?: VerificationLayerConfig;
+}
+
+export type VerifyIssueSeverity = 'blocking' | 'concern' | 'nit';
+
+export interface VerifyIssue {
+  id: string;
+  severity: VerifyIssueSeverity;
+  description: string;
+  location?: string;
+  suggestedFix?: string;
 }

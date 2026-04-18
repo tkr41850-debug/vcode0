@@ -23,7 +23,7 @@ export class FeatureLifecycleCoordinator {
     }
   }
 
-  runFeatureCi(_feature: Feature): void {}
+  runCiCheck(_feature: Feature): void {}
 
   onTaskLanded(taskId: TaskId): void {
     const task = this.requireTask(taskId);
@@ -49,7 +49,7 @@ export class FeatureLifecycleCoordinator {
     }
 
     this.markPhaseDone(feature.id);
-    this.advancePhase(feature.id, 'feature_ci');
+    this.advancePhase(feature.id, 'ci_check');
   }
 
   markAwaitingMerge(feature: Feature): void {
@@ -110,18 +110,12 @@ export class FeatureLifecycleCoordinator {
         this.markPhaseDone(featureId);
         this.advancePhase(featureId, 'executing', 'branch_open');
         return;
-      case 'feature_ci':
+      case 'ci_check':
         if (verification === undefined) {
-          throw new Error(
-            'feature_ci completion requires verification summary',
-          );
+          throw new Error('ci_check completion requires verification summary');
         }
         if (verification.ok === false) {
-          this.failPreQueueVerification(
-            featureId,
-            'feature CI',
-            verification.summary,
-          );
+          this.failCiCheck(featureId, verification.summary);
           return;
         }
         this.markPhaseDone(featureId);
@@ -131,12 +125,12 @@ export class FeatureLifecycleCoordinator {
         if (verification === undefined) {
           throw new Error('verify completion requires verification summary');
         }
-        if (verification.ok === false) {
-          this.failPreQueueVerification(
-            featureId,
-            'feature verification',
-            verification.summary,
-          );
+        if (
+          verification.ok === false ||
+          (verification.issues !== undefined && verification.issues.length > 0)
+        ) {
+          this.markPhaseFailed(featureId);
+          this.advancePhase(featureId, 'replanning');
           return;
         }
         this.markPhaseDone(featureId);
@@ -198,22 +192,13 @@ export class FeatureLifecycleCoordinator {
     }
   }
 
-  private failPreQueueVerification(
-    featureId: FeatureId,
-    label: string,
-    summary?: string,
-  ): void {
-    this.enqueueRepairTask(
-      featureId,
-      label === 'feature CI' ? 'feature_ci' : 'verify',
-      `${label.toLowerCase()} issues`,
-      summary,
-    );
+  private failCiCheck(featureId: FeatureId, summary?: string): void {
+    this.enqueueRepairTask(featureId, 'ci_check', 'ci check issues', summary);
   }
 
   private enqueueRepairTask(
     featureId: FeatureId,
-    repairSource: 'feature_ci' | 'verify' | 'integration',
+    repairSource: 'ci_check' | 'verify' | 'integration',
     noun: string,
     summary?: string,
   ): void {

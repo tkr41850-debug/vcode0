@@ -23,6 +23,8 @@ import type {
   ProposalToolHost,
   RemoveFeatureOptions,
   RemoveTaskOptions,
+  SetFeatureDoDOptions,
+  SetFeatureObjectiveOptions,
   SubmitProposalOptions,
 } from './types.js';
 
@@ -99,13 +101,25 @@ export class GraphProposalToolHost implements ProposalToolHost {
 
   addTask(args: AddTaskOptions): Task {
     this.assertMutable();
-    const task = this.draft.addTask({
-      featureId: args.featureId,
-      description: args.description,
+    const plannerFields = {
       ...(args.weight !== undefined ? { weight: args.weight } : {}),
       ...(args.reservedWritePaths !== undefined
         ? { reservedWritePaths: args.reservedWritePaths }
         : {}),
+      ...(args.objective !== undefined ? { objective: args.objective } : {}),
+      ...(args.scope !== undefined ? { scope: args.scope } : {}),
+      ...(args.expectedFiles !== undefined
+        ? { expectedFiles: args.expectedFiles }
+        : {}),
+      ...(args.references !== undefined ? { references: args.references } : {}),
+      ...(args.outcomeVerification !== undefined
+        ? { outcomeVerification: args.outcomeVerification }
+        : {}),
+    };
+    const task = this.draft.addTask({
+      featureId: args.featureId,
+      description: args.description,
+      ...plannerFields,
     });
     this.builder.allocateTaskId(task.id);
     this.builder.addOp({
@@ -113,12 +127,33 @@ export class GraphProposalToolHost implements ProposalToolHost {
       taskId: task.id,
       featureId: args.featureId,
       description: args.description,
-      ...(args.weight !== undefined ? { weight: args.weight } : {}),
-      ...(args.reservedWritePaths !== undefined
-        ? { reservedWritePaths: args.reservedWritePaths }
-        : {}),
+      ...plannerFields,
     });
     return task;
+  }
+
+  setFeatureObjective(args: SetFeatureObjectiveOptions): Feature {
+    this.assertMutable();
+    const patch = { featureObjective: args.objective };
+    const feature = this.draft.editFeature(args.featureId, patch);
+    this.builder.addOp({
+      kind: 'edit_feature',
+      featureId: args.featureId,
+      patch,
+    });
+    return feature;
+  }
+
+  setFeatureDoD(args: SetFeatureDoDOptions): Feature {
+    this.assertMutable();
+    const patch = { featureDoD: args.dod };
+    const feature = this.draft.editFeature(args.featureId, patch);
+    this.builder.addOp({
+      kind: 'edit_feature',
+      featureId: args.featureId,
+      patch,
+    });
+    return feature;
   }
 
   removeTask(args: RemoveTaskOptions): void {

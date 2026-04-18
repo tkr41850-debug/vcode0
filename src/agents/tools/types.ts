@@ -23,6 +23,8 @@ import type {
   TaskResult,
   VerificationCriterionEvidence,
   VerificationSummary,
+  VerifyIssue,
+  VerifyIssueSeverity,
 } from '@core/types/index';
 
 export type { DependencyOptions, PlannerFeatureEditPatch, TaskEditPatch };
@@ -52,6 +54,21 @@ export interface AddTaskOptions {
   description: string;
   weight?: Task['weight'];
   reservedWritePaths?: string[];
+  objective?: string;
+  scope?: string;
+  expectedFiles?: string[];
+  references?: string[];
+  outcomeVerification?: string;
+}
+
+export interface SetFeatureObjectiveOptions {
+  featureId: FeatureId;
+  objective: string;
+}
+
+export interface SetFeatureDoDOptions {
+  featureId: FeatureId;
+  dod: string[];
 }
 
 export interface RemoveTaskOptions {
@@ -112,6 +129,13 @@ export interface SubmitVerifyOptions {
   repairFocus?: string[];
 }
 
+export interface RaiseIssueOptions {
+  severity: VerifyIssueSeverity;
+  description: string;
+  location?: string;
+  suggestedFix?: string;
+}
+
 export interface TaskResultLookup {
   taskId: Task['id'];
   featureId: FeatureId;
@@ -126,6 +150,8 @@ export type ProposalToolName =
   | 'addTask'
   | 'removeTask'
   | 'editTask'
+  | 'setFeatureObjective'
+  | 'setFeatureDoD'
   | 'addDependency'
   | 'removeDependency'
   | 'submit';
@@ -147,7 +173,8 @@ export type FeaturePhaseToolName =
   | 'submitDiscuss'
   | 'submitResearch'
   | 'submitSummarize'
-  | 'submitVerify';
+  | 'submitVerify'
+  | 'raiseIssue';
 
 export interface PlannerToolArgsMap {
   addMilestone: AddMilestoneOptions;
@@ -157,6 +184,8 @@ export interface PlannerToolArgsMap {
   addTask: AddTaskOptions;
   removeTask: RemoveTaskOptions;
   editTask: EditTaskOptions;
+  setFeatureObjective: SetFeatureObjectiveOptions;
+  setFeatureDoD: SetFeatureDoDOptions;
   addDependency: DependencyOptions;
   removeDependency: DependencyOptions;
   submit: SubmitProposalOptions;
@@ -170,6 +199,8 @@ export interface PlannerToolResultMap {
   addTask: Task;
   removeTask: undefined;
   editTask: Task;
+  setFeatureObjective: Feature;
+  setFeatureDoD: Feature;
   addDependency: undefined;
   removeDependency: undefined;
   submit: undefined;
@@ -186,6 +217,7 @@ export interface FeaturePhaseToolArgsMap {
   submitResearch: SubmitResearchOptions;
   submitSummarize: SubmitSummarizeOptions;
   submitVerify: SubmitVerifyOptions;
+  raiseIssue: RaiseIssueOptions;
 }
 
 export interface FeaturePhaseToolResultMap {
@@ -199,6 +231,7 @@ export interface FeaturePhaseToolResultMap {
   submitResearch: ResearchPhaseResult;
   submitSummarize: SummarizePhaseResult;
   submitVerify: VerificationSummary;
+  raiseIssue: VerifyIssue;
 }
 
 export type PlannerToolArgs<Name extends AgentToolName = AgentToolName> =
@@ -247,6 +280,8 @@ export interface ProposalToolHost {
   addTask(args: AddTaskOptions): Task;
   removeTask(args: RemoveTaskOptions): void;
   editTask(args: EditTaskOptions): Task;
+  setFeatureObjective(args: SetFeatureObjectiveOptions): Feature;
+  setFeatureDoD(args: SetFeatureDoDOptions): Feature;
   addDependency(args: DependencyOptions): void;
   removeDependency(args: DependencyOptions): void;
   submit(args: SubmitProposalOptions): void;
@@ -266,6 +301,7 @@ export interface FeaturePhaseToolHost {
   submitResearch(args: SubmitResearchOptions): ResearchPhaseResult;
   submitSummarize(args: SubmitSummarizeOptions): SummarizePhaseResult;
   submitVerify(args: SubmitVerifyOptions): VerificationSummary;
+  raiseIssue(args: RaiseIssueOptions): VerifyIssue;
   wasDiscussSubmitted(): boolean;
   wasResearchSubmitted(): boolean;
   wasSummarizeSubmitted(): boolean;
@@ -274,4 +310,5 @@ export interface FeaturePhaseToolHost {
   getResearchSummary(): ResearchPhaseResult;
   getSummarizeSummary(): SummarizePhaseResult;
   getVerificationSummary(): VerificationSummary;
+  getVerifyIssues(): readonly VerifyIssue[];
 }

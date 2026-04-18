@@ -13,7 +13,7 @@ export type FeatureWorkControl =
   | 'researching'
   | 'planning'
   | 'executing'
-  | 'feature_ci'
+  | 'ci_check'
   | 'verifying'
   | 'awaiting_merge'
   | 'summarizing'
@@ -50,7 +50,7 @@ export type TestPolicy = 'loose' | 'strict';
 
 export type TaskWeight = 'trivial' | 'small' | 'medium' | 'heavy';
 
-export type RepairSource = 'feature_ci' | 'verify' | 'integration';
+export type RepairSource = 'ci_check' | 'verify' | 'integration';
 
 export type TaskSuspendReason =
   | 'same_feature_overlap'

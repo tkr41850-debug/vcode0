@@ -26,9 +26,9 @@ Milestone (organizational / progress unit)
 Work control tracks where the feature is in the GSD planning / execution flow.
 
 ```text
-discussing → researching → planning → executing → feature_ci → verifying → awaiting_merge
+discussing → researching → planning → executing → ci_check → verifying → awaiting_merge
                                                    ↘                ↘
-                                                    executing_repair ─→ feature_ci
+                                                    executing_repair ─→ ci_check
 
 awaiting_merge --(after collaboration control reaches `merged`)--> summarizing ─→ work_complete
                                                          \--(budget mode)--> work_complete
@@ -40,11 +40,11 @@ structural or repeated failure → replanning
 - **researching** — scouts the codebase and relevant docs to inform planning. Skipped in `budget` token profile.
 - **planning** — decomposes the feature into tasks, assigns weights, and declares inter-task deps.
 - **executing** — tasks dispatch to workers in parallel per the feature-local DAG frontier. The feature branch may be red during `executing`.
-- **feature_ci** — heavy branch-level verification after the last task or repair task lands. By default the feature branch should be green before leaving `feature_ci` and entering `verifying`, though a loose feature-level policy may relax that boundary.
+- **ci_check** — heavy branch-level verification after the last task or repair task lands. By default the feature branch should be green before leaving `ci_check` and entering `verifying`, though a loose feature-level policy may relax that boundary.
 - **verifying** — agent-level review that checks whether the feature branch actually satisfies the feature spec, not just whether CI passes.
 - **awaiting_merge** — local implementation and spec review are complete; the feature is waiting for collaboration control to carry it through merge-train integration into `main`.
 - **summarizing** — after collaboration control reaches `merged`, a `light`-tier model writes a feature summary for downstream context injection. While this phase is active and the feature has no summary text yet, summary availability is treated as waiting.
-- **executing_repair** — repair tasks appended on the same feature branch after `feature_ci`, `verifying`, or integration repair finds issues. This is still part of execution, and the branch may remain red here.
+- **executing_repair** — repair tasks appended on the same feature branch after `ci_check`, `verifying`, or integration repair finds issues. This is still part of execution, and the branch may remain red here.
 - **replanning** — recovery phase entered after repeated work failures, repeated unresolved same-feature conflict handling, or a structural integration mismatch.
 - **work_complete** — feature implementation has merged and summarization outcome is derived from current state: if summary text exists it is available, and if no summary text exists the summary was skipped. Overall feature `done` is derived only after collaboration control reaches `merged`.
 
@@ -120,6 +120,12 @@ interface Feature {
   mergeTrainReentryCount?: number;
   summary?: string;
   tokenUsage?: TokenUsageAggregate;   // lifetime aggregate across all task/model calls in the feature
+  roughDraft?: string;                // seed text captured before `discussing` (rough idea / ticket body)
+  discussOutput?: Decision[];         // planner-baked decisions persisted by discuss-phase completion
+  researchOutput?: Finding[];         // planner-baked findings persisted by research-phase completion
+  featureObjective?: string;          // planner-baked feature-level objective (written on plan approval)
+  featureDoD?: string[];              // planner-baked definition-of-done bullets for the feature
+  verifyIssues?: VerifyIssue[];       // typed issues raised by verify agent; cleared on next approved replan
 }
 
 interface Task {
@@ -143,6 +149,37 @@ interface Task {
   suspendedAt?: number;            // when the task was suspended
   suspendReason?: TaskSuspendReason; // why the task was suspended
   suspendedFiles?: string[];       // files involved in the suspension
+  objective?: string;              // planner-baked task objective (one-liner what to achieve)
+  scope?: string;                  // planner-baked scope boundary (what is in / out of scope)
+  expectedFiles?: string[];        // planner-baked list of files the task is expected to touch
+  references?: Reference[];        // planner-baked reference pointers (knowledge, decisions, code)
+  outcomeVerification?: string;    // planner-baked how-to-verify text (commands, assertions)
+}
+
+interface Decision {
+  topic: string;
+  decision: string;
+  rationale?: string;
+}
+
+interface Finding {
+  topic: string;
+  summary: string;
+  references?: string[];
+}
+
+interface Reference {
+  kind: 'file' | 'knowledge' | 'decision' | 'url';
+  location: string;                // file path, knowledge entry id, decision id, or URL
+  note?: string;
+}
+
+interface VerifyIssue {
+  id: string;
+  severity: 'blocking' | 'concern' | 'nit';
+  location?: string;
+  description: string;
+  suggestedFix?: string;
 }
 
 interface BaseAgentRun {
@@ -209,7 +246,7 @@ type FeatureWorkControl =
   | "researching"
   | "planning"
   | "executing"
-  | "feature_ci"
+  | "ci_check"
   | "verifying"
   | "awaiting_merge"
   | "summarizing"
@@ -249,7 +286,7 @@ type AgentRunPhase =
   | "discuss"
   | "research"
   | "plan"
-  | "feature_ci"
+  | "ci_check"
   | "verify"
   | "summarize"
   | "replan";
@@ -319,7 +356,7 @@ main
 - A feature branch and feature worktree are created when that branch is requested and collaboration control enters `branch_open`; the baseline branch name is `feat-<slugified-name>-<feature-id>`.
 - Task worktrees branch from the current HEAD of the owning feature branch and use the baseline branch name `feat-<slugified-name>-<feature-id>-<task-id>`.
 - Worker `submit(summary, filesChanged)` is the explicit task-complete signal. Worker `confirm()` is only a progress acknowledgement; the orchestrator treats terminal results with `completionKind === 'submitted'` as landed task work on the feature branch.
-- After the last task or repair task lands, the feature enters `feature_ci` on the feature branch; only after that boundary passes does the feature enter agent-level `verifying`.
+- After the last task or repair task lands, the feature enters `ci_check` on the feature branch; only after that boundary passes does the feature enter agent-level `verifying`.
 - If `verifying` passes, feature work control becomes `awaiting_merge` and collaboration control may move to `merge_queued`.
 - After collaboration control reaches `merged`, the feature either enters blocking `summarizing` or, in budget mode, moves directly to `work_complete` without writing summary text.
 - The merge train serializes feature-branch integration into `main`.

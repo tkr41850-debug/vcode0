@@ -9,6 +9,7 @@ import type {
   SummarizePhaseResult,
   Task,
   VerificationSummary,
+  VerifyIssue,
 } from '@core/types/index';
 import type { Store } from '@orchestrator/ports/index';
 
@@ -20,6 +21,7 @@ import type {
   ListFeatureEventsOptions,
   ListFeatureRunsOptions,
   ListFeatureTasksOptions,
+  RaiseIssueOptions,
   SubmitDiscussOptions,
   SubmitResearchOptions,
   SubmitSummarizeOptions,
@@ -27,16 +29,19 @@ import type {
   TaskResultLookup,
 } from './types.js';
 
+type HostStore = Pick<Store, 'listAgentRuns' | 'listEvents' | 'appendEvent'>;
+
 class DefaultFeaturePhaseToolHost implements FeaturePhaseToolHost {
   private discuss: DiscussPhaseResult | undefined;
   private research: ResearchPhaseResult | undefined;
   private summarize: SummarizePhaseResult | undefined;
   private verification: VerificationSummary | undefined;
+  private readonly verifyIssues: VerifyIssue[] = [];
 
   constructor(
     private readonly featureId: FeatureId,
     private readonly graph: FeatureGraph,
-    private readonly store: Pick<Store, 'listAgentRuns' | 'listEvents'>,
+    private readonly store: HostStore,
   ) {}
 
   getFeatureState(args: GetFeatureStateOptions): Feature {
@@ -149,18 +154,23 @@ class DefaultFeaturePhaseToolHost implements FeaturePhaseToolHost {
     if (this.verification !== undefined) {
       throw new Error('verify phase already submitted');
     }
+    const hasIssues = this.verifyIssues.length > 0;
+    const ok = args.outcome === 'pass' && !hasIssues;
+    const outcome: 'pass' | 'repair_needed' = ok ? 'pass' : 'repair_needed';
     const fallbackFailedChecks =
-      args.outcome === 'repair_needed'
+      outcome === 'repair_needed'
         ? args.failedChecks && args.failedChecks.length > 0
           ? args.failedChecks
           : args.repairFocus && args.repairFocus.length > 0
             ? args.repairFocus
-            : [args.summary]
+            : hasIssues
+              ? this.verifyIssues.map((issue) => issue.description)
+              : [args.summary]
         : undefined;
     const verification: VerificationSummary = {
-      ok: args.outcome === 'pass',
+      ok,
       summary: args.summary,
-      outcome: args.outcome,
+      outcome,
       ...(fallbackFailedChecks !== undefined
         ? { failedChecks: fallbackFailedChecks }
         : {}),
@@ -171,9 +181,43 @@ class DefaultFeaturePhaseToolHost implements FeaturePhaseToolHost {
       ...(args.repairFocus !== undefined && args.repairFocus.length > 0
         ? { repairFocus: args.repairFocus }
         : {}),
+      ...(hasIssues ? { issues: [...this.verifyIssues] } : {}),
     };
     this.verification = verification;
     return verification;
+  }
+
+  raiseIssue(args: RaiseIssueOptions): VerifyIssue {
+    const issue: VerifyIssue = {
+      id: `vi-${this.verifyIssues.length + 1}`,
+      severity: args.severity,
+      description: args.description,
+      ...(args.location !== undefined ? { location: args.location } : {}),
+      ...(args.suggestedFix !== undefined
+        ? { suggestedFix: args.suggestedFix }
+        : {}),
+    };
+    this.verifyIssues.push(issue);
+    this.store.appendEvent({
+      eventType: 'verifier_issue_raised',
+      entityId: this.featureId,
+      timestamp: Date.now(),
+      payload: {
+        phase: 'verify',
+        issueId: issue.id,
+        severity: issue.severity,
+        description: issue.description,
+        ...(issue.location !== undefined ? { location: issue.location } : {}),
+        ...(issue.suggestedFix !== undefined
+          ? { suggestedFix: issue.suggestedFix }
+          : {}),
+      },
+    });
+    return issue;
+  }
+
+  getVerifyIssues(): readonly VerifyIssue[] {
+    return this.verifyIssues;
   }
 
   wasDiscussSubmitted(): boolean {
@@ -242,7 +286,7 @@ class DefaultFeaturePhaseToolHost implements FeaturePhaseToolHost {
 export function createFeaturePhaseToolHost(
   featureId: FeatureId,
   graph: FeatureGraph,
-  store: Pick<Store, 'listAgentRuns' | 'listEvents'>,
+  store: HostStore,
 ): FeaturePhaseToolHost {
   return new DefaultFeaturePhaseToolHost(featureId, graph, store);
 }
@@ -254,7 +298,7 @@ function readEventPhase(event: EventRecord): AgentRun['phase'] | undefined {
     case 'discuss':
     case 'research':
     case 'plan':
-    case 'feature_ci':
+    case 'ci_check':
     case 'verify':
     case 'summarize':
     case 'replan':

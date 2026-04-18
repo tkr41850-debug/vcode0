@@ -4,6 +4,9 @@ const featurePatchSchema = Type.Object({
   name: Type.Optional(Type.String()),
   description: Type.Optional(Type.String()),
   summary: Type.Optional(Type.String()),
+  roughDraft: Type.Optional(Type.String()),
+  featureObjective: Type.Optional(Type.String()),
+  featureDoD: Type.Optional(Type.Array(Type.String())),
 });
 
 const taskPatchSchema = Type.Object({
@@ -17,6 +20,11 @@ const taskPatchSchema = Type.Object({
     ]),
   ),
   reservedWritePaths: Type.Optional(Type.Array(Type.String())),
+  objective: Type.Optional(Type.String()),
+  scope: Type.Optional(Type.String()),
+  expectedFiles: Type.Optional(Type.Array(Type.String())),
+  references: Type.Optional(Type.Array(Type.String())),
+  outcomeVerification: Type.Optional(Type.String()),
 });
 
 const dependencySchema = Type.Object({
@@ -110,6 +118,19 @@ export const proposalToolParameters = {
       ]),
     ),
     reservedWritePaths: Type.Optional(Type.Array(Type.String())),
+    objective: Type.Optional(Type.String()),
+    scope: Type.Optional(Type.String()),
+    expectedFiles: Type.Optional(Type.Array(Type.String())),
+    references: Type.Optional(Type.Array(Type.String())),
+    outcomeVerification: Type.Optional(Type.String()),
+  }),
+  setFeatureObjective: Type.Object({
+    featureId: Type.String(),
+    objective: Type.String(),
+  }),
+  setFeatureDoD: Type.Object({
+    featureId: Type.String(),
+    dod: Type.Array(Type.String()),
   }),
   removeTask: Type.Object({
     taskId: Type.String(),
@@ -154,5 +175,15 @@ export const featurePhaseToolParameters = {
     failedChecks: Type.Optional(Type.Array(Type.String())),
     criteriaEvidence: Type.Optional(Type.Array(verificationCriterionSchema)),
     repairFocus: Type.Optional(Type.Array(Type.String())),
+  }),
+  raiseIssue: Type.Object({
+    severity: Type.Union([
+      Type.Literal('blocking'),
+      Type.Literal('concern'),
+      Type.Literal('nit'),
+    ]),
+    description: Type.String(),
+    location: Type.Optional(Type.String()),
+    suggestedFix: Type.Optional(Type.String()),
   }),
 } as const;

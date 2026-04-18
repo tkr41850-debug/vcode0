@@ -457,7 +457,7 @@ describe('PiFeatureAgentRuntime', () => {
     faux.setResponses([
       fauxAssistantMessage(
         [
-          fauxToolCall('listFeatureEvents', { phase: 'feature_ci' }),
+          fauxToolCall('listFeatureEvents', { phase: 'ci_check' }),
           fauxToolCall('submitVerify', {
             outcome: 'repair_needed',
             summary: 'Repair needed: missing proof for success criteria.',
@@ -724,16 +724,10 @@ describe('PiFeatureAgentRuntime', () => {
         planningNotes: ['Keep downstream durable'],
       },
     );
-    appendFeaturePhaseEvent(
-      store,
-      feature.id,
-      'feature_ci',
-      'feature ci green',
-      {
-        ok: true,
-        summary: 'feature ci green',
-      },
-    );
+    appendFeaturePhaseEvent(store, feature.id, 'ci_check', 'feature ci green', {
+      ok: true,
+      summary: 'feature ci green',
+    });
     appendFeaturePhaseEvent(store, feature.id, 'verify', 'verify green', {
       ok: true,
       summary: 'verify green',

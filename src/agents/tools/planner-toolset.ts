@@ -14,6 +14,8 @@ import type {
   ProposalToolName,
   RemoveFeatureOptions,
   RemoveTaskOptions,
+  SetFeatureDoDOptions,
+  SetFeatureObjectiveOptions,
   SubmitProposalOptions,
 } from './types.js';
 
@@ -66,6 +68,20 @@ export function createPlannerToolset(host: ProposalToolHost): PlannerToolset {
         description: 'Edit an existing task in the proposal graph.',
         execute: (args: EditTaskOptions) =>
           Promise.resolve(host.editTask(args)),
+      },
+      {
+        name: 'setFeatureObjective',
+        description:
+          'Record the planner-approved objective sentence for a feature in the proposal graph.',
+        execute: (args: SetFeatureObjectiveOptions) =>
+          Promise.resolve(host.setFeatureObjective(args)),
+      },
+      {
+        name: 'setFeatureDoD',
+        description:
+          'Record the planner-approved definition-of-done checklist for a feature in the proposal graph.',
+        execute: (args: SetFeatureDoDOptions) =>
+          Promise.resolve(host.setFeatureDoD(args)),
       },
       {
         name: 'addDependency',
@@ -121,6 +137,14 @@ export function formatToolText(
     case 'editTask': {
       const task = result as Task;
       return `Updated task ${task.id}.`;
+    }
+    case 'setFeatureObjective': {
+      const feature = result as Feature;
+      return `Set feature objective for ${feature.id}.`;
+    }
+    case 'setFeatureDoD': {
+      const feature = result as Feature;
+      return `Set feature definition-of-done for ${feature.id}.`;
     }
     case 'submit':
       return 'Proposal submitted.';

@@ -3,7 +3,7 @@ import type {
   TaskResumeReason,
   TaskSuspendReason,
 } from '@core/types/index';
-import type { WorkerContext } from '@runtime/context/index';
+import type { TaskPayload } from '@runtime/context/index';
 import type {
   DispatchTaskResult,
   RuntimePort,
@@ -36,14 +36,18 @@ export class LocalWorkerPool implements RuntimePort {
   async dispatchTask(
     task: Task,
     dispatch: TaskRuntimeDispatch,
-    context: WorkerContext = { strategy: 'shared-summary' },
+    payload: TaskPayload = {},
   ): Promise<DispatchTaskResult> {
     if (dispatch.mode === 'resume') {
-      const resumeResult = await this.harness.resume(task, {
-        taskId: task.id,
-        agentRunId: dispatch.agentRunId,
-        sessionId: dispatch.sessionId,
-      });
+      const resumeResult = await this.harness.resume(
+        task,
+        {
+          taskId: task.id,
+          agentRunId: dispatch.agentRunId,
+          sessionId: dispatch.sessionId,
+        },
+        payload,
+      );
 
       if (resumeResult.kind === 'not_resumable') {
         return {
@@ -70,7 +74,7 @@ export class LocalWorkerPool implements RuntimePort {
       };
     }
 
-    const handle = await this.harness.start(task, context, dispatch.agentRunId);
+    const handle = await this.harness.start(task, payload, dispatch.agentRunId);
 
     const session: LiveSession = {
       ref: { taskId: task.id, agentRunId: dispatch.agentRunId },

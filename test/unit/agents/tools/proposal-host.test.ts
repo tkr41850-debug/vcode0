@@ -102,6 +102,89 @@ describe('GraphProposalToolHost', () => {
     });
   });
 
+  it('threads planner-baked task fields into draft + add_task op', () => {
+    const graph = createGraphWithFeature();
+    const host = createProposalToolHost(graph, 'plan');
+
+    const task = host.addTask({
+      featureId: 'f-1',
+      description: 'Planner-baked task',
+      objective: 'Wire auth endpoint',
+      scope: 'Only email/password, no OAuth',
+      expectedFiles: ['src/auth/login.ts'],
+      references: ['docs/auth.md'],
+      outcomeVerification: 'Unit test covers 200 + 401',
+      reservedWritePaths: ['src/auth/login.ts'],
+    });
+
+    expect(task).toMatchObject({
+      objective: 'Wire auth endpoint',
+      scope: 'Only email/password, no OAuth',
+      expectedFiles: ['src/auth/login.ts'],
+      references: ['docs/auth.md'],
+      outcomeVerification: 'Unit test covers 200 + 401',
+    });
+
+    host.submit(proposalDetails);
+    const proposal = host.buildProposal();
+    const addOp = proposal.ops.find((op) => op.kind === 'add_task');
+    expect(addOp).toMatchObject({
+      kind: 'add_task',
+      objective: 'Wire auth endpoint',
+      scope: 'Only email/password, no OAuth',
+      expectedFiles: ['src/auth/login.ts'],
+      references: ['docs/auth.md'],
+      outcomeVerification: 'Unit test covers 200 + 401',
+    });
+  });
+
+  it('setFeatureObjective records edit_feature op and updates draft', () => {
+    const graph = createGraphWithFeature();
+    const host = createProposalToolHost(graph, 'plan');
+
+    const feature = host.setFeatureObjective({
+      featureId: 'f-1',
+      objective: 'Ship login by Friday',
+    });
+
+    expect(feature.featureObjective).toBe('Ship login by Friday');
+    expect(host.draft.features.get('f-1')?.featureObjective).toBe(
+      'Ship login by Friday',
+    );
+    expect(graph.features.get('f-1')?.featureObjective).toBeUndefined();
+
+    host.submit(proposalDetails);
+    const proposal = host.buildProposal();
+    expect(proposal.ops).toContainEqual({
+      kind: 'edit_feature',
+      featureId: 'f-1',
+      patch: { featureObjective: 'Ship login by Friday' },
+    });
+  });
+
+  it('setFeatureDoD records edit_feature op with DoD array', () => {
+    const graph = createGraphWithFeature();
+    const host = createProposalToolHost(graph, 'plan');
+
+    host.setFeatureDoD({
+      featureId: 'f-1',
+      dod: ['login works', 'tests green'],
+    });
+
+    expect(host.draft.features.get('f-1')?.featureDoD).toEqual([
+      'login works',
+      'tests green',
+    ]);
+
+    host.submit(proposalDetails);
+    const proposal = host.buildProposal();
+    expect(proposal.ops).toContainEqual({
+      kind: 'edit_feature',
+      featureId: 'f-1',
+      patch: { featureDoD: ['login works', 'tests green'] },
+    });
+  });
+
   it('rejects duplicate submit and post-submit mutation', () => {
     const graph = createGraphWithFeature();
     const host = createProposalToolHost(graph, 'plan');

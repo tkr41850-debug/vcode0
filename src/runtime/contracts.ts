@@ -5,7 +5,7 @@ import type {
   TaskResumeReason,
   TaskSuspendReason,
 } from '@core/types/index';
-import type { WorkerContext } from '@runtime/context/index';
+import type { TaskPayload } from '@runtime/context/index';
 
 export interface TaskExecutionRunRef {
   taskId: string;
@@ -110,6 +110,7 @@ export interface RuntimePort {
     this: void,
     task: Task,
     dispatch: TaskRuntimeDispatch,
+    payload?: TaskPayload,
   ): Promise<DispatchTaskResult>;
   steerTask(
     this: void,
@@ -154,7 +155,7 @@ export type OrchestratorToWorkerMessage =
       agentRunId: string;
       dispatch: TaskRuntimeDispatch;
       task: Task;
-      context: WorkerContext;
+      payload: TaskPayload;
     }
   | {
       type: 'steer';

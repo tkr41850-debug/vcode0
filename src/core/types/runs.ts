@@ -6,7 +6,7 @@ export type AgentRunPhase =
   | 'discuss'
   | 'research'
   | 'plan'
-  | 'feature_ci'
+  | 'ci_check'
   | 'verify'
   | 'summarize'
   | 'replan';

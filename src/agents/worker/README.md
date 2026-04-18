@@ -5,7 +5,7 @@ The worker agent is the pi-sdk `Agent` that runs inside each task child process.
 - **Tool catalog** — the `AgentTool` implementations a worker can call.
 - **Toolset factory** — assembles the catalog with runtime-provided dependencies (IPC bridge, worktree path, task identifiers).
 
-The *system prompt* for the worker lives in `src/runtime/worker/` because it is assembled from runtime-owned `WorkerContext` inputs (plan summary, dependency outputs, codebase map) and handed directly to the harness. Only the tool-layer behavior lives here.
+The *system prompt* for the worker lives in `src/runtime/worker/` because it is rendered from the planner-baked `TaskPayload` (objective, scope, expectedFiles, references, outcomeVerification, featureObjective, featureDoD, planSummary, dependencyOutputs) and handed directly to the harness. Only the tool-layer behavior lives here.
 
 ## Layout
 

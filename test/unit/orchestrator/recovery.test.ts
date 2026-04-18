@@ -191,6 +191,7 @@ describe('RecoveryService', () => {
         agentRunId: run.id,
         sessionId: 'sess-1',
       },
+      expect.any(Object),
     );
     expect(runtime.resumeTask).not.toHaveBeenCalled();
     expect(store.updateAgentRun).toHaveBeenCalledWith(run.id, {
@@ -254,6 +255,7 @@ describe('RecoveryService', () => {
         agentRunId: 'run-help',
         sessionId: 'sess-help',
       },
+      expect.any(Object),
     );
     expect(runtime.dispatchTask).toHaveBeenNthCalledWith(
       2,
@@ -263,6 +265,7 @@ describe('RecoveryService', () => {
         agentRunId: 'run-approval',
         sessionId: 'sess-approval',
       },
+      expect.any(Object),
     );
     expect(runtime.resumeTask).not.toHaveBeenCalled();
     expect(store.updateAgentRun).toHaveBeenCalledWith('run-help', {

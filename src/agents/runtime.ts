@@ -14,12 +14,14 @@ import {
 import type { FeatureGraph } from '@core/graph/index';
 import type {
   AgentRun,
+  Decision,
   DiscussPhaseDetails,
   DiscussPhaseResult,
   EventRecord,
   Feature,
   FeaturePhaseResult,
   FeaturePhaseRunContext,
+  Finding,
   GvcConfig,
   ProposalPhaseDetails,
   ResearchPhaseDetails,
@@ -28,10 +30,10 @@ import type {
   SummarizePhaseResult,
   Task,
   VerificationSummary,
+  VerifyIssue,
 } from '@core/types/index';
 import type { AgentMessage, AgentTool } from '@mariozechner/pi-agent-core';
 import { Agent } from '@mariozechner/pi-agent-core';
-import type { AssistantMessage } from '@mariozechner/pi-ai';
 import type { Store } from '@orchestrator/ports/index';
 import { resolveModel } from '@runtime/routing/model-bridge';
 import type { SessionStore } from '@runtime/sessions/index';
@@ -414,7 +416,159 @@ export class PiFeatureAgentRuntime implements AgentPort {
         ...(extra !== undefined ? { extra } : {}),
       },
     });
+    this.persistPhaseOutputToFeature(featureId, phase, extra);
   }
+
+  private persistPhaseOutputToFeature(
+    featureId: string,
+    phase: AgentRun['phase'],
+    extra: unknown,
+  ): void {
+    const feature = this.deps.graph.features.get(featureId as Feature['id']);
+    if (feature === undefined) return;
+
+    if (phase === 'discuss') {
+      const details = extractDiscussDetails(extra);
+      if (details !== undefined) {
+        this.deps.graph.editFeature(feature.id, {
+          discussOutput: decisionsFromDiscuss(details),
+        });
+      }
+      return;
+    }
+    if (phase === 'research') {
+      const details = extractResearchDetails(extra);
+      if (details !== undefined) {
+        this.deps.graph.editFeature(feature.id, {
+          researchOutput: findingsFromResearch(details),
+        });
+      }
+      return;
+    }
+    if (phase === 'verify') {
+      const issues = extractVerifyIssues(extra);
+      this.deps.graph.editFeature(feature.id, {
+        verifyIssues: issues,
+      });
+    }
+  }
+}
+
+function decisionsFromDiscuss(details: DiscussPhaseDetails): Decision[] {
+  const out: Decision[] = [];
+  if (details.intent && details.intent.length > 0) {
+    out.push({ topic: 'intent', decision: details.intent });
+  }
+  for (const item of details.successCriteria) {
+    out.push({ topic: 'success-criterion', decision: item });
+  }
+  for (const item of details.constraints) {
+    out.push({ topic: 'constraint', decision: item });
+  }
+  for (const item of details.externalIntegrations) {
+    out.push({ topic: 'external-integration', decision: item });
+  }
+  for (const item of details.antiGoals) {
+    out.push({ topic: 'anti-goal', decision: item });
+  }
+  for (const item of details.risks) {
+    out.push({ topic: 'risk', decision: item });
+  }
+  for (const item of details.openQuestions) {
+    out.push({ topic: 'open-question', decision: item });
+  }
+  return out;
+}
+
+function findingsFromResearch(details: ResearchPhaseDetails): Finding[] {
+  const out: Finding[] = [];
+  if (details.existingBehavior.length > 0) {
+    out.push({
+      topic: 'existing-behavior',
+      finding: details.existingBehavior,
+    });
+  }
+  for (const file of details.essentialFiles) {
+    out.push({
+      topic: 'essential-file',
+      finding: file.responsibility,
+      source: file.path,
+    });
+  }
+  for (const item of details.reusePatterns) {
+    out.push({ topic: 'reuse-pattern', finding: item });
+  }
+  for (const item of details.riskyBoundaries) {
+    out.push({ topic: 'risky-boundary', finding: item });
+  }
+  for (const item of details.proofsNeeded) {
+    out.push({ topic: 'proof-needed', finding: item });
+  }
+  for (const item of details.verificationSurfaces) {
+    out.push({ topic: 'verification-surface', finding: item });
+  }
+  for (const item of details.planningNotes) {
+    out.push({ topic: 'planning-note', finding: item });
+  }
+  return out;
+}
+
+function extractDiscussDetails(
+  extra: unknown,
+): DiscussPhaseDetails | undefined {
+  if (typeof extra !== 'object' || extra === null) return undefined;
+  const record = extra as Record<string, unknown>;
+  if (
+    typeof record.intent !== 'string' ||
+    !Array.isArray(record.successCriteria) ||
+    !Array.isArray(record.constraints) ||
+    !Array.isArray(record.risks) ||
+    !Array.isArray(record.externalIntegrations) ||
+    !Array.isArray(record.antiGoals) ||
+    !Array.isArray(record.openQuestions)
+  ) {
+    return undefined;
+  }
+  return record as unknown as DiscussPhaseDetails;
+}
+
+function extractVerifyIssues(extra: unknown): VerifyIssue[] {
+  if (typeof extra !== 'object' || extra === null) return [];
+  const record = extra as Record<string, unknown>;
+  const issues = record.issues;
+  if (!Array.isArray(issues)) return [];
+  return issues.filter(isVerifyIssue);
+}
+
+function isVerifyIssue(value: unknown): value is VerifyIssue {
+  if (typeof value !== 'object' || value === null) return false;
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.id === 'string' &&
+    typeof record.description === 'string' &&
+    (record.severity === 'blocking' ||
+      record.severity === 'concern' ||
+      record.severity === 'nit')
+  );
+}
+
+function extractResearchDetails(
+  extra: unknown,
+): ResearchPhaseDetails | undefined {
+  if (typeof extra !== 'object' || extra === null) return undefined;
+  const record = extra as Record<string, unknown>;
+  if (
+    typeof record.existingBehavior !== 'string' ||
+    !Array.isArray(record.essentialFiles) ||
+    !Array.isArray(record.reusePatterns) ||
+    !Array.isArray(record.riskyBoundaries) ||
+    !Array.isArray(record.proofsNeeded) ||
+    !Array.isArray(record.verificationSurfaces) ||
+    !Array.isArray(record.planningNotes)
+  ) {
+    return undefined;
+  }
+  return record as unknown as ResearchPhaseDetails;
 }
 
 function phaseToTemplateName(phase: AgentRun['phase']): PromptTemplateName {
@@ -427,7 +581,7 @@ function phaseToTemplateName(phase: AgentRun['phase']): PromptTemplateName {
     case 'replan':
       return phase;
     case 'execute':
-    case 'feature_ci':
+    case 'ci_check':
       throw new Error(`no feature-phase prompt template for ${phase}`);
   }
 }
@@ -525,7 +679,7 @@ function buildSummaryContext(
   );
   const verificationSummary = joinPromptValues(
     summarizeEvents(events, ['feature_phase_completed'], {
-      phases: ['feature_ci'],
+      phases: ['ci_check'],
       summaryPath: ['extra', 'summary'],
     }),
     summarizeEvents(events, ['feature_phase_completed'], {
@@ -844,7 +998,7 @@ function readPayloadPhase(
     case 'discuss':
     case 'research':
     case 'plan':
-    case 'feature_ci':
+    case 'ci_check':
     case 'verify':
     case 'summarize':
     case 'replan':
@@ -948,33 +1102,6 @@ function getSubmittedPhaseResult<Phase extends TextPhase>(
 
 function unreachableTextPhase(_phase: never): never {
   throw new Error('unsupported text phase');
-}
-
-function extractLastAssistantText(messages: AgentMessage[]): string {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (message === undefined || !isAssistantMessage(message)) {
-      continue;
-    }
-    const text = message.content
-      .filter(
-        (block): block is { type: 'text'; text: string } =>
-          block.type === 'text',
-      )
-      .map((block) => block.text)
-      .join('')
-      .trim();
-    if (text.length > 0) {
-      return text;
-    }
-  }
-  return '';
-}
-
-function isAssistantMessage(
-  message: AgentMessage,
-): message is AssistantMessage {
-  return (message as AssistantMessage).role === 'assistant';
 }
 
 function phaseRoutingTier(

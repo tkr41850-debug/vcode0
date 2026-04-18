@@ -8,6 +8,7 @@ import type {
 } from '@core/types/index';
 import {
   DEFAULT_LONG_FEATURE_BLOCKING_MS,
+  DEFAULT_VERIFY_REPLAN_LOOP_THRESHOLD,
   WarningEvaluator,
 } from '@core/warnings/index';
 import { ConflictCoordinator } from '@orchestrator/conflicts/index';
@@ -104,6 +105,9 @@ export class SchedulerLoop {
       longFeatureBlockingMs:
         ports.config.warnings?.longFeatureBlockingMs ??
         DEFAULT_LONG_FEATURE_BLOCKING_MS,
+      verifyReplanLoopThreshold:
+        ports.config.warnings?.verifyReplanLoopThreshold ??
+        DEFAULT_VERIFY_REPLAN_LOOP_THRESHOLD,
     });
   }
 

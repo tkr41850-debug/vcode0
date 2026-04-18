@@ -12,7 +12,7 @@ This may dominate runtime and token/cpu cost before the DAG scheduler's parallel
 
 - repeated repair-task creation on the same feature
 - frequent ejection/re-entry from the merge train
-- long time spent in `feature_ci`, `verifying`, or `executing_repair`
+- long time spent in `ci_check`, `verifying`, or `executing_repair`
 - repeated feature churn warnings
 - high verification-to-implementation time ratio
 

@@ -17,17 +17,9 @@ describe('JsonConfigLoader', () => {
 
     expect(config).toEqual({
       tokenProfile: 'balanced',
-      context: {
-        defaults: {
-          strategy: 'shared-summary',
-          includeKnowledge: true,
-          includeDecisions: true,
-          includeCodebaseMap: true,
-          maxDependencyOutputs: 8,
-        },
-      },
       warnings: {
         longFeatureBlockingMs: 8 * 60 * 60 * 1000,
+        verifyReplanLoopThreshold: 3,
       },
     });
 
@@ -59,20 +51,6 @@ describe('JsonConfigLoader', () => {
             escalateOnFailure: true,
             budgetPressure: false,
           },
-          context: {
-            defaults: {
-              strategy: 'fresh',
-              includeKnowledge: false,
-              includeDecisions: false,
-              includeCodebaseMap: false,
-              maxDependencyOutputs: 2,
-            },
-            stages: {
-              planning: {
-                includeDecisions: true,
-              },
-            },
-          },
           verification: {
             feature: {
               checks: [
@@ -87,6 +65,7 @@ describe('JsonConfigLoader', () => {
           },
           warnings: {
             longFeatureBlockingMs: 1234,
+            verifyReplanLoopThreshold: 7,
           },
         },
         null,
@@ -115,24 +94,6 @@ describe('JsonConfigLoader', () => {
         escalateOnFailure: true,
         budgetPressure: false,
       },
-      context: {
-        defaults: {
-          strategy: 'fresh',
-          includeKnowledge: false,
-          includeDecisions: false,
-          includeCodebaseMap: false,
-          maxDependencyOutputs: 2,
-        },
-        stages: {
-          planning: {
-            strategy: 'fresh',
-            includeKnowledge: false,
-            includeDecisions: true,
-            includeCodebaseMap: false,
-            maxDependencyOutputs: 2,
-          },
-        },
-      },
       verification: {
         feature: {
           checks: [
@@ -147,6 +108,7 @@ describe('JsonConfigLoader', () => {
       },
       warnings: {
         longFeatureBlockingMs: 1234,
+        verifyReplanLoopThreshold: 7,
       },
     });
   });

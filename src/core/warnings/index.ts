@@ -13,7 +13,9 @@ export type WarningCategory =
   /** A single task has failed repeatedly (Stage 1: stuck-task / repeated failure loop). */
   | 'task_failure_loop'
   /** A verification layer resolved to no configured checks and ran as advisory-only. */
-  | 'empty_verification_checks';
+  | 'empty_verification_checks'
+  /** Verify agent keeps raising issues after repeated replans without progress. */
+  | 'verify_replan_loop';
 
 export interface WarningSignal {
   category: WarningCategory;
@@ -24,6 +26,7 @@ export interface WarningSignal {
 }
 
 export const DEFAULT_LONG_FEATURE_BLOCKING_MS = 8 * 60 * 60 * 1000;
+export const DEFAULT_VERIFY_REPLAN_LOOP_THRESHOLD = 3;
 
 export interface WarningThresholds {
   budgetWarnPercent: number;
@@ -31,13 +34,28 @@ export interface WarningThresholds {
   featureChurnThreshold: number;
   taskFailureThreshold: number;
   longFeatureBlockingMs: number;
+  verifyReplanLoopThreshold: number;
 }
 
 const LAYER_LABELS: Record<VerificationLayerName, string> = {
   mergeTrain: 'merge-train',
-  feature: 'feature_ci',
+  feature: 'ci_check',
   task: 'task',
 };
+
+export function createVerifyReplanLoopWarning(
+  featureId: string,
+  failedVerifyCount: number,
+  now = Date.now(),
+): WarningSignal {
+  return {
+    category: 'verify_replan_loop',
+    entityId: featureId,
+    message: `Feature ${featureId} has failed verify ${failedVerifyCount} times since last approved replan`,
+    occurredAt: now,
+    payload: { failedVerifyCount },
+  };
+}
 
 export function createEmptyVerificationChecksWarning(
   entityId: string,

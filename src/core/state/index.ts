@@ -114,7 +114,7 @@ export function deriveFeatureUnitStatus(
     feature.workControl === 'researching' ||
     feature.workControl === 'planning' ||
     feature.workControl === 'executing' ||
-    feature.workControl === 'feature_ci' ||
+    feature.workControl === 'ci_check' ||
     feature.workControl === 'verifying' ||
     feature.workControl === 'awaiting_merge' ||
     feature.workControl === 'summarizing' ||

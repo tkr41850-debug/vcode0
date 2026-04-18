@@ -12,7 +12,7 @@ const DISPATCHABLE_FEATURE_PHASES: ReadonlySet<FeatureWorkControl> = new Set([
   'discussing',
   'researching',
   'planning',
-  'feature_ci',
+  'ci_check',
   'verifying',
   'replanning',
   'summarizing',

@@ -551,7 +551,7 @@ describe('feature-phase agent flow', () => {
       fauxAssistantMessage(
         [
           fauxToolCall('getChangedFiles', {}),
-          fauxToolCall('listFeatureEvents', { phase: 'feature_ci' }),
+          fauxToolCall('listFeatureEvents', { phase: 'ci_check' }),
           fauxToolCall('submitSummarize', {
             summary: 'Merged feature summary.',
             outcome: 'Merged feature delivered',
@@ -583,7 +583,7 @@ describe('feature-phase agent flow', () => {
         }),
       ],
     });
-    appendFeaturePhaseEvent(store, 'f-1', 'feature_ci', 'feature ci green', {
+    appendFeaturePhaseEvent(store, 'f-1', 'ci_check', 'feature ci green', {
       ok: true,
       summary: 'feature ci green',
     });
@@ -650,11 +650,11 @@ describe('feature-phase agent flow', () => {
     expect(sessionStore.listSessionIds()).toEqual([]);
   });
 
-  it('dispatches verify with structured repair-needed verdict into repair flow', async () => {
+  it('dispatches verify with structured repair-needed verdict into replanning', async () => {
     faux.setResponses([
       fauxAssistantMessage(
         [
-          fauxToolCall('listFeatureEvents', { phase: 'feature_ci' }),
+          fauxToolCall('listFeatureEvents', { phase: 'ci_check' }),
           fauxToolCall('submitVerify', {
             outcome: 'repair_needed',
             summary: 'Repair needed: integrated flow not proven.',
@@ -674,7 +674,7 @@ describe('feature-phase agent flow', () => {
         collabControl: 'branch_open',
       },
     });
-    appendFeaturePhaseEvent(store, 'f-1', 'feature_ci', 'feature ci green', {
+    appendFeaturePhaseEvent(store, 'f-1', 'ci_check', 'feature ci green', {
       ok: true,
       summary: 'feature ci green',
     });
@@ -683,18 +683,16 @@ describe('feature-phase agent flow', () => {
 
     expect(graph.features.get('f-1')).toEqual(
       expect.objectContaining({
-        workControl: 'executing_repair',
+        workControl: 'replanning',
         status: 'pending',
         collabControl: 'branch_open',
       }),
     );
-    const repairTask = [...graph.tasks.values()].find(
-      (task) => task.repairSource === 'verify',
-    );
-    expect(repairTask?.status).toBe('ready');
-    expect(repairTask?.description).toContain(
-      'Repair feature verification issues: Repair needed: integrated flow not proven.',
-    );
+    expect(
+      [...graph.tasks.values()].filter(
+        (task) => task.repairSource === 'verify',
+      ),
+    ).toHaveLength(0);
     const verifyEvent = findEvent(
       store.listEvents({ entityId: 'f-1' }),
       'feature_phase_completed',
@@ -709,7 +707,7 @@ describe('feature-phase agent flow', () => {
     });
   });
 
-  it('runs real feature_ci verification service and advances to verifying', async () => {
+  it('runs real ci_check verification service and advances to verifying', async () => {
     const projectRoot = await fs.mkdtemp(
       path.join(os.tmpdir(), 'gvc0-feature-ci-pass-'),
     );
@@ -734,7 +732,7 @@ describe('feature-phase agent flow', () => {
       const { graph, store, loop } = createFixture({
         featureOverrides: {
           status: 'in_progress',
-          workControl: 'feature_ci',
+          workControl: 'ci_check',
           collabControl: 'branch_open',
           featureBranch: 'feat-feature-1-1',
         },
@@ -757,7 +755,7 @@ describe('feature-phase agent flow', () => {
           collabControl: 'branch_open',
         }),
       );
-      expect(store.getAgentRun('run-feature:f-1:feature_ci')).toEqual(
+      expect(store.getAgentRun('run-feature:f-1:ci_check')).toEqual(
         expect.objectContaining({ runStatus: 'completed', owner: 'system' }),
       );
       const featureCiEvent = findEvent(
@@ -765,7 +763,7 @@ describe('feature-phase agent flow', () => {
         'feature_phase_completed',
       );
       expect(featureCiEvent?.payload).toMatchObject({
-        phase: 'feature_ci',
+        phase: 'ci_check',
         summary: 'Feature verification passed (1/1 checks).',
         extra: {
           ok: true,
@@ -777,7 +775,7 @@ describe('feature-phase agent flow', () => {
     }
   });
 
-  it('runs real feature_ci verification service and enters repair flow on failure', async () => {
+  it('runs real ci_check verification service and enters repair flow on failure', async () => {
     const projectRoot = await fs.mkdtemp(
       path.join(os.tmpdir(), 'gvc0-feature-ci-fail-'),
     );
@@ -802,7 +800,7 @@ describe('feature-phase agent flow', () => {
       const { graph, store, loop } = createFixture({
         featureOverrides: {
           status: 'in_progress',
-          workControl: 'feature_ci',
+          workControl: 'ci_check',
           collabControl: 'branch_open',
           featureBranch: 'feat-feature-1-1',
         },
@@ -825,17 +823,17 @@ describe('feature-phase agent flow', () => {
         }),
       );
       const repairTask = [...graph.tasks.values()].find(
-        (task) => task.repairSource === 'feature_ci',
+        (task) => task.repairSource === 'ci_check',
       );
       expect(repairTask?.status).toBe('ready');
-      expect(repairTask?.description).toContain('Repair feature ci issues:');
+      expect(repairTask?.description).toContain('Repair ci check issues:');
       expect(repairTask?.description).toContain('Check: feature marker exists');
       const featureCiEvent = findEvent(
         store.listEvents({ entityId: 'f-1' }),
         'feature_phase_completed',
       );
       expect(featureCiEvent?.payload).toMatchObject({
-        phase: 'feature_ci',
+        phase: 'ci_check',
         extra: {
           ok: false,
           failedChecks: ['feature marker exists'],

@@ -16,8 +16,8 @@ describe('validateFeatureWorkTransition', () => {
     ['discussing', 'researching', 'done', 'branch_open'],
     ['researching', 'planning', 'done', 'branch_open'],
     ['planning', 'executing', 'done', 'branch_open'],
-    ['executing', 'feature_ci', 'done', 'branch_open'],
-    ['feature_ci', 'verifying', 'done', 'branch_open'],
+    ['executing', 'ci_check', 'done', 'branch_open'],
+    ['ci_check', 'verifying', 'done', 'branch_open'],
     ['verifying', 'awaiting_merge', 'done', 'branch_open'],
     ['awaiting_merge', 'summarizing', 'done', 'merged'],
     ['summarizing', 'work_complete', 'done', 'merged'],
@@ -29,7 +29,7 @@ describe('validateFeatureWorkTransition', () => {
 
   it.each([
     ['executing', 'executing_repair', 'failed', 'branch_open'],
-    ['feature_ci', 'executing_repair', 'failed', 'branch_open'],
+    ['ci_check', 'executing_repair', 'failed', 'branch_open'],
     ['verifying', 'executing_repair', 'failed', 'branch_open'],
   ] as const)('failure → repair: %s -> %s (status=%s)', (from, to, status, collab) => {
     expect(validateFeatureWorkTransition(from, to, status, collab)).toEqual({
@@ -39,14 +39,14 @@ describe('validateFeatureWorkTransition', () => {
 
   it.each([
     ['executing_repair', 'executing', 'done', 'branch_open'],
-    ['executing_repair', 'feature_ci', 'done', 'branch_open'],
+    ['executing_repair', 'ci_check', 'done', 'branch_open'],
   ] as const)('repair succeeded → return: %s -> %s (status=%s)', (from, to, status, collab) => {
     expect(validateFeatureWorkTransition(from, to, status, collab)).toEqual({
       valid: true,
     });
   });
 
-  it('repair cannot skip feature_ci and return directly to verifying', () => {
+  it('repair cannot skip ci_check and return directly to verifying', () => {
     expect(
       validateFeatureWorkTransition(
         'executing_repair',

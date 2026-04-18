@@ -703,7 +703,7 @@ describe('InMemoryFeatureGraph', () => {
 
   it('readyFeatures includes features in verification and summary phases', () => {
     const g = createGraphWithFeature();
-    for (const wc of ['feature_ci', 'verifying', 'summarizing'] as const) {
+    for (const wc of ['ci_check', 'verifying', 'summarizing'] as const) {
       updateFeature(g, 'f-1', { workControl: wc });
       expect(g.readyFeatures()).toHaveLength(1);
     }
@@ -1740,10 +1740,10 @@ describe('InMemoryFeatureGraph', () => {
   it('transitionFeature rejects invalid work transition', () => {
     const g = createGraphWithFeature();
 
-    // discussing -> feature_ci is invalid (requires status=done for advance)
+    // discussing -> ci_check is invalid (requires status=done for advance)
     expect(() =>
       g.transitionFeature('f-1', {
-        workControl: 'feature_ci',
+        workControl: 'ci_check',
         status: 'pending',
       }),
     ).toThrow(GraphValidationError);
@@ -1758,7 +1758,7 @@ describe('InMemoryFeatureGraph', () => {
 
     expect(() =>
       g.transitionFeature('f-1', {
-        workControl: 'feature_ci',
+        workControl: 'ci_check',
         status: 'pending',
       }),
     ).toThrow(GraphValidationError);

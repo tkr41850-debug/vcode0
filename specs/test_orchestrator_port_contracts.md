@@ -40,7 +40,7 @@ Capture current responsibility split across orchestrator graph and adapter seams
 - And phase completion is reported through structured phase submit tools rather than trailing free-text summaries
 
 ### VerificationPort owns feature verification checks
-- Given feature reaches `feature_ci` or verification boundary
+- Given feature reaches `ci_check` or verification boundary
 - When orchestrator needs concrete verification execution
 - Then it calls `VerificationPort`
 - And semantic feature-phase verdicts remain distinct from raw verification command execution

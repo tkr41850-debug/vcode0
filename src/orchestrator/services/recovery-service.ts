@@ -6,6 +6,7 @@ import { resolveTaskWorktreeBranch, worktreePath } from '@core/naming/index';
 import type { Task, TaskAgentRun } from '@core/types/index';
 import type { OrchestratorPorts } from '@orchestrator/ports/index';
 import { taskDispatchForRun } from '@orchestrator/scheduler/dispatch';
+import { buildTaskPayload } from '@runtime/context/index';
 
 export class RecoveryService {
   constructor(
@@ -89,7 +90,13 @@ export class RecoveryService {
       return false;
     }
 
-    const result = await this.ports.runtime.dispatchTask(task, dispatch);
+    const feature = this.graph.features.get(task.featureId);
+    const payload = buildTaskPayload(task, feature);
+    const result = await this.ports.runtime.dispatchTask(
+      task,
+      dispatch,
+      payload,
+    );
     if (result.kind === 'not_resumable') {
       return false;
     }

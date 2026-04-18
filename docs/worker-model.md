@@ -93,7 +93,7 @@ Each feature owns exactly one long-lived integration branch.
    terminal results with `completionKind === 'submitted'` as landed task work
    on the feature branch.
 4. After the last task or repair task lands, the feature runs
-   `feature_ci` on the feature branch,
+   `ci_check` on the feature branch,
    then agent-level `verifying`.
 5. If that path passes, feature work control becomes
    `awaiting_merge` and feature collaboration control may become
@@ -101,7 +101,7 @@ Each feature owns exactly one long-lived integration branch.
 6. The merge train rebases the feature branch onto the latest
    `main` and coordinates final integration; merge-train verification remains
    part of the architecture/config surface, while the currently wired
-   verification executor is the feature-level `feature_ci` path.
+   verification executor is the feature-level `ci_check` path.
 7. After collaboration control reaches `merged`,
    the feature normally runs blocking `summarizing`
    and then reaches `work_complete`;
@@ -201,7 +201,7 @@ type OrchestratorToWorkerMessage =
       agentRunId: string;
       dispatch: TaskRuntimeDispatch;
       task: Task;
-      context: WorkerContext;
+      payload: TaskPayload;
     }
   | {
       type: "steer";
@@ -280,96 +280,45 @@ so a future migration to a network transport is tractable without
 redesigning the runtime seam.
 See [Feature Candidate: Distributed Runtime](./feature-candidates/distributed-runtime.md).
 
-## Context Strategy: Configurable (default: shared read-only summary)
+## Task Payload: Planner-Baked
 
-Each worker receives context about the overall plan and
-completed dependency outputs.
-Context assembly is configured in `.gvc0/config.json`
-with global defaults plus stage-specific overrides.
+Task workers do not assemble their own context at dispatch time.
+The planner bakes per-task objective/scope/expectedFiles/references/
+outcomeVerification onto each Task row, plus a feature-level
+objective and Definition of Done on the owning Feature row. At
+dispatch, runtime reads those columns and packages them into a
+`TaskPayload` that rides the `run` IPC frame. The worker system
+prompt is rendered from this payload.
 
-| Strategy | Description | Config |
-|---|---|---|
-| **shared-summary** (default) | Workers get a read-only summary of the plan + completed dep outputs | `context.defaults.strategy: "shared-summary"` |
-| **fresh** | Workers get only their task description, no dependency context | `context.defaults.strategy: "fresh"` |
-| **inherit** | Workers receive the full transcript of their dependency tasks | `context.defaults.strategy: "inherit"` |
-
-```jsonc
-{
-  "tokenProfile": "balanced",
-  "context": {
-    "defaults": {
-      "strategy": "shared-summary",
-      "includeKnowledge": true,
-      "includeDecisions": true,
-      "includeCodebaseMap": true,
-      "maxDependencyOutputs": 8
-    },
-    "stages": {
-      "researching": {
-        "strategy": "fresh",
-        "includeDecisions": false
-      },
-      "planning": {
-        "strategy": "shared-summary",
-        "includeCodebaseMap": true
-      },
-      "executing": {
-        "strategy": "shared-summary"
-      },
-      "feature_ci": {
-        "strategy": "shared-summary",
-        "includeCodebaseMap": true
-      },
-      "verifying": {
-        "strategy": "shared-summary",
-        "includeKnowledge": true,
-        "includeDecisions": true,
-        "includeCodebaseMap": true
-      },
-      "executing_repair": {
-        "strategy": "inherit",
-        "includeKnowledge": true,
-        "includeDecisions": true,
-        "includeCodebaseMap": true
-      },
-      "replanning": {
-        "strategy": "inherit",
-        "includeKnowledge": true,
-        "includeDecisions": true,
-        "includeCodebaseMap": true
-      },
-      "summarizing": {
-        "includeKnowledge": false,
-        "includeDecisions": false,
-        "includeCodebaseMap": false
-      }
-    }
-  }
-}
-```
-
-Precedence:
-1. built-in defaults
-2. `context.defaults`
-3. `context.stages[stage]` partial override for the current stage
+Resume dispatch does not rebuild payload state — session history
+already carries the task's working context. Runtime passes an empty
+payload on resume; the planner-baked fields remain on the Task row
+if anything later needs them.
 
 ```typescript
-interface WorkerContext {
-  strategy: "shared-summary" | "fresh" | "inherit";
-  planSummary?: string;            // overall plan description
-  dependencyOutputs?: DepOutput[]; // summaries from completed deps
-  codebaseMap?: string;            // optional orientation text supplied by caller
-  knowledge?: string;              // optional knowledge text supplied by caller
-  decisions?: string;              // optional decisions text supplied by caller
+interface TaskPayload {
+  objective?: string;
+  scope?: string;
+  expectedFiles?: readonly string[];
+  references?: readonly string[];
+  outcomeVerification?: string;
+  featureObjective?: string;
+  featureDoD?: readonly string[];
+  planSummary?: string;
+  dependencyOutputs?: DependencyOutputSummary[];
 }
 
-interface DepOutput {
+interface DependencyOutputSummary {
   taskId: string;
   featureName: string;
-  summary: string;                 // LLM-generated summary of what was done
-  filesChanged: string[];          // paths modified by the dep task
+  summary: string;
+  filesChanged: string[];
 }
 ```
+
+Knowledge and decisions injection is a feature-phase concern now
+(see `docs/reference/knowledge-files.md`); runtime no longer assembles
+them for task workers.
 
 ## Crash Recovery
 
@@ -430,7 +379,7 @@ type ResumeSessionResult =
 
 interface SessionHarness {
   /** Start a new session for a task */
-  start(task: Task, context: WorkerContext, agentRunId: string): Promise<SessionHandle>;
+  start(task: Task, payload: TaskPayload, agentRunId: string): Promise<SessionHandle>;
   /** Resume from authoritative persisted run/session state */
   resume(task: Task, run: ResumableTaskExecutionRunRef): Promise<ResumeSessionResult>;
 }

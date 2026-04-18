@@ -25,7 +25,7 @@ const PRE_EXECUTION_PHASE_RANK: Record<FeatureWorkControl, number> = {
   researching: 1,
   planning: 2,
   executing: 3,
-  feature_ci: 4,
+  ci_check: 4,
   verifying: 5,
   awaiting_merge: 6,
   summarizing: 7,
@@ -370,6 +370,24 @@ export function editFeature(
   }
   if (patch.summary !== undefined) {
     updated.summary = patch.summary;
+  }
+  if (patch.roughDraft !== undefined) {
+    updated.roughDraft = patch.roughDraft;
+  }
+  if (patch.discussOutput !== undefined) {
+    updated.discussOutput = patch.discussOutput;
+  }
+  if (patch.researchOutput !== undefined) {
+    updated.researchOutput = patch.researchOutput;
+  }
+  if (patch.featureObjective !== undefined) {
+    updated.featureObjective = patch.featureObjective;
+  }
+  if (patch.featureDoD !== undefined) {
+    updated.featureDoD = patch.featureDoD;
+  }
+  if (patch.verifyIssues !== undefined) {
+    updated.verifyIssues = patch.verifyIssues;
   }
   if (patch.runtimeBlockedByFeatureId !== undefined) {
     updated.runtimeBlockedByFeatureId = patch.runtimeBlockedByFeatureId;

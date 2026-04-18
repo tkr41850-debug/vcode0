@@ -46,7 +46,7 @@ Current integration targets:
 Deferred integration targets:
 
 - worker `submit()` / `confirm()` closeout flow
-- feature-branch shell execution in `feature_ci`
+- feature-branch shell execution in `ci_check`
 - merge-train verification execution on rebased feature branches
 - milestone steering vs autonomous scheduler selection
 - reservation-only overlap penalties vs runtime overlap coordination

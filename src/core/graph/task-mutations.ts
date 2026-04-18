@@ -40,6 +40,21 @@ export function addTask(
   if (opts.repairSource !== undefined) {
     createOpts.repairSource = opts.repairSource;
   }
+  if (opts.objective !== undefined) {
+    createOpts.objective = opts.objective;
+  }
+  if (opts.scope !== undefined) {
+    createOpts.scope = opts.scope;
+  }
+  if (opts.expectedFiles !== undefined) {
+    createOpts.expectedFiles = opts.expectedFiles;
+  }
+  if (opts.references !== undefined) {
+    createOpts.references = opts.references;
+  }
+  if (opts.outcomeVerification !== undefined) {
+    createOpts.outcomeVerification = opts.outcomeVerification;
+  }
   return createTask(graph, createOpts);
 }
 
@@ -62,6 +77,21 @@ export function editTask(
   }
   if (patch.reservedWritePaths !== undefined) {
     updated.reservedWritePaths = patch.reservedWritePaths;
+  }
+  if (patch.objective !== undefined) {
+    updated.objective = patch.objective;
+  }
+  if (patch.scope !== undefined) {
+    updated.scope = patch.scope;
+  }
+  if (patch.expectedFiles !== undefined) {
+    updated.expectedFiles = patch.expectedFiles;
+  }
+  if (patch.references !== undefined) {
+    updated.references = patch.references;
+  }
+  if (patch.outcomeVerification !== undefined) {
+    updated.outcomeVerification = patch.outcomeVerification;
   }
   graph.tasks.set(taskId, updated);
   return updated;

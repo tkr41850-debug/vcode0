@@ -44,10 +44,10 @@ const MILESTONE_COLUMNS =
   'id, name, description, display_order, steering_queue_position, status, created_at, updated_at';
 
 const FEATURE_COLUMNS =
-  'id, milestone_id, order_in_milestone, name, description, status, work_phase, collab_status, feature_branch, feature_test_policy, merge_train_manual_position, merge_train_entered_at, merge_train_entry_seq, merge_train_reentry_count, runtime_blocked_by_feature_id, summary, token_usage, created_at, updated_at';
+  'id, milestone_id, order_in_milestone, name, description, status, work_phase, collab_status, feature_branch, feature_test_policy, merge_train_manual_position, merge_train_entered_at, merge_train_entry_seq, merge_train_reentry_count, runtime_blocked_by_feature_id, summary, token_usage, rough_draft, discuss_output, research_output, feature_objective, feature_dod, verify_issues, created_at, updated_at';
 
 const TASK_COLUMNS =
-  'id, feature_id, order_in_feature, description, weight, status, collab_status, worker_id, worktree_branch, reserved_write_paths, blocked_by_feature_id, result_summary, files_changed, token_usage, task_test_policy, session_id, consecutive_failures, suspended_at, suspend_reason, suspended_files, created_at, updated_at';
+  'id, feature_id, order_in_feature, description, weight, status, collab_status, worker_id, worktree_branch, reserved_write_paths, blocked_by_feature_id, result_summary, files_changed, token_usage, task_test_policy, session_id, consecutive_failures, suspended_at, suspend_reason, suspended_files, objective, scope, expected_files, references_json, outcome_verification, created_at, updated_at';
 
 interface PreparedStatements {
   selectMilestones: Database.Statement<[], MilestoneRow>;
@@ -409,7 +409,9 @@ export class PersistentFeatureGraph implements FeatureGraph {
           :feature_test_policy, :merge_train_manual_position,
           :merge_train_entered_at, :merge_train_entry_seq,
           :merge_train_reentry_count, :runtime_blocked_by_feature_id,
-          :summary, :token_usage, :created_at, :updated_at
+          :summary, :token_usage, :rough_draft, :discuss_output,
+          :research_output, :feature_objective, :feature_dod,
+          :verify_issues, :created_at, :updated_at
         ) ON CONFLICT(id) DO UPDATE SET
           milestone_id = excluded.milestone_id,
           order_in_milestone = excluded.order_in_milestone,
@@ -427,6 +429,12 @@ export class PersistentFeatureGraph implements FeatureGraph {
           runtime_blocked_by_feature_id = excluded.runtime_blocked_by_feature_id,
           summary = excluded.summary,
           token_usage = excluded.token_usage,
+          rough_draft = excluded.rough_draft,
+          discuss_output = excluded.discuss_output,
+          research_output = excluded.research_output,
+          feature_objective = excluded.feature_objective,
+          feature_dod = excluded.feature_dod,
+          verify_issues = excluded.verify_issues,
           updated_at = excluded.updated_at`,
       ),
       deleteFeature: db.prepare<[string]>('DELETE FROM features WHERE id = ?'),
@@ -438,7 +446,9 @@ export class PersistentFeatureGraph implements FeatureGraph {
           :reserved_write_paths, :blocked_by_feature_id, :result_summary,
           :files_changed, :token_usage, :task_test_policy, :session_id,
           :consecutive_failures, :suspended_at, :suspend_reason,
-          :suspended_files, :created_at, :updated_at
+          :suspended_files, :objective, :scope, :expected_files,
+          :references_json, :outcome_verification,
+          :created_at, :updated_at
         ) ON CONFLICT(id) DO UPDATE SET
           feature_id = excluded.feature_id,
           order_in_feature = excluded.order_in_feature,
@@ -459,6 +469,11 @@ export class PersistentFeatureGraph implements FeatureGraph {
           suspended_at = excluded.suspended_at,
           suspend_reason = excluded.suspend_reason,
           suspended_files = excluded.suspended_files,
+          objective = excluded.objective,
+          scope = excluded.scope,
+          expected_files = excluded.expected_files,
+          references_json = excluded.references_json,
+          outcome_verification = excluded.outcome_verification,
           updated_at = excluded.updated_at`,
       ),
       deleteTask: db.prepare<[string]>('DELETE FROM tasks WHERE id = ?'),

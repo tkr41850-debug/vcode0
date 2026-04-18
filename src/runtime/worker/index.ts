@@ -10,7 +10,7 @@ import type {
 import type { AgentEvent, AgentMessage } from '@mariozechner/pi-agent-core';
 import { Agent } from '@mariozechner/pi-agent-core';
 import type { AssistantMessage } from '@mariozechner/pi-ai';
-import type { WorkerContext } from '@runtime/context/index';
+import type { TaskPayload } from '@runtime/context/index';
 import type {
   ApprovalDecision,
   ApprovalPayload,
@@ -62,7 +62,7 @@ export class WorkerRuntime {
 
   async run(
     task: Task,
-    context: WorkerContext,
+    payload: TaskPayload,
     dispatch: TaskRuntimeDispatch,
   ): Promise<void> {
     const model = resolveModel(
@@ -80,7 +80,7 @@ export class WorkerRuntime {
       },
     );
 
-    const systemPrompt = buildSystemPrompt(task, context);
+    const systemPrompt = buildSystemPrompt(task, payload);
 
     let messages: AgentMessage[] = [];
     if (dispatch.mode === 'resume') {

@@ -2,9 +2,6 @@ export type {
   AppMode,
   BudgetAction,
   BudgetConfig,
-  ContextConfig,
-  ContextDefaultsConfig,
-  ContextStrategy,
   GvcConfig,
   ModelRoutingConfig,
   RoutingTier,
@@ -21,10 +18,12 @@ export type {
 export type { Feature, Milestone, Task } from './domain.js';
 export type { EventRecord } from './events.js';
 export type {
+  Decision,
   DiscussPhaseDetails,
   DiscussPhaseResult,
   FeaturePhaseResult,
   FeaturePhaseRunContext,
+  Finding,
   ProposalPhaseDetails,
   ResearchFileDetail,
   ResearchPhaseDetails,
@@ -56,6 +55,8 @@ export type {
   VerificationLayerConfig,
   VerificationOutcome,
   VerificationSummary,
+  VerifyIssue,
+  VerifyIssueSeverity,
 } from './verification.js';
 export type {
   DerivedUnitStatus,

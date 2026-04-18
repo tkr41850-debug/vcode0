@@ -2,6 +2,8 @@ import type { FeatureGraph } from '@core/graph/index';
 import type { FeatureId, GvcConfig } from '@core/types/index';
 import {
   createEmptyVerificationChecksWarning,
+  createVerifyReplanLoopWarning,
+  DEFAULT_VERIFY_REPLAN_LOOP_THRESHOLD,
   type WarningEvaluator,
 } from '@core/warnings/index';
 import type { OrchestratorPorts } from '@orchestrator/ports/index';
@@ -18,13 +20,17 @@ interface SchedulerWarningDeps {
 }
 
 export function emitWarningSignals(
-  { graph, warnings, store }: SchedulerWarningDeps,
+  { graph, warnings, store, config }: SchedulerWarningDeps,
   emittedWarnings: ReadonlySet<string>,
   now: number,
 ): { changed: boolean; emittedWarnings: Set<string> } {
   const tasks = [...graph.tasks.values()];
   const activeWarningKeys = new Set<string>();
   let changed = false;
+
+  const verifyReplanLoopThreshold =
+    config.warnings?.verifyReplanLoopThreshold ??
+    DEFAULT_VERIFY_REPLAN_LOOP_THRESHOLD;
 
   for (const feature of graph.features.values()) {
     const featureWarnings = warnings.evaluateFeature(feature, now, tasks);
@@ -46,6 +52,35 @@ export function emitWarningSignals(
         },
       });
       changed = true;
+    }
+
+    const failedVerifyCount = countVerifyFailuresSinceLastReplan(
+      store,
+      feature.id,
+    );
+    if (failedVerifyCount >= verifyReplanLoopThreshold) {
+      const loopKey = buildWarningKey('verify_replan_loop', feature.id);
+      activeWarningKeys.add(loopKey);
+      if (!emittedWarnings.has(loopKey)) {
+        const loopWarning = createVerifyReplanLoopWarning(
+          feature.id,
+          failedVerifyCount,
+          now,
+        );
+        store.appendEvent({
+          eventType: 'warning_emitted',
+          entityId: loopWarning.entityId,
+          timestamp: loopWarning.occurredAt,
+          payload: {
+            category: loopWarning.category,
+            message: loopWarning.message,
+            ...(loopWarning.payload !== undefined
+              ? { extra: loopWarning.payload }
+              : {}),
+          },
+        });
+        changed = true;
+      }
     }
   }
 
@@ -110,6 +145,39 @@ export function emitEmptyVerificationChecksWarning(
     },
   });
   return nextWarnings;
+}
+
+function countVerifyFailuresSinceLastReplan(
+  store: OrchestratorPorts['store'],
+  featureId: FeatureId,
+): number {
+  const events = store.listEvents({
+    entityId: featureId,
+    eventType: 'feature_phase_completed',
+  });
+  let count = 0;
+  for (let i = events.length - 1; i >= 0; i--) {
+    const event = events[i];
+    const phase = event?.payload?.phase;
+    const extra = event?.payload?.extra;
+    const ok =
+      extra !== undefined &&
+      extra !== null &&
+      typeof extra === 'object' &&
+      'ok' in extra
+        ? (extra as { ok?: unknown }).ok
+        : undefined;
+    if ((phase === 'replan' || phase === 'plan') && ok !== false) {
+      break;
+    }
+    if (phase !== 'verify') {
+      continue;
+    }
+    if (ok === false) {
+      count += 1;
+    }
+  }
+  return count;
 }
 
 export function buildWarningKey(

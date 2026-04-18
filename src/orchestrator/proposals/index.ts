@@ -162,7 +162,7 @@ function advanceTasklessFeatureAfterApproval(
     graph.transitionFeature(featureId, { status: 'done' });
   }
   graph.transitionFeature(featureId, {
-    workControl: 'feature_ci',
+    workControl: 'ci_check',
     status: 'pending',
   });
 }

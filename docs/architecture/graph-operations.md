@@ -127,7 +127,7 @@ Additional reservation-level detection could be made push-based in the future. S
 
 ### State Transition Guards
 
-State transitions are validated by pure guard functions in `core/fsm/` before being applied. Guards check both axes (work-control and collab-control) together — for example, `executing → feature_ci` must satisfy the feature composite guard. SQL constraint hardening may be added later as a safety net but does not replace the orchestrator guards.
+State transitions are validated by pure guard functions in `core/fsm/` before being applied. Guards check both axes (work-control and collab-control) together — for example, `executing → ci_check` must satisfy the feature composite guard. SQL constraint hardening may be added later as a safety net but does not replace the orchestrator guards.
 
 ### Feature-Phase Concurrency
 
@@ -193,7 +193,7 @@ A work-type tier sort key sits between milestone position and critical path weig
 
 | Tier | Priority | Phases | Rationale |
 |------|----------|--------|-----------|
-| 1 (highest) | verify | `verify`, `feature_ci` | Closest to feature completion; unblocks merge queue |
+| 1 (highest) | verify | `verify`, `ci_check` | Closest to feature completion; unblocks merge queue |
 | 2 | execute | `execute` | Makes progress on planned work; non-tail tasks naturally sort above tail tasks by critical path weight |
 | 3 | plan | `plan`, `discuss`, `research`, `replan` | Starts new feature work; produces future tasks |
 | 4 (lowest) | summarize | `summarize` | Post-merge; blocks nothing |
@@ -241,7 +241,7 @@ Both kinds compete for the same worker pool and follow the same priority orderin
 ```typescript
 type SchedulerEvent =
   | { type: 'worker_message'; message: WorkerToOrchestratorMessage }
-  | { type: 'feature_phase_complete'; featureId: FeatureId; phase: AgentRunPhase; summary: string; verification?: VerificationSummary }
+  | { type: 'feature_phase_complete'; featureId: FeatureId; phase: AgentRunPhase; summary: string; issues?: VerifyIssue[] }
   | { type: 'feature_phase_error'; featureId: FeatureId; phase: AgentRunPhase; error: string }
   | { type: 'shutdown' };
 

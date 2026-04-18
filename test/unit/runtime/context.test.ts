@@ -1,96 +1,91 @@
-import type { GvcConfig } from '@core/types';
-import { WorkerContextBuilder } from '@runtime/context';
+import { buildTaskPayload } from '@runtime/context';
 import { ModelRouter } from '@runtime/routing';
 import { describe, expect, it } from 'vitest';
 
-function makeConfig(overrides: Partial<GvcConfig> = {}): GvcConfig {
-  return {
-    tokenProfile: 'balanced',
-    context: {
-      defaults: {
-        strategy: 'shared-summary',
-        includeKnowledge: true,
-        includeDecisions: true,
-        includeCodebaseMap: true,
-        maxDependencyOutputs: 8,
-      },
-      ...overrides.context,
-    },
-    ...overrides,
-  };
-}
+import {
+  createFeatureFixture,
+  createTaskFixture,
+} from '../../helpers/graph-builders.js';
 
-describe('worker context builder', () => {
-  it('uses the configured lifecycle stage vocabulary', () => {
-    const builder = new WorkerContextBuilder(
-      makeConfig({
-        context: {
-          defaults: {
-            strategy: 'shared-summary',
-            includeKnowledge: true,
-            includeDecisions: true,
-            includeCodebaseMap: true,
-            maxDependencyOutputs: 8,
-          },
-          stages: {
-            planning: {
-              strategy: 'fresh',
-            },
-          },
-        },
-      }),
-    );
-
-    expect(builder.build('planning').strategy).toBe('fresh');
-  });
-
-  it('assembles optional context inputs and respects include flags', () => {
-    const builder = new WorkerContextBuilder(
-      makeConfig({
-        context: {
-          defaults: {
-            strategy: 'shared-summary',
-            includeKnowledge: false,
-            includeDecisions: true,
-            includeCodebaseMap: false,
-            maxDependencyOutputs: 1,
-          },
-        },
-      }),
-    );
-
-    const context = builder.build('executing', undefined, {
-      planSummary: 'plan',
-      dependencyOutputs: [
-        {
-          taskId: 't-task-1',
-          featureName: 'Feature',
-          summary: 'done',
-          filesChanged: ['src/core/types/index.ts'],
-        },
-        {
-          taskId: 't-task-2',
-          featureName: 'Feature',
-          summary: 'later',
-          filesChanged: ['src/runtime/context/index.ts'],
-        },
-      ],
-      codebaseMap: 'map',
-      knowledge: 'knowledge',
-      decisions: 'decisions',
+describe('buildTaskPayload', () => {
+  it('threads planner-baked task fields into payload', () => {
+    const task = createTaskFixture({
+      id: 't-1',
+      featureId: 'f-1',
+      description: 'Implement login',
+      objective: 'Ship credential flow',
+      scope: 'auth middleware only',
+      expectedFiles: ['src/auth/login.ts'],
+      references: ['docs/auth.md'],
+      outcomeVerification: 'login test green',
     });
 
-    expect(context.planSummary).toBe('plan');
-    expect(context.dependencyOutputs).toHaveLength(1);
-    expect(context.codebaseMap).toBeUndefined();
-    expect(context.knowledge).toBeUndefined();
-    expect(context.decisions).toBe('decisions');
+    const payload = buildTaskPayload(task, undefined);
+
+    expect(payload).toEqual({
+      objective: 'Ship credential flow',
+      scope: 'auth middleware only',
+      expectedFiles: ['src/auth/login.ts'],
+      references: ['docs/auth.md'],
+      outcomeVerification: 'login test green',
+    });
   });
 
-  it('falls back to shared-summary when context defaults are absent', () => {
-    const builder = new WorkerContextBuilder({ tokenProfile: 'balanced' });
+  it('threads feature objective and DoD when feature is provided', () => {
+    const feature = createFeatureFixture({
+      id: 'f-1',
+      name: 'Auth',
+      featureObjective: 'Authenticated users only',
+      featureDoD: ['all routes guarded', 'passes e2e login test'],
+    });
+    const task = createTaskFixture({
+      id: 't-1',
+      featureId: 'f-1',
+      description: 'part of auth',
+    });
 
-    expect(builder.build('executing').strategy).toBe('shared-summary');
+    const payload = buildTaskPayload(task, feature);
+
+    expect(payload.featureObjective).toBe('Authenticated users only');
+    expect(payload.featureDoD).toEqual([
+      'all routes guarded',
+      'passes e2e login test',
+    ]);
+  });
+
+  it('includes plan summary and dependency outputs from extras', () => {
+    const task = createTaskFixture({
+      id: 't-1',
+      featureId: 'f-1',
+      description: 'task',
+    });
+
+    const payload = buildTaskPayload(task, undefined, {
+      planSummary: 'Phase 1: plumbing',
+      dependencyOutputs: [
+        {
+          taskId: 't-0',
+          featureName: 'auth',
+          summary: 'setup done',
+          filesChanged: ['src/auth/setup.ts'],
+        },
+      ],
+    });
+
+    expect(payload.planSummary).toBe('Phase 1: plumbing');
+    expect(payload.dependencyOutputs).toHaveLength(1);
+  });
+
+  it('omits absent optional fields', () => {
+    const task = createTaskFixture({
+      id: 't-1',
+      featureId: 'f-1',
+      description: 'task',
+    });
+
+    const payload = buildTaskPayload(task, undefined);
+
+    expect(payload).toEqual({});
   });
 
   it('routes models with budget pressure and failure escalation policy', () => {

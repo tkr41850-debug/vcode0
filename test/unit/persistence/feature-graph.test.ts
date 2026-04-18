@@ -707,6 +707,84 @@ describe('PersistentFeatureGraph', () => {
       const t2 = graph2.tasks.get('t-2');
       expect(t2?.dependsOn).toEqual(['t-1']);
     });
+
+    it('round-trips feature-phase outputs and planner-baked task payload', () => {
+      graph.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+      graph.createFeature({
+        id: 'f-1',
+        milestoneId: 'm-1',
+        name: 'Auth',
+        description: 'login flow',
+      });
+      graph.editFeature('f-1', {
+        roughDraft: 'draft v1',
+        discussOutput: [
+          { topic: 'scope', decision: 'only email/password' },
+          {
+            topic: 'storage',
+            decision: 'bcrypt hashes',
+            rationale: 'compliance',
+          },
+        ],
+        researchOutput: [
+          {
+            topic: 'lib',
+            finding: 'bcrypt-js available',
+            source: 'npm',
+          },
+        ],
+        featureObjective: 'ship secure login',
+        featureDoD: ['login works', 'tests green'],
+        verifyIssues: [
+          {
+            id: 'vi-1',
+            severity: 'blocking',
+            description: 'missing rate limit',
+          },
+        ],
+      });
+      graph.createTask({
+        id: 't-1',
+        featureId: 'f-1',
+        description: 'add login endpoint',
+        objective: 'handle POST /login',
+        scope: 'server only',
+        expectedFiles: ['src/auth/login.ts'],
+        references: ['docs/auth/flow.md'],
+        outcomeVerification: 'curl returns 200',
+      });
+
+      const graph2 = new PersistentFeatureGraph(db);
+      const f = graph2.features.get('f-1');
+      expect(f?.roughDraft).toBe('draft v1');
+      expect(f?.discussOutput).toEqual([
+        { topic: 'scope', decision: 'only email/password' },
+        {
+          topic: 'storage',
+          decision: 'bcrypt hashes',
+          rationale: 'compliance',
+        },
+      ]);
+      expect(f?.researchOutput).toEqual([
+        { topic: 'lib', finding: 'bcrypt-js available', source: 'npm' },
+      ]);
+      expect(f?.featureObjective).toBe('ship secure login');
+      expect(f?.featureDoD).toEqual(['login works', 'tests green']);
+      expect(f?.verifyIssues).toEqual([
+        {
+          id: 'vi-1',
+          severity: 'blocking',
+          description: 'missing rate limit',
+        },
+      ]);
+
+      const t = graph2.tasks.get('t-1');
+      expect(t?.objective).toBe('handle POST /login');
+      expect(t?.scope).toBe('server only');
+      expect(t?.expectedFiles).toEqual(['src/auth/login.ts']);
+      expect(t?.references).toEqual(['docs/auth/flow.md']);
+      expect(t?.outcomeVerification).toBe('curl returns 200');
+    });
   });
 
   describe('rollback on FSM rejection', () => {

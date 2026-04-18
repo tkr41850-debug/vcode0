@@ -21,15 +21,42 @@ its resulting graph snapshot and the mutation log that produced it.
 ```typescript
 // Tools exposed to the planner agent
 const plannerTools: AgentTool[] = [
-  createMilestoneTool,   // createMilestone(name, description) → Milestone
-  createFeatureTool,     // createFeature(milestoneId, name, description, dependsOn[]) → Feature
-  createTaskTool,        // createTask(featureId, description, dependsOn[]) → Task
-  addDependencyTool,     // addDependency(fromId, toId) → void
-  removeDependencyTool,  // removeDependency(fromId, toId) → void
-  updateTaskTool,        // updateTask(id, patch) → Task
-  submitPlanTool,        // submit() → finalize proposal for approval
+  createMilestoneTool,     // createMilestone(name, description) → Milestone
+  createFeatureTool,       // createFeature(milestoneId, name, description, dependsOn[]) → Feature
+  createTaskTool,          // createTask(featureId, description, dependsOn[], planner-baked payload) → Task
+  addDependencyTool,       // addDependency(fromId, toId) → void
+  removeDependencyTool,    // removeDependency(fromId, toId) → void
+  updateTaskTool,          // updateTask(id, patch) → Task
+  setFeatureObjectiveTool, // setFeatureObjective(featureId, objective) → void
+  setFeatureDoDTool,       // setFeatureDoD(featureId, dod[]) → void
+  submitPlanTool,          // submit() → finalize proposal for approval
 ];
 ```
+
+### Planner-baked task payload
+
+`createTask` and `updateTask` accept an optional planner-baked payload
+so each task carries a fresh, typed brief that is written to the `tasks`
+row on approval:
+
+- `objective` — one-liner describing what the task must achieve.
+- `scope` — boundary note describing what is in / out of scope.
+- `expectedFiles` — list of files the task is expected to touch
+  (subset of `reservedWritePaths`; reservations are still the scheduling contract).
+- `references[]` — typed pointers (`file` / `knowledge` / `decision` / `url`)
+  the task should consult. The planner cites knowledge/decisions here rather
+  than relying on runtime to auto-inject them.
+- `outcomeVerification` — how the worker should verify the task succeeded
+  (commands to run, assertions to check).
+
+### Feature-level objective and DoD
+
+`setFeatureObjective` and `setFeatureDoD` let the planner record
+feature-scope context once per feature. On approval these are written
+to `features.feature_objective` and `features.feature_dod`. Verify
+consumes them as the target spec; `buildTaskPayload` merges them into
+each task's `TaskPayload` so workers see the feature-level goal alongside
+their own objective.
 
 The planner receives the spec text as its prompt
 and calls these tools to build the proposal graph.

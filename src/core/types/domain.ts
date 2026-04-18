@@ -1,5 +1,6 @@
-import type { TaskResult } from './phases.js';
+import type { Decision, Finding, TaskResult } from './phases.js';
 import type { TokenUsageAggregate } from './usage.js';
+import type { VerifyIssue } from './verification.js';
 import type {
   FeatureCollabControl,
   FeatureId,
@@ -43,6 +44,12 @@ export interface Feature {
   runtimeBlockedByFeatureId?: FeatureId;
   summary?: string;
   tokenUsage?: TokenUsageAggregate;
+  roughDraft?: string;
+  discussOutput?: Decision[];
+  researchOutput?: Finding[];
+  featureObjective?: string;
+  featureDoD?: string[];
+  verifyIssues?: VerifyIssue[];
 }
 
 export interface Task {
@@ -67,4 +74,9 @@ export interface Task {
   suspendedAt?: number;
   suspendReason?: TaskSuspendReason;
   suspendedFiles?: string[];
+  objective?: string;
+  scope?: string;
+  expectedFiles?: string[];
+  references?: string[];
+  outcomeVerification?: string;
 }

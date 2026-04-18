@@ -17,6 +17,7 @@ const defaultThresholds: WarningThresholds = {
   featureChurnThreshold: 3,
   taskFailureThreshold: 3,
   longFeatureBlockingMs: 8 * 60 * 60 * 1000,
+  verifyReplanLoopThreshold: 3,
 };
 
 function makeBudget(overrides: Partial<BudgetState> = {}): BudgetState {
@@ -181,7 +182,7 @@ describe('WarningEvaluator', () => {
         category: 'empty_verification_checks',
         entityId: 'f-1',
         message:
-          'verification.feature.checks empty; feature_ci running without configured checks',
+          'verification.feature.checks empty; ci_check running without configured checks',
         occurredAt: 3000,
         payload: { layer: 'feature' },
       });

@@ -1,5 +1,5 @@
 import type { Task } from '@core/types/index';
-import type { WorkerContext } from '@runtime/context/index';
+import type { TaskPayload } from '@runtime/context/index';
 
 const EXECUTE_TASK_PROMPT = `You are gvc0 task execution agent.
 
@@ -51,6 +51,17 @@ function renderSection(
   return `## ${title}\n${body}`;
 }
 
+function renderListSection(
+  title: string,
+  items: readonly string[] | undefined,
+): string | undefined {
+  if (items === undefined || items.length === 0) {
+    return undefined;
+  }
+
+  return `## ${title}\n${items.map((item) => `- ${item}`).join('\n')}`;
+}
+
 function renderTaskSection(task: Task): string {
   const bullets = [
     `- ID: ${task.id}`,
@@ -80,15 +91,15 @@ function renderTaskSection(task: Task): string {
   return `## Task\n${bullets.join('\n')}`;
 }
 
-function renderDependencyOutputs(context: WorkerContext): string | undefined {
+function renderDependencyOutputs(payload: TaskPayload): string | undefined {
   if (
-    context.dependencyOutputs === undefined ||
-    context.dependencyOutputs.length === 0
+    payload.dependencyOutputs === undefined ||
+    payload.dependencyOutputs.length === 0
   ) {
     return undefined;
   }
 
-  const lines = context.dependencyOutputs.map((dep) => {
+  const lines = payload.dependencyOutputs.map((dep) => {
     const files =
       dep.filesChanged.length > 0
         ? `\n  Files: ${dep.filesChanged.join(', ')}`
@@ -102,20 +113,24 @@ function renderDependencyOutputs(context: WorkerContext): string | undefined {
 /**
  * Build system prompt handed to pi-sdk `Agent` for task run.
  *
- * Lives in runtime layer because it is assembled from runtime-owned
- * `WorkerContext` inputs (plan summary, dependency outputs, codebase map,
- * knowledge, decisions) and submitted directly to harness. Worker
- * agent's tool catalog lives under `@agents/worker`.
+ * Consumes planner-baked `TaskPayload` (task objective/scope/refs/
+ * expectedFiles/outcomeVerification + feature objective/DoD + plan
+ * summary + dependency outputs). Every field is persisted on the Task
+ * or Feature row — no runtime heuristics, no event mining.
  */
-export function buildSystemPrompt(task: Task, context: WorkerContext): string {
+export function buildSystemPrompt(task: Task, payload: TaskPayload): string {
   return [
     EXECUTE_TASK_PROMPT,
     renderTaskSection(task),
-    renderSection('Plan', context.planSummary),
-    renderDependencyOutputs(context),
-    renderSection('Codebase', context.codebaseMap),
-    renderSection('Knowledge', context.knowledge),
-    renderSection('Decisions', context.decisions),
+    renderSection('Task Objective', payload.objective),
+    renderSection('Scope', payload.scope),
+    renderListSection('Expected Files', payload.expectedFiles),
+    renderListSection('References', payload.references),
+    renderSection('Outcome Verification', payload.outcomeVerification),
+    renderSection('Feature Objective', payload.featureObjective),
+    renderListSection('Feature Definition of Done', payload.featureDoD),
+    renderSection('Plan', payload.planSummary),
+    renderDependencyOutputs(payload),
   ]
     .filter((section): section is string => section !== undefined)
     .join('\n\n');

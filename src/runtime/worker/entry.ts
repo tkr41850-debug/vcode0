@@ -42,7 +42,7 @@ transport.onMessage((message: OrchestratorToWorkerMessage) => {
     });
 
     runtime
-      .run(message.task, message.context, message.dispatch)
+      .run(message.task, message.payload, message.dispatch)
       .then(() => {
         process.exit(0);
       })

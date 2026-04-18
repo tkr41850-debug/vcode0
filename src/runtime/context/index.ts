@@ -1,89 +1,58 @@
-import type {
-  ContextDefaultsConfig,
-  ContextStrategy,
-  DependencyOutputSummary,
-  FeatureWorkControl,
-  GvcConfig,
-  Task,
-} from '@core/types/index';
+import type { DependencyOutputSummary, Feature, Task } from '@core/types/index';
 
-export interface WorkerContext {
-  strategy: ContextStrategy;
+/**
+ * Planner-baked payload handed to the worker runtime at dispatch.
+ *
+ * Every field comes from the planner's approved Task/Feature row, not
+ * runtime heuristics. Workers render this directly into their system
+ * prompt; no event-mining, no config-driven stage overrides.
+ */
+export interface TaskPayload {
+  objective?: string;
+  scope?: string;
+  expectedFiles?: readonly string[];
+  references?: readonly string[];
+  outcomeVerification?: string;
+  featureObjective?: string;
+  featureDoD?: readonly string[];
   planSummary?: string;
   dependencyOutputs?: DependencyOutputSummary[];
-  codebaseMap?: string;
-  knowledge?: string;
-  decisions?: string;
 }
 
-export interface WorkerContextInputs {
+export interface TaskPayloadExtras {
   planSummary?: string;
   dependencyOutputs?: DependencyOutputSummary[];
-  codebaseMap?: string;
-  knowledge?: string;
-  decisions?: string;
 }
 
-export class WorkerContextBuilder {
-  constructor(private readonly config: GvcConfig) {}
+export function buildTaskPayload(
+  task: Task,
+  feature: Feature | undefined,
+  extras: TaskPayloadExtras = {},
+): TaskPayload {
+  const payload: TaskPayload = {};
 
-  build(
-    stage: FeatureWorkControl,
-    _task?: Task,
-    inputs: WorkerContextInputs = {},
-  ): WorkerContext {
-    const defaults = this.resolveDefaults(stage);
-    const dependencyOutputs = inputs.dependencyOutputs?.slice(
-      0,
-      defaults.maxDependencyOutputs,
-    );
-
-    const context: WorkerContext = {
-      strategy: defaults.strategy,
-    };
-
-    if (inputs.planSummary !== undefined) {
-      context.planSummary = inputs.planSummary;
-    }
-
-    if (dependencyOutputs !== undefined) {
-      context.dependencyOutputs = dependencyOutputs;
-    }
-
-    if (defaults.includeCodebaseMap && inputs.codebaseMap !== undefined) {
-      context.codebaseMap = inputs.codebaseMap;
-    }
-
-    if (defaults.includeKnowledge && inputs.knowledge !== undefined) {
-      context.knowledge = inputs.knowledge;
-    }
-
-    if (defaults.includeDecisions && inputs.decisions !== undefined) {
-      context.decisions = inputs.decisions;
-    }
-
-    return context;
+  if (task.objective !== undefined) payload.objective = task.objective;
+  if (task.scope !== undefined) payload.scope = task.scope;
+  if (task.expectedFiles !== undefined) {
+    payload.expectedFiles = task.expectedFiles;
+  }
+  if (task.references !== undefined) payload.references = task.references;
+  if (task.outcomeVerification !== undefined) {
+    payload.outcomeVerification = task.outcomeVerification;
   }
 
-  private resolveDefaults(stage: FeatureWorkControl): ContextDefaultsConfig {
-    const defaults = this.config.context?.defaults;
-    const stageOverride = this.config.context?.stages?.[stage];
-
-    return {
-      strategy:
-        stageOverride?.strategy ?? defaults?.strategy ?? 'shared-summary',
-      includeKnowledge:
-        stageOverride?.includeKnowledge ?? defaults?.includeKnowledge ?? true,
-      includeDecisions:
-        stageOverride?.includeDecisions ?? defaults?.includeDecisions ?? true,
-      includeCodebaseMap:
-        stageOverride?.includeCodebaseMap ??
-        defaults?.includeCodebaseMap ??
-        true,
-      maxDependencyOutputs:
-        stageOverride?.maxDependencyOutputs ??
-        defaults?.maxDependencyOutputs ??
-        8,
-    };
+  if (feature?.featureObjective !== undefined) {
+    payload.featureObjective = feature.featureObjective;
   }
+  if (feature?.featureDoD !== undefined) {
+    payload.featureDoD = feature.featureDoD;
+  }
+
+  if (extras.planSummary !== undefined)
+    payload.planSummary = extras.planSummary;
+  if (extras.dependencyOutputs !== undefined) {
+    payload.dependencyOutputs = extras.dependencyOutputs;
+  }
+
+  return payload;
 }

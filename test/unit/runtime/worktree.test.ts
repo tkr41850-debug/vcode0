@@ -34,7 +34,10 @@ function makeFeature(overrides: Partial<Feature> = {}): Feature {
   } as Feature;
 }
 
-function makeTask(featureId = 'f-demo', id = 't-one'): Task {
+function makeTask(
+  featureId: Task['featureId'] = 'f-demo',
+  id: Task['id'] = 't-one',
+): Task {
   return createTaskFixture({
     id,
     featureId,

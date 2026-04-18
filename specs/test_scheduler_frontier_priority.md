@@ -27,7 +27,7 @@ Capture ready-frontier recomputation and scheduler ordering across milestone ste
 ### Work-type tier sorts before critical-path weight within a milestone bucket
 - Given ready work of different types exists in the same milestone bucket
 - When the scheduler prioritizes runnable work
-- Then verification/feature_ci work sorts ahead of task execution
+- Then verification/ci_check work sorts ahead of task execution
 - And task execution sorts ahead of planning/discuss/research/replan work
 - And planning work sorts ahead of summarization work
 

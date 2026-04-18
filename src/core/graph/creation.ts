@@ -224,6 +224,21 @@ export function createTask(
   if (opts.repairSource !== undefined) {
     task.repairSource = opts.repairSource;
   }
+  if (opts.objective !== undefined) {
+    task.objective = opts.objective;
+  }
+  if (opts.scope !== undefined) {
+    task.scope = opts.scope;
+  }
+  if (opts.expectedFiles !== undefined) {
+    task.expectedFiles = opts.expectedFiles;
+  }
+  if (opts.references !== undefined) {
+    task.references = opts.references;
+  }
+  if (opts.outcomeVerification !== undefined) {
+    task.outcomeVerification = opts.outcomeVerification;
+  }
 
   graph.tasks.set(task.id, task);
   for (const dep of dependsOn) {

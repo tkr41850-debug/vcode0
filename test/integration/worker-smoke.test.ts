@@ -75,7 +75,7 @@ describe('worker smoke (faux provider + in-process harness)', () => {
     const dispatchResult = await pool.dispatchTask(
       task,
       { mode: 'start', agentRunId: 'run-smoke' },
-      { strategy: 'shared-summary' },
+      {},
     );
 
     expect(dispatchResult.kind).toBe('started');
@@ -104,7 +104,7 @@ describe('worker smoke (faux provider + in-process harness)', () => {
     const dispatchResult = await pool.dispatchTask(
       task,
       { mode: 'start', agentRunId: 'run-smoke-2' },
-      { strategy: 'shared-summary' },
+      {},
     );
     await harness.drain();
 
@@ -132,7 +132,7 @@ describe('worker smoke (faux provider + in-process harness)', () => {
     const dispatchResult = await pool.dispatchTask(
       task,
       { mode: 'start', agentRunId: 'run-help' },
-      { strategy: 'shared-summary' },
+      {},
     );
 
     await new Promise((resolve) => setImmediate(resolve));
@@ -200,7 +200,7 @@ describe('worker smoke (faux provider + in-process harness)', () => {
     await pool.dispatchTask(
       task,
       { mode: 'start', agentRunId: 'run-approval' },
-      { strategy: 'shared-summary' },
+      {},
     );
 
     await new Promise((resolve) => setImmediate(resolve));

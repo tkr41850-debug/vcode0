@@ -238,6 +238,11 @@ describe('codecs — round-trip', () => {
         suspended_at: null,
         suspend_reason: null,
         suspended_files: null,
+        objective: null,
+        scope: null,
+        expected_files: null,
+        references_json: null,
+        outcome_verification: null,
         created_at: 10,
         updated_at: 20,
       };

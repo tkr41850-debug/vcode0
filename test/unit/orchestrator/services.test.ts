@@ -81,7 +81,7 @@ function createFeature(overrides: Partial<Feature> = {}): Feature {
     description: 'desc',
     dependsOn: [],
     status: 'pending',
-    workControl: 'feature_ci',
+    workControl: 'ci_check',
     collabControl: 'branch_open',
     featureBranch: 'feat-feature-1-1',
     ...overrides,

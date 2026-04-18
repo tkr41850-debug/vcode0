@@ -80,7 +80,7 @@ export function createMergeTrainScenario(
       'researching',
       'planning',
       'executing',
-      'feature_ci',
+      'ci_check',
       'verifying',
       'awaiting_merge',
     ] as const;

@@ -20,7 +20,7 @@ export type WorkTypeTier = 'verify' | 'execute' | 'plan' | 'summarize';
 export function workTypeTierOf(phase: AgentRunPhase): WorkTypeTier {
   switch (phase) {
     case 'verify':
-    case 'feature_ci':
+    case 'ci_check':
       return 'verify';
     case 'execute':
       return 'execute';
@@ -112,7 +112,7 @@ const EXECUTING_PHASES: ReadonlySet<FeatureWorkControl> = new Set([
 ]);
 
 const POST_EXECUTION_PHASES: ReadonlySet<FeatureWorkControl> = new Set([
-  'feature_ci',
+  'ci_check',
   'verifying',
   'summarizing',
 ]);
@@ -139,8 +139,8 @@ function workControlToAgentRunPhase(wc: FeatureWorkControl): AgentRunPhase {
     case 'executing':
     case 'executing_repair':
       return 'execute';
-    case 'feature_ci':
-      return 'feature_ci';
+    case 'ci_check':
+      return 'ci_check';
     case 'verifying':
       return 'verify';
     case 'awaiting_merge':

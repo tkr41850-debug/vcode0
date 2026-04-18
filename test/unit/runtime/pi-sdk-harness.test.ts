@@ -85,7 +85,7 @@ describe('PiSdkHarness', () => {
 
     const handle = await harness.start(
       task,
-      { strategy: 'fresh', planSummary: 'Plan here' },
+      { planSummary: 'Plan here' },
       'run-42',
     );
 
@@ -99,7 +99,7 @@ describe('PiSdkHarness', () => {
       taskId: 't-1',
       agentRunId: 'run-42',
       dispatch: { mode: 'start', agentRunId: 'run-42' },
-      context: { strategy: 'fresh', planSummary: 'Plan here' },
+      payload: { planSummary: 'Plan here' },
     });
   });
 
@@ -115,7 +115,7 @@ describe('PiSdkHarness', () => {
 
     await harness.start(
       createTaskFixture({ id: 't-7', featureId: 'f-9' }),
-      { strategy: 'shared-summary' },
+      {},
       'run-7',
     );
 
@@ -147,7 +147,7 @@ describe('PiSdkHarness', () => {
       description: 'desc',
     });
 
-    await harness.start(task, { strategy: 'shared-summary' }, 'run-7');
+    await harness.start(task, {}, 'run-7');
 
     expect(forkWorker).toHaveBeenCalledWith(
       '/tmp/project-root/.gvc0/worktrees/feat-feature-9-9-7',
@@ -176,7 +176,7 @@ describe('PiSdkHarness', () => {
     expect(sessionStore.load).toHaveBeenCalledWith('sess-missing');
   });
 
-  it('resumes worker with stored session and shared-summary context', async () => {
+  it('resumes worker with stored session and default payload', async () => {
     const child = createForkedChild();
     const forkWorker = vi.fn(() => child);
     const harness = new PiSdkHarness(
@@ -209,7 +209,7 @@ describe('PiSdkHarness', () => {
         agentRunId: 'run-99',
         sessionId: 'sess-99',
       },
-      context: { strategy: 'shared-summary' },
+      payload: {},
     });
   });
 
@@ -225,7 +225,7 @@ describe('PiSdkHarness', () => {
     Object.assign(harness as object, { forkWorker });
     const handle = await harness.start(
       createTaskFixture({ id: 't-1' }),
-      { strategy: 'shared-summary' },
+      {},
       'run-abc',
     );
 
@@ -270,7 +270,7 @@ describe('PiSdkHarness', () => {
     Object.assign(harness as object, { forkWorker });
     const handle = await harness.start(
       createTaskFixture({ id: 't-1' }),
-      { strategy: 'shared-summary' },
+      {},
       'run-ex',
     );
 
@@ -298,7 +298,7 @@ describe('PiSdkHarness', () => {
     Object.assign(harness as object, { forkWorker });
     const handle = await harness.start(
       createTaskFixture({ id: 't-1' }),
-      { strategy: 'shared-summary' },
+      {},
       'run-err',
     );
 

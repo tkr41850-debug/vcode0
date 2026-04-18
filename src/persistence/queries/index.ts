@@ -45,6 +45,12 @@ export interface FeatureRow {
   runtime_blocked_by_feature_id: FeatureId | null;
   summary: string | null;
   token_usage: string | null;
+  rough_draft: string | null;
+  discuss_output: string | null;
+  research_output: string | null;
+  feature_objective: string | null;
+  feature_dod: string | null;
+  verify_issues: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -70,6 +76,11 @@ export interface TaskRow {
   suspended_at: number | null;
   suspend_reason: TaskSuspendReason | null;
   suspended_files: string | null;
+  objective: string | null;
+  scope: string | null;
+  expected_files: string | null;
+  references_json: string | null;
+  outcome_verification: string | null;
   created_at: number;
   updated_at: number;
 }

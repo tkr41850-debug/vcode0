@@ -5,7 +5,7 @@ import type {
   TaskResumeReason,
   TaskSuspendReason,
 } from '@core/types';
-import type { WorkerContext } from '@runtime/context';
+import type { TaskPayload } from '@runtime/context';
 import type {
   OrchestratorToWorkerMessage,
   RuntimeSteeringDirective,
@@ -32,7 +32,7 @@ interface MockHandle extends SessionHandle {
 
 interface PoolTestSetup {
   handle: MockHandle;
-  harness: SessionHarness & { lastStartContext: WorkerContext | undefined };
+  harness: SessionHarness & { lastStartPayload: TaskPayload | undefined };
   pool: LocalWorkerPool;
 }
 
@@ -75,12 +75,12 @@ function createMockHandle(sessionId = 'sess-1'): MockHandle {
 
 function createMockHarness(
   handle?: MockHandle,
-): SessionHarness & { lastStartContext: WorkerContext | undefined } {
+): SessionHarness & { lastStartPayload: TaskPayload | undefined } {
   const h = handle ?? createMockHandle();
   const harness = {
-    lastStartContext: undefined as WorkerContext | undefined,
-    start: vi.fn((_task: Task, context: WorkerContext, _agentRunId: string) => {
-      harness.lastStartContext = context;
+    lastStartPayload: undefined as TaskPayload | undefined,
+    start: vi.fn((_task: Task, payload: TaskPayload, _agentRunId: string) => {
+      harness.lastStartPayload = payload;
       return Promise.resolve(h);
     }),
     resume: vi.fn(() =>
@@ -161,24 +161,24 @@ describe('LocalWorkerPool', () => {
       expect(result.agentRunId).toBe('run-1');
     });
 
-    it('passes context to the harness start call', async () => {
+    it('passes payload to the harness start call', async () => {
       const { harness, pool } = setupPool();
 
-      const context = {
-        strategy: 'fresh',
+      const payload = {
+        objective: 'build stuff',
         planSummary: 'build stuff',
-      } satisfies WorkerContext;
+      } satisfies TaskPayload;
 
       await pool.dispatchTask(
         makeTask(),
         { mode: 'start', agentRunId: 'run-1' },
-        context,
+        payload,
       );
 
-      expect(harness.lastStartContext).toEqual(context);
+      expect(harness.lastStartPayload).toEqual(payload);
     });
 
-    it('defaults context to shared-summary when not provided', async () => {
+    it('defaults payload to empty when not provided', async () => {
       const { harness, pool } = setupPool();
 
       await pool.dispatchTask(makeTask(), {
@@ -186,9 +186,7 @@ describe('LocalWorkerPool', () => {
         agentRunId: 'run-1',
       });
 
-      expect(harness.lastStartContext).toEqual({
-        strategy: 'shared-summary',
-      });
+      expect(harness.lastStartPayload).toEqual({});
     });
 
     it('tracks the task in live runs after dispatch', async () => {

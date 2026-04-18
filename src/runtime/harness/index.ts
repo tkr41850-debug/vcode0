@@ -5,7 +5,7 @@ import type { Readable, Writable } from 'node:stream';
 
 import { resolveTaskWorktreeBranch, worktreePath } from '@core/naming/index';
 import type { Task } from '@core/types/index';
-import type { WorkerContext } from '@runtime/context/index';
+import type { TaskPayload } from '@runtime/context/index';
 import type {
   OrchestratorToWorkerMessage,
   ResumableTaskExecutionRunRef,
@@ -46,12 +46,13 @@ export type ResumeSessionResult =
 export interface SessionHarness {
   start(
     task: Task,
-    context: WorkerContext,
+    payload: TaskPayload,
     agentRunId: string,
   ): Promise<SessionHandle>;
   resume(
     task: Task,
     run: ResumableTaskExecutionRunRef,
+    payload?: TaskPayload,
   ): Promise<ResumeSessionResult>;
 }
 
@@ -85,7 +86,7 @@ export class PiSdkHarness implements SessionHarness {
 
   start(
     task: Task,
-    context: WorkerContext,
+    payload: TaskPayload,
     agentRunId: string,
   ): Promise<SessionHandle> {
     const sessionId = crypto.randomUUID();
@@ -111,7 +112,7 @@ export class PiSdkHarness implements SessionHarness {
       agentRunId,
       dispatch: { mode: 'start', agentRunId },
       task,
-      context,
+      payload,
     });
 
     return Promise.resolve(handle);
@@ -120,6 +121,7 @@ export class PiSdkHarness implements SessionHarness {
   async resume(
     task: Task,
     run: ResumableTaskExecutionRunRef,
+    payload: TaskPayload = {},
   ): Promise<ResumeSessionResult> {
     const messages = await this.sessionStore.load(run.sessionId);
     if (messages === null) {
@@ -155,7 +157,7 @@ export class PiSdkHarness implements SessionHarness {
         sessionId: run.sessionId,
       },
       task,
-      context: { strategy: 'shared-summary' },
+      payload,
     });
 
     return { kind: 'resumed', handle };

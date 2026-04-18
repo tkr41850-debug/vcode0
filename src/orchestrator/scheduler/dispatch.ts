@@ -17,6 +17,7 @@ import type {
 } from '@core/types/index';
 import type { OrchestratorPorts } from '@orchestrator/ports/index';
 import { isProposalPhase } from '@orchestrator/proposals/index';
+import { buildTaskPayload } from '@runtime/context/index';
 import type {
   DispatchTaskResult,
   TaskRuntimeDispatch,
@@ -207,13 +208,22 @@ export async function dispatchTaskUnit(params: {
   await params.ports.worktree.ensureFeatureWorktree(feature);
   await params.ports.worktree.ensureTaskWorktree(params.task, feature);
 
-  const result = await params.ports.runtime.dispatchTask(params.task, dispatch);
+  const payload = buildTaskPayload(params.task, feature);
+  const result = await params.ports.runtime.dispatchTask(
+    params.task,
+    dispatch,
+    payload,
+  );
 
   if (result.kind === 'not_resumable' && dispatch.mode === 'resume') {
-    const fallback = await params.ports.runtime.dispatchTask(params.task, {
-      mode: 'start',
-      agentRunId: run.id,
-    });
+    const fallback = await params.ports.runtime.dispatchTask(
+      params.task,
+      {
+        mode: 'start',
+        agentRunId: run.id,
+      },
+      payload,
+    );
     params.markTaskRunning(params.task);
     persistRunningTaskRun(params.ports, run, fallback);
     return;
@@ -286,7 +296,7 @@ export async function dispatchFeaturePhaseUnit(params: {
         });
         return true;
       }
-      case 'feature_ci': {
+      case 'ci_check': {
         const verification = await params.ports.verification.verifyFeature(
           params.feature,
         );
@@ -362,7 +372,7 @@ function deriveReplanReason(
   const latestApplyFailed = findLatestEvent(events, 'proposal_apply_failed');
   const latestRejected = findLatestEvent(events, 'proposal_rejected');
   const latestVerify = findLatestPhaseCompletion(events, 'verify');
-  const latestFeatureCi = findLatestPhaseCompletion(events, 'feature_ci');
+  const latestFeatureCi = findLatestPhaseCompletion(events, 'ci_check');
 
   return (
     readEventSummary(latestRerun) ??

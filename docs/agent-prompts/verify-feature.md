@@ -58,5 +58,5 @@ Primary influences:
 
 Local gvc0 alignment:
 - `src/agents/planner.ts` — `verifyFeature(...)` phase exists
-- `src/orchestrator/features/index.ts` — failed `feature_ci` / `verify` results create same-branch repair flow before merge queue
+- `src/orchestrator/features/index.ts` — failed `ci_check` / `verify` results create same-branch repair flow before merge queue
 - `src/orchestrator/scheduler/index.ts` — semantic verification stays distinct from raw verification command execution

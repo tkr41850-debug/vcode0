@@ -51,6 +51,8 @@ describe('createPlannerToolset', () => {
       'addTask',
       'removeTask',
       'editTask',
+      'setFeatureObjective',
+      'setFeatureDoD',
       'addDependency',
       'removeDependency',
       'submit',

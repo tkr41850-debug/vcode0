@@ -1,10 +1,12 @@
 import type {
   AgentRun,
+  Decision,
   EventRecord,
   Feature,
   FeatureCollabControl,
   FeatureId,
   FeatureWorkControl,
+  Finding,
   Milestone,
   MilestoneId,
   Task,
@@ -17,6 +19,7 @@ import type {
   TestPolicy,
   TokenUsageAggregate,
   UnitStatus,
+  VerifyIssue,
 } from '@core/types/index';
 import type {
   AgentRunRow,
@@ -112,6 +115,12 @@ export function featureToRow(
     runtime_blocked_by_feature_id: nullish(f.runtimeBlockedByFeatureId),
     summary: nullish(f.summary),
     token_usage: serializeJson(f.tokenUsage),
+    rough_draft: nullish(f.roughDraft),
+    discuss_output: serializeJson(f.discussOutput),
+    research_output: serializeJson(f.researchOutput),
+    feature_objective: nullish(f.featureObjective),
+    feature_dod: serializeJson(f.featureDoD),
+    verify_issues: serializeJson(f.verifyIssues),
   };
 }
 
@@ -137,6 +146,24 @@ export function rowToFeature(row: FeatureRow, dependsOn: FeatureId[]): Feature {
     ...optional(
       'tokenUsage',
       parseJson<TokenUsageAggregate>(row.token_usage) ?? undefined,
+    ),
+    ...optional('roughDraft', row.rough_draft),
+    ...optional(
+      'discussOutput',
+      parseJson<Decision[]>(row.discuss_output) ?? undefined,
+    ),
+    ...optional(
+      'researchOutput',
+      parseJson<Finding[]>(row.research_output) ?? undefined,
+    ),
+    ...optional('featureObjective', row.feature_objective),
+    ...optional(
+      'featureDoD',
+      parseJson<string[]>(row.feature_dod) ?? undefined,
+    ),
+    ...optional(
+      'verifyIssues',
+      parseJson<VerifyIssue[]>(row.verify_issues) ?? undefined,
     ),
   };
 }
@@ -166,6 +193,11 @@ export function taskToRow(t: Task): Omit<TaskRow, 'created_at' | 'updated_at'> {
     suspended_at: nullish(t.suspendedAt),
     suspend_reason: nullish(t.suspendReason),
     suspended_files: serializeJson(t.suspendedFiles),
+    objective: nullish(t.objective),
+    scope: nullish(t.scope),
+    expected_files: serializeJson(t.expectedFiles),
+    references_json: serializeJson(t.references),
+    outcome_verification: nullish(t.outcomeVerification),
   };
 }
 
@@ -207,6 +239,17 @@ export function rowToTask(row: TaskRow, dependsOn: TaskId[]): Task {
       'suspendedFiles',
       parseJson<string[]>(row.suspended_files) ?? undefined,
     ),
+    ...optional('objective', row.objective),
+    ...optional('scope', row.scope),
+    ...optional(
+      'expectedFiles',
+      parseJson<string[]>(row.expected_files) ?? undefined,
+    ),
+    ...optional(
+      'references',
+      parseJson<string[]>(row.references_json) ?? undefined,
+    ),
+    ...optional('outcomeVerification', row.outcome_verification),
   };
 }
 

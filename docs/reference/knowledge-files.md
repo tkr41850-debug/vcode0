@@ -2,39 +2,11 @@
 
 See [ARCHITECTURE.md](../../ARCHITECTURE.md) for high-level architecture overview.
 
-This page covers two related surfaces:
+This page covers `.gvc0/KNOWLEDGE.md` and `.gvc0/DECISIONS.md` — the append-only files worker tools write to, and how planner / feature-phase agents embed them into their own prompts.
 
-1. optional `WorkerContext` inputs (`codebaseMap`, `knowledge`, `decisions`)
-2. concrete `.gvc0/KNOWLEDGE.md` and `.gvc0/DECISIONS.md` files managed by worker tools
+Task workers do **not** receive knowledge/decisions sections from runtime anymore. The task worker system prompt is rendered from the planner-baked `TaskPayload` only (objective, scope, expectedFiles, references, outcomeVerification, featureObjective, featureDoD, planSummary, dependencyOutputs). Knowledge and decisions, when they matter, enter the task prompt through `references` — the planner picks which files are relevant for each task.
 
-## WorkerContext Inputs
-
-`WorkerContext` supports optional context sections:
-
-```typescript
-interface WorkerContext {
-  strategy: 'shared-summary' | 'fresh' | 'inherit';
-  planSummary?: string;
-  dependencyOutputs?: DependencyOutputSummary[];
-  codebaseMap?: string;
-  knowledge?: string;
-  decisions?: string;
-}
-```
-
-`WorkerContextBuilder` only includes these fields when both conditions hold:
-
-- stage/default config enables `includeCodebaseMap`, `includeKnowledge`, or `includeDecisions`
-- caller actually supplies corresponding input text
-
-Current implementation truth:
-
-- task worker system prompt renders `Codebase`, `Knowledge`, and `Decisions` sections only when those fields are present
-- feature-phase runtime already synthesizes a small `codebaseMap` string from feature branch / phase / summary
-- feature-phase runtime can also synthesize `decisions` text from proposal-application events
-- current repo does **not** implement generated `.gvc0/CODEBASE.md` artifact or TUI command to regenerate it
-
-So `codebaseMap` is currently prompt text field, not filesystem contract.
+Feature-phase agents (discuss / research / plan / verify / summarize) may still load knowledge and decisions directly as part of phase-specific context composition.
 
 ## `.gvc0/KNOWLEDGE.md`
 
@@ -52,7 +24,7 @@ export function createAppendKnowledgeTool(projectRoot: string): AgentTool {
 }
 ```
 
-This file path is real and append-only. However, current orchestration code does not automatically read `.gvc0/KNOWLEDGE.md` into every task session by itself; it only appears in prompts when some caller supplies `WorkerContext.knowledge`.
+This file path is real and append-only. Task worker prompts do not auto-inject it; when knowledge entries are relevant to a specific task, the planner lists them under that task's `references`.
 
 ## `.gvc0/DECISIONS.md`
 
@@ -70,12 +42,11 @@ export function createRecordDecisionTool(projectRoot: string): AgentTool {
 }
 ```
 
-As with knowledge, this is real filesystem state, but prompt injection of decisions still depends on whoever builds `WorkerContext`.
+As with knowledge, this is real filesystem state. Task worker prompts do not auto-inject `DECISIONS.md`; the planner lists relevant decisions under a task's `references`. Feature-phase agents may load decisions directly as part of phase-specific context composition.
 
 ## Current Mental Model
 
-- `.gvc0/KNOWLEDGE.md` — real append-only convention file
-- `.gvc0/DECISIONS.md` — real append-only convention file
-- `codebaseMap` — prompt field, currently synthesized where needed rather than loaded from `.gvc0/CODEBASE.md`
+- `.gvc0/KNOWLEDGE.md` — real append-only convention file; worker tool `append_knowledge` writes, planner cites via task `references`.
+- `.gvc0/DECISIONS.md` — real append-only convention file; worker tool `record_decision` writes, planner cites via task `references`.
 
-See [Worker Model](../worker-model.md) for context strategy and [Codebase Map](./codebase-map.md) for source-area README pointers.
+See [Worker Model](../worker-model.md) for the `TaskPayload` shape and [Codebase Map](./codebase-map.md) for source-area README pointers.

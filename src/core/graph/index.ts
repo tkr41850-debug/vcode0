@@ -59,7 +59,6 @@ import type {
   FeatureTransitionPatch,
   GraphSnapshot,
   MergeTrainUpdate,
-  PlannerFeatureEditPatch,
   SplitSpec,
   TaskEditPatch,
   TaskTransitionPatch,

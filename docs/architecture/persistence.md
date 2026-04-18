@@ -42,6 +42,12 @@ CREATE TABLE features (
   runtime_blocked_by_feature_id TEXT REFERENCES features(id),
   summary TEXT,
   token_usage TEXT,
+  rough_draft TEXT,
+  discuss_output TEXT,              -- JSON Decision[]
+  research_output TEXT,             -- JSON Finding[]
+  feature_objective TEXT,
+  feature_dod TEXT,                 -- JSON string[]
+  verify_issues TEXT,               -- JSON VerifyIssue[]
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
@@ -67,6 +73,11 @@ CREATE TABLE tasks (
   suspended_at INTEGER,
   suspend_reason TEXT,
   suspended_files TEXT,
+  objective TEXT,
+  scope TEXT,
+  expected_files TEXT,              -- JSON string[]
+  references TEXT,                  -- JSON Reference[]
+  outcome_verification TEXT,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
@@ -107,6 +118,15 @@ CREATE TABLE events (
 
 The schema excerpt above reflects the current effective SQLite schema after later migrations, not just the initial `001_init` migration. The `events` table is an append-only audit log for debugging,
 progress reporting, warnings, and runtime usage audit trails.
+
+### Migrations
+
+- `001_init` — baseline schema (milestones, features, tasks, agent_runs, dependencies, events).
+- `002_agent_runs_token_usage` — add `agent_runs.token_usage`.
+- `003_runtime_blocked_by_feature_id` — add `features.runtime_blocked_by_feature_id`.
+- `004_feature_phase_outputs` — add `features.rough_draft`, `discuss_output`, `research_output`, `feature_objective`, `feature_dod`, `verify_issues`.
+- `005_task_planner_payload` — add `tasks.objective`, `scope`, `expected_files`, `references`, `outcome_verification`.
+- `006_rename_feature_ci_to_ci_check` — rewrites existing rows: `features.work_phase` and `agent_runs.phase` values `feature_ci` → `ci_check`, and `events.payload` JSON field `"phase":"feature_ci"` → `"phase":"ci_check"` via `REPLACE()`.
 
 The baseline keeps IDs persisted as plain `TEXT` columns in SQLite while using typed prefixed aliases in TypeScript (`m-${string}`, `f-${string}`, `t-${string}`). This preserves simple storage and joins without introducing object-shaped reference payloads.
 `dependencies.dep_type` is still stored explicitly even with typed ID namespaces because persistence reads/writes need to distinguish feature-vs-task edge sets without re-inferring kind at every SQL boundary, and because the table is also the durable source for rehydrating those separate adjacency maps.
@@ -219,7 +239,7 @@ provider quirk into first-class columns.
 
 - `features.work_phase` stores the feature's GSD lifecycle state
   (`discussing`, `researching`, `planning`, `executing`,
-  `feature_ci`, `verifying`, `awaiting_merge`, `summarizing`,
+  `ci_check`, `verifying`, `awaiting_merge`, `summarizing`,
   `executing_repair`, `replanning`, `work_complete`).
 - `tasks.status` stores the task's execution lifecycle state
   (`pending`, `ready`, `running`, `stuck`, `done`, etc.).

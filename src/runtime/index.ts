@@ -1,4 +1,5 @@
-export type { WorkerContext, WorkerContextInputs } from '@runtime/context';
+export type { TaskPayload, TaskPayloadExtras } from '@runtime/context';
+export { buildTaskPayload } from '@runtime/context';
 export type {
   ApprovalDecision,
   DispatchTaskResult,

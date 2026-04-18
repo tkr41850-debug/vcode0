@@ -260,7 +260,7 @@ export async function handleSchedulerEvent(params: {
       });
     }
 
-    if (event.phase === 'feature_ci') {
+    if (event.phase === 'ci_check') {
       const timestamp = Date.now();
       ports.store.appendEvent({
         eventType: 'feature_phase_completed',

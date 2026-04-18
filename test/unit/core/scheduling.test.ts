@@ -124,9 +124,9 @@ function createRunReader(...runs: AgentRun[]): ExecutionRunReader {
 // ── workTypeTierOf / workTypeTierPriority ─────────────────────────────
 
 describe('workTypeTierOf', () => {
-  it('maps verify and feature_ci to verify tier', () => {
+  it('maps verify and ci_check to verify tier', () => {
     expect(workTypeTierOf('verify')).toBe('verify');
-    expect(workTypeTierOf('feature_ci')).toBe('verify');
+    expect(workTypeTierOf('ci_check')).toBe('verify');
   });
 
   it('maps execute to execute tier', () => {

@@ -1,8 +1,10 @@
 import type {
+  Decision,
   Feature,
   FeatureCollabControl,
   FeatureId,
   FeatureWorkControl,
+  Finding,
   Milestone,
   MilestoneId,
   RepairSource,
@@ -15,6 +17,7 @@ import type {
   TaskWeight,
   TokenUsageAggregate,
   UnitStatus,
+  VerifyIssue,
 } from '@core/types/index';
 
 export type DependencyEdge =
@@ -43,6 +46,11 @@ export interface CreateTaskOptions {
   weight?: TaskWeight;
   reservedWritePaths?: string[];
   repairSource?: RepairSource;
+  objective?: string;
+  scope?: string;
+  expectedFiles?: string[];
+  references?: string[];
+  outcomeVerification?: string;
 }
 
 export interface AddTaskOptions {
@@ -52,6 +60,11 @@ export interface AddTaskOptions {
   weight?: TaskWeight;
   reservedWritePaths?: string[];
   repairSource?: RepairSource;
+  objective?: string;
+  scope?: string;
+  expectedFiles?: string[];
+  references?: string[];
+  outcomeVerification?: string;
 }
 
 export interface SplitSpec {
@@ -65,6 +78,12 @@ export interface PlannerFeatureEditPatch {
   name?: string;
   description?: string;
   summary?: string;
+  roughDraft?: string;
+  discussOutput?: Decision[];
+  researchOutput?: Finding[];
+  featureObjective?: string;
+  featureDoD?: string[];
+  verifyIssues?: VerifyIssue[];
 }
 
 export interface FeatureEditPatch extends PlannerFeatureEditPatch {
@@ -75,6 +94,11 @@ export interface TaskEditPatch {
   description?: string;
   weight?: TaskWeight;
   reservedWritePaths?: string[];
+  objective?: string;
+  scope?: string;
+  expectedFiles?: string[];
+  references?: string[];
+  outcomeVerification?: string;
 }
 
 export interface MergeTrainUpdate {

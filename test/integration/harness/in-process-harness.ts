@@ -1,5 +1,5 @@
 import type { Task } from '@core/types/index';
-import type { WorkerContext } from '@runtime/context/index';
+import type { TaskPayload } from '@runtime/context/index';
 import type {
   OrchestratorToWorkerMessage,
   ResumableTaskExecutionRunRef,
@@ -47,36 +47,29 @@ export class InProcessHarness implements SessionHarness {
 
   start(
     task: Task,
-    context: WorkerContext,
+    payload: TaskPayload,
     agentRunId: string,
   ): Promise<SessionHandle> {
-    // In-process harness reuses agentRunId as the sessionId so the
-    // `dispatchResult.sessionId` reported to callers matches the storage key
-    // `WorkerRuntime` persists under (start-mode key = dispatch.agentRunId).
     const sessionId = agentRunId;
     const dispatch: TaskRuntimeDispatch = {
       mode: 'start',
       agentRunId,
     };
-    const handle = this.spawnRuntime(sessionId, task, context, dispatch);
+    const handle = this.spawnRuntime(sessionId, task, payload, dispatch);
     return Promise.resolve(handle);
   }
 
   resume(
     task: Task,
     run: ResumableTaskExecutionRunRef,
+    payload: TaskPayload = {},
   ): Promise<ResumeSessionResult> {
     const dispatch: TaskRuntimeDispatch = {
       mode: 'resume',
       agentRunId: run.agentRunId,
       sessionId: run.sessionId,
     };
-    const handle = this.spawnRuntime(
-      run.sessionId,
-      task,
-      { strategy: 'shared-summary' },
-      dispatch,
-    );
+    const handle = this.spawnRuntime(run.sessionId, task, payload, dispatch);
     return Promise.resolve({ kind: 'resumed', handle });
   }
 
@@ -89,7 +82,7 @@ export class InProcessHarness implements SessionHarness {
   private spawnRuntime(
     sessionId: string,
     task: Task,
-    context: WorkerContext,
+    payload: TaskPayload,
     dispatch: TaskRuntimeDispatch,
   ): SessionHandle {
     const { orchestrator, worker } = createLoopbackTransportPair();
@@ -118,7 +111,7 @@ export class InProcessHarness implements SessionHarness {
     // transport buffers pre-registration sends anyway, but deferring is a
     // cheap belt-and-braces guarantee.
     const done = Promise.resolve()
-      .then(() => runtime.run(task, context, dispatch))
+      .then(() => runtime.run(task, payload, dispatch))
       .catch((err: unknown) => {
         // Mirror `entry.ts`: convert unexpected throws into an `error` IPC
         // frame so the caller's completion handler still fires.

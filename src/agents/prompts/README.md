@@ -14,7 +14,7 @@ It does not own worker task execution prompts or tool implementations.
 
 ## Boundary reminders
 
-- The execute-task worker prompt lives in [runtime/worker/system-prompt.ts](../../runtime/worker/system-prompt.ts) because runtime assembles it from `WorkerContext`.
+- The execute-task worker prompt lives in [runtime/worker/system-prompt.ts](../../runtime/worker/system-prompt.ts) because runtime renders it from the planner-baked `TaskPayload`.
 - Phase prompts and phase tools are a contract: each prompt must line up with the submit tool surface exposed by [tools](../tools/README.md).
 - `docs/agent-prompts/**` is the browsable reference/provenance layer. This directory is the live source.
 

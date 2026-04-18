@@ -669,6 +669,7 @@ describe('SchedulerLoop', () => {
     expect(dispatchTask).toHaveBeenCalledWith(
       expect.objectContaining({ id: 't-1' }),
       { mode: 'start', agentRunId: 'run-task:t-1' },
+      expect.any(Object),
     );
     expect(updateAgentRun).toHaveBeenCalledWith('run-task:t-1', {
       runStatus: 'running',
@@ -718,6 +719,7 @@ describe('SchedulerLoop', () => {
         agentRunId: 'run-task:t-1',
         sessionId: 'sess-existing',
       },
+      expect.any(Object),
     );
     expect(updateAgentRun).toHaveBeenCalledWith('run-task:t-1', {
       runStatus: 'running',
@@ -760,15 +762,25 @@ describe('SchedulerLoop', () => {
 
     await loop.dispatchReadyWorkForTest(100);
 
-    expect(dispatchTask).toHaveBeenNthCalledWith(1, expect.anything(), {
-      mode: 'resume',
-      agentRunId: 'run-task:t-1',
-      sessionId: 'sess-existing',
-    });
-    expect(dispatchTask).toHaveBeenNthCalledWith(2, expect.anything(), {
-      mode: 'start',
-      agentRunId: 'run-task:t-1',
-    });
+    expect(dispatchTask).toHaveBeenNthCalledWith(
+      1,
+      expect.anything(),
+      {
+        mode: 'resume',
+        agentRunId: 'run-task:t-1',
+        sessionId: 'sess-existing',
+      },
+      expect.any(Object),
+    );
+    expect(dispatchTask).toHaveBeenNthCalledWith(
+      2,
+      expect.anything(),
+      {
+        mode: 'start',
+        agentRunId: 'run-task:t-1',
+      },
+      expect.any(Object),
+    );
     expect(updateAgentRun).toHaveBeenCalledWith('run-task:t-1', {
       runStatus: 'running',
       owner: 'system',
@@ -799,6 +811,7 @@ describe('SchedulerLoop', () => {
     expect(dispatchTask).toHaveBeenCalledWith(
       expect.objectContaining({ id: 't-1' }),
       { mode: 'start', agentRunId: 'run-task:t-1' },
+      expect.any(Object),
     );
     expect(updateAgentRun).toHaveBeenCalledWith('run-task:t-1', {
       runStatus: 'running',
@@ -847,10 +860,11 @@ describe('SchedulerLoop', () => {
     expect(dispatchTask).toHaveBeenCalledWith(
       expect.objectContaining({ id: 't-1' }),
       { mode: 'start', agentRunId: 'run-task:t-1' },
+      expect.any(Object),
     );
   });
 
-  it('completes a task run, marks the task merged, and advances the feature to feature_ci after the last task lands', async () => {
+  it('completes a task run, marks the task merged, and advances the feature to ci_check after the last task lands', async () => {
     const order: string[] = [];
     const { ports } = createPorts(order);
     const graph = createSingleFeatureGraph(
@@ -913,7 +927,7 @@ describe('SchedulerLoop', () => {
     );
     expect(graph.features.get('f-1')).toEqual(
       expect.objectContaining({
-        workControl: 'feature_ci',
+        workControl: 'ci_check',
         status: 'pending',
         collabControl: 'branch_open',
       }),
@@ -1672,14 +1686,14 @@ describe('SchedulerLoop', () => {
     );
   });
 
-  it('dispatches feature_ci through the verification service before agent-level verifying', async () => {
+  it('dispatches ci_check through the verification service before agent-level verifying', async () => {
     const order: string[] = [];
     const { ports } = createPorts(order);
     const verifyFeatureBranch = vi.spyOn(ports.verification, 'verifyFeature');
     const graph = createSingleFeatureGraph(
       {
         status: 'pending',
-        workControl: 'feature_ci',
+        workControl: 'ci_check',
         collabControl: 'branch_open',
       },
       [
@@ -1701,7 +1715,7 @@ describe('SchedulerLoop', () => {
     );
   });
 
-  it('moves feature_ci into retry_await when the verification service throws', async () => {
+  it('moves ci_check into retry_await when the verification service throws', async () => {
     const order: string[] = [];
     const { ports } = createPorts(order);
     vi.spyOn(ports.verification, 'verifyFeature').mockRejectedValueOnce(
@@ -1711,7 +1725,7 @@ describe('SchedulerLoop', () => {
     const graph = createSingleFeatureGraph(
       {
         status: 'pending',
-        workControl: 'feature_ci',
+        workControl: 'ci_check',
         collabControl: 'branch_open',
       },
       [
@@ -1730,11 +1744,11 @@ describe('SchedulerLoop', () => {
 
     const retryFeatureCiPatch = updateAgentRun.mock.calls.find(
       ([runId, patch]) =>
-        runId === 'run-feature:f-1:feature_ci' &&
+        runId === 'run-feature:f-1:ci_check' &&
         patch.runStatus === 'retry_await',
     )?.[1];
     expect(updateAgentRun).toHaveBeenCalledWith(
-      'run-feature:f-1:feature_ci',
+      'run-feature:f-1:ci_check',
       expect.objectContaining({
         runStatus: 'retry_await',
         owner: 'system',
@@ -2340,7 +2354,7 @@ describe('SchedulerLoop', () => {
     );
     expect(graph.features.get('f-1')).toEqual(
       expect.objectContaining({
-        workControl: 'feature_ci',
+        workControl: 'ci_check',
         status: 'pending',
         collabControl: 'branch_open',
       }),
@@ -2404,7 +2418,7 @@ describe('SchedulerLoop', () => {
     });
   });
 
-  it('moves feature_ci success into verifying', async () => {
+  it('moves ci_check success into verifying', async () => {
     const order: string[] = [];
     const { ports } = createPorts(order, {
       verification: {
@@ -2436,7 +2450,7 @@ describe('SchedulerLoop', () => {
           description: 'desc',
           dependsOn: [],
           status: 'in_progress',
-          workControl: 'feature_ci',
+          workControl: 'ci_check',
           collabControl: 'branch_open',
           featureBranch: 'feat-feature-1-1',
         },
@@ -2453,14 +2467,14 @@ describe('SchedulerLoop', () => {
         },
       ],
     });
-    ports.store.createAgentRun(makeFeaturePhaseRun('feature_ci'));
+    ports.store.createAgentRun(makeFeaturePhaseRun('ci_check'));
 
     const loop = new ExposedSchedulerLoop(graph, ports);
 
     await loop.handleEventForTest({
       type: 'feature_phase_complete',
       featureId: 'f-1',
-      phase: 'feature_ci',
+      phase: 'ci_check',
       summary: 'green',
       verification: { ok: true, summary: 'green' },
     });
@@ -2472,7 +2486,7 @@ describe('SchedulerLoop', () => {
         collabControl: 'branch_open',
       }),
     );
-    expect(updateAgentRun).toHaveBeenCalledWith('run-feature:f-1:feature_ci', {
+    expect(updateAgentRun).toHaveBeenCalledWith('run-feature:f-1:ci_check', {
       runStatus: 'completed',
       owner: 'system',
     });
@@ -2484,7 +2498,7 @@ describe('SchedulerLoop', () => {
       entityId: 'f-1',
     });
     expect(featureCiEvent?.payload).toMatchObject({
-      phase: 'feature_ci',
+      phase: 'ci_check',
       summary: 'green',
       extra: {
         ok: true,
@@ -2515,7 +2529,7 @@ describe('SchedulerLoop', () => {
     const listEvents = vi.spyOn(ports.store, 'listEvents');
     const graph = createProposalApprovalGraph({
       status: 'in_progress',
-      workControl: 'feature_ci',
+      workControl: 'ci_check',
       collabControl: 'branch_open',
     });
     const loop = new ExposedSchedulerLoop(graph, ports);
@@ -2625,7 +2639,7 @@ describe('SchedulerLoop', () => {
     });
   });
 
-  it('moves feature_ci failure into executing_repair and creates a ready repair task', async () => {
+  it('moves ci_check failure into executing_repair and creates a ready repair task', async () => {
     const order: string[] = [];
     const { ports } = createPorts(order);
     const graph = new InMemoryFeatureGraph({
@@ -2647,7 +2661,7 @@ describe('SchedulerLoop', () => {
           description: 'desc',
           dependsOn: [],
           status: 'in_progress',
-          workControl: 'feature_ci',
+          workControl: 'ci_check',
           collabControl: 'branch_open',
           featureBranch: 'feat-feature-1-1',
         },
@@ -2664,14 +2678,14 @@ describe('SchedulerLoop', () => {
         },
       ],
     });
-    ports.store.createAgentRun(makeFeaturePhaseRun('feature_ci'));
+    ports.store.createAgentRun(makeFeaturePhaseRun('ci_check'));
 
     const loop = new ExposedSchedulerLoop(graph, ports);
 
     await loop.handleEventForTest({
       type: 'feature_phase_complete',
       featureId: 'f-1',
-      phase: 'feature_ci',
+      phase: 'ci_check',
       summary: 'tests failed',
       verification: { ok: false, summary: 'tests failed' },
     });
@@ -2690,12 +2704,12 @@ describe('SchedulerLoop', () => {
     expect(repairTasks[0]).toMatchObject({
       status: 'ready',
       collabControl: 'none',
-      repairSource: 'feature_ci',
+      repairSource: 'ci_check',
     });
-    expect(repairTasks[0]?.description).toContain('Repair feature ci issues');
+    expect(repairTasks[0]?.description).toContain('Repair ci check issues');
   });
 
-  it('moves verify failure into executing_repair and creates a ready repair task', async () => {
+  it('routes verify failure directly to replanning', async () => {
     const order: string[] = [];
     const { ports } = createPorts(order);
     const graph = new InMemoryFeatureGraph({
@@ -2738,23 +2752,15 @@ describe('SchedulerLoop', () => {
 
     expect(graph.features.get('f-1')).toEqual(
       expect.objectContaining({
-        workControl: 'executing_repair',
+        workControl: 'replanning',
         status: 'pending',
         collabControl: 'branch_open',
       }),
     );
-    const repairTasks = [...graph.tasks.values()];
-    expect(repairTasks).toHaveLength(1);
-    expect(repairTasks[0]).toMatchObject({
-      status: 'ready',
-      repairSource: 'verify',
-    });
-    expect(repairTasks[0]?.description).toContain(
-      'Repair feature verification issues',
-    );
+    expect([...graph.tasks.values()]).toHaveLength(0);
   });
 
-  it('does not count ordinary repair-named tasks as repair attempts', async () => {
+  it('routes verify failure to replanning regardless of prior repair-named tasks', async () => {
     const order: string[] = [];
     const { ports } = createPorts(order);
     const graph = new InMemoryFeatureGraph({
@@ -2807,7 +2813,7 @@ describe('SchedulerLoop', () => {
 
     expect(graph.features.get('f-1')).toEqual(
       expect.objectContaining({
-        workControl: 'executing_repair',
+        workControl: 'replanning',
         status: 'pending',
         collabControl: 'branch_open',
       }),
@@ -2815,11 +2821,7 @@ describe('SchedulerLoop', () => {
     const repairTasks = [...graph.tasks.values()].filter(
       (task) => task.repairSource !== undefined,
     );
-    expect(repairTasks).toHaveLength(1);
-    expect(repairTasks[0]?.repairSource).toBe('verify');
-    expect(repairTasks[0]?.description).toContain(
-      'Repair feature verification issues',
-    );
+    expect(repairTasks).toHaveLength(0);
   });
 
   it('escalates repeated pre-queue verification failure to replanning', async () => {
@@ -2884,7 +2886,7 @@ describe('SchedulerLoop', () => {
     expect([...graph.tasks.values()]).toHaveLength(1);
   });
 
-  it('rejects feature_ci completion when verification payload is missing', async () => {
+  it('rejects ci_check completion when verification payload is missing', async () => {
     const order: string[] = [];
     const { ports } = createPorts(order);
     const graph = new InMemoryFeatureGraph({
@@ -2906,7 +2908,7 @@ describe('SchedulerLoop', () => {
           description: 'desc',
           dependsOn: [],
           status: 'in_progress',
-          workControl: 'feature_ci',
+          workControl: 'ci_check',
           collabControl: 'branch_open',
           featureBranch: 'feat-feature-1-1',
         },
@@ -2923,7 +2925,7 @@ describe('SchedulerLoop', () => {
         },
       ],
     });
-    ports.store.createAgentRun(makeFeaturePhaseRun('feature_ci'));
+    ports.store.createAgentRun(makeFeaturePhaseRun('ci_check'));
 
     const loop = new ExposedSchedulerLoop(graph, ports);
 
@@ -2931,10 +2933,10 @@ describe('SchedulerLoop', () => {
       loop.handleEventForTest({
         type: 'feature_phase_complete',
         featureId: 'f-1',
-        phase: 'feature_ci',
+        phase: 'ci_check',
         summary: 'green',
       }),
-    ).rejects.toThrow('feature_ci completion requires verification summary');
+    ).rejects.toThrow('ci_check completion requires verification summary');
   });
 
   it('rejects verify completion when verification payload is missing', async () => {
@@ -2980,7 +2982,7 @@ describe('SchedulerLoop', () => {
     ).rejects.toThrow('verify completion requires verification summary');
   });
 
-  it('does not rerun feature_ci while a repair task remains incomplete', async () => {
+  it('does not rerun ci_check while a repair task remains incomplete', async () => {
     const order: string[] = [];
     const { ports } = createPorts(order);
     const verifyFeatureBranch = vi.spyOn(ports.verification, 'verifyFeature');
@@ -3043,7 +3045,7 @@ describe('SchedulerLoop', () => {
     expect(verifyFeatureBranch).not.toHaveBeenCalled();
   });
 
-  it('returns executing_repair to feature_ci after the repair task lands', async () => {
+  it('returns executing_repair to ci_check after the repair task lands', async () => {
     const order: string[] = [];
     const { ports } = createPorts(order);
     const graph = new InMemoryFeatureGraph({
@@ -3126,7 +3128,7 @@ describe('SchedulerLoop', () => {
 
     expect(graph.features.get('f-1')).toEqual(
       expect.objectContaining({
-        workControl: 'feature_ci',
+        workControl: 'ci_check',
         status: 'pending',
         collabControl: 'branch_open',
       }),
@@ -3934,6 +3936,7 @@ describe('SchedulerLoop', () => {
         agentRunId: 'run-task:t-1',
         sessionId: 'sess-1',
       },
+      expect.any(Object),
     );
   });
 
@@ -3991,6 +3994,129 @@ describe('SchedulerLoop', () => {
     expect(warningEvent?.payload).toMatchObject({
       category: 'long_feature_blocking',
     });
+  });
+
+  it('emits verify_replan_loop warning when failed verify count hits threshold', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order, {
+      tokenProfile: 'balanced',
+      warnings: {
+        longFeatureBlockingMs: 1000,
+        verifyReplanLoopThreshold: 3,
+      },
+    });
+    vi.spyOn(ports.runtime, 'idleWorkerCount').mockReturnValue(0);
+    const graph = createSchedulerGraph({
+      milestones: [createMilestoneFixture()],
+      features: [
+        createFeatureFixture({
+          id: 'f-1',
+          workControl: 'verifying',
+          collabControl: 'branch_open',
+        }),
+      ],
+      tasks: [],
+    });
+
+    for (let i = 0; i < 3; i++) {
+      ports.store.appendEvent({
+        eventType: 'feature_phase_completed',
+        entityId: 'f-1',
+        timestamp: 100 + i,
+        payload: {
+          phase: 'verify',
+          summary: `verify failure ${i}`,
+          extra: { ok: false, outcome: 'repair_needed' },
+        },
+      });
+    }
+
+    const appendEvent = vi.spyOn(ports.store, 'appendEvent');
+    const loop = new ExposedSchedulerLoop(graph, ports);
+    await loop.tickForTest(1000);
+    await loop.tickForTest(2000);
+
+    const loopWarnings = appendEvent.mock.calls.filter(
+      ([event]) =>
+        event.eventType === 'warning_emitted' &&
+        (event.payload as { category?: string }).category ===
+          'verify_replan_loop',
+    );
+    expect(loopWarnings).toHaveLength(1);
+    expect(loopWarnings[0]?.[0]).toMatchObject({
+      entityId: 'f-1',
+      payload: {
+        category: 'verify_replan_loop',
+        extra: { failedVerifyCount: 3 },
+      },
+    });
+  });
+
+  it('does not emit verify_replan_loop after a successful replan resets the count', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order, {
+      tokenProfile: 'balanced',
+      warnings: {
+        longFeatureBlockingMs: 1000,
+        verifyReplanLoopThreshold: 3,
+      },
+    });
+    vi.spyOn(ports.runtime, 'idleWorkerCount').mockReturnValue(0);
+    const graph = createSchedulerGraph({
+      milestones: [createMilestoneFixture()],
+      features: [
+        createFeatureFixture({
+          id: 'f-1',
+          workControl: 'verifying',
+          collabControl: 'branch_open',
+        }),
+      ],
+      tasks: [],
+    });
+
+    for (let i = 0; i < 3; i++) {
+      ports.store.appendEvent({
+        eventType: 'feature_phase_completed',
+        entityId: 'f-1',
+        timestamp: 100 + i,
+        payload: {
+          phase: 'verify',
+          summary: `verify failure ${i}`,
+          extra: { ok: false, outcome: 'repair_needed' },
+        },
+      });
+    }
+    ports.store.appendEvent({
+      eventType: 'feature_phase_completed',
+      entityId: 'f-1',
+      timestamp: 200,
+      payload: {
+        phase: 'replan',
+        summary: 'replan landed',
+      },
+    });
+    ports.store.appendEvent({
+      eventType: 'feature_phase_completed',
+      entityId: 'f-1',
+      timestamp: 300,
+      payload: {
+        phase: 'verify',
+        summary: 'verify failure after replan',
+        extra: { ok: false, outcome: 'repair_needed' },
+      },
+    });
+
+    const appendEvent = vi.spyOn(ports.store, 'appendEvent');
+    const loop = new ExposedSchedulerLoop(graph, ports);
+    await loop.tickForTest(1000);
+
+    const loopWarnings = appendEvent.mock.calls.filter(
+      ([event]) =>
+        event.eventType === 'warning_emitted' &&
+        (event.payload as { category?: string }).category ===
+          'verify_replan_loop',
+    );
+    expect(loopWarnings).toHaveLength(0);
   });
 
   it('creates integration repair and keeps tasks suspended when secondary rebase conflicts', async () => {
