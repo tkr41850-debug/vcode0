@@ -72,12 +72,9 @@ export function createMergeTrainScenario(
       ...(opts.dependsOn !== undefined ? { dependsOn: opts.dependsOn } : {}),
     });
 
-    // Open the branch first so verifying → awaiting_merge can validate.
-    graph.transitionFeature(opts.id, { collabControl: 'branch_open' });
-
     // Walk the happy-path phase ladder. Each in-phase step goes
     // pending → in_progress → done, then advances to the next phase
-    // which resets status to pending.
+    // which resets status to pending. Execution entry also opens branch.
     const phases = [
       'discussing',
       'researching',
@@ -94,6 +91,7 @@ export function createMergeTrainScenario(
       graph.transitionFeature(opts.id, {
         workControl: next,
         status: 'pending',
+        ...(next === 'executing' ? { collabControl: 'branch_open' } : {}),
       });
     }
   };

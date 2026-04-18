@@ -163,7 +163,7 @@ describe('composeApplication', () => {
           milestoneId: 'm-1',
           workControl: 'planning',
           status: 'pending',
-          collabControl: 'branch_open',
+          collabControl: 'none',
         }),
       );
     } finally {

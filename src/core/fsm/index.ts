@@ -245,12 +245,12 @@ export function validateFeatureCollabTransition(
     return { valid: false, reason: `no-op collab transition: ${current}` };
   }
 
-  // Branch opens only on the first phase
+  // Branch opens when planning approval advances the feature into execution.
   if (proposed === 'branch_open' && current === 'none') {
-    if (workControl !== 'discussing') {
+    if (workControl !== 'executing') {
       return {
         valid: false,
-        reason: 'branch_open from none only valid during discussing phase',
+        reason: 'branch_open from none only valid during executing phase',
       };
     }
   }

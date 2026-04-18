@@ -294,7 +294,6 @@ function transitionFeatureToPlanning(
   graph: PersistentFeatureGraph,
   featureId: FeatureId,
 ): void {
-  graph.transitionFeature(featureId, { collabControl: 'branch_open' });
   graph.transitionFeature(featureId, { status: 'in_progress' });
   graph.transitionFeature(featureId, { status: 'done' });
   graph.transitionFeature(featureId, {

@@ -285,7 +285,7 @@ describe('validateFeatureStatusTransition', () => {
 
 describe('validateFeatureCollabTransition', () => {
   it.each([
-    ['none', 'branch_open', 'discussing', 'pending'],
+    ['none', 'branch_open', 'executing', 'pending'],
     ['none', 'cancelled', 'discussing', 'pending'],
     ['branch_open', 'merge_queued', 'awaiting_merge', 'pending'],
     ['branch_open', 'conflict', 'executing', 'in_progress'],
@@ -312,15 +312,23 @@ describe('validateFeatureCollabTransition', () => {
     );
   });
 
-  it('rejects branch_open from none when not discussing', () => {
+  it('allows branch_open from none during executing', () => {
+    expect(
+      validateFeatureCollabTransition('none', 'branch_open', 'executing', 'pending'),
+    ).toEqual({
+      valid: true,
+    });
+  });
+
+  it('rejects branch_open from none when not executing', () => {
     expectRejected(
       validateFeatureCollabTransition(
         'none',
         'branch_open',
-        'executing',
+        'researching',
         'in_progress',
       ),
-      'discussing',
+      'executing',
     );
   });
 

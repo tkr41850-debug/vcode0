@@ -13,8 +13,8 @@ See [ARCHITECTURE.md](../../ARCHITECTURE.md) for the high-level architecture ove
 | **createTask(featureId, description, deps?)** | Add a task to a feature with in-feature task deps only |
 | **addDependency(fromId, toId)** | Add a dependency edge (`feature → feature` or `task → task` within the same feature). Edge kind is inferred from typed prefixed ids (`f-*`, `t-*`). |
 | **removeDependency(fromId, toId)** | Remove a dependency edge |
-| **splitFeature(featureId, subfeatures)** | Validate a pre-planning split request, but current baseline still throws `Not implemented.` after precondition checks. See [in-flight split/merge](../feature-candidates/in-flight-split-merge.md) for the deferred in-flight variant. |
-| **mergeFeatures(featureIds, name)** | Validate a pre-planning merge request, but current baseline still throws `Not implemented.` after precondition checks. |
+| **splitFeature(featureId, subfeatures)** | Split a feature while it is still pre-execution and pre-branch (`workControl` is `discussing`, `researching`, or `planning`, and `collabControl = none`). Planned tasks on the source feature are discarded, and downstream feature deps are rewritten to the terminal split children. See [in-flight split/merge](../feature-candidates/in-flight-split-merge.md) for the deferred in-flight variant. |
+| **mergeFeatures(featureIds, name)** | Merge multiple features while they are still pre-execution and pre-branch. Planned tasks on the source features are discarded, and downstream feature deps are rewritten to the retained merged feature. |
 | **cancelFeature(featureId, cascade?)** | Mark as cancelled (`collabControl → cancelled`), kill all in-flight tasks immediately, and optionally cancel transitive dependents when `cascade=true` |
 | **removeFeature(featureId)** | Remove a feature, detach incoming feature deps, and remove its tasks and task deps |
 | **changeMilestone(featureId, newMilestoneId)** | Reassign a feature to a different milestone without changing dependency semantics |
@@ -63,8 +63,8 @@ interface FeatureGraph {
   createTask(opts: CreateTaskOptions): Task;
   addDependency(opts: DependencyOptions): void;
   removeDependency(opts: DependencyOptions): void;
-  splitFeature(id: FeatureId, splits: SplitSpec[]): Feature[];   // pre-planning only; currently throws after validation
-  mergeFeatures(featureIds: FeatureId[], name: string): Feature;  // pre-planning only; currently throws after validation
+  splitFeature(id: FeatureId, splits: SplitSpec[]): Feature[];   // pre-execution and pre-branch only; planned tasks are discarded
+  mergeFeatures(featureIds: FeatureId[], name: string): Feature;  // pre-execution and pre-branch only; planned tasks are discarded
   cancelFeature(featureId: FeatureId, cascade?: boolean): void;
   removeFeature(featureId: FeatureId): void;
   changeMilestone(featureId: FeatureId, newMilestoneId: MilestoneId): void;
@@ -90,7 +90,7 @@ interface FeatureGraph {
 
 ## Orchestrator Coordination Model
 
-> **Implementation status**: The coordination model below is partly architectural and partly already implemented. Current code includes the scheduler tick loop, combined-graph construction, graph metrics, ready-work prioritization, and FSM transition validators. The main gaps in this document are the still-unimplemented pre-planning `splitFeature()` / `mergeFeatures()` mutations and any future extensions called out explicitly as candidates.
+> **Implementation status**: The coordination model below is partly architectural and partly already implemented. Current code includes the scheduler tick loop, combined-graph construction, graph metrics, ready-work prioritization, FSM transition validators, and baseline pre-execution `splitFeature()` / `mergeFeatures()` mutations. Future extensions called out explicitly as candidates remain deferred.
 
 The orchestrator uses a **hybrid serial core with async feature phases** (Direction D). All state-mutating coordination flows through a single serial event queue, while feature-phase agent runs (planning, verifying, summarizing, replanning) execute asynchronously and post results back as events. Those feature phases are not a separate execution plane: architecturally they share the same run/session model as task execution (`agent_runs`, `session_id`, retry/backoff, help/approval/manual waits, and recovery), even if the current concrete runtime implementation reaches them through a different adapter surface.
 

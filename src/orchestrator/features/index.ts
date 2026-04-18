@@ -100,7 +100,6 @@ export class FeatureLifecycleCoordinator {
     switch (phase) {
       case 'discuss':
         this.markPhaseDone(featureId);
-        this.openBranch(this.requireFeature(featureId));
         this.advancePhase(featureId, 'researching');
         return;
       case 'research':
@@ -109,7 +108,7 @@ export class FeatureLifecycleCoordinator {
         return;
       case 'plan':
         this.markPhaseDone(featureId);
-        this.advancePhase(featureId, 'executing');
+        this.advancePhase(featureId, 'executing', 'branch_open');
         return;
       case 'feature_ci':
         if (verification === undefined) {
@@ -278,10 +277,12 @@ export class FeatureLifecycleCoordinator {
   private advancePhase(
     featureId: FeatureId,
     workControl: Feature['workControl'],
+    collabControl?: Feature['collabControl'],
   ): void {
     this.graph.transitionFeature(featureId, {
       workControl,
       status: workControl === 'work_complete' ? 'done' : 'pending',
+      ...(collabControl !== undefined ? { collabControl } : {}),
     });
   }
 

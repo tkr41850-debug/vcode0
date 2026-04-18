@@ -345,7 +345,7 @@ describe('feature-phase agent flow', () => {
       expect.objectContaining({
         workControl: 'researching',
         status: 'pending',
-        collabControl: 'branch_open',
+        collabControl: 'none',
       }),
     );
     expect(store.getAgentRun('run-feature:f-1:discuss')).toEqual(
@@ -409,7 +409,7 @@ describe('feature-phase agent flow', () => {
     const { graph, store, sessionStore, loop } = createFixture({
       featureOverrides: {
         workControl: 'researching',
-        collabControl: 'branch_open',
+        collabControl: 'none',
       },
     });
     appendFeaturePhaseEvent(store, 'f-1', 'discuss', 'Discussion summary.', {
@@ -429,7 +429,7 @@ describe('feature-phase agent flow', () => {
       expect.objectContaining({
         workControl: 'planning',
         status: 'pending',
-        collabControl: 'branch_open',
+        collabControl: 'none',
       }),
     );
     expect(store.getAgentRun('run-feature:f-1:research')).toEqual(

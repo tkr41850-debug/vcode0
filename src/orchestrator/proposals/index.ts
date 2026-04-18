@@ -147,6 +147,7 @@ function advanceFeatureAfterApproval(
   graph.transitionFeature(featureId, {
     workControl: 'executing',
     status: 'pending',
+    collabControl: 'branch_open',
   });
 }
 

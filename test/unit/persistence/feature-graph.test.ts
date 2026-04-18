@@ -1,4 +1,8 @@
-import type { TokenUsageAggregate } from '@core/types/index';
+import type {
+  FeatureId,
+  FeatureWorkControl,
+  TokenUsageAggregate,
+} from '@core/types/index';
 import { openDatabase } from '@persistence/db';
 import { PersistentFeatureGraph } from '@persistence/feature-graph';
 import type Database from 'better-sqlite3';
@@ -37,6 +41,19 @@ function usageAggregate(usd: number, llmCalls = 1): TokenUsageAggregate {
       },
     },
   };
+}
+
+function updateFeatureWorkControl(
+  graph: PersistentFeatureGraph,
+  featureId: FeatureId,
+  workControl: FeatureWorkControl,
+): void {
+  const feature = graph.features.get(featureId);
+  if (feature === undefined) {
+    throw new Error(`Feature "${featureId}" not found`);
+  }
+
+  graph.features.set(featureId, { ...feature, workControl });
 }
 
 describe('PersistentFeatureGraph', () => {
@@ -379,6 +396,184 @@ describe('PersistentFeatureGraph', () => {
         )
         .get('t-1');
       expect(task?.status).toBe('cancelled');
+    });
+
+    it('persists splitFeature rewrites, task deletion, and rehydration', () => {
+      graph.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+      graph.createFeature({
+        id: 'f-up',
+        milestoneId: 'm-1',
+        name: 'Up',
+        description: 'up',
+      });
+      graph.createFeature({
+        id: 'f-1',
+        milestoneId: 'm-1',
+        name: 'Original',
+        description: 'orig',
+        dependsOn: ['f-up'],
+      });
+      graph.createFeature({
+        id: 'f-down',
+        milestoneId: 'm-1',
+        name: 'Down',
+        description: 'down',
+        dependsOn: ['f-1'],
+      });
+      updateFeatureWorkControl(graph, 'f-1', 'researching');
+      graph.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+
+      graph.splitFeature('f-1', [
+        { id: 'f-1a', name: 'Part A', description: 'A' },
+        { id: 'f-1b', name: 'Part B', description: 'B', deps: ['f-1a'] },
+      ]);
+
+      const featureRows = db
+        .prepare<
+          [],
+          { id: string; order_in_milestone: number; work_phase: string }
+        >(
+          'SELECT id, order_in_milestone, work_phase FROM features ORDER BY order_in_milestone, id',
+        )
+        .all();
+      expect(featureRows).toEqual([
+        { id: 'f-up', order_in_milestone: 0, work_phase: 'discussing' },
+        { id: 'f-1a', order_in_milestone: 1, work_phase: 'researching' },
+        { id: 'f-1b', order_in_milestone: 2, work_phase: 'researching' },
+        { id: 'f-down', order_in_milestone: 3, work_phase: 'discussing' },
+      ]);
+
+      const taskCount = db
+        .prepare<[], { c: number }>(
+          'SELECT COUNT(*) AS c FROM tasks WHERE feature_id = ?',
+        )
+        .get('f-1');
+      expect(taskCount?.c).toBe(0);
+
+      const depRows = db
+        .prepare<[], { from_id: string; to_id: string; dep_type: string }>(
+          'SELECT from_id, to_id, dep_type FROM dependencies ORDER BY from_id, to_id',
+        )
+        .all();
+      expect(depRows).toEqual([
+        { from_id: 'f-1a', to_id: 'f-up', dep_type: 'feature' },
+        { from_id: 'f-1b', to_id: 'f-1a', dep_type: 'feature' },
+        { from_id: 'f-down', to_id: 'f-1b', dep_type: 'feature' },
+      ]);
+
+      const rehydrated = new PersistentFeatureGraph(db);
+      expect(rehydrated.features.has('f-1')).toBe(false);
+      expect(rehydrated.features.get('f-down')?.dependsOn).toEqual(['f-1b']);
+      expect(rehydrated.tasks.size).toBe(0);
+    });
+
+    it('persists mergeFeatures rewrites, task deletion, and rehydration', () => {
+      graph.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+      graph.createFeature({
+        id: 'f-up-1',
+        milestoneId: 'm-1',
+        name: 'Up 1',
+        description: 'up1',
+      });
+      graph.createFeature({
+        id: 'f-up-2',
+        milestoneId: 'm-1',
+        name: 'Up 2',
+        description: 'up2',
+      });
+      graph.createFeature({
+        id: 'f-1',
+        milestoneId: 'm-1',
+        name: 'First',
+        description: 'first',
+        dependsOn: ['f-up-1'],
+      });
+      graph.createFeature({
+        id: 'f-2',
+        milestoneId: 'm-1',
+        name: 'Second',
+        description: 'second',
+        dependsOn: ['f-up-2', 'f-1'],
+      });
+      graph.createFeature({
+        id: 'f-down',
+        milestoneId: 'm-1',
+        name: 'Down',
+        description: 'down',
+        dependsOn: ['f-1', 'f-2'],
+      });
+      updateFeatureWorkControl(graph, 'f-1', 'researching');
+      updateFeatureWorkControl(graph, 'f-2', 'planning');
+      graph.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+      graph.createTask({ id: 't-2', featureId: 'f-2', description: 'T2' });
+
+      graph.mergeFeatures(['f-1', 'f-2'], 'Combined');
+
+      const featureRows = db
+        .prepare<
+          [],
+          {
+            id: string;
+            name: string;
+            order_in_milestone: number;
+            work_phase: string;
+          }
+        >(
+          'SELECT id, name, order_in_milestone, work_phase FROM features ORDER BY order_in_milestone, id',
+        )
+        .all();
+      expect(featureRows).toEqual([
+        {
+          id: 'f-up-1',
+          name: 'Up 1',
+          order_in_milestone: 0,
+          work_phase: 'discussing',
+        },
+        {
+          id: 'f-up-2',
+          name: 'Up 2',
+          order_in_milestone: 1,
+          work_phase: 'discussing',
+        },
+        {
+          id: 'f-1',
+          name: 'Combined',
+          order_in_milestone: 2,
+          work_phase: 'planning',
+        },
+        {
+          id: 'f-down',
+          name: 'Down',
+          order_in_milestone: 3,
+          work_phase: 'discussing',
+        },
+      ]);
+
+      const depRows = db
+        .prepare<[], { from_id: string; to_id: string; dep_type: string }>(
+          'SELECT from_id, to_id, dep_type FROM dependencies ORDER BY from_id, to_id',
+        )
+        .all();
+      expect(depRows).toEqual([
+        { from_id: 'f-1', to_id: 'f-up-1', dep_type: 'feature' },
+        { from_id: 'f-1', to_id: 'f-up-2', dep_type: 'feature' },
+        { from_id: 'f-down', to_id: 'f-1', dep_type: 'feature' },
+      ]);
+
+      const taskRows = db
+        .prepare<[], { id: string; feature_id: string }>(
+          'SELECT id, feature_id FROM tasks ORDER BY id',
+        )
+        .all();
+      expect(taskRows).toEqual([]);
+
+      const rehydrated = new PersistentFeatureGraph(db);
+      expect(rehydrated.features.has('f-2')).toBe(false);
+      expect(rehydrated.features.get('f-1')?.dependsOn).toEqual([
+        'f-up-1',
+        'f-up-2',
+      ]);
+      expect(rehydrated.features.get('f-down')?.dependsOn).toEqual(['f-1']);
     });
 
     it('removes rows from dependencies table on removeDependency', () => {

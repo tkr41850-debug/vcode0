@@ -1638,7 +1638,7 @@ describe('SchedulerLoop', () => {
       expect.objectContaining({
         workControl: 'executing',
         status: 'pending',
-        collabControl: 'none',
+        collabControl: 'branch_open',
       }),
     );
     expect(graph.tasks.get('t-1')).toEqual(
@@ -2023,7 +2023,7 @@ describe('SchedulerLoop', () => {
       expect.objectContaining({
         workControl: 'feature_ci',
         status: 'pending',
-        collabControl: 'none',
+        collabControl: 'branch_open',
       }),
     );
     expect(graph.tasks.size).toBe(0);
