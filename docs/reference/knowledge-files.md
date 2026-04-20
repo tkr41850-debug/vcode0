@@ -49,4 +49,4 @@ As with knowledge, this is real filesystem state. Task worker prompts do not aut
 - `.gvc0/KNOWLEDGE.md` — real append-only convention file; worker tool `append_knowledge` writes, planner cites via task `references`.
 - `.gvc0/DECISIONS.md` — real append-only convention file; worker tool `record_decision` writes, planner cites via task `references`.
 
-See [Worker Model](../worker-model.md) for the `TaskPayload` shape and [Codebase Map](./codebase-map.md) for source-area README pointers.
+See [Worker Model](../architecture/worker-model.md) for the `TaskPayload` shape and [Codebase Map](./codebase-map.md) for source-area README pointers.

@@ -57,6 +57,6 @@ This is deferred because the current baseline is intentionally local and contrac
 
 ## Related
 
-- [Worker Model](../worker-model.md) — baseline local process-per-task runtime and IPC
+- [Worker Model](../architecture/worker-model.md) — baseline local process-per-task runtime and IPC
 - [Feature Candidate: Advanced IPC Guarantees](./advanced-ipc-guarantees.md) — stronger transport semantics without full distributed workers
 - [Feature Candidate: Claude Code Harness](./claude-code-harness.md) — future provider/backend abstraction concerns

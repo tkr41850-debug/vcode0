@@ -199,7 +199,7 @@ Option 1 is now viable with documented flags (was blocked on session-id/stream-j
 
 ## Related
 
-- [Worker Model](../worker-model.md) — baseline harness abstraction
+- [Worker Model](../architecture/worker-model.md) — baseline harness abstraction
 - [test_claude_code_harness](../../specs/test_claude_code_harness.md) — scenario spec
 - [Claude Code headless docs](https://code.claude.com/docs/en/headless)
 - [CLI reference](https://code.claude.com/docs/en/cli-reference)

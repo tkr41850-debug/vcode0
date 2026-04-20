@@ -22,5 +22,5 @@ It does not own scheduling or persistence logic; it reads snapshots and run stat
 ## See also
 
 - [Reference / TUI](../../docs/reference/tui.md)
-- [Testing Strategy](../../docs/testing.md)
+- [Testing Strategy](../../docs/operations/testing.md)
 - [orchestrator](../orchestrator/README.md)

@@ -55,7 +55,7 @@ This is deferred because current local `FileSessionStore` plus shared `agent_run
 
 ## Related
 
-- [Worker Model](../worker-model.md) — baseline task session recovery and feature-phase recovery assumptions
+- [Worker Model](../architecture/worker-model.md) — baseline task session recovery and feature-phase recovery assumptions
 - [Architecture / Persistence](../architecture/persistence.md) — durable state ownership and `agent_runs` semantics
 - [Operations / Verification and Recovery](../operations/verification-and-recovery.md) — retry, waits, and crash recovery behavior
 - [Feature Candidate: Distributed Runtime](./distributed-runtime.md) — future runtime/session routing expansion

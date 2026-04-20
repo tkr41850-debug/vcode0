@@ -23,6 +23,6 @@ It does not own the worker tool catalog; that lives under [Worker Agent](../agen
 
 ## See also
 
-- [Worker Model](../../docs/worker-model.md)
+- [Worker Model](../../docs/architecture/worker-model.md)
 - [Operations / Verification and Recovery](../../docs/operations/verification-and-recovery.md)
 - [Worker Agent](../agents/worker/README.md)

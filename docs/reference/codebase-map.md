@@ -22,4 +22,4 @@ Start with [ARCHITECTURE.md](../../ARCHITECTURE.md) for system-wide map, then ju
 
 - Use [Architecture Topics](../architecture/README.md) for canonical model and lifecycle rules.
 - Use these `src/**/README.md` files for code-local responsibilities and boundary reminders.
-- Use [Worker Model](../worker-model.md) and [Conflict Coordination](../operations/conflict-coordination.md) when a subsystem boundary crosses multiple source areas.
+- Use [Worker Model](../architecture/worker-model.md) and [Conflict Coordination](../operations/conflict-coordination.md) when a subsystem boundary crosses multiple source areas.

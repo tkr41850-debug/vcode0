@@ -86,8 +86,8 @@ Use docs landing pages, not one root file as full catalog:
 - **docs/architecture/README.md** - Canonical architecture topics
 - **docs/operations/README.md** - Verification, recovery, conflict coordination, warnings
 - **docs/reference/README.md** - TUI, knowledge files, and codebase pointers
-- **docs/worker-model.md** - Process-per-task execution, IPC, and crash recovery
-- **docs/testing.md** - Testing strategy
+- **docs/architecture/worker-model.md** - Process-per-task execution, IPC, and crash recovery
+- **docs/operations/testing.md** - Testing strategy
 - **specs/README.md** - Grouped scenario-spec inventory
 
 Deferred-note directories:

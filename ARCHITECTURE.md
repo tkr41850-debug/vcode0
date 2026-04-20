@@ -62,8 +62,6 @@ gvc0/
 │   ├── operations/
 │   ├── reference/
 │   ├── agent-prompts/
-│   ├── worker-model.md
-│   ├── testing.md
 │   ├── concerns/
 │   ├── optimization-candidates/
 │   ├── feature-candidates/
@@ -88,8 +86,8 @@ gvc0/
 - [docs/operations/README.md](./docs/operations/README.md) — verification, recovery, conflict coordination, and warnings.
 - [docs/reference/README.md](./docs/reference/README.md) — TUI, knowledge/context inputs, codebase map, and source-area pointers.
 - [docs/agent-prompts/README.md](./docs/agent-prompts/README.md) — feature-phase and worker prompt references.
-- [docs/worker-model.md](./docs/worker-model.md) — process-per-task runtime, worktrees, IPC, and crash recovery.
-- [docs/testing.md](./docs/testing.md) — testing strategy.
+- [docs/architecture/worker-model.md](./docs/architecture/worker-model.md) — process-per-task runtime, worktrees, IPC, and crash recovery.
+- [docs/operations/testing.md](./docs/operations/testing.md) — testing strategy.
 - [specs/README.md](./specs/README.md) — grouped scenario-spec inventory.
 
 This file is overview. Use landing pages above for detailed topic map.

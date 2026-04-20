@@ -121,7 +121,7 @@ Each scheduler tick processes the event queue and dispatches new work:
 Overlap detection uses two layers:
 
 - **Reservation overlap** (tick-based): On each scheduler tick, the scheduler checks write-path reservations of ready work against running tasks. This is a scheduling-time penalty, not a hard block. Detection latency is bounded by the tick interval, which is acceptable for the local-machine baseline because task worktrees isolate blast radius.
-- **Runtime overlap** (push-based): When a task attempts to write a file, the write prehook tries to claim an active path lock through the orchestrator. If the path is already locked by another task, the incident is routed into the normal coordination flow immediately. See [conflict-coordination](../operations/conflict-coordination.md) and [worker-model](../worker-model.md) for the write-prehook mechanics.
+- **Runtime overlap** (push-based): When a task attempts to write a file, the write prehook tries to claim an active path lock through the orchestrator. If the path is already locked by another task, the incident is routed into the normal coordination flow immediately. See [conflict-coordination](../operations/conflict-coordination.md) and [worker-model](./worker-model.md) for the write-prehook mechanics.
 
 Additional reservation-level detection could be made push-based in the future. See [push-based conflict detection](../optimization-candidates/push-based-conflict-detection.md) for that optimization candidate.
 

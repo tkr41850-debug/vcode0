@@ -19,23 +19,26 @@ reviewed, approved, or rejected. The proposal should retain both
 its resulting graph snapshot and the mutation log that produced it.
 
 ```typescript
-// Tools exposed to the planner agent
-const plannerTools: AgentTool[] = [
-  createMilestoneTool,     // createMilestone(name, description) → Milestone
-  createFeatureTool,       // createFeature(milestoneId, name, description, dependsOn[]) → Feature
-  createTaskTool,          // createTask(featureId, description, dependsOn[], planner-baked payload) → Task
-  addDependencyTool,       // addDependency(fromId, toId) → void
-  removeDependencyTool,    // removeDependency(fromId, toId) → void
-  updateTaskTool,          // updateTask(id, patch) → Task
-  setFeatureObjectiveTool, // setFeatureObjective(featureId, objective) → void
-  setFeatureDoDTool,       // setFeatureDoD(featureId, dod[]) → void
-  submitPlanTool,          // submit() → finalize proposal for approval
+// Tools exposed to the planner agent (see src/agents/tools/planner-toolset.ts)
+const plannerTools = [
+  'addMilestone',        // (AddMilestoneOptions) → Milestone
+  'addFeature',          // (AddFeatureOptions) → Feature — requires milestoneId
+  'removeFeature',       // (RemoveFeatureOptions) → void
+  'editFeature',         // (EditFeatureOptions) → Feature — PlannerFeatureEditPatch
+  'addTask',             // (AddTaskOptions) → Task — planner-baked payload, deps, reservedWritePaths
+  'removeTask',          // (RemoveTaskOptions) → void
+  'editTask',            // (EditTaskOptions) → Task — TaskEditPatch
+  'setFeatureObjective', // (SetFeatureObjectiveOptions) → Feature
+  'setFeatureDoD',       // (SetFeatureDoDOptions) → Feature
+  'addDependency',       // (DependencyOptions) → void — validated immediately
+  'removeDependency',    // (DependencyOptions) → void
+  'submit',              // (SubmitProposalOptions) → void — finalize for approval
 ];
 ```
 
 ### Planner-baked task payload
 
-`createTask` and `updateTask` accept an optional planner-baked payload
+`addTask` and `editTask` accept an optional planner-baked payload
 so each task carries a fresh, typed brief that is written to the `tasks`
 row on approval:
 

@@ -203,6 +203,6 @@ Cross-feature blocking is expressed as `Feature.runtimeBlockedByFeatureId` plus 
 
 ## Related
 
-- [Worker Model](../worker-model.md)
+- [Worker Model](../architecture/worker-model.md)
 - [Verification and Recovery](./verification-and-recovery.md)
 - [Warnings](./warnings.md)

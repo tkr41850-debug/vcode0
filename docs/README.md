@@ -15,7 +15,7 @@ Use these entry points depending on what you need:
 
 1. [Architecture Overview](../ARCHITECTURE.md)
 2. [Architecture Topics](./architecture/README.md)
-3. [Worker Model](./worker-model.md)
+3. [Worker Model](./architecture/worker-model.md)
 4. [Operations / Verification and Recovery](./operations/verification-and-recovery.md)
 5. [Scenario Specs](../specs/README.md)
 
@@ -28,7 +28,7 @@ Use these entry points depending on what you need:
 
 ### Working on runtime, recovery, or coordination
 
-- [Worker Model](./worker-model.md)
+- [Worker Model](./architecture/worker-model.md)
 - [Operations / Conflict Coordination](./operations/conflict-coordination.md)
 - [Operations / Verification and Recovery](./operations/verification-and-recovery.md)
 - [Reference / TUI](./reference/tui.md)
@@ -36,7 +36,7 @@ Use these entry points depending on what you need:
 ## Architecture
 
 - [Architecture Topics](./architecture/README.md)
-- [Worker Model](./worker-model.md)
+- [Worker Model](./architecture/worker-model.md)
 - [Architecture / Data Model](./architecture/data-model.md)
 - [Architecture / Graph Operations](./architecture/graph-operations.md)
 - [Architecture / Persistence](./architecture/persistence.md)
@@ -49,7 +49,7 @@ Use these entry points depending on what you need:
 - [Operations / Verification and Recovery](./operations/verification-and-recovery.md)
 - [Operations / Conflict Coordination](./operations/conflict-coordination.md)
 - [Operations / Warnings](./operations/warnings.md)
-- [Testing Strategy](./testing.md)
+- [Testing Strategy](./operations/testing.md)
 
 ## Reference
 

@@ -23,4 +23,4 @@ This is deferred because the baseline system runs on one local machine and does 
 
 ## Related
 
-- [Worker Model](../worker-model.md) — baseline NDJSON stdio transport
+- [Worker Model](../architecture/worker-model.md) — baseline NDJSON stdio transport

@@ -22,6 +22,6 @@ It does not own generic test helpers or PTY-driven TUI coverage.
 
 ## See also
 
-- [Testing Strategy](../../../docs/testing.md)
+- [Testing Strategy](../../../docs/operations/testing.md)
 - [runtime](../../../src/runtime/README.md)
 - [TUI integration tests](../tui/README.md)
