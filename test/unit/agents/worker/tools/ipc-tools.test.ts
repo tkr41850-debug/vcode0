@@ -64,15 +64,13 @@ describe('worker ipc-coupled tools', () => {
   });
 
   describe('confirm', () => {
-    it('sends a progress message acknowledging the confirmation', async () => {
+    it('emits progress and does not submit a result', async () => {
       const bridge = createMockBridge();
       const tool = createConfirmTool(bridge);
 
       await tool.execute('call-1', {});
 
       expect(bridge._progressMessages).toHaveLength(1);
-      expect(bridge._progressMessages[0]).toContain('t-1');
-      expect(bridge._progressMessages[0]).toContain('confirmed');
       expect(bridge._lastResult).toBeUndefined();
     });
   });

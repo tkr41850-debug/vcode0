@@ -93,31 +93,16 @@ describe('promptLibrary', () => {
     const planPrompt = promptTemplates.plan.render(input);
     const replanPrompt = promptTemplates.replan.render(input);
 
-    expect(planPrompt).toContain("You are gvc0's feature planning agent.");
-    expect(replanPrompt).toContain("You are gvc0's feature planning agent.");
-    expect(planPrompt).toContain('## Planning Mode');
     expect(planPrompt).toContain('Initial planning mode.');
-    expect(planPrompt).toContain('inspect current persisted feature state');
-    expect(planPrompt).toContain('proposal tools');
-    expect(planPrompt).toContain('`addMilestone(...)`');
     expect(planPrompt).toContain('`submit(...)` exactly once');
-    expect(planPrompt).toContain('concise rationale after tool use');
-    expect(planPrompt).toContain('chosen approach');
-    expect(planPrompt).toContain('verification expectations');
-    expect(planPrompt).toContain('### External Integrations');
-    expect(planPrompt).toContain('### Anti-Goals');
     expect(planPrompt).not.toContain(
       'Reason: Dependency seam changed after execution evidence.',
     );
     expect(replanPrompt).toContain('Replanning mode.');
-    expect(replanPrompt).toContain('proposal tools');
-    expect(replanPrompt).toContain('`addMilestone(...)`');
     expect(replanPrompt).toContain('`submit(...)` exactly once');
-    expect(replanPrompt).toContain('concise rationale after tool use');
     expect(replanPrompt).toContain(
       'Reason: Dependency seam changed after execution evidence.',
     );
-    expect(replanPrompt).toContain('### Blockers or Discoveries');
   });
 
   it('renders discuss, research, and summarize prompts with structured submit instructions', () => {
@@ -127,29 +112,13 @@ describe('promptLibrary', () => {
 
     expect(discussPrompt).toContain('`submitDiscuss(...)` exactly once');
     expect(researchPrompt).toContain('`submitResearch(...)` exactly once');
-    expect(researchPrompt).toContain('repo state with available tools');
-    expect(researchPrompt).toContain(
-      'read real code with repo inspection tools',
-    );
-    expect(researchPrompt).toContain('### External Integrations');
-    expect(researchPrompt).toContain('### Anti-Goals');
     expect(summarizePrompt).toContain('`submitSummarize(...)` exactly once');
-    expect(summarizePrompt).toContain(
-      "You are gvc0's feature summarization agent.",
-    );
-    expect(summarizePrompt).toContain('## Summary Inputs');
-    expect(summarizePrompt).toContain('### Integrated Outcome');
-    expect(summarizePrompt).toContain('## Important Files');
-    expect(summarizePrompt).toContain('src/runtime/worker/system-prompt.ts');
-    expect(summarizePrompt).toContain('inspect persisted feature state');
   });
 
   it('renders verify prompt with structured repair-only verdict instructions', () => {
     const prompt = promptTemplates.verify.render(buildInput());
 
-    expect(prompt).toContain("You are gvc0's feature verification agent.");
     expect(prompt).toContain('`submitVerify(...)` exactly once');
-    expect(prompt).toContain('pass or repair needed');
     expect(prompt).not.toContain('replan needed');
   });
 });

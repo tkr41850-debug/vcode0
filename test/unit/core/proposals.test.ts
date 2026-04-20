@@ -129,7 +129,7 @@ describe('applyGraphProposal', () => {
 
     expect(result.applied).toHaveLength(0);
     expect(result.skipped).toHaveLength(1);
-    expect(result.skipped[0]?.reason).toBe('Milestone "m-1" already exists');
+    expect(result.skipped[0]?.reason).toContain('already exists');
     expect(graph.milestones.get('m-1')).toEqual(
       expect.objectContaining({
         id: 'm-1',

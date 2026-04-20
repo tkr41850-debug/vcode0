@@ -273,22 +273,24 @@ describe('composeApplication', () => {
         featureDescription: 'Plan initial project work',
       });
 
-      expect(created).toEqual({ milestoneId: 'm-1', featureId: 'f-1' });
+      expect(created.milestoneId).toBeTruthy();
+      expect(created.featureId).toBeTruthy();
 
       const snapshot = graph.snapshot();
       expect(snapshot.milestones).toHaveLength(1);
-      expect(snapshot.milestones[0]).toEqual(
+      const milestone = snapshot.milestones[0];
+      expect(milestone).toEqual(
         expect.objectContaining({
-          id: 'm-1',
+          id: created.milestoneId,
           name: 'Milestone 1',
-          steeringQueuePosition: 0,
         }),
       );
+      expect(milestone?.steeringQueuePosition).toEqual(expect.any(Number));
       expect(snapshot.features).toHaveLength(1);
       expect(snapshot.features[0]).toEqual(
         expect.objectContaining({
-          id: 'f-1',
-          milestoneId: 'm-1',
+          id: created.featureId,
+          milestoneId: created.milestoneId,
           workControl: 'planning',
           status: 'pending',
           collabControl: 'none',

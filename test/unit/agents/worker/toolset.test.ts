@@ -42,13 +42,17 @@ describe('buildWorkerToolset', () => {
     );
   });
 
-  it('returns a fresh array on every call', () => {
+  it('does not share mutable toolset state across calls', () => {
     const deps = {
       ipc: noopBridge(),
       workdir: '/tmp',
       projectRoot: '/tmp',
     };
 
-    expect(buildWorkerToolset(deps)).not.toBe(buildWorkerToolset(deps));
+    const first = buildWorkerToolset(deps);
+    first.length = 0;
+
+    const second = buildWorkerToolset(deps);
+    expect(second.length).toBeGreaterThan(0);
   });
 });

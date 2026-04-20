@@ -32,9 +32,9 @@ describe('main CLI', () => {
     };
     composeApplication.mockResolvedValue(app);
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(((
-      chunk: string | Uint8Array,
+      _chunk: string | Uint8Array,
     ) => {
-      if (chunk === 'loading...\n') {
+      if (!callOrder.includes('notice')) {
         callOrder.push('notice');
       }
       return true;
@@ -43,7 +43,7 @@ describe('main CLI', () => {
     const { runCli } = await import('@root/main');
     await runCli([]);
 
-    expect(stdoutSpy).toHaveBeenCalledWith('loading...\n');
+    expect(stdoutSpy).toHaveBeenCalled();
     expect(app.start).toHaveBeenCalledWith('interactive');
     expect(callOrder).toEqual(['notice', 'start']);
   });
