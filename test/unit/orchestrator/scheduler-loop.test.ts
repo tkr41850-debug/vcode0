@@ -879,7 +879,8 @@ describe('SchedulerLoop', () => {
 
     const loop = new SchedulerLoop(graph, ports);
 
-    await loop.handleEventForTest({
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
       type: 'worker_message',
       message: {
         type: 'result',
@@ -900,6 +901,7 @@ describe('SchedulerLoop', () => {
         completionKind: 'submitted',
       },
     });
+    await loop.step(100);
 
     expect(graph.tasks.get('t-1')).toEqual(
       expect.objectContaining({
@@ -969,7 +971,8 @@ describe('SchedulerLoop', () => {
       usd: 0.5,
     };
 
-    await loop.handleEventForTest({
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
       type: 'worker_message',
       message: {
         type: 'result',
@@ -980,6 +983,7 @@ describe('SchedulerLoop', () => {
         completionKind: 'submitted',
       },
     });
+    await loop.step(100);
 
     const run = ports.store.getAgentRun('run-task:t-1');
     expect(run?.tokenUsage).toEqual(runtimeUsageToTokenUsageAggregate(usage));
@@ -1022,7 +1026,8 @@ describe('SchedulerLoop', () => {
       usd: 0.25,
     };
 
-    await loop.handleEventForTest({
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
       type: 'worker_message',
       message: {
         type: 'error',
@@ -1032,6 +1037,7 @@ describe('SchedulerLoop', () => {
         usage,
       },
     });
+    await loop.step(100);
 
     const run = ports.store.getAgentRun('run-task:t-1');
     expect(run?.tokenUsage).toEqual(runtimeUsageToTokenUsageAggregate(usage));
@@ -1287,7 +1293,8 @@ describe('SchedulerLoop', () => {
 
     const loop = new SchedulerLoop(graph, ports);
 
-    await loop.handleEventForTest({
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
       type: 'worker_message',
       message: {
         type: 'result',
@@ -1308,6 +1315,7 @@ describe('SchedulerLoop', () => {
         completionKind: 'implicit',
       },
     });
+    await loop.step(100);
 
     expect(graph.tasks.get('t-1')).toEqual(
       expect.objectContaining({
@@ -1353,7 +1361,8 @@ describe('SchedulerLoop', () => {
 
     const loop = new SchedulerLoop(graph, ports);
 
-    await loop.handleEventForTest({
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
       type: 'worker_message',
       message: {
         type: 'error',
@@ -1362,6 +1371,7 @@ describe('SchedulerLoop', () => {
         error: 'provider overloaded',
       },
     });
+    await loop.step(100);
 
     expect(graph.tasks.get('t-1')).toEqual(
       expect.objectContaining({
@@ -1415,7 +1425,8 @@ describe('SchedulerLoop', () => {
 
     const loop = new SchedulerLoop(graph, ports);
 
-    await loop.handleEventForTest({
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
       type: 'worker_message',
       message: {
         type: 'result',
@@ -1436,6 +1447,7 @@ describe('SchedulerLoop', () => {
         completionKind: 'submitted',
       },
     });
+    await loop.step(100);
 
     expect(graph.tasks.get('t-1')).toMatchObject({
       status: 'cancelled',
@@ -1480,7 +1492,8 @@ describe('SchedulerLoop', () => {
 
     const loop = new SchedulerLoop(graph, ports);
 
-    await loop.handleEventForTest({
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
       type: 'worker_message',
       message: {
         type: 'error',
@@ -1489,6 +1502,7 @@ describe('SchedulerLoop', () => {
         error: 'provider overloaded',
       },
     });
+    await loop.step(100);
 
     expect(graph.tasks.get('t-1')).toMatchObject({
       status: 'cancelled',
@@ -1530,7 +1544,8 @@ describe('SchedulerLoop', () => {
 
     const loop = new SchedulerLoop(graph, ports);
 
-    await loop.handleEventForTest({
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
       type: 'worker_message',
       message: {
         type: 'request_help',
@@ -1539,6 +1554,7 @@ describe('SchedulerLoop', () => {
         query: 'what should I do?',
       },
     });
+    await loop.step(100);
 
     expect(updateAgentRun).toHaveBeenCalledWith('run-task:t-1', {
       runStatus: 'await_response',
@@ -1577,7 +1593,8 @@ describe('SchedulerLoop', () => {
 
     const loop = new SchedulerLoop(graph, ports);
 
-    await loop.handleEventForTest({
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
       type: 'worker_message',
       message: {
         type: 'request_approval',
@@ -1590,6 +1607,7 @@ describe('SchedulerLoop', () => {
         },
       },
     });
+    await loop.step(100);
 
     expect(updateAgentRun).toHaveBeenCalledWith('run-task:t-1', {
       runStatus: 'await_approval',
@@ -1817,12 +1835,14 @@ describe('SchedulerLoop', () => {
 
     const loop = new SchedulerLoop(graph, ports);
 
-    await loop.handleEventForTest({
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
       type: 'feature_phase_complete',
       featureId: 'f-1',
       phase: 'plan',
       summary: 'planned',
     });
+    await loop.step(100);
 
     expect(graph.features.get('f-1')).toMatchObject({
       collabControl: 'cancelled',
@@ -1853,12 +1873,14 @@ describe('SchedulerLoop', () => {
 
     const loop = new SchedulerLoop(graph, ports);
 
-    await loop.handleEventForTest({
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
       type: 'feature_phase_error',
       featureId: 'f-1',
       phase: 'plan',
       error: 'boom',
     });
+    await loop.step(100);
 
     expect(updateAgentRun).not.toHaveBeenCalledWith(
       'run-feature:f-1:plan',
@@ -1946,12 +1968,14 @@ describe('SchedulerLoop', () => {
 
     const loop = new SchedulerLoop(graph, ports);
 
-    await loop.handleEventForTest({
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
       type: 'feature_phase_approval_decision',
       featureId: 'f-1',
       phase: 'plan',
       decision: 'approved',
     });
+    await loop.step(100);
 
     expect(graph.features.get('f-1')).toEqual(
       expect.objectContaining({
@@ -2006,13 +2030,15 @@ describe('SchedulerLoop', () => {
 
     const loop = new SchedulerLoop(graph, ports);
 
-    await loop.handleEventForTest({
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
       type: 'feature_phase_approval_decision',
       featureId: 'f-1',
       phase: 'plan',
       decision: 'rejected',
       comment: 'not now',
     });
+    await loop.step(100);
 
     expect(graph.features.get('f-1')).toEqual(
       expect.objectContaining({
@@ -2038,11 +2064,13 @@ describe('SchedulerLoop', () => {
     await loop.step(100);
     expect(planFeature).not.toHaveBeenCalled();
 
-    await loop.handleEventForTest({
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
       type: 'feature_phase_rerun_requested',
       featureId: 'f-1',
       phase: 'plan',
     });
+    await loop.step(100);
     expect(deleteSession).toHaveBeenCalledWith('sess-1');
     expect(updateAgentRun).toHaveBeenCalledWith('run-feature:f-1:plan', {
       runStatus: 'ready',
@@ -2052,6 +2080,7 @@ describe('SchedulerLoop', () => {
     });
 
     planFeature.mockClear();
+    loop.setAutoExecutionEnabled(true);
     await loop.step(100);
     expect(planFeature).toHaveBeenCalledOnce();
   });
@@ -2139,6 +2168,7 @@ describe('SchedulerLoop', () => {
     const order: string[] = [];
     const { ports } = createPorts(order);
     const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
+    const dispatchTask = vi.spyOn(ports.runtime, 'dispatchTask');
     const graph = createProposalApprovalGraph(
       {
         workControl: 'replanning',
@@ -2163,12 +2193,14 @@ describe('SchedulerLoop', () => {
 
     const loop = new SchedulerLoop(graph, ports);
 
-    await loop.handleEventForTest({
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
       type: 'feature_phase_approval_decision',
       featureId: 'f-1',
       phase: 'replan',
       decision: 'approved',
     });
+    await loop.step(100);
 
     expect(graph.features.get('f-1')).toEqual(
       expect.objectContaining({
@@ -2191,6 +2223,13 @@ describe('SchedulerLoop', () => {
       owner: 'system',
       payloadJson: JSON.stringify(makeProposal('replan')),
     });
+
+    loop.setAutoExecutionEnabled(true);
+    await loop.step(101);
+
+    const dispatchedIds = dispatchTask.mock.calls.map(([task]) => task.id);
+    expect(dispatchedIds).toEqual(expect.arrayContaining(['t-stuck', 't-1']));
+    expect(dispatchedIds).not.toContain('t-2');
   });
 
   it('records proposal_apply_failed when approval payload is invalid', async () => {
@@ -2209,12 +2248,14 @@ describe('SchedulerLoop', () => {
 
     const loop = new SchedulerLoop(graph, ports);
 
-    await loop.handleEventForTest({
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
       type: 'feature_phase_approval_decision',
       featureId: 'f-1',
       phase: 'plan',
       decision: 'approved',
     });
+    await loop.step(100);
 
     expect(graph.tasks.size).toBe(0);
     expect(graph.features.get('f-1')).toEqual(
@@ -2265,12 +2306,14 @@ describe('SchedulerLoop', () => {
 
     const loop = new SchedulerLoop(graph, ports);
 
-    await loop.handleEventForTest({
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
       type: 'feature_phase_approval_decision',
       featureId: 'f-1',
       phase: 'plan',
       decision: 'approved',
     });
+    await loop.step(100);
 
     expect(graph.features.get('f-1')).toEqual(
       expect.objectContaining({
@@ -2322,12 +2365,14 @@ describe('SchedulerLoop', () => {
 
     const loop = new SchedulerLoop(graph, ports);
 
-    await loop.handleEventForTest({
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
       type: 'feature_phase_approval_decision',
       featureId: 'f-1',
       phase: 'plan',
       decision: 'approved',
     });
+    await loop.step(100);
 
     expect(graph.milestones.get('m-2')).toEqual(
       expect.objectContaining({ name: 'Milestone 2' }),
@@ -2386,12 +2431,14 @@ describe('SchedulerLoop', () => {
 
     const loop = new SchedulerLoop(graph, ports);
 
-    await loop.handleEventForTest({
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
       type: 'feature_phase_approval_decision',
       featureId: 'f-1',
       phase: 'plan',
       decision: 'approved',
     });
+    await loop.step(100);
 
     const invalidProposalEvent = appendEvent.mock.calls[0]?.[0];
     expect(invalidProposalEvent).toMatchObject({
@@ -2457,13 +2504,15 @@ describe('SchedulerLoop', () => {
 
     const loop = new SchedulerLoop(graph, ports);
 
-    await loop.handleEventForTest({
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
       type: 'feature_phase_complete',
       featureId: 'f-1',
       phase: 'ci_check',
       summary: 'green',
       verification: { ok: true, summary: 'green' },
     });
+    await loop.step(100);
 
     expect(graph.features.get('f-1')).toEqual(
       expect.objectContaining({
@@ -2569,7 +2618,7 @@ describe('SchedulerLoop', () => {
     expect(warningEvents).toHaveLength(0);
   });
 
-  it('moves verify success to awaiting_merge and merge_queued', async () => {
+  it('moves verify success through merge_queued into integrating', async () => {
     const order: string[] = [];
     const { ports } = createPorts(order);
     const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
@@ -2603,19 +2652,26 @@ describe('SchedulerLoop', () => {
 
     const loop = new SchedulerLoop(graph, ports);
 
-    await loop.handleEventForTest({
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
       type: 'feature_phase_complete',
       featureId: 'f-1',
       phase: 'verify',
       summary: 'verified',
       verification: { ok: true, summary: 'verified' },
     });
+    await loop.step(100);
 
+    // After step() the feature advances: handleEvent sets workControl=awaiting_merge
+    // and collabControl=merge_queued (with mergeTrainEntrySeq assigned), then
+    // features.beginNextIntegration() in the same tick transitions collabControl
+    // to 'integrating'. Both transitions are observable through the mergeTrainEntrySeq
+    // stamp being preserved.
     expect(graph.features.get('f-1')).toEqual(
       expect.objectContaining({
         workControl: 'awaiting_merge',
-        status: 'pending',
-        collabControl: 'merge_queued',
+        status: 'in_progress',
+        collabControl: 'integrating',
         mergeTrainEntrySeq: 1,
       }),
     );
@@ -2668,13 +2724,15 @@ describe('SchedulerLoop', () => {
 
     const loop = new SchedulerLoop(graph, ports);
 
-    await loop.handleEventForTest({
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
       type: 'feature_phase_complete',
       featureId: 'f-1',
       phase: 'ci_check',
       summary: 'tests failed',
       verification: { ok: false, summary: 'tests failed' },
     });
+    await loop.step(100);
 
     expect(graph.features.get('f-1')).toEqual(
       expect.objectContaining({
@@ -2728,13 +2786,15 @@ describe('SchedulerLoop', () => {
 
     const loop = new SchedulerLoop(graph, ports);
 
-    await loop.handleEventForTest({
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
       type: 'feature_phase_complete',
       featureId: 'f-1',
       phase: 'verify',
       summary: 'failed checks',
       verification: { ok: false, summary: 'failed checks' },
     });
+    await loop.step(100);
 
     expect(graph.features.get('f-1')).toEqual(
       expect.objectContaining({
@@ -2789,13 +2849,15 @@ describe('SchedulerLoop', () => {
 
     const loop = new SchedulerLoop(graph, ports);
 
-    await loop.handleEventForTest({
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
       type: 'feature_phase_complete',
       featureId: 'f-1',
       phase: 'verify',
       summary: 'failed checks',
       verification: { ok: false, summary: 'failed checks' },
     });
+    await loop.step(100);
 
     expect(graph.features.get('f-1')).toEqual(
       expect.objectContaining({
@@ -2854,13 +2916,15 @@ describe('SchedulerLoop', () => {
 
     const loop = new SchedulerLoop(graph, ports);
 
-    await loop.handleEventForTest({
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
       type: 'feature_phase_complete',
       featureId: 'f-1',
       phase: 'verify',
       summary: 'failed again',
       verification: { ok: false, summary: 'failed again' },
     });
+    await loop.step(100);
 
     expect(graph.features.get('f-1')).toEqual(
       expect.objectContaining({
@@ -2915,14 +2979,16 @@ describe('SchedulerLoop', () => {
 
     const loop = new SchedulerLoop(graph, ports);
 
-    await expect(
-      loop.handleEventForTest({
-        type: 'feature_phase_complete',
-        featureId: 'f-1',
-        phase: 'ci_check',
-        summary: 'green',
-      }),
-    ).rejects.toThrow('ci_check completion requires verification summary');
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
+      type: 'feature_phase_complete',
+      featureId: 'f-1',
+      phase: 'ci_check',
+      summary: 'green',
+    });
+    await expect(loop.step(100)).rejects.toThrow(
+      'ci_check completion requires verification summary',
+    );
   });
 
   it('rejects verify completion when verification payload is missing', async () => {
@@ -2958,14 +3024,16 @@ describe('SchedulerLoop', () => {
 
     const loop = new SchedulerLoop(graph, ports);
 
-    await expect(
-      loop.handleEventForTest({
-        type: 'feature_phase_complete',
-        featureId: 'f-1',
-        phase: 'verify',
-        summary: 'verified',
-      }),
-    ).rejects.toThrow('verify completion requires verification summary');
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
+      type: 'feature_phase_complete',
+      featureId: 'f-1',
+      phase: 'verify',
+      summary: 'verified',
+    });
+    await expect(loop.step(100)).rejects.toThrow(
+      'verify completion requires verification summary',
+    );
   });
 
   it('does not rerun ci_check while a repair task remains incomplete', async () => {
@@ -3090,7 +3158,8 @@ describe('SchedulerLoop', () => {
 
     const loop = new SchedulerLoop(graph, ports);
 
-    await loop.handleEventForTest({
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
       type: 'worker_message',
       message: {
         type: 'result',
@@ -3111,6 +3180,7 @@ describe('SchedulerLoop', () => {
         completionKind: 'submitted',
       },
     });
+    await loop.step(100);
 
     expect(graph.features.get('f-1')).toEqual(
       expect.objectContaining({
@@ -3213,12 +3283,14 @@ describe('SchedulerLoop', () => {
 
     const loop = new SchedulerLoop(graph, ports);
 
-    await loop.handleEventForTest({
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
       type: 'feature_phase_complete',
       featureId: 'f-1',
       phase: 'summarize',
       summary: 'final summary',
     });
+    await loop.step(100);
 
     expect(graph.features.get('f-1')).toEqual(
       expect.objectContaining({
@@ -3270,14 +3342,16 @@ describe('SchedulerLoop', () => {
 
     const loop = new SchedulerLoop(graph, ports);
 
-    await expect(
-      loop.handleEventForTest({
-        type: 'feature_phase_complete',
-        featureId: 'f-1',
-        phase: 'summarize',
-        summary: '',
-      }),
-    ).rejects.toThrow('summarize completion requires summary text');
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
+      type: 'feature_phase_complete',
+      featureId: 'f-1',
+      phase: 'summarize',
+      summary: '',
+    });
+    await expect(loop.step(100)).rejects.toThrow(
+      'summarize completion requires summary text',
+    );
   });
 
   it('begins integrating the next merge-queued feature on tick', async () => {
@@ -4788,7 +4862,8 @@ describe('SchedulerLoop', () => {
 
     const loop = new SchedulerLoop(graph, ports);
 
-    await loop.handleEventForTest({
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
       type: 'worker_message',
       message: {
         type: 'result',
@@ -4809,6 +4884,7 @@ describe('SchedulerLoop', () => {
         completionKind: 'submitted',
       },
     });
+    await loop.step(100);
 
     const repairedFeature = graph.features.get('f-2');
     expect(repairedFeature?.runtimeBlockedByFeatureId).toBeUndefined();
@@ -4832,12 +4908,14 @@ describe('SchedulerLoop', () => {
 
     const loop = new SchedulerLoop(graph, ports);
 
-    await loop.handleEventForTest({
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
       type: 'feature_phase_error',
       featureId: 'f-1',
       phase: 'plan',
       error: 'boom',
     });
+    await loop.step(100);
 
     const retryPlanPatch = updateAgentRun.mock.calls.find(
       ([runId, patch]) =>

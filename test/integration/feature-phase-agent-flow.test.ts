@@ -34,22 +34,6 @@ import {
 import { InMemorySessionStore } from './harness/in-memory-session-store.js';
 import { InMemoryStore } from './harness/store-memory.js';
 
-class ExposedSchedulerLoop extends SchedulerLoop {
-  async tickForTest(now: number): Promise<void> {
-    return super.tick(now);
-  }
-
-  async dispatchReadyWorkForTest(now: number): Promise<void> {
-    return super.dispatchReadyWork(now);
-  }
-
-  async handleEventForTest(
-    event: Parameters<SchedulerLoop['enqueue']>[0],
-  ): Promise<void> {
-    return super.handleEvent(event);
-  }
-}
-
 function createConfig(overrides: Partial<GvcConfig> = {}): GvcConfig {
   return {
     tokenProfile: 'balanced',
@@ -300,7 +284,7 @@ function createFixture({
     store,
     sessionStore,
     config,
-    loop: new ExposedSchedulerLoop(graph, ports),
+    loop: new SchedulerLoop(graph, ports),
   };
 }
 
@@ -347,7 +331,7 @@ describe('feature-phase agent flow', () => {
       },
     });
 
-    await loop.dispatchReadyWorkForTest(100);
+    await loop.step(100);
 
     expect(graph.features.get('f-1')).toEqual(
       expect.objectContaining({
@@ -431,7 +415,7 @@ describe('feature-phase agent flow', () => {
       openQuestions: ['Need auth requirement?'],
     });
 
-    await loop.dispatchReadyWorkForTest(100);
+    await loop.step(100);
 
     expect(graph.features.get('f-1')).toEqual(
       expect.objectContaining({
@@ -497,7 +481,7 @@ describe('feature-phase agent flow', () => {
       },
     });
 
-    await loop.dispatchReadyWorkForTest(100);
+    await loop.step(100);
 
     const run = store.getAgentRun('run-feature:f-1:plan');
     expect(run).toEqual(
@@ -588,7 +572,7 @@ describe('feature-phase agent flow', () => {
       summary: 'feature ci green',
     });
 
-    await loop.tickForTest(100);
+    await loop.step(100);
 
     expect(graph.features.get('f-1')).toEqual(
       expect.objectContaining({
@@ -635,7 +619,7 @@ describe('feature-phase agent flow', () => {
       },
     });
 
-    await loop.tickForTest(100);
+    await loop.step(100);
 
     const feature = graph.features.get('f-1');
     expect(feature).toEqual(
@@ -679,7 +663,7 @@ describe('feature-phase agent flow', () => {
       summary: 'feature ci green',
     });
 
-    await loop.dispatchReadyWorkForTest(100);
+    await loop.step(100);
 
     expect(graph.features.get('f-1')).toEqual(
       expect.objectContaining({
@@ -746,7 +730,7 @@ describe('feature-phase agent flow', () => {
       const worktree = await createFeatureWorktree(projectRoot, feature);
       await fs.writeFile(path.join(worktree, 'pass.marker'), 'ok', 'utf-8');
 
-      await loop.dispatchReadyWorkForTest(100);
+      await loop.step(100);
 
       expect(graph.features.get('f-1')).toEqual(
         expect.objectContaining({
@@ -813,7 +797,7 @@ describe('feature-phase agent flow', () => {
       }
       await createFeatureWorktree(projectRoot, feature);
 
-      await loop.dispatchReadyWorkForTest(100);
+      await loop.step(100);
 
       expect(graph.features.get('f-1')).toEqual(
         expect.objectContaining({
@@ -883,7 +867,7 @@ describe('feature-phase agent flow', () => {
       failedChecks: ['integrated flow not proven'],
     });
 
-    await loop.dispatchReadyWorkForTest(100);
+    await loop.step(100);
 
     const run = store.getAgentRun('run-feature:f-1:replan');
     expect(run).toEqual(
@@ -960,12 +944,14 @@ describe('feature-phase agent flow', () => {
       }),
     );
 
-    await loop.handleEventForTest({
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
       type: 'feature_phase_approval_decision',
       featureId: 'f-1',
       phase: 'replan',
       decision: 'approved',
     });
+    await loop.step(100);
 
     expect(graph.features.get('f-1')).toEqual(
       expect.objectContaining({
