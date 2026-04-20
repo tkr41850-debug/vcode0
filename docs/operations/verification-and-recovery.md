@@ -192,14 +192,14 @@ When `maxConsecutiveFailures` is reached:
 3. TUI highlights the task with the last verification failure and indicates that intervention is needed
 4. User may attach directly, moving the run to `running` with `owner = "manual"`
 5. If the user exits without finishing, the run becomes `await_response` with `owner = "manual"`
-6. The operator may later return the run to scheduler-owned execution through the normal runtime/TUI control surface once manual intervention is complete
+6. The operator may later trigger `release_to_scheduler` to return the run to scheduler-owned execution once manual intervention is complete. The run returns to `ready` with `owner = "system"` only if no unanswered `request_help()` query remains on `payload_json`; otherwise it stays `await_response` with manual ownership until the help query is answered.
 7. Alternatively, the user may move the feature into `replanning`; the replanner proposal enters `await_approval`, and if approved the original stuck task returns to `ready`
 
 ## Help / Approval / Replanning
 
 Task execution runs and feature-phase runs may call `request_help(query)` when they hit a semantic blocker that is not a transient provider failure. `request_help()` pauses the run immediately, stores the query in `payload_json`, and moves the run to `await_response` with manual ownership. The TUI may either answer the request directly through a typed runtime help-response message or attach to the live session and continue it in `running/manual` mode.
 
-Manual drop-in interaction uses the same runtime control path: the orchestrator forwards plain-text `manual_input`, and the worker may stream plain-text `assistant_output` back while the run remains under manual ownership. Approval requests likewise stay run-owned: a worker emits `request_approval`, the orchestrator persists the waiting state on `agent_runs`, and later sends a typed `approval_decision` such as `approved`, `approve_always` when supported, `reject`, or `discuss`.
+Manual drop-in interaction uses the same runtime control path: the orchestrator forwards plain-text `manual_input`, and the worker may stream plain-text `assistant_output` back while the run remains under manual ownership. The operator returns the run to automatic execution by triggering `release_to_scheduler`, which clears manual ownership only when no unanswered `request_help()` state remains on the run. Approval requests likewise stay run-owned: a worker emits `request_approval`, the orchestrator persists the waiting state on `agent_runs`, and later sends a typed `approval_decision` such as `approved`, `approve_always` when supported, `reject`, or `discuss`.
 
 Replanning is triggered when a feature enters the `replanning` phase, either after repair escalation in the orchestrator or through the current TUI proposal/approval flow for a selected replanning feature.
 
