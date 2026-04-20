@@ -325,6 +325,10 @@ premature feature split.
 
 Completed feature branches do not merge directly to `main`. Instead, merge-train ordering remains feature-owned: queue eligibility and ordering derive from feature merge-train fields plus dependency legality and current milestone steering context.
 
+### Invariant: `main` is never in a bad state
+
+The merge train exists to protect `main`. A feature branch only updates `main` after it has rebased onto the current `main`, run merge-train verification against that rebased state, and passed. If rebase fails or verification fails, the feature is ejected from the queue (`integrating → branch_open`, `mergeTrainReentryCount` increments) and repair work lands on the feature branch before it may re-queue. `main` never advances to a state that has not passed merge-train verification at its post-rebase tip.
+
 Queue rules:
 1. Only features whose feature deps are already merged to `main` may integrate.
 2. User-queued milestones steer scheduler selection before
