@@ -7,7 +7,7 @@ Use this page as the canonical scenario index. For testing strategy and faux-pro
 ## Lifecycle / Merge Train
 
 - [test_feature_branch_lifecycle](./test_feature_branch_lifecycle.md) — feature branches/worktrees open on request, task worktrees merge back into them, and cleanup follows the feature lifecycle.
-- [test_feature_verification_repair_loop](./test_feature_verification_repair_loop.md) — failed `ci_check` or agent-level `verifying` creates same-branch repair work before queue entry.
+- [test_feature_verification_repair_loop](./test_feature_verification_repair_loop.md) — failed `ci_check` enqueues a same-branch repair task, while failed agent-level `verifying` routes through `replanning` with persisted `VerifyIssue[]` before queue entry.
 - [test_merge_train_ordering](./test_merge_train_ordering.md) — completed feature branches queue and integrate to `main` one at a time.
 - [test_merge_train_conflict_handling](./test_merge_train_conflict_handling.md) — integration rebase or merge-train verification failure ejects a feature for same-branch repair and re-entry.
 - [test_feature_summary_lifecycle](./test_feature_summary_lifecycle.md) — post-merge summarizing writes summary text in the normal path while budget mode skips summary creation.
