@@ -16,12 +16,12 @@ describe('buildProposalAgentToolset', () => {
     const tools = buildProposalAgentToolset(host);
 
     const addMilestoneTool = tools.find((tool) => tool.name === 'addMilestone');
-    expect(addMilestoneTool).toBeDefined();
-    expect(addMilestoneTool?.parameters).toBe(
+    if (!addMilestoneTool) throw new Error('addMilestone tool missing');
+    expect(addMilestoneTool.parameters).toBe(
       proposalToolParameters.addMilestone,
     );
 
-    const milestoneResult = await addMilestoneTool!.execute('call-1', {
+    const milestoneResult = await addMilestoneTool.execute('call-1', {
       name: 'Milestone 2',
       description: 'second milestone',
     });
@@ -36,10 +36,10 @@ describe('buildProposalAgentToolset', () => {
     });
 
     const addTaskTool = tools.find((tool) => tool.name === 'addTask');
-    expect(addTaskTool).toBeDefined();
-    expect(addTaskTool?.parameters).toBe(proposalToolParameters.addTask);
+    if (!addTaskTool) throw new Error('addTask tool missing');
+    expect(addTaskTool.parameters).toBe(proposalToolParameters.addTask);
 
-    const result = await addTaskTool!.execute('call-2', {
+    const result = await addTaskTool.execute('call-2', {
       featureId: 'f-1',
       description: 'Draft task',
     });
@@ -77,9 +77,9 @@ describe('buildProposalAgentToolset', () => {
     const getFeatureStateTool = tools.find(
       (tool) => tool.name === 'getFeatureState',
     );
-    expect(getFeatureStateTool).toBeDefined();
+    if (!getFeatureStateTool) throw new Error('getFeatureState tool missing');
 
-    const result = await getFeatureStateTool!.execute('call-1', {});
+    const result = await getFeatureStateTool.execute('call-1', {});
 
     expect(result).toEqual({
       content: [
