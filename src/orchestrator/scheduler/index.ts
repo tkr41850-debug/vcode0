@@ -146,6 +146,10 @@ export class SchedulerLoop {
     await this.ports.runtime.stopAll();
   }
 
+  async step(now: number): Promise<void> {
+    await this.tick(now);
+  }
+
   protected async tick(now: number): Promise<void> {
     const beforeFingerprint = this.uiStateFingerprint();
 

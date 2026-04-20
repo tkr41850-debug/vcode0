@@ -62,7 +62,9 @@ each task's `TaskPayload` so workers see the feature-level goal alongside
 their own objective.
 
 The planner receives the spec text as its prompt
-and calls these tools to build the proposal graph.
+and must use these proposal tools to build the proposal graph.
+Free-text rationale is not source of truth.
+Planner and replanner call `submit()` exactly once when the proposal is complete.
 The orchestrator watches the proposal graph evolve in real time
 and may render that draft state in the TUI, but it does not apply
 those mutations to the authoritative graph yet.

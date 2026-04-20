@@ -144,6 +144,7 @@ Draft commands operate on selected planning or replanning feature context.
 Starting draft work pauses auto-execution until draft is submitted or discarded.
 This composer `/submit` command submits a planning/replanning proposal draft for approval; it is unrelated to the worker-side task `submit()` tool.
 
+- `/milestone-add --name "" --description ""`
 - `/feature-add`
 - `/feature-remove`
 - `/feature-edit`
@@ -205,6 +206,6 @@ Illustrative layout:
 ## Known Limitations
 
 - composer currently supports slash commands only; plain-text planner chat is not wired
-- proposal editing covers features, tasks, and dependencies; no milestone authoring flow is exposed in current composer
+- composer currently supports a minimal milestone authoring flow (`/milestone-add`) but still lacks milestone edit/remove commands
 - agent monitor is read-only; no worker steer or abort controls are exposed
 

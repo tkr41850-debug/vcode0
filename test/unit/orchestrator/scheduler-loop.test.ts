@@ -48,21 +48,7 @@ import {
 import { useTmpDir } from '../../helpers/tmp-dir.js';
 import { InMemorySessionStore } from '../../integration/harness/in-memory-session-store.js';
 
-class ExposedSchedulerLoop extends SchedulerLoop {
-  async tickForTest(now: number): Promise<void> {
-    return super.tick(now);
-  }
-
-  async dispatchReadyWorkForTest(now: number): Promise<void> {
-    return super.dispatchReadyWork(now);
-  }
-
-  async handleEventForTest(event: SchedulerEvent): Promise<void> {
-    return super.handleEvent(event);
-  }
-}
-
-class RecordingSchedulerLoop extends ExposedSchedulerLoop {
+class RecordingSchedulerLoop extends SchedulerLoop {
   readonly handledEvents: SchedulerEvent[] = [];
   readonly dispatchTimes: number[] = [];
 
@@ -87,7 +73,7 @@ class RecordingSchedulerLoop extends ExposedSchedulerLoop {
   }
 }
 
-class ObservingSchedulerLoop extends ExposedSchedulerLoop {
+class ObservingSchedulerLoop extends SchedulerLoop {
   readonly handledEvents: SchedulerEvent[] = [];
 
   protected override async handleEvent(event: SchedulerEvent): Promise<void> {
@@ -648,9 +634,9 @@ describe('SchedulerLoop', () => {
     const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
     const dispatchTask = vi.spyOn(runtime, 'dispatchTask');
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
-    await loop.dispatchReadyWorkForTest(100);
+    await loop.step(100);
 
     expect(createAgentRun).toHaveBeenCalledTimes(1);
     expect(createAgentRun).toHaveBeenCalledWith(
@@ -684,10 +670,10 @@ describe('SchedulerLoop', () => {
     const { ports, runtime } = createPorts(order);
     const graph = createSingleTaskDispatchGraph();
     const dispatchTask = vi.spyOn(runtime, 'dispatchTask');
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
     loop.setAutoExecutionEnabled(false);
-    await loop.dispatchReadyWorkForTest(100);
+    await loop.step(100);
 
     expect(dispatchTask).not.toHaveBeenCalled();
   });
@@ -707,9 +693,9 @@ describe('SchedulerLoop', () => {
     const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
     const dispatchTask = vi.spyOn(runtime, 'dispatchTask');
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
-    await loop.dispatchReadyWorkForTest(100);
+    await loop.step(100);
 
     expect(createAgentRun).not.toHaveBeenCalled();
     expect(dispatchTask).toHaveBeenCalledWith(
@@ -758,9 +744,9 @@ describe('SchedulerLoop', () => {
       });
     const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
-    await loop.dispatchReadyWorkForTest(100);
+    await loop.step(100);
 
     expect(dispatchTask).toHaveBeenNthCalledWith(
       1,
@@ -804,9 +790,9 @@ describe('SchedulerLoop', () => {
     const dispatchTask = vi.spyOn(runtime, 'dispatchTask');
     const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
-    await loop.dispatchReadyWorkForTest(100);
+    await loop.step(100);
 
     expect(dispatchTask).toHaveBeenCalledWith(
       expect.objectContaining({ id: 't-1' }),
@@ -851,9 +837,9 @@ describe('SchedulerLoop', () => {
       ],
     );
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
-    await loop.dispatchReadyWorkForTest(100);
+    await loop.step(100);
 
     expect(idleWorkerCount).toHaveBeenCalled();
     expect(dispatchTask).toHaveBeenCalledTimes(1);
@@ -891,7 +877,7 @@ describe('SchedulerLoop', () => {
     );
     const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
     await loop.handleEventForTest({
       type: 'worker_message',
@@ -973,7 +959,7 @@ describe('SchedulerLoop', () => {
       }),
     );
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
     const usage: RuntimeUsageDelta = {
       provider: 'test',
       model: 'fake',
@@ -1026,7 +1012,7 @@ describe('SchedulerLoop', () => {
       }),
     );
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
     const usage: RuntimeUsageDelta = {
       provider: 'test',
       model: 'fake',
@@ -1081,9 +1067,9 @@ describe('SchedulerLoop', () => {
       ],
     );
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
-    await loop.tickForTest(100);
+    await loop.step(100);
 
     expect(graph.tasks.get('t-1')).toMatchObject({
       status: 'running',
@@ -1139,9 +1125,9 @@ describe('SchedulerLoop', () => {
       ],
     );
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
-    await loop.tickForTest(100);
+    await loop.step(100);
 
     expect(graph.tasks.get('t-1')).toMatchObject({
       collabControl: 'branch_open',
@@ -1190,9 +1176,9 @@ describe('SchedulerLoop', () => {
       ],
     );
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
-    await loop.tickForTest(100);
+    await loop.step(100);
 
     expect(graph.tasks.get('t-1')).toMatchObject({
       collabControl: 'branch_open',
@@ -1246,9 +1232,9 @@ describe('SchedulerLoop', () => {
       ],
     );
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
-    await loop.tickForTest(100);
+    await loop.step(100);
 
     expect(graph.tasks.get('t-2')).toMatchObject({
       collabControl: 'suspended',
@@ -1299,7 +1285,7 @@ describe('SchedulerLoop', () => {
       }),
     );
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
     await loop.handleEventForTest({
       type: 'worker_message',
@@ -1365,7 +1351,7 @@ describe('SchedulerLoop', () => {
     );
     const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
     await loop.handleEventForTest({
       type: 'worker_message',
@@ -1427,7 +1413,7 @@ describe('SchedulerLoop', () => {
     );
     const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
     await loop.handleEventForTest({
       type: 'worker_message',
@@ -1492,7 +1478,7 @@ describe('SchedulerLoop', () => {
     );
     const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
     await loop.handleEventForTest({
       type: 'worker_message',
@@ -1542,7 +1528,7 @@ describe('SchedulerLoop', () => {
     );
     const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
     await loop.handleEventForTest({
       type: 'worker_message',
@@ -1589,7 +1575,7 @@ describe('SchedulerLoop', () => {
     );
     const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
     await loop.handleEventForTest({
       type: 'worker_message',
@@ -1629,9 +1615,9 @@ describe('SchedulerLoop', () => {
       collabControl: 'none',
     });
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
-    await loop.dispatchReadyWorkForTest(100);
+    await loop.step(100);
 
     expect(createAgentRun).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1673,9 +1659,9 @@ describe('SchedulerLoop', () => {
       collabControl: 'none',
     });
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
-    await loop.dispatchReadyWorkForTest(100);
+    await loop.step(100);
 
     expect(planFeature).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'f-1' }),
@@ -1706,9 +1692,9 @@ describe('SchedulerLoop', () => {
       ],
     );
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
-    await loop.dispatchReadyWorkForTest(100);
+    await loop.step(100);
 
     expect(verifyFeatureBranch).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'f-1' }),
@@ -1738,9 +1724,9 @@ describe('SchedulerLoop', () => {
       ],
     );
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
-    await loop.dispatchReadyWorkForTest(100);
+    await loop.step(100);
 
     const retryFeatureCiPatch = updateAgentRun.mock.calls.find(
       ([runId, patch]) =>
@@ -1767,9 +1753,9 @@ describe('SchedulerLoop', () => {
       collabControl: 'branch_open',
     });
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
-    await loop.dispatchReadyWorkForTest(100);
+    await loop.step(100);
 
     expect(verifyFeature).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'f-1' }),
@@ -1787,9 +1773,9 @@ describe('SchedulerLoop', () => {
       collabControl: 'merged',
     });
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
-    await loop.tickForTest(100);
+    await loop.step(100);
 
     expect(summarizeFeature).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'f-1' }),
@@ -1808,7 +1794,7 @@ describe('SchedulerLoop', () => {
 
     const loop = new ObservingSchedulerLoop(graph, ports);
 
-    await loop.dispatchReadyWorkForTest(100);
+    await loop.step(100);
 
     expect(loop.handledEvents).toEqual([]);
   });
@@ -1829,7 +1815,7 @@ describe('SchedulerLoop', () => {
       }),
     );
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
     await loop.handleEventForTest({
       type: 'feature_phase_complete',
@@ -1865,7 +1851,7 @@ describe('SchedulerLoop', () => {
       }),
     );
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
     await loop.handleEventForTest({
       type: 'feature_phase_error',
@@ -1894,7 +1880,7 @@ describe('SchedulerLoop', () => {
 
     const loop = new ObservingSchedulerLoop(graph, ports);
 
-    await loop.dispatchReadyWorkForTest(100);
+    await loop.step(100);
 
     expect(loop.handledEvents).toContainEqual({
       type: 'feature_phase_error',
@@ -1920,9 +1906,9 @@ describe('SchedulerLoop', () => {
       collabControl: 'none',
     });
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
-    await loop.dispatchReadyWorkForTest(100);
+    await loop.step(100);
 
     expect(planFeature).not.toHaveBeenCalled();
   });
@@ -1937,9 +1923,9 @@ describe('SchedulerLoop', () => {
       collabControl: 'cancelled',
     });
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
-    await loop.dispatchReadyWorkForTest(100);
+    await loop.step(100);
 
     expect(planFeature).not.toHaveBeenCalled();
   });
@@ -1958,7 +1944,7 @@ describe('SchedulerLoop', () => {
       }),
     );
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
     await loop.handleEventForTest({
       type: 'feature_phase_approval_decision',
@@ -2018,7 +2004,7 @@ describe('SchedulerLoop', () => {
       }),
     );
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
     await loop.handleEventForTest({
       type: 'feature_phase_approval_decision',
@@ -2049,7 +2035,7 @@ describe('SchedulerLoop', () => {
     );
 
     planFeature.mockClear();
-    await loop.dispatchReadyWorkForTest(100);
+    await loop.step(100);
     expect(planFeature).not.toHaveBeenCalled();
 
     await loop.handleEventForTest({
@@ -2066,7 +2052,7 @@ describe('SchedulerLoop', () => {
     });
 
     planFeature.mockClear();
-    await loop.dispatchReadyWorkForTest(100);
+    await loop.step(100);
     expect(planFeature).toHaveBeenCalledOnce();
   });
 
@@ -2098,9 +2084,9 @@ describe('SchedulerLoop', () => {
       },
     });
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
-    await loop.dispatchReadyWorkForTest(100);
+    await loop.step(100);
 
     expect(replanFeature).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'f-1' }),
@@ -2138,9 +2124,9 @@ describe('SchedulerLoop', () => {
       },
     });
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
-    await loop.dispatchReadyWorkForTest(100);
+    await loop.step(100);
 
     expect(replanFeature).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'f-1' }),
@@ -2175,7 +2161,7 @@ describe('SchedulerLoop', () => {
       }),
     );
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
     await loop.handleEventForTest({
       type: 'feature_phase_approval_decision',
@@ -2221,7 +2207,7 @@ describe('SchedulerLoop', () => {
       }),
     );
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
     await loop.handleEventForTest({
       type: 'feature_phase_approval_decision',
@@ -2277,7 +2263,7 @@ describe('SchedulerLoop', () => {
       }),
     );
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
     await loop.handleEventForTest({
       type: 'feature_phase_approval_decision',
@@ -2334,7 +2320,7 @@ describe('SchedulerLoop', () => {
       }),
     );
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
     await loop.handleEventForTest({
       type: 'feature_phase_approval_decision',
@@ -2398,7 +2384,7 @@ describe('SchedulerLoop', () => {
       }),
     );
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
     await loop.handleEventForTest({
       type: 'feature_phase_approval_decision',
@@ -2469,7 +2455,7 @@ describe('SchedulerLoop', () => {
     });
     ports.store.createAgentRun(makeFeaturePhaseRun('ci_check'));
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
     await loop.handleEventForTest({
       type: 'feature_phase_complete',
@@ -2532,14 +2518,14 @@ describe('SchedulerLoop', () => {
       workControl: 'ci_check',
       collabControl: 'branch_open',
     });
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
     const emitEmptyVerificationChecksWarning = Reflect.get(
       loop as object,
       'emitEmptyVerificationChecksWarning',
     ) as (entityId: 'f-1', layer: 'feature', now: number) => void;
 
     emitEmptyVerificationChecksWarning.call(loop, 'f-1', 'feature', 10);
-    await loop.tickForTest(100);
+    await loop.step(100);
 
     listEvents.mockImplementation((query?: EventQuery) =>
       query?.eventType === 'warning_emitted' ? [] : [],
@@ -2571,9 +2557,9 @@ describe('SchedulerLoop', () => {
         },
       },
     });
-    const loop = new ExposedSchedulerLoop(createProposalApprovalGraph(), ports);
+    const loop = new SchedulerLoop(createProposalApprovalGraph(), ports);
 
-    await loop.tickForTest(100);
+    await loop.step(100);
 
     const warningEvents = ports.store
       .listEvents({ eventType: 'warning_emitted', entityId: 'f-1' })
@@ -2615,7 +2601,7 @@ describe('SchedulerLoop', () => {
     });
     ports.store.createAgentRun(makeFeaturePhaseRun('verify'));
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
     await loop.handleEventForTest({
       type: 'feature_phase_complete',
@@ -2680,7 +2666,7 @@ describe('SchedulerLoop', () => {
     });
     ports.store.createAgentRun(makeFeaturePhaseRun('ci_check'));
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
     await loop.handleEventForTest({
       type: 'feature_phase_complete',
@@ -2740,7 +2726,7 @@ describe('SchedulerLoop', () => {
     });
     ports.store.createAgentRun(makeFeaturePhaseRun('verify'));
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
     await loop.handleEventForTest({
       type: 'feature_phase_complete',
@@ -2801,7 +2787,7 @@ describe('SchedulerLoop', () => {
     });
     ports.store.createAgentRun(makeFeaturePhaseRun('verify'));
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
     await loop.handleEventForTest({
       type: 'feature_phase_complete',
@@ -2866,7 +2852,7 @@ describe('SchedulerLoop', () => {
     });
     ports.store.createAgentRun(makeFeaturePhaseRun('verify'));
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
     await loop.handleEventForTest({
       type: 'feature_phase_complete',
@@ -2927,7 +2913,7 @@ describe('SchedulerLoop', () => {
     });
     ports.store.createAgentRun(makeFeaturePhaseRun('ci_check'));
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
     await expect(
       loop.handleEventForTest({
@@ -2970,7 +2956,7 @@ describe('SchedulerLoop', () => {
     });
     ports.store.createAgentRun(makeFeaturePhaseRun('verify'));
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
     await expect(
       loop.handleEventForTest({
@@ -3032,9 +3018,9 @@ describe('SchedulerLoop', () => {
       ],
     });
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
-    await loop.tickForTest(100);
+    await loop.step(100);
 
     expect(graph.features.get('f-1')).toEqual(
       expect.objectContaining({
@@ -3102,7 +3088,7 @@ describe('SchedulerLoop', () => {
       }),
     );
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
     await loop.handleEventForTest({
       type: 'worker_message',
@@ -3151,9 +3137,9 @@ describe('SchedulerLoop', () => {
       collabControl: 'merged',
     });
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
-    await loop.tickForTest(100);
+    await loop.step(100);
 
     expect(graph.features.get('f-1')).toEqual(
       expect.objectContaining({
@@ -3176,9 +3162,9 @@ describe('SchedulerLoop', () => {
       collabControl: 'merged',
     });
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
-    await loop.tickForTest(100);
+    await loop.step(100);
 
     expect(graph.features.get('f-1')).toEqual(
       expect.objectContaining({
@@ -3225,7 +3211,7 @@ describe('SchedulerLoop', () => {
     });
     ports.store.createAgentRun(makeFeaturePhaseRun('summarize'));
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
     await loop.handleEventForTest({
       type: 'feature_phase_complete',
@@ -3282,7 +3268,7 @@ describe('SchedulerLoop', () => {
     });
     ports.store.createAgentRun(makeFeaturePhaseRun('summarize'));
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
     await expect(
       loop.handleEventForTest({
@@ -3326,9 +3312,9 @@ describe('SchedulerLoop', () => {
       tasks: [],
     });
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
-    await loop.tickForTest(100);
+    await loop.step(100);
 
     expect(graph.features.get('f-1')).toEqual(
       expect.objectContaining({
@@ -3374,13 +3360,13 @@ describe('SchedulerLoop', () => {
       tasks: [],
     });
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
     loop.enqueue({
       type: 'feature_integration_complete',
       featureId: 'f-1',
     });
 
-    await loop.tickForTest(100);
+    await loop.step(100);
 
     const feature = graph.features.get('f-1');
     expect(feature).toBeDefined();
@@ -3446,8 +3432,8 @@ describe('SchedulerLoop', () => {
       ],
     });
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
-    await loop.tickForTest(100);
+    const loop = new SchedulerLoop(graph, ports);
+    await loop.step(100);
 
     expect(graph.features.get('f-2')).toMatchObject({
       runtimeBlockedByFeatureId: 'f-1',
@@ -3509,8 +3495,8 @@ describe('SchedulerLoop', () => {
       ],
     });
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
-    await loop.tickForTest(100);
+    const loop = new SchedulerLoop(graph, ports);
+    await loop.step(100);
 
     expect(graph.features.get('f-1')?.runtimeBlockedByFeatureId).toBe('f-2');
     expect(
@@ -3567,8 +3553,8 @@ describe('SchedulerLoop', () => {
       ],
     });
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
-    await loop.tickForTest(100);
+    const loop = new SchedulerLoop(graph, ports);
+    await loop.step(100);
 
     expect(graph.features.get('f-1')?.runtimeBlockedByFeatureId).toBe('f-2');
     expect(
@@ -3630,8 +3616,8 @@ describe('SchedulerLoop', () => {
       ],
     });
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
-    await loop.tickForTest(100);
+    const loop = new SchedulerLoop(graph, ports);
+    await loop.step(100);
 
     expect(graph.features.get('f-2')?.runtimeBlockedByFeatureId).toBe('f-1');
     expect(
@@ -3696,8 +3682,8 @@ describe('SchedulerLoop', () => {
       ],
     });
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
-    await loop.tickForTest(100);
+    const loop = new SchedulerLoop(graph, ports);
+    await loop.step(100);
 
     expect(graph.features.get('f-2')?.runtimeBlockedByFeatureId).toBe('f-1');
     expect(
@@ -3761,8 +3747,8 @@ describe('SchedulerLoop', () => {
       ],
     });
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
-    await loop.tickForTest(100);
+    const loop = new SchedulerLoop(graph, ports);
+    await loop.step(100);
 
     expect(graph.features.get('f-2')).toMatchObject({
       runtimeBlockedByFeatureId: 'f-1',
@@ -3886,13 +3872,13 @@ describe('SchedulerLoop', () => {
     await git(taskDir, 'add', 'src/b.ts');
     await git(taskDir, 'commit', '-m', 'task work');
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
     loop.enqueue({
       type: 'feature_integration_complete',
       featureId: 'f-1',
     });
 
-    await loop.tickForTest(100);
+    await loop.step(100);
 
     expect(
       graph.features.get('f-2')?.runtimeBlockedByFeatureId,
@@ -3926,8 +3912,8 @@ describe('SchedulerLoop', () => {
       }),
     );
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
-    await loop.dispatchReadyWorkForTest(100);
+    const loop = new SchedulerLoop(graph, ports);
+    await loop.step(100);
 
     expect(dispatchTask).toHaveBeenCalledWith(
       expect.objectContaining({ id: 't-1' }),
@@ -3977,9 +3963,9 @@ describe('SchedulerLoop', () => {
       ],
     });
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
-    await loop.tickForTest(1001);
-    await loop.tickForTest(2000);
+    const loop = new SchedulerLoop(graph, ports);
+    await loop.step(1001);
+    await loop.step(2000);
 
     const warningCalls = appendEvent.mock.calls.filter(
       ([event]) => event.eventType === 'warning_emitted',
@@ -4032,9 +4018,9 @@ describe('SchedulerLoop', () => {
     }
 
     const appendEvent = vi.spyOn(ports.store, 'appendEvent');
-    const loop = new ExposedSchedulerLoop(graph, ports);
-    await loop.tickForTest(1000);
-    await loop.tickForTest(2000);
+    const loop = new SchedulerLoop(graph, ports);
+    await loop.step(1000);
+    await loop.step(2000);
 
     const loopWarnings = appendEvent.mock.calls.filter(
       ([event]) =>
@@ -4107,8 +4093,8 @@ describe('SchedulerLoop', () => {
     });
 
     const appendEvent = vi.spyOn(ports.store, 'appendEvent');
-    const loop = new ExposedSchedulerLoop(graph, ports);
-    await loop.tickForTest(1000);
+    const loop = new SchedulerLoop(graph, ports);
+    await loop.step(1000);
 
     const loopWarnings = appendEvent.mock.calls.filter(
       ([event]) =>
@@ -4202,13 +4188,13 @@ describe('SchedulerLoop', () => {
     await git(featureDir, 'commit', '-m', 'main change');
     await git(featureDir, 'checkout', blockedFeature.featureBranch);
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
     loop.enqueue({
       type: 'feature_integration_complete',
       featureId: 'f-1',
     });
 
-    await loop.tickForTest(100);
+    await loop.step(100);
 
     expect(graph.features.get('f-2')).toMatchObject({
       runtimeBlockedByFeatureId: 'f-1',
@@ -4335,13 +4321,13 @@ describe('SchedulerLoop', () => {
     await git(taskDir, 'add', 'src/b.ts');
     await git(taskDir, 'commit', '-m', 'task work');
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
     loop.enqueue({
       type: 'feature_integration_complete',
       featureId: 'f-1',
     });
 
-    await loop.tickForTest(100);
+    await loop.step(100);
 
     expect(
       graph.features.get('f-2')?.runtimeBlockedByFeatureId,
@@ -4451,13 +4437,13 @@ describe('SchedulerLoop', () => {
     await git(taskDir, 'add', 'src/a.ts');
     await git(taskDir, 'commit', '-m', 'task change');
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
     loop.enqueue({
       type: 'feature_integration_complete',
       featureId: 'f-1',
     });
 
-    await loop.tickForTest(100);
+    await loop.step(100);
 
     expect(graph.features.get('f-2')).toMatchObject({
       runtimeBlockedByFeatureId: 'f-1',
@@ -4562,13 +4548,13 @@ describe('SchedulerLoop', () => {
     await git(featureDir, 'commit', '-m', 'main update');
     await git(featureDir, 'checkout', blockedFeature.featureBranch);
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
     loop.enqueue({
       type: 'feature_integration_complete',
       featureId: 'f-1',
     });
 
-    await loop.tickForTest(100);
+    await loop.step(100);
 
     expect(graph.features.get('f-2')).toMatchObject({
       runtimeBlockedByFeatureId: 'f-1',
@@ -4649,13 +4635,13 @@ describe('SchedulerLoop', () => {
       ],
     });
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
     loop.enqueue({
       type: 'feature_integration_complete',
       featureId: 'f-1',
     });
 
-    await loop.tickForTest(100);
+    await loop.step(100);
 
     expect(graph.features.get('f-2')).toMatchObject({
       runtimeBlockedByFeatureId: 'f-1',
@@ -4724,14 +4710,14 @@ describe('SchedulerLoop', () => {
       tasks: [],
     });
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
     loop.enqueue({
       type: 'feature_integration_failed',
       featureId: 'f-1',
       error: 'rebase failed',
     });
 
-    await loop.tickForTest(100);
+    await loop.step(100);
 
     const failedFeature = graph.features.get('f-1');
     expect(failedFeature).toBeDefined();
@@ -4800,7 +4786,7 @@ describe('SchedulerLoop', () => {
       }),
     );
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
     await loop.handleEventForTest({
       type: 'worker_message',
@@ -4844,7 +4830,7 @@ describe('SchedulerLoop', () => {
     const graph = createProposalApprovalGraph();
     ports.store.createAgentRun(makeFeaturePhaseRun('plan'));
 
-    const loop = new ExposedSchedulerLoop(graph, ports);
+    const loop = new SchedulerLoop(graph, ports);
 
     await loop.handleEventForTest({
       type: 'feature_phase_error',

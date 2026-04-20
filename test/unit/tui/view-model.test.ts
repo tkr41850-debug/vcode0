@@ -185,6 +185,19 @@ describe('TuiViewModelBuilder', () => {
     });
   });
 
+  it('includes milestone drafting command in idle composer hint', () => {
+    const builder = new TuiViewModelBuilder();
+    const composer = builder.buildComposer({
+      text: '',
+      focusMode: 'composer',
+    });
+
+    expect(composer).toMatchObject({
+      mode: 'command',
+      detail: expect.stringContaining('/milestone-add'),
+    });
+  });
+
   it('includes milestone queue order and status-bar cost totals', () => {
     const builder = new TuiViewModelBuilder();
     const tree = builder.buildMilestoneTree(
