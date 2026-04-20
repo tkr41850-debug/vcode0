@@ -12,6 +12,7 @@ Current entries:
 - [Claude Code Harness](./claude-code-harness.md)
 - [Distributed Runtime](./distributed-runtime.md)
 - [Extended Repair Profiles](./extended-repair-profiles.md)
+- [Git-Tracked Markdown State Exports](./git-tracked-markdown-state-exports.md)
 - [Graph Dependency Overload Typing](./graph-dependency-overload-typing.md)
 - [In-Flight Feature Split & Merge](./in-flight-split-merge.md)
 - [Long Verification Timeouts](./long-verification-timeouts.md)
