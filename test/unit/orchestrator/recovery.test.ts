@@ -9,7 +9,6 @@ import type {
   OrchestratorPorts,
   Store,
   UiPort,
-  VerificationPort,
 } from '@orchestrator/ports/index';
 import { RecoveryService } from '@orchestrator/services/index';
 import type { RuntimePort } from '@runtime/contracts';
@@ -149,9 +148,9 @@ function createPorts(runs: TaskAgentRun[]): {
     refresh: vi.fn(),
     dispose: vi.fn(),
   };
-  const verification: VerificationPort = {
+  const verification = {
     verifyFeature: vi.fn(() => Promise.resolve({ ok: true })),
-  };
+  } as unknown as OrchestratorPorts['verification'];
 
   return {
     graph,

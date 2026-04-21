@@ -1,8 +1,4 @@
-import type {
-  AgentPort,
-  PromptLibrary,
-  PromptTemplateName,
-} from '@agents/index';
+import type { PromptLibrary, PromptTemplateName } from '@agents/index';
 import type { ProposalPhaseResult } from '@agents/proposal';
 import {
   buildFeaturePhaseAgentToolset,
@@ -71,7 +67,7 @@ type PhaseResultExtra<Phase extends TextPhase> = Phase extends 'discuss'
     ? ResearchPhaseDetails
     : SummarizePhaseDetails;
 
-export class PiFeatureAgentRuntime implements AgentPort {
+export class PiFeatureAgentRuntime {
   constructor(private readonly deps: FeatureAgentRuntimeConfig) {}
 
   discussFeature(

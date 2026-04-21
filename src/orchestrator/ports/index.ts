@@ -1,11 +1,6 @@
-import type { AgentPort } from '@agents';
-import type {
-  AgentRun,
-  EventRecord,
-  Feature,
-  GvcConfig,
-  VerificationSummary,
-} from '@core/types/index';
+import type { PiFeatureAgentRuntime } from '@agents';
+import type { AgentRun, EventRecord, GvcConfig } from '@core/types/index';
+import type { VerificationService } from '@orchestrator/services/verification-service';
 import type { RuntimePort } from '@runtime';
 import type { SessionStore } from '@runtime/sessions/index';
 import type { WorktreeProvisioner } from '@runtime/worktree/index';
@@ -49,16 +44,12 @@ export interface UiPort {
   dispose(): void;
 }
 
-export interface VerificationPort {
-  verifyFeature(feature: Feature): Promise<VerificationSummary>;
-}
-
 export interface OrchestratorPorts {
   store: Store;
   runtime: RuntimePort;
   sessionStore: SessionStore;
-  agents: AgentPort;
-  verification: VerificationPort;
+  agents: PiFeatureAgentRuntime;
+  verification: VerificationService;
   worktree: WorktreeProvisioner;
   ui: UiPort;
   config: GvcConfig;

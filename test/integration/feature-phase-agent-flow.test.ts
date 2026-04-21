@@ -14,11 +14,7 @@ import type {
   ProposalPhaseDetails,
   Task,
 } from '@core/types/index';
-import type {
-  OrchestratorPorts,
-  UiPort,
-  VerificationPort,
-} from '@orchestrator/ports/index';
+import type { OrchestratorPorts, UiPort } from '@orchestrator/ports/index';
 import { SchedulerLoop } from '@orchestrator/scheduler/index';
 import { VerificationService } from '@orchestrator/services/index';
 import type { RuntimePort } from '@runtime/contracts';
@@ -108,7 +104,7 @@ async function createFeatureWorktree(
 function createFeatureVerificationPort(
   projectRoot: string,
   config: GvcConfig,
-): VerificationPort {
+): VerificationService {
   return new VerificationService({ config }, projectRoot);
 }
 
@@ -250,7 +246,7 @@ function createFixture({
   featureOverrides?: Partial<Feature>;
   tasks?: Task[];
   configOverrides?: Partial<GvcConfig>;
-  verification?: VerificationPort;
+  verification?: OrchestratorPorts['verification'];
 } = {}) {
   const graph = createSingleFeatureGraph(featureOverrides, tasks);
   const store = new InMemoryStore();
@@ -265,9 +261,11 @@ function createFixture({
     sessionStore,
     projectRoot: '/repo',
   });
-  const resolvedVerification: VerificationPort = verification ?? {
-    verifyFeature: () => Promise.resolve({ ok: true, summary: 'ok' }),
-  };
+  const resolvedVerification: OrchestratorPorts['verification'] =
+    verification ??
+    ({
+      verifyFeature: () => Promise.resolve({ ok: true, summary: 'ok' }),
+    } as unknown as OrchestratorPorts['verification']);
   const ports: OrchestratorPorts = {
     store,
     runtime: createRuntimeStub(),

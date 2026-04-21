@@ -7,10 +7,7 @@ import type {
   VerificationLayerConfig,
   VerificationSummary,
 } from '@core/types/index';
-import type {
-  OrchestratorPorts,
-  VerificationPort,
-} from '@orchestrator/ports/index';
+import type { OrchestratorPorts } from '@orchestrator/ports/index';
 import { resolveVerificationLayerConfig } from '@root/config';
 
 import {
@@ -19,7 +16,7 @@ import {
   truncateSummary,
 } from './verification-shell.js';
 
-export class VerificationService implements VerificationPort {
+export class VerificationService {
   constructor(
     private readonly ports: Pick<OrchestratorPorts, 'config'>,
     private readonly projectRoot = process.cwd(),

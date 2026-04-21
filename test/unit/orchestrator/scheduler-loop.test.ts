@@ -326,7 +326,7 @@ function createPorts(
     store: createStoreMock(),
     runtime,
     sessionStore: new InMemorySessionStore(),
-    agents: createAgentMock(),
+    agents: createAgentMock() as unknown as OrchestratorPorts['agents'],
     ui,
     config: createConfig(configOverrides),
   };
