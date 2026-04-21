@@ -32,17 +32,17 @@ Capture current responsibility split across orchestrator graph and adapter seams
 - Then it does so through `RuntimePort`
 - And runtime-owned IPC/control contract types stay on runtime boundary rather than orchestrator package
 
-### AgentPort owns feature-phase agent work
+### PiFeatureAgentRuntime owns feature-phase agent work
 - Given system needs feature-level discuss, research, planning, verification, summary, or replanning work
 - When orchestrator dispatches that work
-- Then it uses `AgentPort`
+- Then it uses `PiFeatureAgentRuntime` (wired into `OrchestratorPorts.agents`)
 - And those phases share same `agent_runs`/session plane as task execution rather than living in separate persistence model
 - And phase completion is reported through structured phase submit tools rather than trailing free-text summaries
 
-### VerificationPort owns feature verification checks
+### VerificationService owns feature verification checks
 - Given feature reaches `ci_check` or verification boundary
 - When orchestrator needs concrete verification execution
-- Then it calls `VerificationPort`
+- Then it calls `VerificationService` (wired into `OrchestratorPorts.verification`)
 - And semantic feature-phase verdicts remain distinct from raw verification command execution
 
 ### UiPort stays presentation-only
