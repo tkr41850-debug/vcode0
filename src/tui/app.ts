@@ -26,6 +26,7 @@ import { TuiViewModelBuilder } from '@tui/view-model/index';
 
 import { createTuiCommandContext } from './app-command-context.js';
 import { executeSlashCommand, handleComposerSubmit } from './app-composer.js';
+import type { TuiAppDeps } from './app-deps.js';
 import {
   currentSelection as buildCurrentSelection,
   handleGraphInput,
@@ -52,12 +53,11 @@ import {
   selectedFeatureIdFromNode,
   selectedMilestoneIdFromNode,
 } from './app-state.js';
-import type { TuiDataSource } from './data-source.js';
 
 export type { AgentRun, FeaturePhaseAgentRun } from '@core/types/index';
 export type { InitializeProjectCommand } from '@tui/commands/index';
 export type { WorkerCountsViewModel } from '@tui/view-model/index';
-export type { TuiDataSource } from './data-source.js';
+export type { TuiAppDeps } from './app-deps.js';
 
 export class TuiApp implements UiPort {
   private readonly interactiveTerminal =
@@ -96,20 +96,20 @@ export class TuiApp implements UiPort {
   private composerText = '';
   private readonly commandContext: TuiCommandContext;
 
-  constructor(private readonly dataSource: TuiDataSource) {
+  constructor(private readonly deps: TuiAppDeps) {
     this.proposalController = new ComposerProposalController({
-      snapshot: () => this.dataSource.snapshot(),
-      isAutoExecutionEnabled: () => this.dataSource.isAutoExecutionEnabled(),
+      snapshot: () => this.deps.snapshot(),
+      isAutoExecutionEnabled: () => this.deps.isAutoExecutionEnabled(),
       setAutoExecutionEnabled: (enabled) =>
-        this.dataSource.setAutoExecutionEnabled(enabled),
+        this.deps.setAutoExecutionEnabled(enabled),
       getFeatureRun: (featureId, phase) =>
-        this.dataSource.getFeatureRun(featureId, phase),
-      saveFeatureRun: (run) => this.dataSource.saveFeatureRun(run),
+        this.deps.getFeatureRun(featureId, phase),
+      saveFeatureRun: (run) => this.deps.saveFeatureRun(run),
       enqueueApprovalDecision: (event) => {
-        this.dataSource.enqueueApprovalDecision(event);
+        this.deps.enqueueApprovalDecision(event);
       },
       enqueueRerun: (event) => {
-        this.dataSource.rerunFeatureProposal(event);
+        this.deps.rerunFeatureProposal(event);
       },
     });
 
@@ -130,7 +130,7 @@ export class TuiApp implements UiPort {
     };
 
     this.commandContext = createTuiCommandContext({
-      dataSource: this.dataSource,
+      dataSource: this.deps,
       monitorOverlay: this.monitorOverlay,
       selectedMilestoneId: () => this.selectedMilestoneId(),
       selectedFeatureId: () => this.selectedFeatureId(),
@@ -173,7 +173,7 @@ export class TuiApp implements UiPort {
 
   refresh(): void {
     const snapshot = this.displayedSnapshot();
-    const runs = this.dataSource.listAgentRuns();
+    const runs = this.deps.listAgentRuns();
     const nodes = this.viewModels.buildMilestoneTree(
       snapshot.milestones,
       snapshot.features,
@@ -188,14 +188,14 @@ export class TuiApp implements UiPort {
     const pendingRun = pendingProposalForSelection({
       draftState,
       selectedFeatureId: this.selectedFeatureId(),
-      authoritativeSnapshot: this.dataSource.snapshot(),
+      authoritativeSnapshot: this.deps.snapshot(),
       getFeatureRun: (featureId, phase) =>
-        this.dataSource.getFeatureRun(featureId, phase),
+        this.deps.getFeatureRun(featureId, phase),
     });
     const pendingTaskRun = pendingTaskRunForSelection({
       draftState,
       selectedTaskId: selectedNode?.taskId,
-      getTaskRun: (taskId) => this.dataSource.getTaskRun(taskId),
+      getTaskRun: (taskId) => this.deps.getTaskRun(taskId),
     });
 
     this.dagView.setModel(
@@ -207,8 +207,8 @@ export class TuiApp implements UiPort {
     this.statusBar.setModel(
       this.viewModels.buildStatusBar({
         tasks: snapshot.tasks,
-        workerCounts: this.dataSource.getWorkerCounts(),
-        autoExecutionEnabled: this.dataSource.isAutoExecutionEnabled(),
+        workerCounts: this.deps.getWorkerCounts(),
+        autoExecutionEnabled: this.deps.isAutoExecutionEnabled(),
         keybindHints: [...NAVIGATION_KEYBINDS, ...this.commands.getAll()],
         ...(selectedNode !== undefined
           ? { selectedLabel: selectedNode.label }
@@ -317,7 +317,7 @@ export class TuiApp implements UiPort {
       input,
       commandContext: this.commandContext,
       notice: this.notice,
-      dataSource: this.dataSource,
+      dataSource: this.deps,
       proposalController: this.proposalController,
       currentSelection: this.currentSelection(),
       setSelectedNodeId: (nodeId) => {
@@ -328,7 +328,7 @@ export class TuiApp implements UiPort {
 
   private displayedSnapshot(): GraphSnapshot {
     return displayedSnapshot(
-      this.dataSource.snapshot(),
+      this.deps.snapshot(),
       this.proposalController.getDraftSnapshot(),
     );
   }
@@ -351,7 +351,7 @@ export class TuiApp implements UiPort {
     const result = shiftSelection({
       viewModels: this.viewModels,
       snapshot: this.displayedSnapshot(),
-      runs: this.dataSource.listAgentRuns(),
+      runs: this.deps.listAgentRuns(),
       selectedNodeId: this.selectedNodeId,
       step,
     });
@@ -364,7 +364,7 @@ export class TuiApp implements UiPort {
     return buildCurrentSelection({
       viewModels: this.viewModels,
       snapshot: this.displayedSnapshot(),
-      runs: this.dataSource.listAgentRuns(),
+      runs: this.deps.listAgentRuns(),
       selectedNodeId: this.selectedNodeId,
     });
   }
@@ -397,7 +397,7 @@ export class TuiApp implements UiPort {
     return resolveSelectedNode({
       viewModels: this.viewModels,
       snapshot: this.displayedSnapshot(),
-      runs: this.dataSource.listAgentRuns(),
+      runs: this.deps.listAgentRuns(),
       selectedNodeId: this.selectedNodeId,
     });
   }

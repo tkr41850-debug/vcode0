@@ -2,10 +2,10 @@ import type { FeatureId, MilestoneId } from '@core/types/index';
 import type { TuiCommandContext } from '@tui/commands/index';
 import type { AgentMonitorOverlay } from '@tui/components/index';
 
-import type { TuiDataSource } from './data-source.js';
+import type { TuiAppDeps } from './app-deps.js';
 
 interface CreateTuiCommandContextOptions {
-  dataSource: TuiDataSource;
+  dataSource: TuiAppDeps;
   monitorOverlay: Pick<AgentMonitorOverlay, 'cycleSelection'>;
   selectedMilestoneId: () => MilestoneId | undefined;
   selectedFeatureId: () => FeatureId | undefined;

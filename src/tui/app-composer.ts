@@ -4,9 +4,8 @@ import {
   parseSlashCommand,
 } from '@tui/commands/index';
 import type { ComposerProposalController } from '@tui/proposal-controller';
-
+import type { TuiAppDeps } from './app-deps.js';
 import { formatUnknownError } from './app-state.js';
-import type { TuiDataSource } from './data-source.js';
 
 export async function handleComposerSubmit(params: {
   text: string;
@@ -42,7 +41,7 @@ export async function executeSlashCommand(params: {
   input: string;
   commandContext: TuiCommandContext;
   notice: string | undefined;
-  dataSource: TuiDataSource;
+  dataSource: TuiAppDeps;
   proposalController: ComposerProposalController;
   currentSelection: ComposerSelection;
   setSelectedNodeId: (nodeId: string) => void;

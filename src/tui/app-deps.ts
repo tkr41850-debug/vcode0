@@ -10,7 +10,7 @@ import type { ApprovalDecision, HelpResponse } from '@runtime/contracts';
 import type { InitializeProjectCommand } from '@tui/commands/index';
 import type { WorkerCountsViewModel } from '@tui/view-model/index';
 
-export interface TuiDataSource {
+export interface TuiAppDeps {
   snapshot(): GraphSnapshot;
   listAgentRuns(): AgentRun[];
   getWorkerCounts(): WorkerCountsViewModel;
