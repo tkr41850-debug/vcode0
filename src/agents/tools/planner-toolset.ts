@@ -1,5 +1,6 @@
 import type { Feature, Milestone, Task } from '@core/types/index';
 
+import type { GraphProposalToolHost } from './proposal-host.js';
 import type {
   AddFeatureOptions,
   AddMilestoneOptions,
@@ -10,7 +11,6 @@ import type {
   PlannerToolDefinition,
   PlannerToolResult,
   PlannerToolset,
-  ProposalToolHost,
   ProposalToolName,
   RemoveFeatureOptions,
   RemoveTaskOptions,
@@ -19,7 +19,9 @@ import type {
   SubmitProposalOptions,
 } from './types.js';
 
-export function createPlannerToolset(host: ProposalToolHost): PlannerToolset {
+export function createPlannerToolset(
+  host: GraphProposalToolHost,
+): PlannerToolset {
   return {
     tools: [
       {

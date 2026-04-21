@@ -14,7 +14,6 @@ import type {
 import type { Store } from '@orchestrator/ports/index';
 
 import type {
-  FeaturePhaseToolHost,
   GetChangedFilesOptions,
   GetFeatureStateOptions,
   GetTaskResultOptions,
@@ -31,7 +30,7 @@ import type {
 
 type HostStore = Pick<Store, 'listAgentRuns' | 'listEvents' | 'appendEvent'>;
 
-class DefaultFeaturePhaseToolHost implements FeaturePhaseToolHost {
+export class DefaultFeaturePhaseToolHost {
   private discuss: DiscussPhaseResult | undefined;
   private research: ResearchPhaseResult | undefined;
   private summarize: SummarizePhaseResult | undefined;
@@ -287,7 +286,7 @@ export function createFeaturePhaseToolHost(
   featureId: FeatureId,
   graph: FeatureGraph,
   store: HostStore,
-): FeaturePhaseToolHost {
+): DefaultFeaturePhaseToolHost {
   return new DefaultFeaturePhaseToolHost(featureId, graph, store);
 }
 

@@ -1,10 +1,8 @@
 import type {
   DependencyOptions,
-  FeatureGraph,
   PlannerFeatureEditPatch,
   TaskEditPatch,
 } from '@core/graph/index';
-import type { GraphProposal, GraphProposalMode } from '@core/proposals/index';
 import type {
   AgentRun,
   DiscussPhaseDetails,
@@ -268,47 +266,4 @@ export interface FeaturePhaseToolDefinition<
 
 export interface PlannerToolset {
   readonly tools: readonly PlannerToolDefinition[];
-}
-
-export interface ProposalToolHost {
-  readonly draft: FeatureGraph;
-  readonly mode: GraphProposalMode;
-  addMilestone(args: AddMilestoneOptions): Milestone;
-  addFeature(args: AddFeatureOptions): Feature;
-  removeFeature(args: RemoveFeatureOptions): void;
-  editFeature(args: EditFeatureOptions): Feature;
-  addTask(args: AddTaskOptions): Task;
-  removeTask(args: RemoveTaskOptions): void;
-  editTask(args: EditTaskOptions): Task;
-  setFeatureObjective(args: SetFeatureObjectiveOptions): Feature;
-  setFeatureDoD(args: SetFeatureDoDOptions): Feature;
-  addDependency(args: DependencyOptions): void;
-  removeDependency(args: DependencyOptions): void;
-  submit(args: SubmitProposalOptions): void;
-  wasSubmitted(): boolean;
-  buildProposal(): GraphProposal;
-  getProposalDetails(): ProposalPhaseDetails;
-}
-
-export interface FeaturePhaseToolHost {
-  getFeatureState(args: GetFeatureStateOptions): Feature;
-  listFeatureTasks(args: ListFeatureTasksOptions): Task[];
-  getTaskResult(args: GetTaskResultOptions): TaskResultLookup;
-  listFeatureEvents(args: ListFeatureEventsOptions): EventRecord[];
-  listFeatureRuns(args: ListFeatureRunsOptions): AgentRun[];
-  getChangedFiles(args: GetChangedFilesOptions): string[];
-  submitDiscuss(args: SubmitDiscussOptions): DiscussPhaseResult;
-  submitResearch(args: SubmitResearchOptions): ResearchPhaseResult;
-  submitSummarize(args: SubmitSummarizeOptions): SummarizePhaseResult;
-  submitVerify(args: SubmitVerifyOptions): VerificationSummary;
-  raiseIssue(args: RaiseIssueOptions): VerifyIssue;
-  wasDiscussSubmitted(): boolean;
-  wasResearchSubmitted(): boolean;
-  wasSummarizeSubmitted(): boolean;
-  wasVerifySubmitted(): boolean;
-  getDiscussSummary(): DiscussPhaseResult;
-  getResearchSummary(): ResearchPhaseResult;
-  getSummarizeSummary(): SummarizePhaseResult;
-  getVerificationSummary(): VerificationSummary;
-  getVerifyIssues(): readonly VerifyIssue[];
 }

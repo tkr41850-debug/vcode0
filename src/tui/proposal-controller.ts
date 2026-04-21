@@ -2,11 +2,11 @@ import {
   createPlannerToolset,
   createProposalToolHost,
   type DependencyOptions,
+  type GraphProposalToolHost,
   type PlannerToolArgsMap,
   type PlannerToolDefinition,
   type PlannerToolName,
   type PlannerToolResult,
-  type ProposalToolHost,
 } from '@agents/tools';
 import { type GraphSnapshot, InMemoryFeatureGraph } from '@core/graph/index';
 import type { GraphProposalMode } from '@core/proposals/index';
@@ -63,7 +63,7 @@ export interface ComposerDraftState {
 interface ActiveDraft {
   featureId: FeatureId;
   phase: GraphProposalMode;
-  host: ProposalToolHost;
+  host: GraphProposalToolHost;
   toolByName: Map<PlannerToolName, PlannerToolDefinition>;
   previousAutoExecutionEnabled: boolean;
   commandCount: number;

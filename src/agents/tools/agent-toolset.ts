@@ -7,20 +7,20 @@ import type { AgentTool, AgentToolResult } from '@mariozechner/pi-agent-core';
 import type { TextContent } from '@mariozechner/pi-ai';
 import type { TSchema } from '@sinclair/typebox';
 
+import type { DefaultFeaturePhaseToolHost } from './feature-phase-host.js';
 import { createPlannerToolset, formatToolText } from './planner-toolset.js';
+import type { GraphProposalToolHost } from './proposal-host.js';
 import {
   featurePhaseToolParameters,
   proposalToolParameters,
 } from './schemas.js';
 import type {
-  FeaturePhaseToolHost,
   GetChangedFilesOptions,
   GetFeatureStateOptions,
   GetTaskResultOptions,
   ListFeatureEventsOptions,
   ListFeatureRunsOptions,
   ListFeatureTasksOptions,
-  ProposalToolHost,
   RaiseIssueOptions,
   SubmitDiscussOptions,
   SubmitResearchOptions,
@@ -46,7 +46,7 @@ function buildToolResult<T>(
 }
 
 function buildFeatureInspectionTools(
-  host: FeaturePhaseToolHost,
+  host: DefaultFeaturePhaseToolHost,
 ): FeaturePhaseAgentTool[] {
   return [
     {
@@ -144,8 +144,8 @@ function buildRepoInspectionTools(workdir: string): FeaturePhaseAgentTool[] {
 }
 
 export function buildProposalAgentToolset(
-  host: ProposalToolHost,
-  inspectionHost?: FeaturePhaseToolHost,
+  host: GraphProposalToolHost,
+  inspectionHost?: DefaultFeaturePhaseToolHost,
 ): ProposalAgentTool[] {
   const toolset = createPlannerToolset(host);
   const inspectionTools =
@@ -170,7 +170,7 @@ export function buildProposalAgentToolset(
 }
 
 export function buildFeaturePhaseAgentToolset(
-  host: FeaturePhaseToolHost,
+  host: DefaultFeaturePhaseToolHost,
   phase: 'discuss' | 'research' | 'summarize' | 'verify',
   projectRoot?: string,
 ): FeaturePhaseAgentTool[] {

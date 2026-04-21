@@ -6,7 +6,10 @@ export {
   buildFeaturePhaseAgentToolset,
   buildProposalAgentToolset,
 } from './agent-toolset.js';
-export { createFeaturePhaseToolHost } from './feature-phase-host.js';
+export {
+  createFeaturePhaseToolHost,
+  DefaultFeaturePhaseToolHost,
+} from './feature-phase-host.js';
 export { createPlannerToolset } from './planner-toolset.js';
 export {
   createProposalToolHost,
@@ -24,7 +27,6 @@ export type {
   FeaturePhaseToolArgs,
   FeaturePhaseToolArgsMap,
   FeaturePhaseToolDefinition,
-  FeaturePhaseToolHost,
   FeaturePhaseToolName,
   FeaturePhaseToolResult,
   FeaturePhaseToolResultMap,
@@ -42,7 +44,6 @@ export type {
   PlannerToolResult,
   PlannerToolResultMap,
   PlannerToolset,
-  ProposalToolHost,
   ProposalToolName,
   RemoveFeatureOptions,
   RemoveTaskOptions,

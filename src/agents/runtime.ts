@@ -9,7 +9,7 @@ import {
   buildProposalAgentToolset,
   createFeaturePhaseToolHost,
   createProposalToolHost,
-  type FeaturePhaseToolHost,
+  type DefaultFeaturePhaseToolHost,
 } from '@agents/tools';
 import type { FeatureGraph } from '@core/graph/index';
 import type {
@@ -1079,7 +1079,7 @@ function renderCodebaseMap(
 }
 
 function getSubmittedPhaseResult<Phase extends TextPhase>(
-  host: FeaturePhaseToolHost,
+  host: DefaultFeaturePhaseToolHost,
   phase: Phase,
 ): FeaturePhaseResult<PhaseResultExtra<Phase>> {
   switch (phase) {

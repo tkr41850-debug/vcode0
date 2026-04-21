@@ -20,7 +20,6 @@ import type {
   DependencyOptions,
   EditFeatureOptions,
   EditTaskOptions,
-  ProposalToolHost,
   RemoveFeatureOptions,
   RemoveTaskOptions,
   SetFeatureDoDOptions,
@@ -28,7 +27,7 @@ import type {
   SubmitProposalOptions,
 } from './types.js';
 
-export class GraphProposalToolHost implements ProposalToolHost {
+export class GraphProposalToolHost {
   readonly draft: InMemoryFeatureGraph;
   private readonly builder: GraphProposalBuilder;
   private submitted = false;
@@ -254,6 +253,6 @@ export class GraphProposalToolHost implements ProposalToolHost {
 export function createProposalToolHost(
   graph: FeatureGraph,
   mode: GraphProposalMode,
-): ProposalToolHost {
+): GraphProposalToolHost {
   return new GraphProposalToolHost(graph, mode);
 }
