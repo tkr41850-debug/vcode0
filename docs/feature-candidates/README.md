@@ -21,4 +21,5 @@ Current entries:
 - [Proposal Operation No-Op Cleanup](./proposal-op-noop-cleanup.md)
 - [Runtime ID Validation and Factories](./runtime-id-validation.md)
 - [Soft Cancel](./soft-cancel.md)
+- [Structured Feature-Phase Outputs](./structured-feature-phase-outputs.md)
 - [Worker Scheduling Policies](./worker-scheduling-policies.md)
