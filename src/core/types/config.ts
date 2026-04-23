@@ -1,36 +1,22 @@
-import type { VerificationConfig } from './verification.js';
+// Single source of truth for GvcConfig lives in src/config/schema.ts (Zod).
+// @core/types re-exports those types so consumer code keeps the canonical
+// import path without pulling `zod` into the core boundary at runtime
+// (type-only imports are erased).
 
-export type TokenProfile = 'budget' | 'balanced' | 'quality';
+export type {
+  AgentRole,
+  BudgetConfig,
+  GvcConfig,
+  ModelRef,
+  ModelRoutingConfig,
+  PauseTimeouts,
+  RoutingTier,
+  TokenProfile,
+  WarningConfig,
+} from '@config/schema';
 
-export type RoutingTier = 'heavy' | 'standard' | 'light';
-
+// Local-only alias — not part of the Zod schema; used for budget evaluator
+// return values. Preserved as-is to avoid reshaping @runtime/routing.
 export type BudgetAction = 'ok' | 'warn' | 'halt';
 
 export type AppMode = 'interactive' | 'auto';
-
-export interface BudgetConfig {
-  globalUsd: number;
-  perTaskUsd: number;
-  warnAtPercent: number;
-}
-
-export interface ModelRoutingConfig {
-  enabled: boolean;
-  ceiling: string;
-  tiers: Record<RoutingTier, string>;
-  escalateOnFailure: boolean;
-  budgetPressure: boolean;
-}
-
-export interface WarningConfig {
-  longFeatureBlockingMs?: number;
-  verifyReplanLoopThreshold?: number;
-}
-
-export interface GvcConfig {
-  tokenProfile: TokenProfile;
-  budget?: BudgetConfig;
-  modelRouting?: ModelRoutingConfig;
-  verification?: VerificationConfig;
-  warnings?: WarningConfig;
-}

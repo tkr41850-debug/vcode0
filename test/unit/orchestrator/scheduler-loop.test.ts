@@ -45,6 +45,7 @@ import {
   createMilestoneFixture,
   createTaskFixture,
 } from '../../helpers/graph-builders.js';
+import { testGvcConfigDefaults } from '../../helpers/config-fixture.js';
 import { useTmpDir } from '../../helpers/tmp-dir.js';
 import { InMemorySessionStore } from '../../integration/harness/in-memory-session-store.js';
 
@@ -308,6 +309,7 @@ function createUiMock(order: string[]): UiPort & {
 
 function createConfig(overrides: Partial<GvcConfig> = {}): GvcConfig {
   return {
+    ...testGvcConfigDefaults(),
     tokenProfile: 'balanced',
     ...overrides,
   };
