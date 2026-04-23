@@ -47,7 +47,9 @@ CREATE TABLE features (
   research_output TEXT,             -- markdown blob
   feature_objective TEXT,
   feature_dod TEXT,                 -- JSON string[]
-  verify_issues TEXT,               -- JSON VerifyIssue[]
+  verify_issues TEXT,               -- JSON VerifyIssue[] (discriminated union by `source`)
+  main_merge_sha TEXT,              -- commit sha on main of most recent successful integration merge
+  branch_head_sha TEXT,             -- latest commit sha on the feature branch
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
@@ -78,9 +80,21 @@ CREATE TABLE tasks (
   expected_files TEXT,              -- JSON string[]
   references TEXT,                  -- JSON Reference[]
   outcome_verification TEXT,
+  branch_head_sha TEXT,             -- latest commit sha on the task worktree branch
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
+
+CREATE TABLE integration_state (
+  feature_id TEXT PRIMARY KEY REFERENCES features(id),
+  expected_parent_sha TEXT NOT NULL,
+  feature_branch_pre_integration_sha TEXT NOT NULL,
+  config_snapshot TEXT NOT NULL,    -- JSON snapshot of verification.feature at integration begin
+  intent TEXT NOT NULL DEFAULT 'integrate',  -- 'integrate' | 'cancel'
+  started_at INTEGER NOT NULL
+);
+-- Singleton: at most one row (scheduler enforces by only writing on begin + clearing on end).
+-- Marker row is the two-phase-commit anchor for integration crash recovery.
 
 CREATE TABLE agent_runs (
   id TEXT PRIMARY KEY,
@@ -127,6 +141,7 @@ progress reporting, warnings, and runtime usage audit trails.
 - `004_feature_phase_outputs` — add `features.rough_draft`, `discuss_output`, `research_output`, `feature_objective`, `feature_dod`, `verify_issues`.
 - `005_task_planner_payload` — add `tasks.objective`, `scope`, `expected_files`, `references`, `outcome_verification`.
 - `006_rename_feature_ci_to_ci_check` — rewrites existing rows: `features.work_phase` and `agent_runs.phase` values `feature_ci` → `ci_check`, and `events.payload` JSON field `"phase":"feature_ci"` → `"phase":"ci_check"` via `REPLACE()`.
+- `007_merge_train_executor_state` — adds `features.main_merge_sha`, `features.branch_head_sha`, `tasks.branch_head_sha`; creates `integration_state` singleton table for the merge-train two-phase-commit marker. Pre-existing `features.verify_issues` rows upshift lazily to `source: 'verify'` on deserialization (no in-place backfill; pre-1.0 schema break accepted).
 
 The baseline keeps IDs persisted as plain `TEXT` columns in SQLite while using typed prefixed aliases in TypeScript (`m-${string}`, `f-${string}`, `t-${string}`). This preserves simple storage and joins without introducing object-shaped reference payloads.
 `dependencies.dep_type` is still stored explicitly even with typed ID namespaces because persistence reads/writes need to distinguish feature-vs-task edge sets without re-inferring kind at every SQL boundary, and because the table is also the durable source for rehydrating those separate adjacency maps.
