@@ -339,7 +339,7 @@ export async function dispatchFeaturePhaseUnit(params: {
       case 'replan': {
         const result = await params.ports.agents.replanFeature(
           params.feature,
-          deriveReplanReason(params.ports, params.feature.id),
+          deriveReplanReason(params.ports, params.feature),
           runContext,
         );
         params.ports.store.updateAgentRun(run.id, {
@@ -363,11 +363,11 @@ export async function dispatchFeaturePhaseUnit(params: {
   }
 }
 
-function deriveReplanReason(
-  ports: OrchestratorPorts,
-  featureId: Feature['id'],
+export function deriveReplanReason(
+  ports: Pick<OrchestratorPorts, 'store'>,
+  feature: Feature,
 ): string {
-  const events = ports.store.listEvents({ entityId: featureId });
+  const events = ports.store.listEvents({ entityId: feature.id });
   const latestRerun = findLatestEvent(events, 'proposal_rerun_requested');
   const latestApplyFailed = findLatestEvent(events, 'proposal_apply_failed');
   const latestRejected = findLatestEvent(events, 'proposal_rejected');
@@ -378,10 +378,27 @@ function deriveReplanReason(
     readEventSummary(latestRerun) ??
     readEventSummary(latestApplyFailed) ??
     readEventSummary(latestRejected) ??
+    summarizeVerifyIssues(feature.verifyIssues) ??
     readFailedVerificationSummary(latestVerify) ??
     readFailedVerificationSummary(latestFeatureCi) ??
     'Scheduler requested replanning.'
   );
+}
+
+function summarizeVerifyIssues(
+  issues: Feature['verifyIssues'],
+): string | undefined {
+  if (issues === undefined || issues.length === 0) {
+    return undefined;
+  }
+  const lines = issues.map(
+    (issue) => `- [${issue.source}] ${issue.description}`,
+  );
+  const header =
+    issues.length === 1
+      ? 'Replanning due to outstanding verify issue:'
+      : `Replanning due to ${issues.length} outstanding verify issues:`;
+  return [header, ...lines].join('\n');
 }
 
 function findLatestEvent(
