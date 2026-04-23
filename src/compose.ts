@@ -203,6 +203,9 @@ export async function composeApplication(): Promise<GvcApplication> {
     new PiSdkHarness(sessionStore, projectRoot),
     maxWorkers,
     (message) => {
+      // Health heartbeat frames are handled by the harness layer — drop
+      // them here so consumers can assume task-scoped fields are present.
+      if (message.type === 'health_pong') return;
       const workerOutput = formatWorkerOutput(message);
       if (workerOutput !== undefined) {
         ui.onWorkerOutput(message.agentRunId, message.taskId, workerOutput);
