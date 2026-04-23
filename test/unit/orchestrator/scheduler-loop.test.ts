@@ -626,6 +626,68 @@ describe('SchedulerLoop', () => {
     expect(loop.dispatchTimes).toHaveLength(1);
   });
 
+  it('does not start a new tick while the previous tick is still in flight', async () => {
+    vi.useFakeTimers();
+
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+
+    let concurrent = 0;
+    let maxConcurrent = 0;
+    let firstTickStarted = false;
+
+    class SlowFirstTickLoop extends SchedulerLoop {
+      protected override async tick(_now: number): Promise<void> {
+        concurrent++;
+        maxConcurrent = Math.max(maxConcurrent, concurrent);
+        if (!firstTickStarted) {
+          firstTickStarted = true;
+          await new Promise<void>((resolve) => setTimeout(resolve, 2000));
+        }
+        concurrent--;
+      }
+    }
+
+    const loop = new SlowFirstTickLoop(createSchedulerGraph(), ports);
+    await loop.run();
+    await vi.advanceTimersByTimeAsync(2500);
+
+    expect(maxConcurrent).toBe(1);
+
+    await vi.advanceTimersByTimeAsync(10000);
+    await loop.stop();
+  });
+
+  it('keeps looping after a tick throws', async () => {
+    vi.useFakeTimers();
+    const consoleError = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => {});
+
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+
+    let tickCount = 0;
+    class FlakyTickLoop extends SchedulerLoop {
+      protected override async tick(_now: number): Promise<void> {
+        tickCount++;
+        if (tickCount === 1) {
+          throw new Error('boom');
+        }
+      }
+    }
+
+    const loop = new FlakyTickLoop(createSchedulerGraph(), ports);
+    await loop.run();
+    await vi.advanceTimersByTimeAsync(3000);
+
+    expect(tickCount).toBeGreaterThanOrEqual(2);
+    expect(consoleError).toHaveBeenCalled();
+
+    await loop.stop();
+    consoleError.mockRestore();
+  });
+
   it('creates a missing task run on first dispatch and starts it', async () => {
     const order: string[] = [];
     const { ports, runtime } = createPorts(order);

@@ -87,7 +87,9 @@ export class SchedulerLoop {
   private readonly summaries: SummaryCoordinator;
   private readonly warnings: WarningEvaluator;
   private emittedWarnings = new Set<string>();
-  private intervalId: ReturnType<typeof setInterval> | undefined;
+  private running = false;
+  private loopPromise: Promise<void> | undefined;
+  private wakeSleep: (() => void) | undefined;
   private autoExecutionEnabled = true;
 
   constructor(
@@ -125,25 +127,53 @@ export class SchedulerLoop {
   }
 
   run(): Promise<void> {
-    if (this.intervalId !== undefined) {
+    if (this.running) {
       return Promise.resolve();
     }
 
-    this.intervalId = setInterval(() => {
-      void this.tick(Date.now());
-    }, 1000);
-
+    this.running = true;
+    this.loopPromise = this.loop();
     return Promise.resolve();
   }
 
   async stop(): Promise<void> {
-    if (this.intervalId !== undefined) {
-      clearInterval(this.intervalId);
-      this.intervalId = undefined;
+    this.running = false;
+    this.wakeSleep?.();
+    if (this.loopPromise !== undefined) {
+      await this.loopPromise;
+      this.loopPromise = undefined;
     }
 
     this.readySince.clear();
     await this.ports.runtime.stopAll();
+  }
+
+  private async loop(): Promise<void> {
+    while (this.running) {
+      await this.sleep(1000);
+      if (!this.running) {
+        break;
+      }
+      try {
+        await this.tick(Date.now());
+      } catch (err) {
+        console.error('[scheduler] tick threw:', err);
+      }
+    }
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        this.wakeSleep = undefined;
+        resolve();
+      }, ms);
+      this.wakeSleep = () => {
+        clearTimeout(timer);
+        this.wakeSleep = undefined;
+        resolve();
+      };
+    });
   }
 
   async step(now: number): Promise<void> {
