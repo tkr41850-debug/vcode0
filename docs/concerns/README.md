@@ -6,6 +6,7 @@ Use these pages when evaluating trade-offs or warning signs around baseline beha
 
 Current entries:
 
+- [Destructive Ops (non-git)](./destructive-ops-non-git.md)
 - [Merge-Train Re-entry Cap](./merge-train-reentry-cap.md)
 - [Merge-Train Re-entry Starvation](./merge-train-reentry-starvation.md)
 - [Planner Write-Reservation Accuracy](./planner-write-reservation-accuracy.md)
