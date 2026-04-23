@@ -256,6 +256,7 @@ Concrete choices for the first implementation pass. Flagged as defaults; revisit
 
 - **HTTP transport, orchestrator-hosted**. Single long-lived MCP server inside (or as a child of) the orchestrator process, listening on `127.0.0.1:<port>` and wired via Claude Code's `--mcp-config` with `{"type":"http","url":"http://127.0.0.1:<port>/mcp/<agentRunId>","headers":{"Authorization":"Bearer <token>"}}`. Per-worker scope is routed by URL path + bearer token keyed to `agentRunId`.
 - Benefit over stdio: MCP tool handlers call orchestrator state directly (no Unix socket, no cross-process IPC for `submit`/`request_help`/`request_approval`). Scope gating (see below) resolves against the orchestrator's in-memory run registry at call time.
+- **Concurrent blocking tool calls per worker are supported**: the Anthropic API emits parallel tool uses, so the server keys pending responses by MCP `tool_use_id` (same pattern the current `pendingClaims` map uses for `claim_lock`). The one-at-a-time restriction on `request_help` / `request_approval` in the pi-sdk `WorkerRuntime` is a legacy code quirk, not architectural; do not carry it into the HTTP MCP server.
 - Trust boundary: localhost-bind only, per-worker bearer token. Token leak grants remote tool invocation on behalf of that one worker's scope; not a cross-worker escalation.
 - Crash handling: if the MCP HTTP server dies, every in-flight worker stalls on its next tool call. Treat as orchestrator-level failure (not per-worker) — restart the server; in-flight Claude Code subprocesses fail their pending tool calls, get marked failed, and retry. Mirrors other orchestrator-shared-infra crashes.
 - Stdio MCP per worker is rejected as the baseline: adds a side channel to reach orchestrator state, duplicates process per task, and doesn't improve isolation beyond what the bearer-token scope already provides.
@@ -318,6 +319,11 @@ Concrete choices for the first implementation pass. Flagged as defaults; revisit
   - Compare against the harness's tested range using `semver` (pin a hard floor; soft-warn above the tested upper bound).
   - Log a warning (not an error) when outside the tested range; continue.
 - Stream-json parser tolerates unknown event types (skip-and-warn rather than throw) so schema additions in newer Claude Code versions don't break running harnesses. Known event types are typed strictly; unknown types are logged once per kind per session.
+
+### Dispatch-port generalization
+
+- `RuntimePort.dispatchTask` today only covers task workers; feature-phase and planner runs share `agent_runs` + sessions but route through separate execution paths (see the existing memory on the feature-phase execution gap). Generalize the port as part of this baseline: `dispatchRun({ scope: 'task' | 'feature_phase' | 'planner', agentRunId, ... })`. Closes the pre-existing gap and gives the Claude Code harness one entry point to serve all three scopes uniformly.
+- Harness selection therefore applies per-scope or globally (see next subsection); baseline is global but the generalized port makes per-scope trivial if a rollout wants it.
 
 ### Harness selection
 
