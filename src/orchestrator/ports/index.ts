@@ -41,6 +41,21 @@ export interface QuarantinedFrameEntry {
   errorMessage: string;
 }
 
+// Plan 03-03: escalation item append-shape. `payload` is JSON-serialised to
+// the `inbox_items.payload` TEXT column; callers stash any structured
+// context (error stack, attempt count, etc.) here. Phase 7 extends the
+// schema with resolution tracking + query helpers; this plan only owns
+// append.
+export interface InboxItemAppend {
+  id: string;
+  ts: number;
+  taskId?: string;
+  agentRunId?: string;
+  featureId?: string;
+  kind: string;
+  payload: unknown;
+}
+
 export interface Store {
   // IPC quarantine (REQ-EXEC-03) — persistent tail for malformed NDJSON
   // frames. Callers MUST NOT await this in the hot line-parse path; the
@@ -76,6 +91,15 @@ export interface Store {
   setWorkerPid(agentRunId: string, pid: number): void;
   clearWorkerPid(agentRunId: string): void;
   getLiveWorkerPids(): Array<{ agentRunId: string; pid: number }>;
+
+  // === Inbox + last-commit SHA (Phase 3, plan 03-03) ===
+  // `appendInboxItem` writes a stub `inbox_items` row (migration 0005) for
+  // REQ-EXEC-04 semantic-failure escalation. Phase 7 extends this with
+  // resolution tracking + richer query helpers.
+  // `setLastCommitSha` persists the SHA of the most recent commit produced
+  // by a worker run (migration 0006), read by Phase 6 merge-train.
+  appendInboxItem(item: InboxItemAppend): void;
+  setLastCommitSha(agentRunId: string, sha: string): void;
 
   // Lifecycle
   close(): void;

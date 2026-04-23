@@ -5,10 +5,15 @@ import type {
   AgentRunPatch,
   AgentRunQuery,
   EventQuery,
+  InboxItemAppend,
   QuarantinedFrameEntry,
   RehydrateSnapshot,
   Store,
 } from '@orchestrator/ports/index';
+
+interface StoredInboxItem extends InboxItemAppend {
+  resolution?: string;
+}
 
 const OPEN_RUN_STATUSES = new Set([
   'ready',
@@ -33,6 +38,8 @@ export class InMemoryStore implements Store {
   private readonly quarantinedFrames: QuarantinedFrameEntry[] = [];
   private readonly graphImpl = new InMemoryFeatureGraph();
   private readonly workerPids = new Map<string, number>();
+  private readonly inboxItems: StoredInboxItem[] = [];
+  private readonly lastCommitShas = new Map<string, string>();
   private closed = false;
 
   appendQuarantinedFrame(entry: QuarantinedFrameEntry): void {
@@ -149,6 +156,29 @@ export class InMemoryStore implements Store {
     return [...this.workerPids.entries()]
       .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
       .map(([agentRunId, pid]) => ({ agentRunId, pid }));
+  }
+
+  // === Inbox + last-commit SHA (Phase 3, plan 03-03) ===
+  // Mirrors SqliteStore semantics: inbox append is unconditional, setLastCommitSha
+  // is UPDATE-on-missing = no-op so it matches SQLite behaviour.
+
+  appendInboxItem(item: InboxItemAppend): void {
+    this.inboxItems.push({ ...item });
+  }
+
+  /** Test-only accessor for assertions. */
+  listInboxItems(): StoredInboxItem[] {
+    return this.inboxItems.map((entry) => ({ ...entry }));
+  }
+
+  setLastCommitSha(agentRunId: string, sha: string): void {
+    if (!this.runs.has(agentRunId)) return;
+    this.lastCommitShas.set(agentRunId, sha);
+  }
+
+  /** Test-only accessor for assertions. */
+  getLastCommitSha(agentRunId: string): string | undefined {
+    return this.lastCommitShas.get(agentRunId);
   }
 
   close(): void {
