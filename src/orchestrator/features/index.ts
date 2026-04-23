@@ -197,7 +197,14 @@ export class FeatureLifecycleCoordinator {
     ) {
       return;
     }
-    this.graph.editFeature(featureId, { verifyIssues: [] });
+    // Preserve nits — severity policy retains them through awaiting_merge.
+    const remaining = feature.verifyIssues.filter(
+      (issue) => issue.severity === 'nit',
+    );
+    if (remaining.length === feature.verifyIssues.length) {
+      return;
+    }
+    this.graph.editFeature(featureId, { verifyIssues: remaining });
   }
 
   private allFeatureTasksLanded(featureId: FeatureId): boolean {

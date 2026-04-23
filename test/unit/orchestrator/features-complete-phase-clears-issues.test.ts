@@ -70,6 +70,54 @@ describe('FeatureLifecycleCoordinator.completePhase clears verifyIssues on succe
     expect(feature?.workControl).toBe('awaiting_merge');
   });
 
+  it('preserves nits when verify passes', () => {
+    const nit: VerifyIssue = {
+      source: 'verify',
+      id: 'vi-nit',
+      severity: 'nit',
+      description: 'consider renaming foo',
+    };
+    const graph = makeGraph({
+      workControl: 'verifying',
+      verifyIssues: [rebaseIssue, nit],
+    });
+    const features = new FeatureLifecycleCoordinator(graph);
+
+    features.completePhase('f-1', 'verify', {
+      ok: true,
+      summary: 'verify green',
+    });
+
+    const feature = graph.features.get('f-1');
+    expect(feature?.verifyIssues).toEqual([
+      expect.objectContaining({ id: 'vi-nit', severity: 'nit' }),
+    ]);
+  });
+
+  it('preserves nits when ci_check passes', () => {
+    const nit: VerifyIssue = {
+      source: 'verify',
+      id: 'vi-nit',
+      severity: 'nit',
+      description: 'style pref',
+    };
+    const graph = makeGraph({
+      workControl: 'ci_check',
+      verifyIssues: [nit],
+    });
+    const features = new FeatureLifecycleCoordinator(graph);
+
+    features.completePhase('f-1', 'ci_check', {
+      ok: true,
+      summary: 'ci green',
+    });
+
+    const feature = graph.features.get('f-1');
+    expect(feature?.verifyIssues).toEqual([
+      expect.objectContaining({ id: 'vi-nit', severity: 'nit' }),
+    ]);
+  });
+
   it('keeps verifyIssues when ci_check fails (feeds rerouteToReplan)', () => {
     const graph = makeGraph({
       workControl: 'ci_check',
