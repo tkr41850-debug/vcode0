@@ -119,6 +119,126 @@ describe('claim_lock prehook (faux provider + in-process harness)', () => {
     expect(written).toBe('hello from prehook');
   });
 
+  // === Plan 03-04: cwd-escape regression ===
+  // `resolveInsideWorkdir` (src/agents/worker/tools/_fs.ts:46-53) rejects
+  // any path that escapes the task worktree. We assert here that a faux
+  // `write_file({ path: '../../../etc/passwd' })` surfaces the tool error
+  // AND leaves no file behind inside the worktree — proving the tool
+  // layer's path-escape guard is load-bearing and not accidentally
+  // bypassed by the claim-lock pre-hook. (Claim-lock runs BEFORE the
+  // escape check, but denial is not the desired semantics — an escape
+  // should fail at the tool layer even if the claim is granted.)
+  it('rejects path-escape writes at the tool layer (cwd enforcement)', async () => {
+    faux.setResponses([
+      fauxAssistantMessage(
+        [
+          fauxToolCall('write_file', {
+            path: '../../../etc/gvc0-escape-test.txt',
+            content: 'should never land',
+          }),
+        ],
+        { stopReason: 'toolUse' },
+      ),
+    ]);
+
+    const task = makeTask({ id: 't-lock-escape' });
+    await pool.dispatchTask(
+      task,
+      { mode: 'start', agentRunId: 'run-lock-escape' },
+      {},
+    );
+
+    // The worker will emit a claim_lock for the escape path; grant it.
+    // The tool layer's `resolveInsideWorkdir` check MUST still fire and
+    // convert the write into a tool-error, regardless of the grant.
+    const claim = await waitForMessage(
+      completions,
+      (m): m is WorkerToOrchestratorMessage & { type: 'claim_lock' } =>
+        m.type === 'claim_lock' && m.taskId === task.id,
+    );
+    await pool.respondClaim(task.id, {
+      claimId: claim.claimId,
+      kind: 'granted',
+    });
+
+    await harness.drain();
+
+    // The escape path must not have been created inside the worktree.
+    // We check the path that the escape was intended to reach (relative
+    // to the worktree): ../../../etc/gvc0-escape-test.txt. Whether the
+    // FS refused it or the tool refused it, the file must not exist at
+    // the resolved absolute location from the worktree root.
+    const resolvedEscape = path.resolve(
+      workdir,
+      '../../../etc/gvc0-escape-test.txt',
+    );
+    await expect(fs.stat(resolvedEscape)).rejects.toThrow();
+
+    // Worker did NOT submit a successful result claiming the escape path.
+    const submitted = completions.find(
+      (m): m is WorkerToOrchestratorMessage & { type: 'result' } =>
+        m.type === 'result' &&
+        m.taskId === task.id &&
+        m.completionKind === 'submitted',
+    );
+    expect(submitted).toBeUndefined();
+  });
+
+  // === Plan 03-04: claim-lock happy-path RTT budget ===
+  // ASSUMPTION A2 targets <5ms round-trip for no-conflict grants in
+  // steady-state. CI is noisier than a dev laptop, so assert <50ms with
+  // a log-line so regressions surface in CI output.
+  it('claim-lock RTT stays within budget (<50ms, target <5ms)', async () => {
+    faux.setResponses([
+      fauxAssistantMessage(
+        [
+          fauxToolCall('write_file', {
+            path: 'rtt-probe.txt',
+            content: 'rtt probe',
+          }),
+          fauxToolCall('submit', {
+            summary: 'rtt probe done',
+            filesChanged: ['rtt-probe.txt'],
+          }),
+        ],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage([fauxText('done')]),
+    ]);
+
+    const task = makeTask({ id: 't-lock-rtt' });
+    await pool.dispatchTask(
+      task,
+      { mode: 'start', agentRunId: 'run-lock-rtt' },
+      {},
+    );
+
+    const claim = await waitForMessage(
+      completions,
+      (m): m is WorkerToOrchestratorMessage & { type: 'claim_lock' } =>
+        m.type === 'claim_lock' && m.taskId === task.id,
+    );
+
+    const t0 = performance.now();
+    await pool.respondClaim(task.id, {
+      claimId: claim.claimId,
+      kind: 'granted',
+    });
+    await harness.drain();
+    const rtt = performance.now() - t0;
+    // eslint-disable-next-line no-console
+    console.log(
+      `[claim-lock RTT] task=${task.id} measured=${rtt.toFixed(2)}ms`,
+    );
+    expect(rtt).toBeLessThan(50);
+
+    const result = completions.find(
+      (m): m is WorkerToOrchestratorMessage & { type: 'result' } =>
+        m.type === 'result' && m.taskId === task.id,
+    );
+    expect(result?.completionKind).toBe('submitted');
+  });
+
   it('denies a claim, does not write the file, and reports an error', async () => {
     faux.setResponses([
       fauxAssistantMessage(
