@@ -2344,10 +2344,11 @@ describe('SchedulerLoop', () => {
     expect(proposalApplyFailedEvent?.payload?.error).toContain('JSON');
   });
 
-  it('keeps feature in planning when approved proposal applies no ops', async () => {
+  it('cancels feature when approved proposal applies no ops', async () => {
     const order: string[] = [];
     const { ports } = createPorts(order);
     const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
+    const appendEvent = vi.spyOn(ports.store, 'appendEvent');
     const graph = createProposalApprovalGraph();
     const noOpProposal: GraphProposal = {
       version: 1,
@@ -2381,8 +2382,7 @@ describe('SchedulerLoop', () => {
 
     expect(graph.features.get('f-1')).toEqual(
       expect.objectContaining({
-        workControl: 'planning',
-        status: 'in_progress',
+        collabControl: 'cancelled',
       }),
     );
     expect(graph.tasks.size).toBe(0);
@@ -2391,9 +2391,19 @@ describe('SchedulerLoop', () => {
       owner: 'system',
       payloadJson: JSON.stringify(noOpProposal),
     });
+    expect(appendEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'feature_cancelled_empty_proposal',
+        entityId: 'f-1',
+        payload: expect.objectContaining({
+          phase: 'plan',
+          reason: 'empty_proposal',
+        }),
+      }),
+    );
   });
 
-  it('advances planning feature when approved proposal adds only milestone and sibling feature', async () => {
+  it('cancels planning feature when approved proposal adds only milestone and sibling feature', async () => {
     const order: string[] = [];
     const { ports } = createPorts(order);
     const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
@@ -2449,9 +2459,7 @@ describe('SchedulerLoop', () => {
     );
     expect(graph.features.get('f-1')).toEqual(
       expect.objectContaining({
-        workControl: 'ci_check',
-        status: 'pending',
-        collabControl: 'branch_open',
+        collabControl: 'cancelled',
       }),
     );
     expect(graph.tasks.size).toBe(0);
@@ -2471,6 +2479,12 @@ describe('SchedulerLoop', () => {
           skippedCount: 0,
           warningCount: 0,
         }),
+      }),
+    );
+    expect(appendEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'feature_cancelled_empty_proposal',
+        entityId: 'f-1',
       }),
     );
   });
