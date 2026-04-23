@@ -26,6 +26,27 @@ Current unit targets include:
 
 The suite is still foundation-first, but integration coverage now exists for the merge-train path, the worker runtime bootstrap, feature-phase agent flow, and a dedicated terminal-E2E lane for the interactive pi-tui shell.
 
+## Persistence
+
+Persistence integration contracts live under `test/integration/persistence/` and use real tmpdir file-backed SQLite databases — `:memory:` would hide fsync and WAL behaviour that is the whole point of these tests.
+
+### Rehydration invariant
+
+- Location: `test/integration/persistence/rehydration.test.ts`
+- Gate: default — runs in every `npm run test:integration`
+- Assertion: `shutdown() → open() → rehydrate()` produces a snapshot deep-equal to the pre-shutdown snapshot on a real file DB
+- Rationale: gates Phase 9 crash recovery. Any non-determinism in snapshot ordering or codec asymmetry surfaces here.
+
+### Persistence load test
+
+- Location: `test/integration/persistence/load.test.ts`
+- Gate: `LOAD_TEST=1 npm run test:integration -- persistence/load`
+- Assertion: 100 ev/s × 10 min, **P95 write latency < 100 ms**, WAL sidecar growth < 20 MB
+- Default: skipped (~10 min runtime)
+- Rationale: Phase 2 Success Criterion #2 — sustained-write fsync + WAL checkpoint behaviour is only observable on a real file DB. The `LOAD_TEST=1` gate keeps the ~10 min run opt-in so default CI stays fast; phase verifiers run the gate once before sign-off.
+
+See `test/integration/persistence/README.md` for expected console output format and the full runbook.
+
 ## Integration Harness: pi-sdk Faux Provider
 
 Integration tests use pi-ai's `registerFauxProvider()` to register a deterministic provider in the global API registry, then script assistant turns with `fauxAssistantMessage()`, `fauxText()`, `fauxThinking()`, and `fauxToolCall()`. That lets tests exercise real agent/tool loops with deterministic responses and no external API calls.
