@@ -1,10 +1,103 @@
 import type {
+  AgentRunStatus,
   FeatureCollabControl,
   FeatureWorkControl,
   TaskCollabControl,
   TaskStatus,
   UnitStatus,
 } from '@core/types/index';
+
+// ── Composite-guard axis type aliases ────────────────────────────────────
+
+/**
+ * Work control axis: tracks planning / execution phase progression.
+ * Alias for FeatureWorkControl — the same type, named for composite-guard clarity.
+ */
+export type WorkControl = FeatureWorkControl;
+
+/**
+ * Collaboration control axis: tracks branch / merge / conflict coordination.
+ * Alias for FeatureCollabControl — the same type, named for composite-guard clarity.
+ */
+export type CollabControl = FeatureCollabControl;
+
+/**
+ * Run state axis: tracks retry, help, approval, and manual overlays on agent_runs.
+ * Maps to AgentRunStatus — the per-run execution disposition.
+ */
+export type RunState = AgentRunStatus;
+
+// ── Composite-guard types ────────────────────────────────────────────────
+
+export type CompositeState = {
+  readonly work: WorkControl;
+  readonly collab: CollabControl;
+  readonly run: RunState;
+};
+
+export type CompositeGuardResult =
+  | { readonly legal: true }
+  | { readonly legal: false; readonly reason: string };
+
+// ── Constants ───────────────────────────────────────────────────────────
+
+// ── Run-state axis (AgentRunStatus transitions) ──────────────────────────
+
+/**
+ * Valid outbound transitions for each AgentRunStatus.
+ *
+ * Semantics:
+ * - ready: an agent run is queued but not yet dispatched
+ * - running: agent process is active
+ * - retry_await: transient failure — waiting for retry window to expire
+ * - await_response: waiting for human input (help request)
+ * - await_approval: waiting for user approval of a proposed action
+ * - completed: terminal — run finished successfully
+ * - failed: terminal — run finished with an unrecoverable failure
+ * - cancelled: terminal — run was cancelled
+ *
+ * Note: `manual` is not a RunStatus value — manual ownership is tracked
+ * separately via RunOwner on the agent_runs row.
+ */
+const RUN_STATE_TRANSITIONS = new Map<AgentRunStatus, ReadonlySet<AgentRunStatus>>([
+  ['ready', new Set(['running', 'cancelled'])],
+  ['running', new Set(['retry_await', 'await_response', 'await_approval', 'completed', 'failed', 'cancelled'])],
+  ['retry_await', new Set(['ready', 'running', 'cancelled'])],
+  ['await_response', new Set(['ready', 'running', 'cancelled'])],
+  ['await_approval', new Set(['ready', 'running', 'cancelled'])],
+  // Terminal states: no outbound transitions
+]);
+
+/**
+ * Validates a run-state (AgentRunStatus) transition.
+ * Returns { valid: true } for legal transitions, { valid: false, reason } for illegal ones.
+ */
+export function validateRunStateTransition(
+  current: RunState,
+  proposed: RunState,
+): TransitionResult {
+  if (current === proposed) {
+    return { valid: false, reason: `no-op run-state transition: ${current}` };
+  }
+
+  const terminal: RunState[] = ['completed', 'failed', 'cancelled'];
+  if (terminal.includes(current)) {
+    return {
+      valid: false,
+      reason: `run-state ${current} is terminal — no outbound transitions allowed`,
+    };
+  }
+
+  const allowed = RUN_STATE_TRANSITIONS.get(current);
+  if (!allowed?.has(proposed)) {
+    return {
+      valid: false,
+      reason: `illegal run-state transition: ${current} → ${proposed}`,
+    };
+  }
+
+  return { valid: true };
+}
 
 // ── Constants ───────────────────────────────────────────────────────────
 
@@ -509,4 +602,241 @@ export function validateTaskTransition(
   }
 
   return { valid: true };
+}
+
+// ── Cross-axis composite invariants ─────────────────────────────────────
+
+/**
+ * Terminal work-complete requires collab=merged (feature is fully done only
+ * when both axes reach their terminal states).
+ */
+function checkWorkCompleteRequiresMerged(
+  state: CompositeState,
+): CompositeGuardResult {
+  if (state.work === 'work_complete' && state.collab !== 'merged') {
+    return {
+      legal: false,
+      reason: `work_complete requires collab=merged, got collab=${state.collab}`,
+    };
+  }
+  return { legal: true };
+}
+
+/**
+ * awaiting_merge requires collab ∈ {branch_open, merge_queued, integrating, conflict}.
+ * The feature cannot be awaiting merge if collab is none, merged, or cancelled.
+ */
+function checkAwaitingMergeCollabConstraint(
+  state: CompositeState,
+): CompositeGuardResult {
+  if (state.work === 'awaiting_merge') {
+    const validCollab: CollabControl[] = [
+      'branch_open',
+      'merge_queued',
+      'integrating',
+      'conflict',
+    ];
+    if (!validCollab.includes(state.collab)) {
+      return {
+        legal: false,
+        reason: `awaiting_merge requires collab ∈ {branch_open, merge_queued, integrating, conflict}, got collab=${state.collab}`,
+      };
+    }
+  }
+  return { legal: true };
+}
+
+/**
+ * Execution phases (executing, ci_check, verifying, executing_repair, awaiting_merge,
+ * summarizing) require collab != none (a branch must exist for active work).
+ */
+function checkActiveWorkRequiresBranch(
+  state: CompositeState,
+): CompositeGuardResult {
+  const activePhasesRequiringBranch: WorkControl[] = [
+    'executing',
+    'ci_check',
+    'verifying',
+    'executing_repair',
+    'awaiting_merge',
+    'summarizing',
+  ];
+  if (
+    activePhasesRequiringBranch.includes(state.work) &&
+    state.collab === 'none'
+  ) {
+    return {
+      legal: false,
+      reason: `work=${state.work} requires collab != none (branch must exist)`,
+    };
+  }
+  return { legal: true };
+}
+
+/**
+ * Cancelled collab means the feature is fully cancelled — work must be frozen.
+ * No active execution states are legal when collab=cancelled.
+ */
+function checkCancelledCollabFreezeWork(
+  state: CompositeState,
+): CompositeGuardResult {
+  if (state.collab === 'cancelled') {
+    const illegalWorkWhenCancelled: WorkControl[] = [
+      'executing',
+      'ci_check',
+      'verifying',
+      'executing_repair',
+      'awaiting_merge',
+      'summarizing',
+      'replanning',
+    ];
+    if (illegalWorkWhenCancelled.includes(state.work)) {
+      return {
+        legal: false,
+        reason: `collab=cancelled freezes work; work=${state.work} is not allowed`,
+      };
+    }
+  }
+  return { legal: true };
+}
+
+/**
+ * merge_queued collab with run=await_response is illegal.
+ * A feature waiting for a human response cannot be actively integrating.
+ * (An agent run waiting for user input cannot hold a merge-train position.)
+ */
+function checkMergeQueuedNoAwaitResponse(
+  state: CompositeState,
+): CompositeGuardResult {
+  if (state.collab === 'merge_queued' && state.run === 'await_response') {
+    return {
+      legal: false,
+      reason:
+        'collab=merge_queued with run=await_response is illegal — cannot hold merge-train slot while waiting for human input',
+    };
+  }
+  return { legal: true };
+}
+
+/**
+ * merge_queued collab with run=await_approval is illegal for the same reason.
+ */
+function checkMergeQueuedNoAwaitApproval(
+  state: CompositeState,
+): CompositeGuardResult {
+  if (state.collab === 'merge_queued' && state.run === 'await_approval') {
+    return {
+      legal: false,
+      reason:
+        'collab=merge_queued with run=await_approval is illegal — cannot hold merge-train slot while waiting for approval',
+    };
+  }
+  return { legal: true };
+}
+
+/**
+ * Pre-branch phases (discussing, researching, planning) must have collab=none.
+ * No branch should be open before the feature reaches executing.
+ */
+function checkPreBranchPhasesRequireNoneCollab(
+  state: CompositeState,
+): CompositeGuardResult {
+  const preBranchPhases: WorkControl[] = [
+    'discussing',
+    'researching',
+    'planning',
+  ];
+  if (
+    preBranchPhases.includes(state.work) &&
+    state.collab !== 'none' &&
+    state.collab !== 'cancelled'
+  ) {
+    return {
+      legal: false,
+      reason: `work=${state.work} (pre-branch phase) requires collab=none or collab=cancelled, got collab=${state.collab}`,
+    };
+  }
+  return { legal: true };
+}
+
+/**
+ * Run states await_response, await_approval are only meaningful on active runs.
+ * They are illegal when work=work_complete or collab=merged or collab=cancelled.
+ */
+function checkWaitRunStatesRequireActiveWork(
+  state: CompositeState,
+): CompositeGuardResult {
+  const waitStates: RunState[] = ['await_response', 'await_approval'];
+  if (waitStates.includes(state.run)) {
+    if (
+      state.work === 'work_complete' ||
+      state.collab === 'merged' ||
+      state.collab === 'cancelled'
+    ) {
+      return {
+        legal: false,
+        reason: `run=${state.run} is illegal when work=${state.work}, collab=${state.collab} (no active agent run expected)`,
+      };
+    }
+  }
+  return { legal: true };
+}
+
+/**
+ * run=completed or run=failed or run=cancelled are transient terminal states
+ * on individual runs and should not persist as the current run state when
+ * work_complete has been reached. These are legal intermediately but flag
+ * as illegal when combined with pre-execution phases having active run state.
+ *
+ * For the composite guard, terminal run states (completed, failed, cancelled)
+ * are legal in almost all work/collab combinations — they represent "no run
+ * currently active." The exception: run=failed or run=cancelled cannot
+ * coexist with work=work_complete because a completed feature should not have
+ * a failed/cancelled run as the latest state.
+ */
+function checkTerminalRunStateWithWorkComplete(
+  state: CompositeState,
+): CompositeGuardResult {
+  if (
+    state.work === 'work_complete' &&
+    (state.run === 'failed' || state.run === 'cancelled')
+  ) {
+    return {
+      legal: false,
+      reason: `run=${state.run} is illegal at work_complete — completed features must not have failed/cancelled run states`,
+    };
+  }
+  return { legal: true };
+}
+
+/**
+ * Validates a composite (work × collab × run) state against all cross-axis
+ * invariants documented in docs/architecture/data-model.md.
+ *
+ * Each rule is a named internal function so the composite-invariants test can
+ * identify which specific rule triggered a rejection.
+ *
+ * This guard validates *static* state legality (is this combination of values
+ * a valid state to be in?), not transition legality (is moving from A to B
+ * allowed?). For transition validation, use the per-axis guards.
+ */
+export function compositeGuard(state: CompositeState): CompositeGuardResult {
+  const rules = [
+    checkWorkCompleteRequiresMerged,
+    checkAwaitingMergeCollabConstraint,
+    checkActiveWorkRequiresBranch,
+    checkCancelledCollabFreezeWork,
+    checkMergeQueuedNoAwaitResponse,
+    checkMergeQueuedNoAwaitApproval,
+    checkPreBranchPhasesRequireNoneCollab,
+    checkWaitRunStatesRequireActiveWork,
+    checkTerminalRunStateWithWorkComplete,
+  ];
+
+  for (const rule of rules) {
+    const result = rule(state);
+    if (!result.legal) return result;
+  }
+
+  return { legal: true };
 }
