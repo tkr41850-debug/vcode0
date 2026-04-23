@@ -71,7 +71,12 @@ describe('feature-phase context composers', () => {
   it('buildSummarizeContext surfaces prior verify issues when present', () => {
     const feature = featureWithPhaseOutputs({
       verifyIssues: [
-        { id: 'vi-1', severity: 'concern', description: 'edge case' },
+        {
+          source: 'verify',
+          id: 'vi-1',
+          severity: 'concern',
+          description: 'edge case',
+        },
       ],
     });
     const tasks: Task[] = [createTaskFixture({ id: 't-1', description: 'a' })];

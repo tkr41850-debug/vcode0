@@ -4,7 +4,7 @@ import type { VerificationLayerName } from '@root/config';
 export type WarningCategory =
   /** Global budget usage crosses its configured warn threshold. */
   | 'budget_pressure'
-  /** A verification check (task, feature, or merge-train) exceeds its duration threshold. */
+  /** A verification check (task or feature layer) exceeds its duration threshold. */
   | 'slow_verification'
   /** A secondary feature has been blocked behind a primary feature for too long. */
   | 'long_feature_blocking'
@@ -15,7 +15,13 @@ export type WarningCategory =
   /** A verification layer resolved to no configured checks and ran as advisory-only. */
   | 'empty_verification_checks'
   /** Verify agent keeps raising issues after repeated replans without progress. */
-  | 'verify_replan_loop';
+  | 'verify_replan_loop'
+  /** ci_check keeps failing after repeated replans without progress. */
+  | 'ci_check_replan_loop'
+  /** rebase keeps producing conflicts after repeated replans without progress. */
+  | 'rebase_replan_loop'
+  /** Aggregate across all replan sources crosses its threshold. */
+  | 'total_replan_loop';
 
 export interface WarningSignal {
   category: WarningCategory;
@@ -27,6 +33,9 @@ export interface WarningSignal {
 
 export const DEFAULT_LONG_FEATURE_BLOCKING_MS = 8 * 60 * 60 * 1000;
 export const DEFAULT_VERIFY_REPLAN_LOOP_THRESHOLD = 3;
+export const DEFAULT_CI_CHECK_REPLAN_LOOP_THRESHOLD = 3;
+export const DEFAULT_REBASE_REPLAN_LOOP_THRESHOLD = 3;
+export const DEFAULT_TOTAL_REPLAN_LOOP_THRESHOLD = 6;
 
 export interface WarningThresholds {
   budgetWarnPercent: number;
@@ -35,10 +44,12 @@ export interface WarningThresholds {
   taskFailureThreshold: number;
   longFeatureBlockingMs: number;
   verifyReplanLoopThreshold: number;
+  ciCheckReplanLoopThreshold: number;
+  rebaseReplanLoopThreshold: number;
+  totalReplanLoopThreshold: number;
 }
 
 const LAYER_LABELS: Record<VerificationLayerName, string> = {
-  mergeTrain: 'merge-train',
   feature: 'ci_check',
   task: 'task',
 };
@@ -54,6 +65,48 @@ export function createVerifyReplanLoopWarning(
     message: `Feature ${featureId} has failed verify ${failedVerifyCount} times since last approved replan`,
     occurredAt: now,
     payload: { failedVerifyCount },
+  };
+}
+
+export function createCiCheckReplanLoopWarning(
+  featureId: string,
+  failedCount: number,
+  now = Date.now(),
+): WarningSignal {
+  return {
+    category: 'ci_check_replan_loop',
+    entityId: featureId,
+    message: `Feature ${featureId} has failed ci_check ${failedCount} times since last approved replan`,
+    occurredAt: now,
+    payload: { failedCount },
+  };
+}
+
+export function createRebaseReplanLoopWarning(
+  featureId: string,
+  failedCount: number,
+  now = Date.now(),
+): WarningSignal {
+  return {
+    category: 'rebase_replan_loop',
+    entityId: featureId,
+    message: `Feature ${featureId} has failed rebase ${failedCount} times since last approved replan`,
+    occurredAt: now,
+    payload: { failedCount },
+  };
+}
+
+export function createTotalReplanLoopWarning(
+  featureId: string,
+  failedCount: number,
+  now = Date.now(),
+): WarningSignal {
+  return {
+    category: 'total_replan_loop',
+    entityId: featureId,
+    message: `Feature ${featureId} has cycled through replan ${failedCount} times across all sources`,
+    occurredAt: now,
+    payload: { failedCount },
   };
 }
 

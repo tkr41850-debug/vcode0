@@ -51,6 +51,8 @@ export interface FeatureRow {
   feature_objective: string | null;
   feature_dod: string | null;
   verify_issues: string | null;
+  main_merge_sha: string | null;
+  branch_head_sha: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -81,8 +83,19 @@ export interface TaskRow {
   expected_files: string | null;
   references_json: string | null;
   outcome_verification: string | null;
+  branch_head_sha: string | null;
   created_at: number;
   updated_at: number;
+}
+
+export interface IntegrationStateRow {
+  id: 1;
+  feature_id: FeatureId;
+  expected_parent_sha: string;
+  feature_branch_pre_integration_sha: string;
+  config_snapshot: string;
+  intent: 'integrate' | 'cancel';
+  started_at: number;
 }
 
 interface BaseAgentRunRow {

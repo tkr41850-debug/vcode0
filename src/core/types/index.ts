@@ -45,7 +45,11 @@ export type {
   TokenUsageAggregate,
 } from './usage.js';
 export type {
+  CiCheckPhase,
+  CiCheckVerifyIssue,
   DependencyOutputSummary,
+  IntegrationState,
+  RebaseVerifyIssue,
   VerificationCheck,
   VerificationConfig,
   VerificationCriterionEvidence,
@@ -53,8 +57,10 @@ export type {
   VerificationLayerConfig,
   VerificationOutcome,
   VerificationSummary,
+  VerifyAgentVerifyIssue,
   VerifyIssue,
   VerifyIssueSeverity,
+  VerifyIssueSource,
 } from './verification.js';
 export type {
   DerivedUnitStatus,

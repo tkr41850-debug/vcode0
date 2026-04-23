@@ -545,10 +545,22 @@ function extractVerifyIssues(extra: unknown): VerifyIssue[] {
   const record = extra as Record<string, unknown>;
   const issues = record.issues;
   if (!Array.isArray(issues)) return [];
-  return issues.filter(isVerifyIssue);
+  return issues.filter(isVerifyAgentIssueShape).map((issue): VerifyIssue => {
+    const r = issue as Record<string, unknown>;
+    return {
+      source: 'verify',
+      id: r.id as string,
+      severity: r.severity as VerifyIssue['severity'],
+      description: r.description as string,
+      ...(typeof r.location === 'string' ? { location: r.location } : {}),
+      ...(typeof r.suggestedFix === 'string'
+        ? { suggestedFix: r.suggestedFix }
+        : {}),
+    };
+  });
 }
 
-function isVerifyIssue(value: unknown): value is VerifyIssue {
+function isVerifyAgentIssueShape(value: unknown): boolean {
   if (typeof value !== 'object' || value === null) return false;
   const record = value as Record<string, unknown>;
   return (

@@ -144,6 +144,126 @@ describe('codecs — round-trip', () => {
       expect(decoded).toEqual(f);
       expect(decoded.tokenUsage).toEqual(TOKEN_USAGE);
     });
+
+    it('round-trips branchHeadSha and mainMergeSha', () => {
+      const f: Feature = {
+        id: 'f-1',
+        milestoneId: 'm-1',
+        orderInMilestone: 0,
+        name: 'F1',
+        description: 'd',
+        dependsOn: [],
+        status: 'in_progress',
+        workControl: 'awaiting_merge',
+        collabControl: 'integrating',
+        featureBranch: 'feat-f1',
+        mergeTrainReentryCount: 0,
+        branchHeadSha: 'abc123',
+        mainMergeSha: 'def456',
+      };
+      const row = fullRow<FeatureRow>(featureToRow(f));
+      expect(row.branch_head_sha).toBe('abc123');
+      expect(row.main_merge_sha).toBe('def456');
+      expect(rowToFeature(row, [])).toEqual(f);
+    });
+
+    it('round-trips VerifyIssue discriminated union variants', () => {
+      const f: Feature = {
+        id: 'f-1',
+        milestoneId: 'm-1',
+        orderInMilestone: 0,
+        name: 'F1',
+        description: 'd',
+        dependsOn: [],
+        status: 'in_progress',
+        workControl: 'replanning',
+        collabControl: 'none',
+        featureBranch: 'feat-f1',
+        mergeTrainReentryCount: 1,
+        verifyIssues: [
+          {
+            source: 'verify',
+            id: 'v-1',
+            severity: 'blocking',
+            description: 'missing error path',
+            location: 'src/x.ts:42',
+            suggestedFix: 'add try/catch',
+          },
+          {
+            source: 'ci_check',
+            id: 'c-1',
+            severity: 'blocking',
+            phase: 'post_rebase',
+            checkName: 'typecheck',
+            command: 'npm run typecheck',
+            exitCode: 2,
+            output: 'TS2322',
+            description: 'typecheck failed',
+          },
+          {
+            source: 'rebase',
+            id: 'r-1',
+            severity: 'blocking',
+            conflictedFiles: ['src/a.ts', 'src/b.ts'],
+            description: 'rebase conflict',
+          },
+        ],
+      };
+      const row = fullRow<FeatureRow>(featureToRow(f));
+      expect(rowToFeature(row, [])).toEqual(f);
+    });
+
+    it('upshifts legacy verify_issues rows without a source field to source:"verify"', () => {
+      const legacyPayload = JSON.stringify([
+        {
+          id: 'v-1',
+          severity: 'blocking',
+          description: 'legacy issue',
+          location: 'src/x.ts',
+          suggestedFix: 'fix it',
+        },
+      ]);
+      const row: FeatureRow = {
+        id: 'f-1',
+        milestone_id: 'm-1',
+        order_in_milestone: 0,
+        name: 'F1',
+        description: 'd',
+        status: 'in_progress',
+        work_phase: 'replanning',
+        collab_status: 'none',
+        feature_branch: 'feat-f1',
+        feature_test_policy: null,
+        merge_train_manual_position: null,
+        merge_train_entered_at: null,
+        merge_train_entry_seq: null,
+        merge_train_reentry_count: 0,
+        runtime_blocked_by_feature_id: null,
+        summary: null,
+        token_usage: null,
+        rough_draft: null,
+        discuss_output: null,
+        research_output: null,
+        feature_objective: null,
+        feature_dod: null,
+        verify_issues: legacyPayload,
+        main_merge_sha: null,
+        branch_head_sha: null,
+        created_at: 10,
+        updated_at: 20,
+      };
+      const decoded = rowToFeature(row, []);
+      expect(decoded.verifyIssues).toEqual([
+        {
+          source: 'verify',
+          id: 'v-1',
+          severity: 'blocking',
+          description: 'legacy issue',
+          location: 'src/x.ts',
+          suggestedFix: 'fix it',
+        },
+      ]);
+    });
   });
 
   describe('Task', () => {
@@ -159,6 +279,23 @@ describe('codecs — round-trip', () => {
         consecutiveFailures: 0,
       };
       const row = fullRow<TaskRow>(taskToRow(t));
+      expect(rowToTask(row, [])).toEqual(t);
+    });
+
+    it('round-trips branchHeadSha', () => {
+      const t: Task = {
+        id: 't-1',
+        featureId: 'f-1',
+        orderInFeature: 0,
+        description: 'T1',
+        dependsOn: [],
+        status: 'done',
+        collabControl: 'none',
+        consecutiveFailures: 0,
+        branchHeadSha: 'deadbeef',
+      };
+      const row = fullRow<TaskRow>(taskToRow(t));
+      expect(row.branch_head_sha).toBe('deadbeef');
       expect(rowToTask(row, [])).toEqual(t);
     });
 
@@ -243,6 +380,7 @@ describe('codecs — round-trip', () => {
         expected_files: null,
         references_json: null,
         outcome_verification: null,
+        branch_head_sha: null,
         created_at: 10,
         updated_at: 20,
       };

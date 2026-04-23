@@ -4,6 +4,7 @@ import { Migration003AgentRunTokenUsage } from '@persistence/migrations/003_agen
 import { Migration004FeaturePhaseOutputs } from '@persistence/migrations/004_feature_phase_outputs';
 import { Migration005TaskPlannerPayload } from '@persistence/migrations/005_task_planner_payload';
 import { Migration006RenameFeatureCiToCiCheck } from '@persistence/migrations/006_rename_feature_ci_to_ci_check';
+import { Migration007MergeTrainExecutorState } from '@persistence/migrations/007_merge_train_executor_state';
 import { MigrationRunner } from '@persistence/migrations/index';
 import Database from 'better-sqlite3';
 
@@ -25,6 +26,7 @@ export function openDatabase(path: string): Database.Database {
     Migration004FeaturePhaseOutputs,
     Migration005TaskPlannerPayload,
     Migration006RenameFeatureCiToCiCheck,
+    Migration007MergeTrainExecutorState,
   ]).run();
 
   return db;

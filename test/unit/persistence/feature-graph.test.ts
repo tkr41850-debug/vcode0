@@ -726,6 +726,7 @@ describe('PersistentFeatureGraph', () => {
         featureDoD: ['login works', 'tests green'],
         verifyIssues: [
           {
+            source: 'verify',
             id: 'vi-1',
             severity: 'blocking',
             description: 'missing rate limit',
@@ -756,6 +757,7 @@ describe('PersistentFeatureGraph', () => {
       expect(f?.featureDoD).toEqual(['login works', 'tests green']);
       expect(f?.verifyIssues).toEqual([
         {
+          source: 'verify',
           id: 'vi-1',
           severity: 'blocking',
           description: 'missing rate limit',

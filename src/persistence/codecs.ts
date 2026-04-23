@@ -119,7 +119,23 @@ export function featureToRow(
     feature_objective: nullish(f.featureObjective),
     feature_dod: serializeJson(f.featureDoD),
     verify_issues: serializeJson(f.verifyIssues),
+    main_merge_sha: nullish(f.mainMergeSha),
+    branch_head_sha: nullish(f.branchHeadSha),
   };
+}
+
+function upshiftLegacyVerifyIssues(raw: unknown): VerifyIssue[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  return raw.map((entry) => {
+    if (
+      entry !== null &&
+      typeof entry === 'object' &&
+      !('source' in (entry as Record<string, unknown>))
+    ) {
+      return { source: 'verify', ...(entry as object) } as VerifyIssue;
+    }
+    return entry as VerifyIssue;
+  });
 }
 
 export function rowToFeature(row: FeatureRow, dependsOn: FeatureId[]): Feature {
@@ -155,8 +171,10 @@ export function rowToFeature(row: FeatureRow, dependsOn: FeatureId[]): Feature {
     ),
     ...optional(
       'verifyIssues',
-      parseJson<VerifyIssue[]>(row.verify_issues) ?? undefined,
+      upshiftLegacyVerifyIssues(parseJson<unknown>(row.verify_issues)),
     ),
+    ...optional('mainMergeSha', row.main_merge_sha),
+    ...optional('branchHeadSha', row.branch_head_sha),
   };
 }
 
@@ -190,6 +208,7 @@ export function taskToRow(t: Task): Omit<TaskRow, 'created_at' | 'updated_at'> {
     expected_files: serializeJson(t.expectedFiles),
     references_json: serializeJson(t.references),
     outcome_verification: nullish(t.outcomeVerification),
+    branch_head_sha: nullish(t.branchHeadSha),
   };
 }
 
@@ -242,6 +261,7 @@ export function rowToTask(row: TaskRow, dependsOn: TaskId[]): Task {
       parseJson<string[]>(row.references_json) ?? undefined,
     ),
     ...optional('outcomeVerification', row.outcome_verification),
+    ...optional('branchHeadSha', row.branch_head_sha),
   };
 }
 

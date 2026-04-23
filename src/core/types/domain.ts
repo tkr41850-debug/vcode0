@@ -50,6 +50,8 @@ export interface Feature {
   featureObjective?: string;
   featureDoD?: string[];
   verifyIssues?: VerifyIssue[];
+  mainMergeSha?: string;
+  branchHeadSha?: string;
 }
 
 export interface Task {
@@ -79,4 +81,5 @@ export interface Task {
   expectedFiles?: string[];
   references?: string[];
   outcomeVerification?: string;
+  branchHeadSha?: string;
 }

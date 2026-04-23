@@ -46,7 +46,7 @@ export async function handleSchedulerEvent(params: {
   activeLocks: ActiveLocks;
   emitEmptyVerificationChecksWarning: (
     entityId: FeatureId,
-    layer: 'feature' | 'task' | 'mergeTrain',
+    layer: 'feature' | 'task',
     now: number,
   ) => void;
 }): Promise<void> {

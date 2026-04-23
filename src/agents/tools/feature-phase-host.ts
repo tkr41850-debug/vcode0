@@ -192,6 +192,7 @@ export class DefaultFeaturePhaseToolHost {
 
   raiseIssue(args: RaiseIssueOptions): VerifyIssue {
     const issue: VerifyIssue = {
+      source: 'verify',
       id: `vi-${this.verifyIssues.length + 1}`,
       severity: args.severity,
       description: args.description,

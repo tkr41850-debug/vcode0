@@ -7,7 +7,10 @@ import type {
   VerificationSummary,
 } from '@core/types/index';
 import {
+  DEFAULT_CI_CHECK_REPLAN_LOOP_THRESHOLD,
   DEFAULT_LONG_FEATURE_BLOCKING_MS,
+  DEFAULT_REBASE_REPLAN_LOOP_THRESHOLD,
+  DEFAULT_TOTAL_REPLAN_LOOP_THRESHOLD,
   DEFAULT_VERIFY_REPLAN_LOOP_THRESHOLD,
   WarningEvaluator,
 } from '@core/warnings/index';
@@ -112,6 +115,15 @@ export class SchedulerLoop {
       verifyReplanLoopThreshold:
         ports.config.warnings?.verifyReplanLoopThreshold ??
         DEFAULT_VERIFY_REPLAN_LOOP_THRESHOLD,
+      ciCheckReplanLoopThreshold:
+        ports.config.warnings?.ciCheckReplanLoopThreshold ??
+        DEFAULT_CI_CHECK_REPLAN_LOOP_THRESHOLD,
+      rebaseReplanLoopThreshold:
+        ports.config.warnings?.rebaseReplanLoopThreshold ??
+        DEFAULT_REBASE_REPLAN_LOOP_THRESHOLD,
+      totalReplanLoopThreshold:
+        ports.config.warnings?.totalReplanLoopThreshold ??
+        DEFAULT_TOTAL_REPLAN_LOOP_THRESHOLD,
     });
   }
 
@@ -267,7 +279,7 @@ export class SchedulerLoop {
 
   private emitEmptyVerificationChecksWarning(
     entityId: FeatureId,
-    layer: 'feature' | 'task' | 'mergeTrain',
+    layer: 'feature' | 'task',
     now: number,
   ): void {
     this.emittedWarnings = emitEmptyVerificationChecksWarningEvent(

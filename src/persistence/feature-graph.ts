@@ -44,10 +44,10 @@ const MILESTONE_COLUMNS =
   'id, name, description, display_order, steering_queue_position, status, created_at, updated_at';
 
 const FEATURE_COLUMNS =
-  'id, milestone_id, order_in_milestone, name, description, status, work_phase, collab_status, feature_branch, feature_test_policy, merge_train_manual_position, merge_train_entered_at, merge_train_entry_seq, merge_train_reentry_count, runtime_blocked_by_feature_id, summary, token_usage, rough_draft, discuss_output, research_output, feature_objective, feature_dod, verify_issues, created_at, updated_at';
+  'id, milestone_id, order_in_milestone, name, description, status, work_phase, collab_status, feature_branch, feature_test_policy, merge_train_manual_position, merge_train_entered_at, merge_train_entry_seq, merge_train_reentry_count, runtime_blocked_by_feature_id, summary, token_usage, rough_draft, discuss_output, research_output, feature_objective, feature_dod, verify_issues, main_merge_sha, branch_head_sha, created_at, updated_at';
 
 const TASK_COLUMNS =
-  'id, feature_id, order_in_feature, description, weight, status, collab_status, worker_id, worktree_branch, reserved_write_paths, blocked_by_feature_id, result_summary, files_changed, token_usage, task_test_policy, session_id, consecutive_failures, suspended_at, suspend_reason, suspended_files, objective, scope, expected_files, references_json, outcome_verification, created_at, updated_at';
+  'id, feature_id, order_in_feature, description, weight, status, collab_status, worker_id, worktree_branch, reserved_write_paths, blocked_by_feature_id, result_summary, files_changed, token_usage, task_test_policy, session_id, consecutive_failures, suspended_at, suspend_reason, suspended_files, objective, scope, expected_files, references_json, outcome_verification, branch_head_sha, created_at, updated_at';
 
 interface PreparedStatements {
   selectMilestones: Database.Statement<[], MilestoneRow>;
@@ -411,7 +411,8 @@ export class PersistentFeatureGraph implements FeatureGraph {
           :merge_train_reentry_count, :runtime_blocked_by_feature_id,
           :summary, :token_usage, :rough_draft, :discuss_output,
           :research_output, :feature_objective, :feature_dod,
-          :verify_issues, :created_at, :updated_at
+          :verify_issues, :main_merge_sha, :branch_head_sha,
+          :created_at, :updated_at
         ) ON CONFLICT(id) DO UPDATE SET
           milestone_id = excluded.milestone_id,
           order_in_milestone = excluded.order_in_milestone,
@@ -435,6 +436,8 @@ export class PersistentFeatureGraph implements FeatureGraph {
           feature_objective = excluded.feature_objective,
           feature_dod = excluded.feature_dod,
           verify_issues = excluded.verify_issues,
+          main_merge_sha = excluded.main_merge_sha,
+          branch_head_sha = excluded.branch_head_sha,
           updated_at = excluded.updated_at`,
       ),
       deleteFeature: db.prepare<[string]>('DELETE FROM features WHERE id = ?'),
@@ -447,7 +450,7 @@ export class PersistentFeatureGraph implements FeatureGraph {
           :files_changed, :token_usage, :task_test_policy, :session_id,
           :consecutive_failures, :suspended_at, :suspend_reason,
           :suspended_files, :objective, :scope, :expected_files,
-          :references_json, :outcome_verification,
+          :references_json, :outcome_verification, :branch_head_sha,
           :created_at, :updated_at
         ) ON CONFLICT(id) DO UPDATE SET
           feature_id = excluded.feature_id,
@@ -474,6 +477,7 @@ export class PersistentFeatureGraph implements FeatureGraph {
           expected_files = excluded.expected_files,
           references_json = excluded.references_json,
           outcome_verification = excluded.outcome_verification,
+          branch_head_sha = excluded.branch_head_sha,
           updated_at = excluded.updated_at`,
       ),
       deleteTask: db.prepare<[string]>('DELETE FROM tasks WHERE id = ?'),

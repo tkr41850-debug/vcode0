@@ -13,14 +13,17 @@ import type {
   WarningConfig,
 } from '@core/types';
 import {
+  DEFAULT_CI_CHECK_REPLAN_LOOP_THRESHOLD,
   DEFAULT_LONG_FEATURE_BLOCKING_MS,
+  DEFAULT_REBASE_REPLAN_LOOP_THRESHOLD,
+  DEFAULT_TOTAL_REPLAN_LOOP_THRESHOLD,
   DEFAULT_VERIFY_REPLAN_LOOP_THRESHOLD,
   type WarningThresholds,
 } from '@core/warnings/index';
 
 export const DEFAULT_CONFIG_PATH = '.gvc0/config.json';
 
-export type VerificationLayerName = 'task' | 'feature' | 'mergeTrain';
+export type VerificationLayerName = 'task' | 'feature';
 
 const DEFAULT_WARNING_THRESHOLDS: WarningThresholds = {
   budgetWarnPercent: 80,
@@ -29,15 +32,28 @@ const DEFAULT_WARNING_THRESHOLDS: WarningThresholds = {
   taskFailureThreshold: 3,
   longFeatureBlockingMs: DEFAULT_LONG_FEATURE_BLOCKING_MS,
   verifyReplanLoopThreshold: DEFAULT_VERIFY_REPLAN_LOOP_THRESHOLD,
+  ciCheckReplanLoopThreshold: DEFAULT_CI_CHECK_REPLAN_LOOP_THRESHOLD,
+  rebaseReplanLoopThreshold: DEFAULT_REBASE_REPLAN_LOOP_THRESHOLD,
+  totalReplanLoopThreshold: DEFAULT_TOTAL_REPLAN_LOOP_THRESHOLD,
 };
 
-const DEFAULT_CONFIG: GvcConfig = {
-  tokenProfile: 'balanced',
-  warnings: {
+function defaultWarningConfig(): WarningConfig {
+  return {
     longFeatureBlockingMs: DEFAULT_WARNING_THRESHOLDS.longFeatureBlockingMs,
     verifyReplanLoopThreshold:
       DEFAULT_WARNING_THRESHOLDS.verifyReplanLoopThreshold,
-  },
+    ciCheckReplanLoopThreshold:
+      DEFAULT_WARNING_THRESHOLDS.ciCheckReplanLoopThreshold,
+    rebaseReplanLoopThreshold:
+      DEFAULT_WARNING_THRESHOLDS.rebaseReplanLoopThreshold,
+    totalReplanLoopThreshold:
+      DEFAULT_WARNING_THRESHOLDS.totalReplanLoopThreshold,
+  };
+}
+
+const DEFAULT_CONFIG: GvcConfig = {
+  tokenProfile: 'balanced',
+  warnings: defaultWarningConfig(),
 };
 
 export interface ConfigLoader {
@@ -75,11 +91,7 @@ export class JsonConfigLoader implements ConfigLoader {
 function cloneDefaultConfig(): GvcConfig {
   return {
     tokenProfile: DEFAULT_CONFIG.tokenProfile,
-    warnings: {
-      longFeatureBlockingMs: DEFAULT_WARNING_THRESHOLDS.longFeatureBlockingMs,
-      verifyReplanLoopThreshold:
-        DEFAULT_WARNING_THRESHOLDS.verifyReplanLoopThreshold,
-    },
+    warnings: defaultWarningConfig(),
   };
 }
 
@@ -105,14 +117,7 @@ function normalizeConfig(input: unknown, configPath: string): GvcConfig {
       : {}),
     ...(input.warnings !== undefined
       ? { warnings: parseWarningConfig(input.warnings, configPath) }
-      : {
-          warnings: {
-            longFeatureBlockingMs:
-              DEFAULT_WARNING_THRESHOLDS.longFeatureBlockingMs,
-            verifyReplanLoopThreshold:
-              DEFAULT_WARNING_THRESHOLDS.verifyReplanLoopThreshold,
-          },
-        }),
+      : { warnings: defaultWarningConfig() }),
   };
 }
 
@@ -202,6 +207,24 @@ function parseWarningConfig(value: unknown, configPath: string): WarningConfig {
       configPath,
       DEFAULT_WARNING_THRESHOLDS.verifyReplanLoopThreshold,
     ),
+    ciCheckReplanLoopThreshold: parseNumberOrDefault(
+      value.ciCheckReplanLoopThreshold,
+      'warnings.ciCheckReplanLoopThreshold',
+      configPath,
+      DEFAULT_WARNING_THRESHOLDS.ciCheckReplanLoopThreshold,
+    ),
+    rebaseReplanLoopThreshold: parseNumberOrDefault(
+      value.rebaseReplanLoopThreshold,
+      'warnings.rebaseReplanLoopThreshold',
+      configPath,
+      DEFAULT_WARNING_THRESHOLDS.rebaseReplanLoopThreshold,
+    ),
+    totalReplanLoopThreshold: parseNumberOrDefault(
+      value.totalReplanLoopThreshold,
+      'warnings.totalReplanLoopThreshold',
+      configPath,
+      DEFAULT_WARNING_THRESHOLDS.totalReplanLoopThreshold,
+    ),
   };
 }
 
@@ -224,10 +247,6 @@ export function resolveVerificationLayerConfig(
   const verification = config.verification;
 
   switch (layer) {
-    case 'mergeTrain':
-      return (
-        verification?.mergeTrain ?? verification?.feature ?? EMPTY_FEATURE_LAYER
-      );
     case 'feature':
       return verification?.feature ?? EMPTY_FEATURE_LAYER;
     case 'task':
@@ -242,6 +261,12 @@ function parseVerificationConfig(
   if (!isRecord(value)) {
     throw new Error(
       `Config at ${configPath} has invalid verification section.`,
+    );
+  }
+
+  if (value.mergeTrain !== undefined) {
+    throw new Error(
+      `Config at ${configPath} defines verification.mergeTrain, which has been removed. The in-process integration executor reuses verification.feature for post-rebase ci_check; drop the mergeTrain entry.`,
     );
   }
 
@@ -262,16 +287,6 @@ function parseVerificationConfig(
             value.feature,
             configPath,
             'verification.feature',
-            600,
-          ),
-        }
-      : {}),
-    ...(value.mergeTrain !== undefined
-      ? {
-          mergeTrain: parseVerificationLayer(
-            value.mergeTrain,
-            configPath,
-            'verification.mergeTrain',
             600,
           ),
         }

@@ -2929,6 +2929,7 @@ describe('SchedulerLoop', () => {
         summary: 'verified with nits',
         issues: [
           {
+            source: 'verify',
             id: 'vi-1',
             severity: 'nit',
             description: 'typo in comment',

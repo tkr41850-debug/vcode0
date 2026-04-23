@@ -1,6 +1,10 @@
 import type { BudgetState } from '@core/types';
 import {
+  createCiCheckReplanLoopWarning,
   createEmptyVerificationChecksWarning,
+  createRebaseReplanLoopWarning,
+  createTotalReplanLoopWarning,
+  createVerifyReplanLoopWarning,
   WarningEvaluator,
   type WarningThresholds,
 } from '@core/warnings/index';
@@ -18,6 +22,9 @@ const defaultThresholds: WarningThresholds = {
   taskFailureThreshold: 3,
   longFeatureBlockingMs: 8 * 60 * 60 * 1000,
   verifyReplanLoopThreshold: 3,
+  ciCheckReplanLoopThreshold: 3,
+  rebaseReplanLoopThreshold: 3,
+  totalReplanLoopThreshold: 6,
 };
 
 function makeBudget(overrides: Partial<BudgetState> = {}): BudgetState {
@@ -171,6 +178,35 @@ describe('WarningEvaluator', () => {
       ]);
 
       expect(warnings).toHaveLength(0);
+    });
+  });
+
+  describe('replan-loop warnings', () => {
+    it('creates verify_replan_loop warning', () => {
+      expect(createVerifyReplanLoopWarning('f-1', 3, 100).category).toBe(
+        'verify_replan_loop',
+      );
+    });
+
+    it('creates ci_check_replan_loop warning', () => {
+      const warning = createCiCheckReplanLoopWarning('f-1', 3, 100);
+      expect(warning.category).toBe('ci_check_replan_loop');
+      expect(warning.entityId).toBe('f-1');
+      expect(warning.payload).toEqual({ failedCount: 3 });
+    });
+
+    it('creates rebase_replan_loop warning', () => {
+      const warning = createRebaseReplanLoopWarning('f-1', 3, 100);
+      expect(warning.category).toBe('rebase_replan_loop');
+      expect(warning.entityId).toBe('f-1');
+      expect(warning.payload).toEqual({ failedCount: 3 });
+    });
+
+    it('creates total_replan_loop warning aggregating sources', () => {
+      const warning = createTotalReplanLoopWarning('f-1', 6, 100);
+      expect(warning.category).toBe('total_replan_loop');
+      expect(warning.entityId).toBe('f-1');
+      expect(warning.payload).toEqual({ failedCount: 6 });
     });
   });
 

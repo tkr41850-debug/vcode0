@@ -25,6 +25,9 @@ export interface ModelRoutingConfig {
 export interface WarningConfig {
   longFeatureBlockingMs?: number;
   verifyReplanLoopThreshold?: number;
+  ciCheckReplanLoopThreshold?: number;
+  rebaseReplanLoopThreshold?: number;
+  totalReplanLoopThreshold?: number;
 }
 
 export interface GvcConfig {

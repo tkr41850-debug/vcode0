@@ -20,6 +20,9 @@ describe('JsonConfigLoader', () => {
       warnings: {
         longFeatureBlockingMs: 8 * 60 * 60 * 1000,
         verifyReplanLoopThreshold: 3,
+        ciCheckReplanLoopThreshold: 3,
+        rebaseReplanLoopThreshold: 3,
+        totalReplanLoopThreshold: 6,
       },
     });
 
@@ -109,28 +112,36 @@ describe('JsonConfigLoader', () => {
       warnings: {
         longFeatureBlockingMs: 1234,
         verifyReplanLoopThreshold: 7,
+        ciCheckReplanLoopThreshold: 3,
+        rebaseReplanLoopThreshold: 3,
+        totalReplanLoopThreshold: 6,
       },
     });
   });
 
-  it('resolves mergeTrain to feature layer when mergeTrain is omitted', () => {
-    const config = {
-      tokenProfile: 'balanced' as const,
-      verification: {
-        feature: {
-          checks: [{ description: 'Typecheck', command: 'npm run typecheck' }],
-          timeoutSecs: 123,
-          continueOnFail: true,
+  it('rejects verification.mergeTrain with a clear error', async () => {
+    const configPath = path.join(getTmpDir(), 'merge-train-config.json');
+    await fs.writeFile(
+      configPath,
+      JSON.stringify({
+        tokenProfile: 'balanced',
+        verification: {
+          mergeTrain: {
+            checks: [],
+            timeoutSecs: 600,
+            continueOnFail: false,
+          },
         },
-      },
-    };
+      }),
+      'utf-8',
+    );
 
-    expect(resolveVerificationLayerConfig(config, 'mergeTrain')).toEqual(
-      config.verification.feature,
+    await expect(new JsonConfigLoader(configPath).load()).rejects.toThrow(
+      /verification\.mergeTrain/,
     );
   });
 
-  it('keeps explicit empty mergeTrain checks instead of inheriting feature', () => {
+  it('resolves the feature layer for verification.feature', () => {
     const config = {
       tokenProfile: 'balanced' as const,
       verification: {
@@ -139,19 +150,12 @@ describe('JsonConfigLoader', () => {
           timeoutSecs: 123,
           continueOnFail: true,
         },
-        mergeTrain: {
-          checks: [],
-          timeoutSecs: 600,
-          continueOnFail: false,
-        },
       },
     };
 
-    expect(resolveVerificationLayerConfig(config, 'mergeTrain')).toEqual({
-      checks: [],
-      timeoutSecs: 600,
-      continueOnFail: false,
-    });
+    expect(resolveVerificationLayerConfig(config, 'feature')).toEqual(
+      config.verification.feature,
+    );
   });
 
   it('surfaces invalid JSON with file path context', async () => {
