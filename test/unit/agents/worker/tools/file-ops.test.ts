@@ -1,6 +1,6 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-
+import type { PathLockClaimer } from '@agents/worker/path-lock';
 import { createEditFileTool } from '@agents/worker/tools/edit-file';
 import { createListFilesTool } from '@agents/worker/tools/list-files';
 import { createReadFileTool } from '@agents/worker/tools/read-file';
@@ -9,6 +9,10 @@ import { createWriteFileTool } from '@agents/worker/tools/write-file';
 import { describe, expect, it } from 'vitest';
 
 import { useTmpDir } from '../../../../helpers/tmp-dir.js';
+
+const passthroughClaimer: PathLockClaimer = {
+  claim: () => Promise.resolve(),
+};
 
 describe('worker file-ops tools', () => {
   const getTmpDir = useTmpDir('worker-file-ops');
@@ -35,7 +39,7 @@ describe('worker file-ops tools', () => {
 
   describe('write_file', () => {
     it('creates a new file with content', async () => {
-      const tool = createWriteFileTool(getTmpDir());
+      const tool = createWriteFileTool(getTmpDir(), passthroughClaimer);
 
       await tool.execute('call-1', { path: 'out.txt', content: 'hello' });
 
@@ -47,7 +51,7 @@ describe('worker file-ops tools', () => {
     });
 
     it('creates parent directories', async () => {
-      const tool = createWriteFileTool(getTmpDir());
+      const tool = createWriteFileTool(getTmpDir(), passthroughClaimer);
 
       await tool.execute('call-1', {
         path: 'nested/deep/file.txt',
@@ -63,7 +67,7 @@ describe('worker file-ops tools', () => {
 
     it('overwrites an existing file', async () => {
       await fs.writeFile(path.join(getTmpDir(), 'a.txt'), 'old');
-      const tool = createWriteFileTool(getTmpDir());
+      const tool = createWriteFileTool(getTmpDir(), passthroughClaimer);
 
       await tool.execute('call-1', { path: 'a.txt', content: 'new' });
 
@@ -81,7 +85,7 @@ describe('worker file-ops tools', () => {
         path.join(getTmpDir(), 'code.ts'),
         'const a = 1;\nconst b = 2;\n',
       );
-      const tool = createEditFileTool(getTmpDir());
+      const tool = createEditFileTool(getTmpDir(), passthroughClaimer);
 
       await tool.execute('call-1', {
         path: 'code.ts',
@@ -100,7 +104,7 @@ describe('worker file-ops tools', () => {
 
     it('throws when oldText is not found', async () => {
       await fs.writeFile(path.join(getTmpDir(), 'code.ts'), 'hello');
-      const tool = createEditFileTool(getTmpDir());
+      const tool = createEditFileTool(getTmpDir(), passthroughClaimer);
 
       await expect(
         tool.execute('call-1', {
@@ -112,7 +116,7 @@ describe('worker file-ops tools', () => {
 
     it('throws when oldText matches more than once', async () => {
       await fs.writeFile(path.join(getTmpDir(), 'dup.ts'), 'foo\nfoo\n');
-      const tool = createEditFileTool(getTmpDir());
+      const tool = createEditFileTool(getTmpDir(), passthroughClaimer);
 
       await expect(
         tool.execute('call-1', {

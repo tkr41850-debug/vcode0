@@ -1,5 +1,6 @@
 import * as fs from 'node:fs/promises';
 
+import type { PathLockClaimer } from '@agents/worker/path-lock';
 import { resolveInsideWorkdir } from '@agents/worker/tools/_fs';
 import type { AgentTool } from '@mariozechner/pi-agent-core';
 import { Type } from '@sinclair/typebox';
@@ -31,6 +32,7 @@ interface EditFileDetails {
 
 export function createEditFileTool(
   workdir: string,
+  claimer: PathLockClaimer,
 ): AgentTool<typeof parameters, EditFileDetails> {
   return {
     name: 'edit_file',
@@ -39,6 +41,7 @@ export function createEditFileTool(
       'Apply an ordered list of exact-string replacements to a file. Each edit must match exactly once in the current contents.',
     parameters,
     execute: async (_toolCallId, params) => {
+      await claimer.claim(params.path);
       const abs = resolveInsideWorkdir(workdir, params.path);
       let contents = await fs.readFile(abs, 'utf-8');
 

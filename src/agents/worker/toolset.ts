@@ -1,4 +1,5 @@
 import type { IpcBridge } from '@agents/worker/ipc-bridge';
+import { createPathLockClaimer } from '@agents/worker/path-lock';
 import { createAppendKnowledgeTool } from '@agents/worker/tools/append-knowledge';
 import { createConfirmTool } from '@agents/worker/tools/confirm';
 import { createEditFileTool } from '@agents/worker/tools/edit-file';
@@ -39,6 +40,7 @@ export interface WorkerToolsetDeps {
 type WorkerTool = AgentTool<any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 
 export function buildWorkerToolset(deps: WorkerToolsetDeps): WorkerTool[] {
+  const claimer = createPathLockClaimer(deps.ipc);
   return [
     createSubmitTool(deps.ipc),
     createConfirmTool(deps.ipc),
@@ -47,8 +49,8 @@ export function buildWorkerToolset(deps: WorkerToolsetDeps): WorkerTool[] {
     createAppendKnowledgeTool(deps.projectRoot),
     createRecordDecisionTool(deps.projectRoot),
     createReadFileTool(deps.workdir),
-    createWriteFileTool(deps.workdir),
-    createEditFileTool(deps.workdir),
+    createWriteFileTool(deps.workdir, claimer),
+    createEditFileTool(deps.workdir, claimer),
     createListFilesTool(deps.workdir),
     createSearchFilesTool(deps.workdir),
     createRunCommandTool(deps.workdir),
