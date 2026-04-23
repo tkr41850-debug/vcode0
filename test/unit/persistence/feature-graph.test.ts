@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { isDeepStrictEqual } from 'node:util';
 
 import type {
   FeatureId,
@@ -880,6 +881,82 @@ describe('PersistentFeatureGraph', () => {
       const after = graph.snapshot();
       expect(after.features).toEqual(snapshotBefore.features);
       expect(after.milestones).toEqual(snapshotBefore.milestones);
+    });
+
+    it('snapshot is byte-for-byte identical after a failed mutation', () => {
+      graph.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+      graph.createFeature({
+        id: 'f-1',
+        milestoneId: 'm-1',
+        name: 'F',
+        description: 'feat',
+      });
+      graph.createTask({
+        id: 't-1',
+        featureId: 'f-1',
+        description: 'initial task',
+      });
+
+      const before = graph.snapshot();
+
+      // Force the diff writer to throw by closing the DB — the transaction
+      // inside `mutate()` catches the throw, restores inner state, and
+      // re-raises. The second mutation (task creation) should be fully
+      // undone.
+      db.close();
+
+      expect(() =>
+        graph.createTask({
+          id: 't-2',
+          featureId: 'f-1',
+          description: 'will fail',
+        }),
+      ).toThrow();
+
+      const after = graph.snapshot();
+      expect(isDeepStrictEqual(after, before)).toBe(true);
+    });
+
+    it('rejects cross-feature task dependency with graph + DB unchanged', () => {
+      graph.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+      graph.createFeature({
+        id: 'f-1',
+        milestoneId: 'm-1',
+        name: 'F1',
+        description: 'd',
+      });
+      graph.createFeature({
+        id: 'f-2',
+        milestoneId: 'm-1',
+        name: 'F2',
+        description: 'd',
+      });
+      graph.createTask({ id: 't-1', featureId: 'f-1', description: 'T1' });
+      graph.createTask({ id: 't-2', featureId: 'f-2', description: 'T2' });
+
+      const preSnapshot = graph.snapshot();
+      const preTaskCount = db
+        .prepare<[], { c: number }>('SELECT COUNT(*) AS c FROM tasks')
+        .get();
+      const preDepCount = db
+        .prepare<[], { c: number }>('SELECT COUNT(*) AS c FROM dependencies')
+        .get();
+
+      expect(() =>
+        graph.addDependency({ from: 't-2', to: 't-1' }),
+      ).toThrow();
+
+      const postSnapshot = graph.snapshot();
+      expect(isDeepStrictEqual(postSnapshot, preSnapshot)).toBe(true);
+
+      const postTaskCount = db
+        .prepare<[], { c: number }>('SELECT COUNT(*) AS c FROM tasks')
+        .get();
+      const postDepCount = db
+        .prepare<[], { c: number }>('SELECT COUNT(*) AS c FROM dependencies')
+        .get();
+      expect(postTaskCount?.c).toBe(preTaskCount?.c);
+      expect(postDepCount?.c).toBe(preDepCount?.c);
     });
   });
 });

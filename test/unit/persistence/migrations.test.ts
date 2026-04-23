@@ -1,11 +1,9 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { openDatabase } from '@persistence/db';
-import { Migration001Init } from '@persistence/migrations/001_init';
-import { Migration002FeatureRuntimeBlock } from '@persistence/migrations/002_feature_runtime_block';
-import { Migration003AgentRunTokenUsage } from '@persistence/migrations/003_agent_run_token_usage';
-import { Migration004FeaturePhaseOutputs } from '@persistence/migrations/004_feature_phase_outputs';
-import { Migration005TaskPlannerPayload } from '@persistence/migrations/005_task_planner_payload';
-import { Migration006RenameFeatureCiToCiCheck } from '@persistence/migrations/006_rename_feature_ci_to_ci_check';
-import { MigrationRunner } from '@persistence/migrations/index';
+import { MigrationRunner } from '@persistence/migrations/runner';
 import type Database from 'better-sqlite3';
 import BetterSqlite3 from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -27,7 +25,7 @@ describe('persistence migrations', () => {
         "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
       )
       .all()
-      .map((row) => row.name);
+      .map((row: { name: string }) => row.name);
 
     expect(tables).toEqual(
       expect.arrayContaining([
@@ -37,64 +35,86 @@ describe('persistence migrations', () => {
         'agent_runs',
         'dependencies',
         'events',
+        'integration_state',
         'schema_migrations',
       ]),
     );
   });
 
-  it('records applied migrations in schema_migrations', () => {
-    const applied = db
-      .prepare<[], { id: string }>(
-        'SELECT id FROM schema_migrations ORDER BY id',
+  it('uses version INTEGER PRIMARY KEY for schema_migrations (not id TEXT)', () => {
+    const columns = db
+      .prepare<[], { name: string; type: string; pk: number }>(
+        "PRAGMA table_info('schema_migrations')",
       )
-      .all()
-      .map((row) => row.id);
-
-    expect(applied).toContain(Migration001Init.id);
-    expect(applied).toContain(Migration002FeatureRuntimeBlock.id);
-    expect(applied).toContain(Migration003AgentRunTokenUsage.id);
-    expect(applied).toContain(Migration004FeaturePhaseOutputs.id);
-    expect(applied).toContain(Migration005TaskPlannerPayload.id);
+      .all();
+    const version = columns.find((c) => c.name === 'version');
+    expect(version).toBeDefined();
+    expect(version?.type.toUpperCase()).toBe('INTEGER');
+    expect(version?.pk).toBe(1);
+    expect(columns.find((c) => c.name === 'id')).toBeUndefined();
+    expect(columns.find((c) => c.name === 'applied_at')).toBeDefined();
   });
 
-  it('adds runtime_blocked_by_feature_id to features', () => {
+  it('records applied migrations as integer versions', () => {
+    const rows = db
+      .prepare<[], { version: number }>(
+        'SELECT version FROM schema_migrations ORDER BY version',
+      )
+      .all();
+    const versions = rows.map((r) => r.version);
+    expect(versions).toContain(1);
+    expect(versions).toContain(2);
+  });
+
+  it('applies the 0002 merge-train executor-state migration', () => {
+    const featureColumns = db
+      .prepare<[], { name: string }>("PRAGMA table_info('features')")
+      .all()
+      .map((row) => row.name);
+    expect(featureColumns).toContain('main_merge_sha');
+    expect(featureColumns).toContain('branch_head_sha');
+
+    const taskColumns = db
+      .prepare<[], { name: string }>("PRAGMA table_info('tasks')")
+      .all()
+      .map((row) => row.name);
+    expect(taskColumns).toContain('branch_head_sha');
+
+    const integrationColumns = db
+      .prepare<[], { name: string }>("PRAGMA table_info('integration_state')")
+      .all()
+      .map((row) => row.name);
+    expect(integrationColumns).toEqual(
+      expect.arrayContaining([
+        'feature_id',
+        'expected_parent_sha',
+        'feature_branch_pre_integration_sha',
+        'config_snapshot',
+        'intent',
+        'started_at',
+      ]),
+    );
+  });
+
+  it('creates baseline feature-phase output columns on features', () => {
     const columns = db
       .prepare<[], { name: string }>("PRAGMA table_info('features')")
       .all()
       .map((row) => row.name);
-
-    expect(columns).toContain('runtime_blocked_by_feature_id');
-  });
-
-  it('adds token_usage to agent_runs', () => {
-    const columns = db
-      .prepare<[], { name: string }>("PRAGMA table_info('agent_runs')")
-      .all()
-      .map((row) => row.name);
-
-    expect(columns).toContain('token_usage');
-  });
-
-  it('adds feature-phase output columns to features', () => {
-    const columns = db
-      .prepare<[], { name: string }>("PRAGMA table_info('features')")
-      .all()
-      .map((row) => row.name);
-
     expect(columns).toContain('rough_draft');
     expect(columns).toContain('discuss_output');
     expect(columns).toContain('research_output');
     expect(columns).toContain('feature_objective');
     expect(columns).toContain('feature_dod');
     expect(columns).toContain('verify_issues');
+    expect(columns).toContain('runtime_blocked_by_feature_id');
   });
 
-  it('adds planner-baked payload columns to tasks', () => {
+  it('creates baseline planner-baked task columns on tasks', () => {
     const columns = db
       .prepare<[], { name: string }>("PRAGMA table_info('tasks')")
       .all()
       .map((row) => row.name);
-
     expect(columns).toContain('objective');
     expect(columns).toContain('scope');
     expect(columns).toContain('expected_files');
@@ -102,93 +122,175 @@ describe('persistence migrations', () => {
     expect(columns).toContain('outcome_verification');
   });
 
-  it('is idempotent when the runner is re-invoked', () => {
-    const runner = new MigrationRunner(db, [
-      Migration001Init,
-      Migration002FeatureRuntimeBlock,
-      Migration003AgentRunTokenUsage,
-      Migration004FeaturePhaseOutputs,
-      Migration005TaskPlannerPayload,
-    ]);
-    runner.run();
-    runner.run();
-
-    const rows = db
-      .prepare<[string], { count: number }>(
-        'SELECT COUNT(*) AS count FROM schema_migrations WHERE id = ?',
-      )
-      .get(Migration005TaskPlannerPayload.id);
-    expect(rows?.count).toBe(1);
-  });
-
-  it('migration 006 rewrites feature_ci rows to ci_check', () => {
-    const legacy = new BetterSqlite3(':memory:');
-    legacy.pragma('foreign_keys = ON');
-    const runner = new MigrationRunner(legacy, [
-      Migration001Init,
-      Migration002FeatureRuntimeBlock,
-      Migration003AgentRunTokenUsage,
-      Migration004FeaturePhaseOutputs,
-      Migration005TaskPlannerPayload,
-    ]);
-    runner.run();
-
-    legacy
-      .prepare(
-        "INSERT INTO milestones (id, name, description, display_order, status, created_at, updated_at) VALUES ('m-1', 'M', '', 0, 'pending', 0, 0)",
-      )
-      .run();
-    legacy
-      .prepare(
-        "INSERT INTO features (id, milestone_id, order_in_milestone, name, description, status, work_phase, collab_status, feature_branch, merge_train_reentry_count, created_at, updated_at) VALUES ('f-1', 'm-1', 0, 'F', '', 'pending', 'feature_ci', 'none', 'feat-f-1', 0, 0, 0)",
-      )
-      .run();
-    legacy
-      .prepare(
-        "INSERT INTO agent_runs (id, scope_type, scope_id, phase, run_status, owner, attention, max_retries, restart_count, created_at, updated_at) VALUES ('r-1', 'feature_phase', 'f-1', 'feature_ci', 'completed', 'system', 'none', 0, 0, 0, 0)",
-      )
-      .run();
-    legacy
-      .prepare(
-        "INSERT INTO events (timestamp, event_type, entity_id, payload) VALUES (0, 'feature_phase_completed', 'f-1', ?)",
-      )
-      .run(JSON.stringify({ phase: 'feature_ci', extra: { ok: true } }));
-
-    const renameRunner = new MigrationRunner(legacy, [
-      Migration006RenameFeatureCiToCiCheck,
-    ]);
-    renameRunner.run();
-
-    const feature = legacy
-      .prepare<[], { work_phase: string }>(
-        "SELECT work_phase FROM features WHERE id = 'f-1'",
-      )
-      .get();
-    const run = legacy
-      .prepare<[], { phase: string }>(
-        "SELECT phase FROM agent_runs WHERE id = 'r-1'",
-      )
-      .get();
-    const event = legacy
-      .prepare<[], { payload: string }>(
-        "SELECT payload FROM events WHERE entity_id = 'f-1'",
-      )
-      .get();
-
-    expect(feature?.work_phase).toBe('ci_check');
-    expect(run?.phase).toBe('ci_check');
-    expect(event?.payload).toContain('"phase":"ci_check"');
-    expect(event?.payload).not.toContain('"phase":"feature_ci"');
-
-    legacy.close();
+  it('persists agent_runs.token_usage column from the baseline', () => {
+    const columns = db
+      .prepare<[], { name: string }>("PRAGMA table_info('agent_runs')")
+      .all()
+      .map((row) => row.name);
+    expect(columns).toContain('token_usage');
   });
 
   it('enforces core foreign key relationships', () => {
-    // A task referencing a missing feature must be rejected.
     expect(() => {
       db.prepare(
         "INSERT INTO tasks (id, feature_id, order_in_feature, description, status, collab_status, consecutive_failures, created_at, updated_at) VALUES ('t-1', 'f-missing', 0, 'desc', 'pending', 'none', 0, 0, 0)",
       ).run();
     }).toThrow();
+  });
+
+  describe('MigrationRunner (isolated fixtures)', () => {
+    let tmpDir: string;
+
+    beforeEach(() => {
+      tmpDir = mkdtempSync(join(tmpdir(), 'gvc0-mig-runner-'));
+    });
+
+    afterEach(() => {
+      rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it('applies ordered .sql files and records their versions', () => {
+      writeFileSync(
+        join(tmpDir, '0001_first.sql'),
+        'CREATE TABLE foo (id INTEGER PRIMARY KEY);',
+      );
+      writeFileSync(
+        join(tmpDir, '0002_second.sql'),
+        'CREATE TABLE bar (id INTEGER PRIMARY KEY);',
+      );
+
+      const inst = new BetterSqlite3(':memory:');
+      let clock = 1;
+      const runner = new MigrationRunner(inst, tmpDir, () => clock++);
+      runner.run();
+
+      const rows = inst
+        .prepare<[], { version: number; applied_at: number }>(
+          'SELECT version, applied_at FROM schema_migrations ORDER BY version',
+        )
+        .all();
+      expect(rows).toEqual([
+        { version: 1, applied_at: 1 },
+        { version: 2, applied_at: 2 },
+      ]);
+
+      const tables = inst
+        .prepare<[], { name: string }>(
+          "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
+        )
+        .all()
+        .map((r) => r.name);
+      expect(tables).toEqual(
+        expect.arrayContaining(['foo', 'bar', 'schema_migrations']),
+      );
+      inst.close();
+    });
+
+    it('is idempotent when re-run against an already-migrated DB', () => {
+      writeFileSync(
+        join(tmpDir, '0001_first.sql'),
+        'CREATE TABLE foo (id INTEGER PRIMARY KEY);',
+      );
+      writeFileSync(
+        join(tmpDir, '0002_second.sql'),
+        'CREATE TABLE bar (id INTEGER PRIMARY KEY);',
+      );
+
+      const inst = new BetterSqlite3(':memory:');
+      let clock = 1;
+      const runner = new MigrationRunner(inst, tmpDir, () => clock++);
+      runner.run();
+      const appliedAtAfterFirst = inst
+        .prepare<[], { version: number; applied_at: number }>(
+          'SELECT version, applied_at FROM schema_migrations ORDER BY version',
+        )
+        .all();
+      runner.run();
+      const appliedAtAfterSecond = inst
+        .prepare<[], { version: number; applied_at: number }>(
+          'SELECT version, applied_at FROM schema_migrations ORDER BY version',
+        )
+        .all();
+
+      expect(appliedAtAfterSecond).toEqual(appliedAtAfterFirst);
+      inst.close();
+    });
+
+    it('skips over versions already recorded without re-applying', () => {
+      // Seed 0001 + record it; then add 0002 and confirm only 0002 runs.
+      writeFileSync(
+        join(tmpDir, '0001_first.sql'),
+        'CREATE TABLE foo (id INTEGER PRIMARY KEY);',
+      );
+      const inst = new BetterSqlite3(':memory:');
+      let clock = 10;
+      new MigrationRunner(inst, tmpDir, () => clock++).run();
+
+      writeFileSync(
+        join(tmpDir, '0002_second.sql'),
+        'CREATE TABLE bar (id INTEGER PRIMARY KEY);',
+      );
+      new MigrationRunner(inst, tmpDir, () => clock++).run();
+
+      const rows = inst
+        .prepare<[], { version: number; applied_at: number }>(
+          'SELECT version, applied_at FROM schema_migrations ORDER BY version',
+        )
+        .all();
+      expect(rows).toEqual([
+        { version: 1, applied_at: 10 },
+        { version: 2, applied_at: 11 },
+      ]);
+      inst.close();
+    });
+
+    it('rejects duplicate version prefixes in the migrations directory', () => {
+      writeFileSync(
+        join(tmpDir, '0001_a.sql'),
+        'CREATE TABLE a (id INTEGER PRIMARY KEY);',
+      );
+      writeFileSync(
+        join(tmpDir, '0001_b.sql'),
+        'CREATE TABLE b (id INTEGER PRIMARY KEY);',
+      );
+
+      const inst = new BetterSqlite3(':memory:');
+      const runner = new MigrationRunner(inst, tmpDir);
+      expect(() => runner.run()).toThrow(/Duplicate migration version/);
+      inst.close();
+    });
+
+    it('drops legacy id-based schema_migrations bookkeeping before applying baseline', () => {
+      // Simulate a dev DB from the old TS-migration runner shape.
+      const inst = new BetterSqlite3(':memory:');
+      inst.exec(
+        "CREATE TABLE schema_migrations (id TEXT PRIMARY KEY, applied_at INTEGER NOT NULL); INSERT INTO schema_migrations (id, applied_at) VALUES ('001_init', 0);",
+      );
+
+      writeFileSync(
+        join(tmpDir, '0001_first.sql'),
+        'CREATE TABLE foo (id INTEGER PRIMARY KEY);',
+      );
+      const runner = new MigrationRunner(inst, tmpDir, () => 42);
+      runner.run();
+
+      const columns = inst
+        .prepare<[], { name: string }>(
+          "PRAGMA table_info('schema_migrations')",
+        )
+        .all()
+        .map((r) => r.name);
+      expect(columns).toContain('version');
+      expect(columns).not.toContain('id');
+
+      const rows = inst
+        .prepare<[], { version: number }>(
+          'SELECT version FROM schema_migrations',
+        )
+        .all()
+        .map((r) => r.version);
+      expect(rows).toEqual([1]);
+      inst.close();
+    });
   });
 });
