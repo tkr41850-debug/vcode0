@@ -91,18 +91,6 @@ export async function handleSchedulerEvent(params: {
         features.onTaskLanded(run.scopeId);
         const landedTask = graph.tasks.get(run.scopeId);
         if (landedTask !== undefined) {
-          if (landedTask.repairSource === 'integration') {
-            conflicts.clearCrossFeatureBlock(landedTask.featureId);
-            const release = await conflicts.resumeCrossFeatureTasks(
-              landedTask.featureId,
-            );
-            if (release.kind === 'blocked') {
-              features.createIntegrationRepair(
-                landedTask.featureId,
-                release.summary,
-              );
-            }
-          }
           await conflicts.reconcileSameFeatureTasks(
             landedTask.featureId,
             run.scopeId,
@@ -348,25 +336,36 @@ export async function handleSchedulerEvent(params: {
     for (const release of releases) {
       if (release.kind === 'repair_needed') {
         const conflictedFiles = release.conflictedFiles ?? [];
-        const summary =
+        const description =
           conflictedFiles.length > 0
             ? `Rebase onto main conflicted in ${conflictedFiles.join(', ')}`
             : (release.summary ?? 'Rebase onto main conflicted');
-        features.createIntegrationRepair(release.featureId, summary);
+        features.rerouteToReplan(release.featureId, [
+          {
+            source: 'rebase',
+            id: `rb-${release.featureId}-1`,
+            severity: 'blocking',
+            description,
+            conflictedFiles,
+          },
+        ]);
         continue;
       }
 
       if (release.kind === 'blocked') {
-        features.createIntegrationRepair(
-          release.featureId,
-          release.summary ?? 'Feature worktree missing before rebase onto main',
-        );
+        features.rerouteToReplan(release.featureId, [
+          {
+            source: 'rebase',
+            id: `rb-${release.featureId}-1`,
+            severity: 'blocking',
+            description:
+              release.summary ??
+              'Feature worktree missing before rebase onto main',
+            conflictedFiles: [],
+          },
+        ]);
       }
     }
     return;
-  }
-
-  if (event.type === 'feature_integration_failed') {
-    features.failIntegration(event.featureId, event.error);
   }
 }

@@ -55,10 +55,9 @@ function buildDeps(params: { task: Task; run: AgentRun }) {
 
   const features = {
     onTaskLanded: vi.fn(),
-    createIntegrationRepair: vi.fn(),
+    rerouteToReplan: vi.fn(),
     completePhase: vi.fn(),
     completeIntegration: vi.fn(),
-    failIntegration: vi.fn(),
     beginNextIntegration: vi.fn(),
   } as unknown as FeatureLifecycleCoordinator;
 

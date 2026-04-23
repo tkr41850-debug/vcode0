@@ -75,11 +75,6 @@ export type SchedulerEvent =
       featureId: FeatureId;
     }
   | {
-      type: 'feature_integration_failed';
-      featureId: FeatureId;
-      error: string;
-    }
-  | {
       type: 'shutdown';
     };
 

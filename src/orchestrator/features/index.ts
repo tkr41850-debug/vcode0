@@ -1,4 +1,3 @@
-import { MAX_REPAIR_ATTEMPTS } from '@core/fsm/index';
 import type { FeatureGraph } from '@core/graph/index';
 import { MergeTrainCoordinator } from '@core/merge-train/index';
 import type {
@@ -8,6 +7,7 @@ import type {
   Task,
   TaskId,
   VerificationSummary,
+  VerifyIssue,
 } from '@core/types/index';
 
 export class FeatureLifecycleCoordinator {
@@ -28,24 +28,12 @@ export class FeatureLifecycleCoordinator {
   onTaskLanded(taskId: TaskId): void {
     const task = this.requireTask(taskId);
     const feature = this.requireFeature(task.featureId);
-    if (
-      feature.workControl !== 'executing' &&
-      feature.workControl !== 'executing_repair'
-    ) {
+    if (feature.workControl !== 'executing') {
       return;
     }
 
     if (!this.allFeatureTasksLanded(feature.id)) {
       return;
-    }
-
-    if (
-      feature.workControl === 'executing_repair' &&
-      feature.collabControl === 'conflict'
-    ) {
-      this.graph.transitionFeature(feature.id, {
-        collabControl: 'branch_open',
-      });
     }
 
     this.markPhaseDone(feature.id);
@@ -60,36 +48,20 @@ export class FeatureLifecycleCoordinator {
     this.mergeTrain.completeIntegration(featureId, this.graph);
   }
 
-  failIntegration(featureId: FeatureId, summary?: string): void {
+  rerouteToReplan(featureId: FeatureId, issues: VerifyIssue[]): void {
     const feature = this.requireFeature(featureId);
-    const reentryCount = (feature.mergeTrainReentryCount ?? 0) + 1;
 
-    this.graph.transitionFeature(featureId, { collabControl: 'conflict' });
-    this.graph.updateMergeTrainState(featureId, {
-      mergeTrainManualPosition: undefined,
-      mergeTrainEnteredAt: undefined,
-      mergeTrainEntrySeq: undefined,
-      mergeTrainReentryCount: reentryCount,
-    });
-    this.enqueueRepairTask(
-      featureId,
-      'integration',
-      'integration issues',
-      summary,
-    );
-  }
-
-  createIntegrationRepair(featureId: FeatureId, summary?: string): void {
-    const feature = this.requireFeature(featureId);
-    if (feature.collabControl !== 'conflict') {
-      this.graph.transitionFeature(featureId, { collabControl: 'conflict' });
+    if (feature.collabControl === 'merge_queued') {
+      this.mergeTrain.ejectFromQueue(featureId, this.graph);
     }
-    this.enqueueRepairTask(
-      featureId,
-      'integration',
-      'integration issues',
-      summary,
-    );
+
+    const merged = mergeVerifyIssues(feature.verifyIssues, issues);
+    if (merged !== undefined) {
+      this.graph.editFeature(featureId, { verifyIssues: merged });
+    }
+
+    this.markPhaseFailed(featureId);
+    this.advancePhase(featureId, 'replanning');
   }
 
   completePhase(
@@ -115,7 +87,12 @@ export class FeatureLifecycleCoordinator {
           throw new Error('ci_check completion requires verification summary');
         }
         if (verification.ok === false) {
-          this.failCiCheck(featureId, verification.summary);
+          const issues = ciCheckIssuesFromVerification(
+            featureId,
+            verification,
+            'feature',
+          );
+          this.rerouteToReplan(featureId, issues);
           return;
         }
         this.markPhaseDone(featureId);
@@ -193,49 +170,6 @@ export class FeatureLifecycleCoordinator {
     }
   }
 
-  private failCiCheck(featureId: FeatureId, summary?: string): void {
-    this.enqueueRepairTask(featureId, 'ci_check', 'ci check issues', summary);
-  }
-
-  private enqueueRepairTask(
-    featureId: FeatureId,
-    repairSource: 'ci_check' | 'verify' | 'integration',
-    noun: string,
-    summary?: string,
-  ): void {
-    const feature = this.requireFeature(featureId);
-    const repairCount = this.countRepairTasks(featureId);
-
-    if (feature.workControl === 'executing_repair') {
-      if (repairCount >= MAX_REPAIR_ATTEMPTS) {
-        this.markPhaseFailed(featureId);
-        this.advancePhase(featureId, 'replanning');
-        return;
-      }
-    } else {
-      this.markPhaseFailed(featureId);
-      if (repairCount >= MAX_REPAIR_ATTEMPTS) {
-        this.advancePhase(featureId, 'executing_repair');
-        this.markPhaseFailed(featureId);
-        this.advancePhase(featureId, 'replanning');
-        return;
-      }
-
-      this.advancePhase(featureId, 'executing_repair');
-    }
-
-    const detail = summary?.trim();
-    const repairTask = this.graph.addTask({
-      featureId,
-      description:
-        detail && detail.length > 0
-          ? `Repair ${noun}: ${detail}`
-          : `Repair ${noun}`,
-      repairSource,
-    });
-    this.graph.transitionTask(repairTask.id, { status: 'ready' });
-  }
-
   private allFeatureTasksLanded(featureId: FeatureId): boolean {
     let sawTask = false;
     for (const task of this.graph.tasks.values()) {
@@ -248,16 +182,6 @@ export class FeatureLifecycleCoordinator {
       }
     }
     return sawTask;
-  }
-
-  private countRepairTasks(featureId: FeatureId): number {
-    let count = 0;
-    for (const task of this.graph.tasks.values()) {
-      if (task.featureId === featureId && task.repairSource !== undefined) {
-        count++;
-      }
-    }
-    return count;
   }
 
   private advancePhase(
@@ -287,4 +211,47 @@ export class FeatureLifecycleCoordinator {
     }
     return task;
   }
+}
+
+function mergeVerifyIssues(
+  existing: VerifyIssue[] | undefined,
+  incoming: VerifyIssue[],
+): VerifyIssue[] | undefined {
+  if (incoming.length === 0) {
+    return existing;
+  }
+  return existing !== undefined ? [...existing, ...incoming] : [...incoming];
+}
+
+function ciCheckIssuesFromVerification(
+  featureId: FeatureId,
+  verification: VerificationSummary,
+  phase: 'feature' | 'post_rebase',
+): VerifyIssue[] {
+  if (verification.issues !== undefined && verification.issues.length > 0) {
+    return verification.issues;
+  }
+  const failed = verification.failedChecks ?? [];
+  if (failed.length === 0) {
+    return [
+      {
+        source: 'ci_check',
+        id: `ci-${featureId}-${phase}-1`,
+        severity: 'blocking',
+        phase,
+        checkName: 'ci_check',
+        command: '',
+        description: verification.summary ?? 'ci_check failed',
+      },
+    ];
+  }
+  return failed.map((name, index) => ({
+    source: 'ci_check',
+    id: `ci-${featureId}-${phase}-${index + 1}`,
+    severity: 'blocking',
+    phase,
+    checkName: name,
+    command: name,
+    description: `${name} failed`,
+  }));
 }

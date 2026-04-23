@@ -2759,7 +2759,7 @@ describe('SchedulerLoop', () => {
     });
   });
 
-  it('moves ci_check failure into executing_repair and creates a ready repair task', async () => {
+  it('routes ci_check failure to replanning with source:ci_check issues', async () => {
     const order: string[] = [];
     const { ports } = createPorts(order);
     const graph = new InMemoryFeatureGraph({
@@ -2808,27 +2808,34 @@ describe('SchedulerLoop', () => {
       featureId: 'f-1',
       phase: 'ci_check',
       summary: 'tests failed',
-      verification: { ok: false, summary: 'tests failed' },
+      verification: {
+        ok: false,
+        summary: 'tests failed',
+        failedChecks: ['npm test'],
+      },
     });
     await loop.step(100);
 
-    expect(graph.features.get('f-1')).toEqual(
+    const feature = graph.features.get('f-1');
+    expect(feature).toEqual(
       expect.objectContaining({
-        workControl: 'executing_repair',
+        workControl: 'replanning',
         status: 'pending',
         collabControl: 'branch_open',
       }),
     );
+    expect(feature?.verifyIssues ?? []).toEqual([
+      expect.objectContaining({
+        source: 'ci_check',
+        phase: 'feature',
+        severity: 'blocking',
+        checkName: 'npm test',
+      }),
+    ]);
     const repairTasks = [...graph.tasks.values()].filter(
       (task) => task.featureId === 'f-1' && task.id !== 't-1',
     );
-    expect(repairTasks).toHaveLength(1);
-    expect(repairTasks[0]).toMatchObject({
-      status: 'ready',
-      collabControl: 'none',
-      repairSource: 'ci_check',
-    });
-    expect(repairTasks[0]?.description).toContain('Repair ci check issues');
+    expect(repairTasks).toHaveLength(0);
   });
 
   it('routes verify failure directly to replanning', async () => {
@@ -3175,167 +3182,6 @@ describe('SchedulerLoop', () => {
     });
     await expect(loop.step(100)).rejects.toThrow(
       'verify completion requires verification summary',
-    );
-  });
-
-  it('does not rerun ci_check while a repair task remains incomplete', async () => {
-    const order: string[] = [];
-    const { ports } = createPorts(order);
-    const verifyFeatureBranch = vi.spyOn(ports.verification, 'verifyFeature');
-    const graph = new InMemoryFeatureGraph({
-      milestones: [
-        {
-          id: 'm-1',
-          name: 'Milestone 1',
-          description: 'desc',
-          status: 'pending',
-          order: 0,
-        },
-      ],
-      features: [
-        {
-          id: 'f-1',
-          milestoneId: 'm-1',
-          orderInMilestone: 0,
-          name: 'Feature 1',
-          description: 'desc',
-          dependsOn: [],
-          status: 'pending',
-          workControl: 'executing_repair',
-          collabControl: 'branch_open',
-          featureBranch: 'feat-feature-1-1',
-        },
-      ],
-      tasks: [
-        {
-          id: 't-1',
-          featureId: 'f-1',
-          orderInFeature: 0,
-          description: 'Original task',
-          dependsOn: [],
-          status: 'done',
-          collabControl: 'merged',
-        },
-        {
-          id: 't-2',
-          featureId: 'f-1',
-          orderInFeature: 1,
-          description: 'Repair task',
-          dependsOn: [],
-          status: 'ready',
-          collabControl: 'none',
-        },
-      ],
-    });
-
-    const loop = new SchedulerLoop(graph, ports);
-
-    await loop.step(100);
-
-    expect(graph.features.get('f-1')).toEqual(
-      expect.objectContaining({
-        workControl: 'executing_repair',
-        collabControl: 'branch_open',
-      }),
-    );
-    expect(verifyFeatureBranch).not.toHaveBeenCalled();
-  });
-
-  it('returns executing_repair to ci_check after the repair task lands', async () => {
-    const order: string[] = [];
-    const { ports } = createPorts(order);
-    const graph = new InMemoryFeatureGraph({
-      milestones: [
-        {
-          id: 'm-1',
-          name: 'Milestone 1',
-          description: 'desc',
-          status: 'pending',
-          order: 0,
-        },
-      ],
-      features: [
-        {
-          id: 'f-1',
-          milestoneId: 'm-1',
-          orderInMilestone: 0,
-          name: 'Feature 1',
-          description: 'desc',
-          dependsOn: [],
-          status: 'in_progress',
-          workControl: 'executing_repair',
-          collabControl: 'branch_open',
-          featureBranch: 'feat-feature-1-1',
-        },
-      ],
-      tasks: [
-        {
-          id: 't-1',
-          featureId: 'f-1',
-          orderInFeature: 0,
-          description: 'Original task',
-          dependsOn: [],
-          status: 'done',
-          collabControl: 'merged',
-        },
-        {
-          id: 't-2',
-          featureId: 'f-1',
-          orderInFeature: 1,
-          description: 'Repair task',
-          dependsOn: [],
-          status: 'running',
-          collabControl: 'branch_open',
-        },
-      ],
-    });
-    ports.store.createAgentRun(
-      makeTaskRun({
-        id: 'run-task:t-2',
-        scopeId: 't-2',
-        runStatus: 'running',
-        sessionId: 'sess-2',
-      }),
-    );
-
-    const loop = new SchedulerLoop(graph, ports);
-
-    loop.setAutoExecutionEnabled(false);
-    loop.enqueue({
-      type: 'worker_message',
-      message: {
-        type: 'result',
-        taskId: 't-2',
-        agentRunId: 'run-task:t-2',
-        result: {
-          summary: 'repaired',
-          filesChanged: ['src/fix.ts'],
-        },
-        usage: {
-          provider: 'test',
-          model: 'fake',
-          inputTokens: 1,
-          outputTokens: 2,
-          totalTokens: 3,
-          usd: 0,
-        },
-        completionKind: 'submitted',
-      },
-    });
-    await loop.step(100);
-
-    expect(graph.features.get('f-1')).toEqual(
-      expect.objectContaining({
-        workControl: 'ci_check',
-        status: 'pending',
-        collabControl: 'branch_open',
-      }),
-    );
-    expect(graph.tasks.get('t-2')).toEqual(
-      expect.objectContaining({
-        status: 'done',
-        collabControl: 'merged',
-      }),
     );
   });
 
@@ -4417,7 +4263,7 @@ describe('SchedulerLoop', () => {
     expect(loopWarnings).toHaveLength(0);
   });
 
-  it('creates integration repair and keeps tasks suspended when secondary rebase conflicts', async () => {
+  it('routes blocked feature to replanning when secondary rebase conflicts', async () => {
     const root = getTmpDir();
     const order: string[] = [];
     const { ports, runtime } = createPorts(order, { tokenProfile: 'balanced' });
@@ -4508,10 +4354,10 @@ describe('SchedulerLoop', () => {
 
     await loop.step(100);
 
-    expect(graph.features.get('f-2')).toMatchObject({
+    const blocked = graph.features.get('f-2');
+    expect(blocked).toMatchObject({
       runtimeBlockedByFeatureId: 'f-1',
-      collabControl: 'conflict',
-      workControl: 'executing_repair',
+      workControl: 'replanning',
       status: 'pending',
     });
     expect(graph.tasks.get('t-2')).toMatchObject({
@@ -4520,15 +4366,17 @@ describe('SchedulerLoop', () => {
       blockedByFeatureId: 'f-1',
       suspendReason: 'cross_feature_overlap',
     });
+    expect(blocked?.verifyIssues ?? []).toEqual([
+      expect.objectContaining({
+        source: 'rebase',
+        severity: 'blocking',
+        conflictedFiles: ['src/a.ts'],
+      }),
+    ]);
     const repairTasks = [...graph.tasks.values()].filter(
       (task) => task.featureId === 'f-2' && task.repairSource === 'integration',
     );
-    expect(repairTasks).toHaveLength(1);
-    expect(repairTasks[0]).toMatchObject({
-      status: 'ready',
-      description:
-        'Repair integration issues: Rebase onto main conflicted in src/a.ts',
-    });
+    expect(repairTasks).toHaveLength(0);
     expect(resumeTask).not.toHaveBeenCalled();
   }, 20000);
 
@@ -4653,7 +4501,7 @@ describe('SchedulerLoop', () => {
     expect(resumeTask).toHaveBeenCalledWith('t-2', 'cross_feature_rebase');
   }, 20000);
 
-  it('creates integration repair when blocked secondary task rebase conflicts after clean feature rebase', async () => {
+  it('routes blocked feature to replanning when secondary task rebase conflicts after clean feature rebase', async () => {
     const root = getTmpDir();
     const order: string[] = [];
     const { ports, runtime } = createPorts(order, { tokenProfile: 'balanced' });
@@ -4757,10 +4605,10 @@ describe('SchedulerLoop', () => {
 
     await loop.step(100);
 
-    expect(graph.features.get('f-2')).toMatchObject({
+    const blocked = graph.features.get('f-2');
+    expect(blocked).toMatchObject({
       runtimeBlockedByFeatureId: 'f-1',
-      collabControl: 'conflict',
-      workControl: 'executing_repair',
+      workControl: 'replanning',
       status: 'pending',
     });
     expect(graph.tasks.get('t-2')).toMatchObject({
@@ -4769,20 +4617,21 @@ describe('SchedulerLoop', () => {
       blockedByFeatureId: 'f-1',
       suspendReason: 'cross_feature_overlap',
     });
+    expect(blocked?.verifyIssues ?? []).toEqual([
+      expect.objectContaining({
+        source: 'rebase',
+        severity: 'blocking',
+      }),
+    ]);
     const repairTasks = [...graph.tasks.values()].filter(
       (task) => task.featureId === 'f-2' && task.repairSource === 'integration',
     );
-    expect(repairTasks).toHaveLength(1);
-    expect(repairTasks[0]).toMatchObject({
-      status: 'ready',
-      description:
-        'Repair integration issues: Cross-feature task rebase conflicted for t-2: src/a.ts',
-    });
+    expect(repairTasks).toHaveLength(0);
     expect(resumeTask).not.toHaveBeenCalled();
     expect(steerTask).not.toHaveBeenCalled();
   }, 20000);
 
-  it('creates integration repair when blocked secondary task worktree is missing after clean feature rebase', async () => {
+  it('routes blocked feature to replanning when secondary task worktree is missing after clean feature rebase', async () => {
     const root = getTmpDir();
     const order: string[] = [];
     const { ports, runtime } = createPorts(order, { tokenProfile: 'balanced' });
@@ -4868,24 +4717,26 @@ describe('SchedulerLoop', () => {
 
     await loop.step(100);
 
-    expect(graph.features.get('f-2')).toMatchObject({
+    const blocked = graph.features.get('f-2');
+    expect(blocked).toMatchObject({
       runtimeBlockedByFeatureId: 'f-1',
-      collabControl: 'conflict',
-      workControl: 'executing_repair',
+      workControl: 'replanning',
       status: 'pending',
     });
+    expect(blocked?.verifyIssues ?? []).toEqual([
+      expect.objectContaining({
+        source: 'rebase',
+        severity: 'blocking',
+      }),
+    ]);
     const repairTasks = [...graph.tasks.values()].filter(
       (task) => task.featureId === 'f-2' && task.repairSource === 'integration',
     );
-    expect(repairTasks).toHaveLength(1);
-    expect(repairTasks[0]).toMatchObject({
-      status: 'ready',
-      description: 'Repair integration issues: Task worktree missing for t-2',
-    });
+    expect(repairTasks).toHaveLength(0);
     expect(resumeTask).not.toHaveBeenCalled();
   }, 20000);
 
-  it('creates integration repair when blocked secondary feature worktree is missing', async () => {
+  it('routes blocked feature to replanning when secondary feature worktree is missing', async () => {
     const order: string[] = [];
     const { ports, runtime } = createPorts(order, { tokenProfile: 'balanced' });
     vi.spyOn(ports.runtime, 'idleWorkerCount').mockReturnValue(0);
@@ -4955,186 +4806,23 @@ describe('SchedulerLoop', () => {
 
     await loop.step(100);
 
-    expect(graph.features.get('f-2')).toMatchObject({
+    const blocked = graph.features.get('f-2');
+    expect(blocked).toMatchObject({
       runtimeBlockedByFeatureId: 'f-1',
-      collabControl: 'conflict',
-      workControl: 'executing_repair',
-      status: 'pending',
-    });
-    const repairTasks = [...graph.tasks.values()].filter(
-      (task) => task.featureId === 'f-2' && task.repairSource === 'integration',
-    );
-    expect(repairTasks).toHaveLength(1);
-    expect(repairTasks[0]).toMatchObject({
-      status: 'ready',
-      description:
-        'Repair integration issues: Feature worktree missing for f-2',
-    });
-    expect(resumeTask).not.toHaveBeenCalled();
-  });
-
-  it('ejects failed integration into conflict and starts the next queued feature', async () => {
-    const order: string[] = [];
-    const { ports } = createPorts(order);
-    vi.spyOn(ports.runtime, 'idleWorkerCount').mockReturnValue(0);
-    const graph = new InMemoryFeatureGraph({
-      milestones: [
-        {
-          id: 'm-1',
-          name: 'Milestone 1',
-          description: 'desc',
-          status: 'pending',
-          order: 0,
-        },
-      ],
-      features: [
-        {
-          id: 'f-1',
-          milestoneId: 'm-1',
-          orderInMilestone: 0,
-          name: 'Feature 1',
-          description: 'desc',
-          dependsOn: [],
-          status: 'in_progress',
-          workControl: 'awaiting_merge',
-          collabControl: 'integrating',
-          featureBranch: 'feat-feature-1-1',
-          mergeTrainManualPosition: 1,
-          mergeTrainEnteredAt: 50,
-          mergeTrainEntrySeq: 1,
-          mergeTrainReentryCount: 0,
-        },
-        {
-          id: 'f-2',
-          milestoneId: 'm-1',
-          orderInMilestone: 1,
-          name: 'Feature 2',
-          description: 'desc',
-          dependsOn: [],
-          status: 'pending',
-          workControl: 'awaiting_merge',
-          collabControl: 'merge_queued',
-          featureBranch: 'feat-feature-2-1',
-          mergeTrainEntrySeq: 2,
-          mergeTrainReentryCount: 0,
-        },
-      ],
-      tasks: [],
-    });
-
-    const loop = new SchedulerLoop(graph, ports);
-    loop.enqueue({
-      type: 'feature_integration_failed',
-      featureId: 'f-1',
-      error: 'rebase failed',
-    });
-
-    await loop.step(100);
-
-    const failedFeature = graph.features.get('f-1');
-    expect(failedFeature).toBeDefined();
-    expect(failedFeature).toEqual(
-      expect.objectContaining({
-        collabControl: 'conflict',
-        workControl: 'executing_repair',
-        status: 'pending',
-        mergeTrainReentryCount: 1,
-      }),
-    );
-    expect(failedFeature?.mergeTrainManualPosition).toBeUndefined();
-    expect(failedFeature?.mergeTrainEnteredAt).toBeUndefined();
-    expect(failedFeature?.mergeTrainEntrySeq).toBeUndefined();
-    expect(graph.features.get('f-2')).toEqual(
-      expect.objectContaining({
-        collabControl: 'integrating',
-        workControl: 'awaiting_merge',
-        status: 'in_progress',
-      }),
-    );
-  });
-
-  it('replans when integration repair lands but task resume stays blocked again', async () => {
-    const order: string[] = [];
-    const { ports } = createPorts(order, { tokenProfile: 'balanced' });
-    const graph = createSchedulerGraph({
-      milestones: [createMilestoneFixture()],
-      features: [
-        createFeatureFixture({
-          id: 'f-2',
-          status: 'in_progress',
-          workControl: 'executing_repair',
-          collabControl: 'conflict',
-          runtimeBlockedByFeatureId: 'f-1',
-        }),
-      ],
-      tasks: [
-        createTaskFixture({
-          id: 't-repair',
-          featureId: 'f-2',
-          status: 'running',
-          collabControl: 'branch_open',
-          repairSource: 'integration',
-          result: { summary: 'repair done', filesChanged: ['src/a.ts'] },
-        }),
-        createTaskFixture({
-          id: 't-suspended',
-          featureId: 'f-2',
-          orderInFeature: 1,
-          status: 'running',
-          collabControl: 'suspended',
-          blockedByFeatureId: 'f-1',
-          suspendReason: 'cross_feature_overlap',
-          suspendedAt: 75,
-          worktreeBranch: 'feat-feature-2-task-suspended',
-        }),
-      ],
-    });
-    ports.store.createAgentRun(
-      makeTaskRun({
-        id: 'run-task:t-repair',
-        scopeId: 't-repair',
-        runStatus: 'running',
-        sessionId: 'sess-repair',
-      }),
-    );
-
-    const loop = new SchedulerLoop(graph, ports);
-
-    loop.setAutoExecutionEnabled(false);
-    loop.enqueue({
-      type: 'worker_message',
-      message: {
-        type: 'result',
-        taskId: 't-repair',
-        agentRunId: 'run-task:t-repair',
-        result: {
-          summary: 'repair done',
-          filesChanged: ['src/a.ts'],
-        },
-        usage: {
-          provider: 'test',
-          model: 'fake',
-          inputTokens: 1,
-          outputTokens: 2,
-          totalTokens: 3,
-          usd: 0,
-        },
-        completionKind: 'submitted',
-      },
-    });
-    await loop.step(100);
-
-    const repairedFeature = graph.features.get('f-2');
-    expect(repairedFeature?.runtimeBlockedByFeatureId).toBeUndefined();
-    expect(repairedFeature).toMatchObject({
-      collabControl: 'conflict',
       workControl: 'replanning',
       status: 'pending',
     });
+    expect(blocked?.verifyIssues ?? []).toEqual([
+      expect.objectContaining({
+        source: 'rebase',
+        severity: 'blocking',
+      }),
+    ]);
     const repairTasks = [...graph.tasks.values()].filter(
       (task) => task.featureId === 'f-2' && task.repairSource === 'integration',
     );
-    expect(repairTasks).toHaveLength(1);
+    expect(repairTasks).toHaveLength(0);
+    expect(resumeTask).not.toHaveBeenCalled();
   });
 
   it('puts feature-phase errors into retry_await on the shared run plane', async () => {

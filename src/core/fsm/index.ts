@@ -159,9 +159,11 @@ export function validateFeatureWorkTransition(
     return { valid: true };
   }
 
-  // Verify failure (typed issues or !ok) → replanner decides fixes.
+  // Verify-shaped failure (verify / ci_check / rebase) → replanner decides fixes.
+  // Includes rebase-during-executing (downstream blocked feature gets
+  // redirected when upstream's merge bumps main).
   if (
-    current === 'verifying' &&
+    REPAIRABLE_PHASES.has(current) &&
     proposed === 'replanning' &&
     FAILURE_STATUSES.has(status)
   ) {
