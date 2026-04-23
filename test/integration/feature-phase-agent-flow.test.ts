@@ -710,7 +710,10 @@ describe('feature-phase agent flow', () => {
         },
       };
       const config = createConfig(configOverrides);
-      const verification = createFeatureVerificationService(projectRoot, config);
+      const verification = createFeatureVerificationService(
+        projectRoot,
+        config,
+      );
       const { graph, store, loop } = createFixture({
         featureOverrides: {
           status: 'in_progress',
@@ -778,7 +781,10 @@ describe('feature-phase agent flow', () => {
         },
       };
       const config = createConfig(configOverrides);
-      const verification = createFeatureVerificationService(projectRoot, config);
+      const verification = createFeatureVerificationService(
+        projectRoot,
+        config,
+      );
       const { graph, store, loop } = createFixture({
         featureOverrides: {
           status: 'in_progress',
