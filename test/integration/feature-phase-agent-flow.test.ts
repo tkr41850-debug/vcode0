@@ -20,6 +20,7 @@ import { VerificationService } from '@orchestrator/services/index';
 import type { RuntimePort } from '@runtime/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { testGvcConfigDefaults } from '../helpers/config-fixture.js';
 import {
   createFauxProvider,
   type FauxProviderRegistration,
@@ -32,6 +33,7 @@ import { InMemoryStore } from './harness/store-memory.js';
 
 function createConfig(overrides: Partial<GvcConfig> = {}): GvcConfig {
   return {
+    ...testGvcConfigDefaults(),
     tokenProfile: 'balanced',
     ...overrides,
   };

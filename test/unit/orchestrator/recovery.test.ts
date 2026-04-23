@@ -13,6 +13,7 @@ import type {
 import { RecoveryService } from '@orchestrator/services/index';
 import type { RuntimePort } from '@runtime/contracts';
 import { describe, expect, it, vi } from 'vitest';
+import { testGvcConfigDefaults } from '../../helpers/config-fixture.js';
 import { InMemorySessionStore } from '../../integration/harness/in-memory-session-store.js';
 
 function makeTaskRun(overrides: Partial<TaskAgentRun> = {}): TaskAgentRun {
@@ -170,7 +171,7 @@ function createPorts(runs: TaskAgentRun[]): {
         ensureTaskWorktree: () => Promise.resolve('/repo'),
       },
       ui,
-      config: { tokenProfile: 'balanced' },
+      config: { ...testGvcConfigDefaults(), tokenProfile: 'balanced' },
     },
   };
 }

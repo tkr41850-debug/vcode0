@@ -10,7 +10,7 @@ import type { OrchestratorPorts } from '@orchestrator/ports/index';
 import {
   resolveVerificationLayerConfig,
   type VerificationLayerName,
-} from '@root/config';
+} from '@config';
 
 interface SchedulerWarningDeps {
   graph: FeatureGraph;

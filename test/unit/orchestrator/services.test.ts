@@ -18,6 +18,7 @@ import {
   VerificationService,
 } from '@orchestrator/services/index';
 import { describe, expect, it } from 'vitest';
+import { testGvcConfigDefaults } from '../../helpers/config-fixture.js';
 import { useTmpDir } from '../../helpers/tmp-dir.js';
 import { createInMemoryStore } from '../../integration/harness/store-memory.js';
 
@@ -58,6 +59,7 @@ function usageAggregate(usd: number, llmCalls = 1): TokenUsageAggregate {
 
 function createConfig(overrides: Partial<GvcConfig> = {}): GvcConfig {
   return {
+    ...testGvcConfigDefaults(),
     tokenProfile: 'balanced',
     ...overrides,
   };

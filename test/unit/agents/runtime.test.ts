@@ -18,6 +18,7 @@ import type {
 } from '@core/types/index';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { testGvcConfigDefaults } from '../../helpers/config-fixture.js';
 import { createGraphWithFeature } from '../../helpers/graph-builders.js';
 import {
   createFauxProvider,
@@ -31,6 +32,7 @@ import { InMemoryStore } from '../../integration/harness/store-memory.js';
 
 function createConfig(overrides: Partial<GvcConfig> = {}): GvcConfig {
   return {
+    ...testGvcConfigDefaults(),
     tokenProfile: 'balanced',
     ...overrides,
   };
