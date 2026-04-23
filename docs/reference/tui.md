@@ -42,6 +42,18 @@ Feature rows render as blocked when current feature-phase run is waiting in `awa
 
 Feature and task metadata show current work-control / collab-control values directly in row badges.
 
+### Integration Sub-phases
+
+When a feature is in `collabControl=integrating`, the row badge surfaces the active sub-phase from the live integration run metadata (not from a second work-control enum):
+
+- `rebasing` — rebase onto latest `main` in progress
+- `ci_check/post_rebase` — post-rebase `ci_check` run in progress
+- `merging` — `git merge --force-with-lease` in progress
+
+Sub-phases are reported as phase-run metadata on the integration run row (`agent_runs` scope=feature, phase=integration, or a dedicated `integration_runs` row if that shape is chosen during implementation). `FeatureWorkControl` stays coarse — no new enum values are added for these sub-phases.
+
+On integration failure, the row returns to the normal `replanning` badge once the executor has ejected and rerouted the feature.
+
 ## Entry Points
 
 ```bash
