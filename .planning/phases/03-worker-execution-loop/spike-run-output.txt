@@ -1,0 +1,99 @@
+
+> gvc0@0.0.0 test:integration
+> vitest run test/integration test/integration/spike/pi-sdk-resume --reporter=verbose
+
+
+ RUN  v4.1.4 /home/alpine/vcode0/.claude/worktrees/exec-03-05
+
+ ✓ test/integration/worker-smoke.test.ts > worker smoke (faux provider + in-process harness) > dispatches a task and emits a terminal result frame 455ms
+ ✓ test/integration/worker-smoke.test.ts > worker smoke (faux provider + in-process harness) > persists the session through the in-memory store 90ms
+ ✓ test/integration/worker-smoke.test.ts > worker smoke (faux provider + in-process harness) > blocks on request_help, resumes on help response and manual input, then submits 1951ms
+ ✓ test/integration/worker-smoke.test.ts > worker smoke (faux provider + in-process harness) > blocks on request_approval, resumes on approval decision, then submits 427ms
+ ✓ test/integration/worker-smoke.test.ts > worker NDJSON hardening — malformed-line survival > quarantines a malformed stdout line and continues processing subsequent valid frames 184ms
+ ✓ test/integration/worker-smoke.test.ts > worker NDJSON hardening — malformed-line survival > quarantines a schema-mismatched frame (valid JSON, wrong shape) 74ms
+ ✓ test/integration/worker-retry-commit.test.ts > worker-smoke (REQ-EXEC-02): commit trailer assertion > emits commit_done with trailerOk=true and persists the SHA 2817ms
+ ✓ test/integration/worker-smoke.test.ts > worker NDJSON hardening — health-pong timeout detection > synthesizes error/health_timeout and SIGKILLs the child after the configured window elapses 753ms
+stdout | test/integration/worker-smoke.test.ts > worker NDJSON hardening — claim_lock round-trip RTT > measures parent respondClaim latency against child-side claim_lock emission
+[smoke] claim_lock RTT: 10.125ms
+
+ ✓ test/integration/worker-smoke.test.ts > worker NDJSON hardening — claim_lock round-trip RTT > measures parent respondClaim latency against child-side claim_lock emission 47ms
+ ✓ test/integration/worker-retry-commit.test.ts > LocalWorkerPool (REQ-EXEC-04): retry & inbox escalation > transparently redispatches a transient failure without touching the inbox 373ms
+ ✓ test/integration/worker-retry-commit.test.ts > LocalWorkerPool (REQ-EXEC-04): retry & inbox escalation > escalates a semantic failure to the inbox and forwards the error frame 53ms
+ ✓ test/integration/feature-phase-agent-flow.test.ts > feature-phase agent flow > dispatches discuss end-to-end with structured submitDiscuss and advances to researching 1933ms
+ ✓ test/integration/feature-phase-agent-flow.test.ts > feature-phase agent flow > dispatches research end-to-end with structured submitResearch and advances to planning 542ms
+ ✓ test/integration/feature-phase-agent-flow.test.ts > feature-phase agent flow > dispatches milestone proposal through SchedulerLoop into real feature agent runtime 575ms
+ ✓ test/integration/feature-phase-agent-flow.test.ts > feature-phase agent flow > runs normal post-merge summarization from awaiting_merge to work_complete 242ms
+ ✓ test/integration/feature-phase-agent-flow.test.ts > feature-phase agent flow > skips post-merge summarization in budget mode and leaves summary empty 26ms
+ ✓ test/integration/feature-phase-agent-flow.test.ts > feature-phase agent flow > dispatches verify with structured repair-needed verdict into replanning 366ms
+ ✓ test/integration/feature-phase-agent-flow.test.ts > feature-phase agent flow > runs real ci_check verification service and advances to verifying 494ms
+ ✓ test/integration/persistence/rehydration.test.ts > Store rehydration invariant (real file DB) > snapshot is deep-equal after close/reopen on real file DB 1166ms
+ ✓ test/integration/persistence/rehydration.test.ts > Store rehydration invariant (real file DB) > open → mutate → close → open → snapshot preserves mutations 446ms
+ ✓ test/integration/feature-phase-agent-flow.test.ts > feature-phase agent flow > runs real ci_check verification service and enters repair flow on failure 145ms
+ ✓ test/integration/persistence/rehydration.test.ts > Store rehydration invariant (real file DB) > rehydrate() is idempotent — calling twice without close returns deep-equal results 309ms
+ ✓ test/integration/feature-phase-agent-flow.test.ts > feature-phase agent flow > dispatches replanning proposal end-to-end and waits for approval 401ms
+ ✓ test/integration/feature-phase-agent-flow.test.ts > feature-phase agent flow > applies approved replanning proposal and restores executable flow 289ms
+stdout | test/integration/spike/pi-sdk-resume.test.ts > pi-sdk resume spike > Scenario 1 — cold start: prompt+submit completes with terminal response
+[SPIKE][S1][afterPrompt] {"messageCount":4,"lastRole":"assistant","pendingToolCalls":0,"isStreaming":false,"hasStreamingMessage":false,"promptError":null}
+
+stdout | test/integration/spike/pi-sdk-resume.test.ts > pi-sdk resume spike > Scenario 2 — mid-tool abort: inspect state + continue()
+[SPIKE][S2][afterAbort] {"messageCount":4,"lastRole":"assistant","pendingToolCalls":0,"isStreaming":false,"errorMessage":"Request was aborted","hasStreamingMessage":false}
+
+stdout | test/integration/spike/pi-sdk-resume.test.ts > pi-sdk resume spike > Scenario 2 — mid-tool abort: inspect state + continue()
+[SPIKE][S2][afterContinue] {"messageCount":4,"lastRole":"assistant","pendingToolCalls":0,"isStreaming":false,"errorMessage":"Request was aborted","hasStreamingMessage":false,"continueError":"Cannot continue from message role: assistant"}
+
+ ✓ test/integration/spike/pi-sdk-resume.test.ts > pi-sdk resume spike > Scenario 1 — cold start: prompt+submit completes with terminal response 436ms
+stdout | test/integration/spike/pi-sdk-resume.test.ts > pi-sdk resume spike > Scenario 3 — mid-response abort: inspect streaming state + continue()
+[SPIKE][S3][afterAbort] {"messageCount":2,"lastRole":"assistant","pendingToolCalls":0,"isStreaming":false,"errorMessage":"Request was aborted","hasStreamingMessage":false}
+
+stdout | test/integration/spike/pi-sdk-resume.test.ts > pi-sdk resume spike > Scenario 3 — mid-response abort: inspect streaming state + continue()
+[SPIKE][S3][afterContinue] {"messageCount":2,"lastRole":"assistant","pendingToolCalls":0,"isStreaming":false,"errorMessage":"Request was aborted","hasStreamingMessage":false,"continueError":"Cannot continue from message role: assistant"}
+
+ ✓ test/integration/spike/pi-sdk-resume.test.ts > pi-sdk resume spike > Scenario 2 — mid-tool abort: inspect state + continue() 136ms
+stdout | test/integration/spike/pi-sdk-resume.test.ts > pi-sdk resume spike > Scenario 4 — post-commit resume: call continue() after clean turn_end
+[SPIKE][S4][afterPrompt] {"messageCount":4,"lastRole":"assistant","pendingToolCalls":0,"isStreaming":false,"hasStreamingMessage":false}
+
+stdout | test/integration/spike/pi-sdk-resume.test.ts > pi-sdk resume spike > Scenario 4 — post-commit resume: call continue() after clean turn_end
+[SPIKE][S4][afterContinue] {"messageCount":4,"lastRole":"assistant","pendingToolCalls":0,"isStreaming":false,"hasStreamingMessage":false,"continueError":"Cannot continue from message role: assistant"}
+
+ ✓ test/integration/spike/pi-sdk-resume.test.ts > pi-sdk resume spike > Scenario 3 — mid-response abort: inspect streaming state + continue() 88ms
+ ✓ test/integration/spike/pi-sdk-resume.test.ts > pi-sdk resume spike > Scenario 4 — post-commit resume: call continue() after clean turn_end 75ms
+stdout | test/integration/spike/pi-sdk-resume.test.ts > pi-sdk resume spike > Scenario 5 — catastrophic: FileSessionStore round-trip + rehydrated Agent.continue()
+[SPIKE][S5][loaded] {"recoveredCount":4,"lastRole":"assistant","savedCount":4}
+
+stdout | test/integration/spike/pi-sdk-resume.test.ts > pi-sdk resume spike > Scenario 5 — catastrophic: FileSessionStore round-trip + rehydrated Agent.continue()
+[SPIKE][S5][afterContinue] {"messageCount":4,"lastRole":"assistant","pendingToolCalls":0,"isStreaming":false,"hasStreamingMessage":false,"continueError":"Cannot continue from message role: assistant"}
+
+ ✓ test/integration/spike/pi-sdk-resume.test.ts > pi-sdk resume spike > Scenario 5 — catastrophic: FileSessionStore round-trip + rehydrated Agent.continue() 334ms
+ ✓ test/integration/merge-train.test.ts > merge train integration (persistent graph) > serialization and ordering > only one feature may be integrating at a time 403ms
+ ✓ test/integration/merge-train.test.ts > merge train integration (persistent graph) > serialization and ordering > respects feature dependency legality before allowing enqueue 513ms
+ ✓ test/integration/merge-train.test.ts > merge train integration (persistent graph) > serialization and ordering > stays serialized after dependencies are satisfied 571ms
+ ✓ test/integration/merge-train.test.ts > merge train integration (persistent graph) > serialization and ordering > finishes integration before the next feature begins 416ms
+ ✓ test/integration/merge-train.test.ts > merge train integration (persistent graph) > ejection and repair re-entry > ejects a queued feature back to branch_open for repair 321ms
+ ✓ test/integration/merge-train.test.ts > merge train integration (persistent graph) > ejection and repair re-entry > eviction increments reentry count which biases the next sort 310ms
+ ✓ test/integration/merge-train.test.ts > merge train integration (persistent graph) > ejection and repair re-entry > rebase failure during integration surfaces as a conflict collab state 513ms
+ ✓ test/integration/merge-train.test.ts > merge train integration (persistent graph) > ejection and repair re-entry > successful repair returns a conflict feature to the queue 304ms
+ ✓ test/integration/merge-train.test.ts > merge train integration (persistent graph) > state is persisted > rehydrates merge-train state from the database 234ms
+ ✓ test/integration/persistence/store-transaction-rollback.test.ts > SqliteStore transaction rollback (real file DB) > rolls back graph + DB when a cross-feature task dep is rejected 546ms
+ ✓ test/integration/persistence/store-transaction-rollback.test.ts > SqliteStore transaction rollback (real file DB) > persists the pre-failure snapshot across close + reopen 687ms
+ ✓ test/integration/persistence/store-transaction-rollback.test.ts > SqliteStore transaction rollback (real file DB) > close() tears down the underlying connection 209ms
+ ✓ test/integration/worktree-pid-registry.test.ts > WorkerPidRegistry ↔ PiSdkHarness lifecycle > persists worker PID on start() and clears it on child exit 452ms
+ ✓ test/integration/worktree-pid-registry.test.ts > WorkerPidRegistry ↔ PiSdkHarness lifecycle > clears PID on child error before user exit handler observes it 354ms
+ ✓ test/integration/worktree-pid-registry.test.ts > WorkerPidRegistry ↔ PiSdkHarness lifecycle > resume() also persists and clears the PID 177ms
+ ✓ test/integration/worktree-pid-registry.test.ts > WorkerPidRegistry ↔ PiSdkHarness lifecycle > ignores set/clear for rows that do not exist (UPDATE no-op) 188ms
+ ✓ test/integration/persistence/migration-forward-only.test.ts > persistence migration runner (real file DB, forward-only) > applies every .sql migration exactly once on a fresh file DB 294ms
+ ✓ test/integration/persistence/migration-forward-only.test.ts > persistence migration runner (real file DB, forward-only) > is idempotent when the DB is re-opened without new migrations 223ms
+ ✓ test/integration/persistence/migration-forward-only.test.ts > persistence migration runner (real file DB, forward-only) > applies 0002 merge-train columns on features/tasks and creates integration_state 160ms
+ ✓ test/integration/persistence/migration-forward-only.test.ts > persistence migration runner (real file DB, forward-only) > uses version INTEGER PRIMARY KEY for schema_migrations 131ms
+ ✓ test/integration/persistence/migration-forward-only.test.ts > persistence migration runner (real file DB, forward-only) > applies the CONTEXT-locked pragma set (WAL + foreign_keys + mmap) 121ms
+ ✓ test/integration/config/config-boot.test.ts > config boot integration > loads + validates a user-authored gvc0.config.json end-to-end 392ms
+ ✓ test/integration/config/config-boot.test.ts > config boot integration > throws with the offending field path on invalid config 82ms
+ ✓ test/integration/config/config-boot.test.ts > config boot integration > rejects invalid JSON with the file path in the error 214ms
+ ↓ test/integration/persistence/load.test.ts > persistence load test (LOAD_TEST=1) > sustains 100 ev/s for 10 min with P95 < 100 ms
+ ✓ test/integration/claim-lock-prehook.test.ts > claim_lock prehook (faux provider + in-process harness) > grants a claim, writes the file, and submits 1631ms
+ ✓ test/integration/claim-lock-prehook.test.ts > claim_lock prehook (faux provider + in-process harness) > denies a claim, does not write the file, and reports an error 158ms
+
+ Test Files  11 passed | 1 skipped (12)
+      Tests  55 passed | 1 skipped (56)
+   Start at  22:12:23
+   Duration  70.94s (transform 27.34s, setup 0ms, import 101.21s, tests 25.97s, environment 50ms)
+
