@@ -777,16 +777,34 @@ function findLatestPhaseEvent(
     );
 }
 
-function findLatestPlanEvent(
+export function findLatestPlanEvent(
   events: readonly EventRecord[],
 ): EventRecord | undefined {
-  return [...events].reverse().find((event) => {
-    if (event.eventType !== 'feature_phase_completed') {
-      return false;
+  let accepted: EventRecord | undefined;
+  let pending: EventRecord | undefined;
+  for (const event of events) {
+    if (event.eventType === 'feature_phase_completed') {
+      const phase = readPayloadPhase(event.payload);
+      if (phase === 'plan' || phase === 'replan') {
+        pending = event;
+      }
+      continue;
     }
-    const phase = readPayloadPhase(event.payload);
-    return phase === 'plan' || phase === 'replan';
-  });
+    if (event.eventType === 'proposal_applied') {
+      if (pending !== undefined) {
+        accepted = pending;
+        pending = undefined;
+      }
+      continue;
+    }
+    if (
+      event.eventType === 'proposal_rejected' ||
+      event.eventType === 'proposal_apply_failed'
+    ) {
+      pending = undefined;
+    }
+  }
+  return accepted;
 }
 
 function readEventExtraRecord(
