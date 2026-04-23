@@ -111,6 +111,7 @@ export class FeatureLifecycleCoordinator {
           this.rerouteToReplan(featureId, issues);
           return;
         }
+        this.clearVerifyIssues(featureId);
         this.markPhaseDone(featureId);
         this.advancePhase(featureId, 'verifying');
         return;
@@ -127,6 +128,7 @@ export class FeatureLifecycleCoordinator {
           this.advancePhase(featureId, 'replanning');
           return;
         }
+        this.clearVerifyIssues(featureId);
         this.markPhaseDone(featureId);
         this.advancePhase(featureId, 'awaiting_merge');
         if (this.requireFeature(featureId).collabControl === 'conflict') {
@@ -185,6 +187,17 @@ export class FeatureLifecycleCoordinator {
     if (this.requireFeature(featureId).status !== 'failed') {
       this.graph.transitionFeature(featureId, { status: 'failed' });
     }
+  }
+
+  private clearVerifyIssues(featureId: FeatureId): void {
+    const feature = this.requireFeature(featureId);
+    if (
+      feature.verifyIssues === undefined ||
+      feature.verifyIssues.length === 0
+    ) {
+      return;
+    }
+    this.graph.editFeature(featureId, { verifyIssues: [] });
   }
 
   private allFeatureTasksLanded(featureId: FeatureId): boolean {
