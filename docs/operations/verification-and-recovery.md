@@ -168,6 +168,31 @@ Feature A merges successfully. After its merge, cross-feature overlap release ma
 
 Integration-time rebase failure of the currently-integrating feature (the executor's own `git rebase`) also routes through `replanning` — see the Merge Train section above.
 
+## Integration Crash Recovery
+
+The integration executor writes a singleton marker row (`integration_state`) at the start of each cycle capturing `expectedParentSha`, `featureBranchPreIntegrationSha`, and a snapshot of `verification.feature`. The success path clears the marker atomically with the DB transition to `merged` + `summarizing`. A crash between `git merge` and this clearing transaction leaves the marker present while `main` already points at the merge commit.
+
+At startup, before the scheduler loop begins, the reconciler compares the marker row against actual git refs. Git refs are authoritative:
+
+1. **No marker + `main` unchanged since previous run** — clean resume, no action.
+2. **No marker + `main` at an unknown SHA** — an external push landed while the orchestrator was down. Halt the merge train, emit a warning, require operator confirmation before resuming.
+3. **Marker present + `main` == `expectedParentSha`** — `git merge` never ran. Clear marker and retry integration from scratch.
+4. **Marker present + `main` at a valid merge commit (parent 1 == `expectedParentSha`, parent 2 == feature branch tip)** — `git merge` succeeded but the DB transaction crashed. Complete the DB transition from the marker (set `mainMergeSha`, `branchHeadSha`, flip `collabControl=merged`, `workControl=summarizing`) and clear the marker.
+5. **Marker present + any other `main` state** — state is ambiguous. Halt the merge train and require manual intervention.
+
+The reconciler must be idempotent — a second invocation on the same state is a no-op.
+
+## Hard Cancellation
+
+Hard cancellation mid-integration follows the same marker-row contract:
+
+1. Atomically flip marker `intent` from `'integrate'` to `'cancel'` in the same DB transaction that marks the feature as cancelled.
+2. Kill the integration-worker subprocess.
+3. Reset the feature branch to `featureBranchPreIntegrationSha` to undo any rebase commits added during the cycle.
+4. Clear the marker row.
+
+Graceful mid-integration cancellation (waiting for the worker to finish its current sub-step) is a deferred feature — see [Feature Candidate: Graceful Integration Cancellation](../feature-candidates/graceful-integration-cancellation.md).
+
 ## Stuck Detection
 
 A task is **stuck** when it repeatedly fails verification and resubmits without making progress. This is a work-control condition, not a dependency-waiting or merge-conflict label.

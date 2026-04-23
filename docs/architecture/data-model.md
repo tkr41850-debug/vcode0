@@ -125,7 +125,9 @@ interface Feature {
   researchOutput?: string;            // raw markdown blob persisted by research-phase completion
   featureObjective?: string;          // planner-baked feature-level objective (written on plan approval)
   featureDoD?: string[];              // planner-baked definition-of-done bullets for the feature
-  verifyIssues?: VerifyIssue[];       // typed issues raised by verify agent; cleared on next approved replan
+  verifyIssues?: VerifyIssue[];       // typed issues (any source); cleared on next approved replan
+  mainMergeSha?: string;              // commit sha on main of the most recent successful integration merge
+  branchHeadSha?: string;             // latest commit sha on the feature branch
 }
 
 interface Task {
@@ -154,14 +156,49 @@ interface Task {
   expectedFiles?: string[];        // planner-baked list of files the task is expected to touch
   references?: string[];           // planner-baked reference pointers (paths, URLs, knowledge ids)
   outcomeVerification?: string;    // planner-baked how-to-verify text (commands, assertions)
+  branchHeadSha?: string;          // latest commit sha on the task worktree branch
 }
 
-interface VerifyIssue {
-  id: string;
-  severity: 'blocking' | 'concern' | 'nit';
-  location?: string;
-  description: string;
-  suggestedFix?: string;
+type VerifyIssue =
+  | {
+      source: 'verify';
+      id: string;
+      severity: 'blocking' | 'concern' | 'nit';
+      location?: string;
+      description: string;
+      suggestedFix?: string;
+    }
+  | {
+      source: 'ci_check';
+      id: string;
+      severity: 'blocking' | 'concern' | 'nit';
+      phase: 'feature' | 'post_rebase';
+      checkName: string;
+      command: string;
+      exitCode?: number;
+      output?: string;              // truncated to 4KB
+      description: string;
+    }
+  | {
+      source: 'rebase';
+      id: string;
+      severity: 'blocking' | 'concern' | 'nit';
+      conflictedFiles: string[];
+      description: string;
+    };
+
+// Persisted VerifyIssue[] payload total capped at 32KB with
+// severity-ranked retention (blocking > concern > nit,
+// most-recent first within severity). Per-ci_check `output`
+// truncated to 4KB before retention is applied.
+
+interface IntegrationState {
+  featureId: FeatureId;                    // singleton: only one integration in-flight
+  expectedParentSha: string;               // main's sha when rebase began (force-with-lease anchor)
+  featureBranchPreIntegrationSha: string;  // feature branch sha before rebase (used for --onto on re-enqueue)
+  configSnapshot: string;                  // JSON snapshot of verification.feature at integration begin
+  intent: 'integrate' | 'cancel';
+  startedAt: number;
 }
 
 interface BaseAgentRun {
