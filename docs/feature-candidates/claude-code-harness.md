@@ -350,8 +350,12 @@ Concrete choices for the first implementation pass. Flagged as defaults; revisit
 
 ### Observability
 
-- Claude Code writes its own logs under `~/.claude/logs/`. Orchestrator does not aggregate these; instead it records the Claude Code log file path in `agent_runs.extra` (or equivalent) so operators can `tail` the correct file when debugging a specific run.
-- Per-run stream-json events already flow into the events table (via the parser) so the TUI's existing per-run view remains the primary debugging surface.
+- **Primary surface**: per-run `stream-json` events flow into the events table via the parser; the TUI's existing per-run view remains the main debugging surface. Session transcripts at `~/.claude/projects/<cwd-slug>/<session-id>.jsonl` are already tracked by `agent_runs.session_id`.
+- **Second-line (debug files)**: Claude Code's diagnostic output goes to `~/.claude/debug/<session-id>.txt`, but only when `--debug` / `/debug` / `--debug-file` is set. Contains hook matcher checks, hook exit/stdout/stderr, MCP server stderr/connection debug — internal signal not in `stream-json`. Opt-in per worker via `--debug --debug-file <abs-per-run-path>` with the path recorded on `agent_runs.extra` so operators can `tail` the correct file during a post-mortem. No aggregation.
+- **Retention**: `~/.claude/debug/` has no documented rotation. Harness GC pass on feature merge-to-main should clean up debug files for that feature's worktrees alongside session jsonls. `~/.claude/shell-snapshots/` is already self-swept on clean exit per Claude Code defaults.
+- **Privacy**: debug files and session jsonls are plaintext. Transcripts can hold prompts, file contents, command output, and secrets — same threat surface as any other disk artifact on the operator's machine. No harness-side encryption in baseline; flag in operator docs.
+- **Global-state pollution**: set `CLAUDE_CODE_SKIP_PROMPT_HISTORY=1` in every worker subprocess env. Prevents worker task descriptions from landing in `~/.claude/history.jsonl` (the operator's interactive prompt history).
+- **Tool-result spillover**: large tool output spills under `~/.claude/projects/<slug>/<session>/tool-results/`. Treat the same way as session jsonls — cleaned up on feature merge-to-main GC pass.
 
 ## Testing
 
