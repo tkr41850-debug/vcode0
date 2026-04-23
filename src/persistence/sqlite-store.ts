@@ -86,11 +86,19 @@ const OPEN_RUN_STATUSES: readonly string[] = [
 // read from structured columns, not this log.
 const PENDING_EVENTS_LIMIT = 1000;
 
+interface LiveWorkerPidRow {
+  agentRunId: string;
+  pid: number;
+}
+
 export class SqliteStore implements Store {
   private readonly getAgentRunStmt;
   private readonly insertAgentRunStmt;
   private readonly updateAgentRunStmt;
   private readonly appendEventStmt;
+  private readonly setWorkerPidStmt;
+  private readonly clearWorkerPidStmt;
+  private readonly listLiveWorkerPidsStmt;
   private readonly updateAgentRunTxn: (
     runId: string,
     patch: AgentRunPatch,
@@ -133,6 +141,19 @@ export class SqliteStore implements Store {
 
     this.appendEventStmt = db.prepare<EventInsertParams>(
       'INSERT INTO events (timestamp, event_type, entity_id, payload) VALUES (:timestamp, :event_type, :entity_id, :payload)',
+    );
+
+    // === PID registry (Phase 3, plan 03-01) ===
+    // UPDATE on a missing row is a no-op by design: clearing/setting a PID for
+    // a run that was deleted out-of-band must not resurrect it.
+    this.setWorkerPidStmt = db.prepare<[number, string]>(
+      'UPDATE agent_runs SET worker_pid = ? WHERE id = ?',
+    );
+    this.clearWorkerPidStmt = db.prepare<[string]>(
+      'UPDATE agent_runs SET worker_pid = NULL WHERE id = ?',
+    );
+    this.listLiveWorkerPidsStmt = db.prepare<[], LiveWorkerPidRow>(
+      'SELECT id AS agentRunId, worker_pid AS pid FROM agent_runs WHERE worker_pid IS NOT NULL ORDER BY id ASC',
     );
 
     // Read-modify-write is wrapped in a single transaction so concurrent
@@ -278,6 +299,20 @@ export class SqliteStore implements Store {
       openRuns,
       pendingEvents,
     };
+  }
+
+  // ---------- PID registry (Phase 3, plan 03-01) ----------
+
+  setWorkerPid(agentRunId: string, pid: number): void {
+    this.setWorkerPidStmt.run(pid, agentRunId);
+  }
+
+  clearWorkerPid(agentRunId: string): void {
+    this.clearWorkerPidStmt.run(agentRunId);
+  }
+
+  getLiveWorkerPids(): Array<{ agentRunId: string; pid: number }> {
+    return this.listLiveWorkerPidsStmt.all();
   }
 
   // ---------- Lifecycle ----------

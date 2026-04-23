@@ -29,7 +29,10 @@ import type {
 import { PiSdkHarness } from '@runtime/harness/index';
 import { FileSessionStore } from '@runtime/sessions/index';
 import { LocalWorkerPool } from '@runtime/worker-pool';
-import { GitWorktreeProvisioner } from '@runtime/worktree/index';
+import {
+  createWorkerPidRegistry,
+  GitWorktreeProvisioner,
+} from '@runtime/worktree/index';
 import { TuiApp } from '@tui/app';
 
 const DEFAULT_MODEL_ID = 'claude-sonnet-4-6';
@@ -199,8 +202,9 @@ export async function composeApplication(): Promise<GvcApplication> {
     },
   });
 
+  const pidRegistry = createWorkerPidRegistry(store);
   const runtime = new LocalWorkerPool(
-    new PiSdkHarness(sessionStore, projectRoot),
+    new PiSdkHarness(sessionStore, projectRoot, undefined, pidRegistry),
     maxWorkers,
     (message) => {
       const workerOutput = formatWorkerOutput(message);

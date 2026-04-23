@@ -54,6 +54,15 @@ export interface Store {
   // exercised by Plan 02-02.
   rehydrate(): RehydrateSnapshot;
 
+  // === PID registry (Phase 3, plan 03-01) ===
+  // Backs WorkerPidRegistry (src/runtime/worktree/pid-registry.ts).
+  // Column lives on agent_runs (migration 0003); UPDATE on missing run is a
+  // no-op by design — a PID write for a run deleted out-of-band should not
+  // resurrect it. Phase 9 crash recovery reads via getLiveWorkerPids().
+  setWorkerPid(agentRunId: string, pid: number): void;
+  clearWorkerPid(agentRunId: string): void;
+  getLiveWorkerPids(): Array<{ agentRunId: string; pid: number }>;
+
   // Lifecycle
   close(): void;
 }

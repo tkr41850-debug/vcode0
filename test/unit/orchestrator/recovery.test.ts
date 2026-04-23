@@ -68,6 +68,9 @@ function createStoreMock(runs: TaskAgentRun[]): Store {
       openRuns: [...byId.values()],
       pendingEvents: [],
     })),
+    setWorkerPid: vi.fn(),
+    clearWorkerPid: vi.fn(),
+    getLiveWorkerPids: vi.fn(() => []),
     close: vi.fn(),
   };
 }
@@ -179,6 +182,9 @@ function createPorts(runs: TaskAgentRun[]): {
       worktree: {
         ensureFeatureWorktree: () => Promise.resolve('/repo'),
         ensureTaskWorktree: () => Promise.resolve('/repo'),
+        removeWorktree: () => Promise.resolve(),
+        pruneStaleWorktrees: () => Promise.resolve([]),
+        sweepStaleLocks: () => Promise.resolve([]),
       },
       ui,
       config: { ...testGvcConfigDefaults(), tokenProfile: 'balanced' },

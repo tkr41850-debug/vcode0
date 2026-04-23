@@ -136,4 +136,159 @@ describe('GitWorktreeProvisioner', () => {
 
     await expect(provisioner.ensureFeatureWorktree(feature)).rejects.toThrow();
   });
+
+  // ---------- Plan 03-01: remove / prune / sweep ----------
+  // These specs run real `git` commands against real temp repos, which on
+  // cold-disk CI can exceed vitest's 5s default. Raise per-test timeout to
+  // 30s — consistent with the "ensureTaskWorktree" suites above which also
+  // shell out to git.
+
+  const GIT_TEST_TIMEOUT_MS = 30_000;
+
+  it(
+    'removeWorktree deletes an existing worktree and is idempotent',
+    async () => {
+      const root = getTmp();
+      await initRepo(root);
+      const git = simpleGit(root);
+      await git.raw(['branch', 'feat-demo-demo']);
+
+      const provisioner = new GitWorktreeProvisioner(root);
+      const feature = makeFeature();
+      const target = await provisioner.ensureFeatureWorktree(feature);
+
+      await provisioner.removeWorktree(feature.featureBranch);
+
+      // Target directory gone + no longer registered with git
+      await expect(fs.stat(target)).rejects.toThrow();
+      const list = await git.raw(['worktree', 'list', '--porcelain']);
+      expect(list).not.toContain(target);
+
+      // Second remove is a no-op (idempotent contract)
+      await expect(
+        provisioner.removeWorktree(feature.featureBranch),
+      ).resolves.toBeUndefined();
+    },
+    GIT_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'removeWorktree on a never-created branch is a no-op',
+    async () => {
+      const root = getTmp();
+      await initRepo(root);
+      const provisioner = new GitWorktreeProvisioner(root);
+      await expect(
+        provisioner.removeWorktree('feat-never-existed'),
+      ).resolves.toBeUndefined();
+    },
+    GIT_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'pruneStaleWorktrees returns names of pruned worktrees',
+    async () => {
+      const root = getTmp();
+      await initRepo(root);
+      const git = simpleGit(root);
+      await git.raw(['branch', 'feat-demo-demo']);
+
+      const provisioner = new GitWorktreeProvisioner(root);
+      const feature = makeFeature();
+      const target = await provisioner.ensureFeatureWorktree(feature);
+
+      // Delete the worktree dir out-of-band — git still has metadata pointing
+      // at the gone dir, which is what `prune` cleans up.
+      await fs.rm(target, { recursive: true, force: true });
+
+      const pruned = await provisioner.pruneStaleWorktrees();
+      expect(pruned).toContain(feature.featureBranch);
+    },
+    GIT_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'pruneStaleWorktrees returns [] when nothing is stale',
+    async () => {
+      const root = getTmp();
+      await initRepo(root);
+      const provisioner = new GitWorktreeProvisioner(root);
+      const pruned = await provisioner.pruneStaleWorktrees();
+      expect(pruned).toEqual([]);
+    },
+    GIT_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'sweepStaleLocks removes a lock whose target gitdir is gone',
+    async () => {
+      const root = getTmp();
+      await initRepo(root);
+      const git = simpleGit(root);
+      await git.raw(['branch', 'feat-demo-demo']);
+
+      const provisioner = new GitWorktreeProvisioner(root);
+      const feature = makeFeature();
+      const target = await provisioner.ensureFeatureWorktree(feature);
+
+      // Locate the `.git/worktrees/<name>/` directory, stamp a `locked`
+      // marker, then delete the target directory to make the gitdir pointer
+      // stale.
+      const metaDir = path.join(
+        root,
+        '.git',
+        'worktrees',
+        feature.featureBranch,
+      );
+      await fs.writeFile(path.join(metaDir, 'locked'), 'stale-worker');
+      await fs.rm(target, { recursive: true, force: true });
+
+      const cleared = await provisioner.sweepStaleLocks(() => true);
+      expect(cleared).toContain(feature.featureBranch);
+      await expect(fs.access(path.join(metaDir, 'locked'))).rejects.toThrow();
+    },
+    GIT_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'sweepStaleLocks leaves a lock whose target gitdir still exists',
+    async () => {
+      const root = getTmp();
+      await initRepo(root);
+      const git = simpleGit(root);
+      await git.raw(['branch', 'feat-demo-demo']);
+
+      const provisioner = new GitWorktreeProvisioner(root);
+      const feature = makeFeature();
+      await provisioner.ensureFeatureWorktree(feature);
+
+      const metaDir = path.join(
+        root,
+        '.git',
+        'worktrees',
+        feature.featureBranch,
+      );
+      const lockFile = path.join(metaDir, 'locked');
+      await fs.writeFile(lockFile, 'live-worker');
+
+      // Target gitdir still exists (we did not rm the worktree) → lock stays.
+      const cleared = await provisioner.sweepStaleLocks(() => false);
+      expect(cleared).toEqual([]);
+      await expect(fs.access(lockFile)).resolves.toBeUndefined();
+    },
+    GIT_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'sweepStaleLocks returns [] when .git/worktrees does not exist',
+    async () => {
+      const root = getTmp();
+      await initRepo(root);
+      const provisioner = new GitWorktreeProvisioner(root);
+      // Fresh repo has no .git/worktrees dir yet.
+      const cleared = await provisioner.sweepStaleLocks(() => true);
+      expect(cleared).toEqual([]);
+    },
+    GIT_TEST_TIMEOUT_MS,
+  );
 });

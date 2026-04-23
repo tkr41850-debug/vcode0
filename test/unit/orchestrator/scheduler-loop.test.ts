@@ -160,6 +160,13 @@ function createStoreMock(): Store {
       openRuns: [...runs.values()],
       pendingEvents: [...events],
     }),
+    setWorkerPid: () => {
+      /* no-op — scheduler-loop tests do not exercise the PID registry */
+    },
+    clearWorkerPid: () => {
+      /* no-op */
+    },
+    getLiveWorkerPids: () => [],
     close: () => {
       /* no-op */
     },
@@ -355,6 +362,9 @@ function createPorts(
       worktree: {
         ensureFeatureWorktree: () => Promise.resolve('/repo'),
         ensureTaskWorktree: () => Promise.resolve('/repo'),
+        removeWorktree: () => Promise.resolve(),
+        pruneStaleWorktrees: () => Promise.resolve([]),
+        sweepStaleLocks: () => Promise.resolve([]),
       },
     },
     runtime,
