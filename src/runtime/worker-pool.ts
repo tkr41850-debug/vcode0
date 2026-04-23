@@ -232,6 +232,33 @@ export class LocalWorkerPool implements RuntimePort {
     });
   }
 
+  respondClaim(
+    taskId: string,
+    decision: {
+      claimId: string;
+      kind: 'granted' | 'denied';
+      deniedPaths?: readonly string[];
+    },
+  ): Promise<TaskControlResult> {
+    const session = this.liveRuns.get(taskId);
+    if (session === undefined) {
+      return Promise.resolve({ kind: 'not_running', taskId });
+    }
+
+    session.handle.send({
+      type: 'claim_decision',
+      taskId,
+      agentRunId: session.ref.agentRunId,
+      ...decision,
+    });
+
+    return Promise.resolve({
+      kind: 'delivered',
+      taskId,
+      agentRunId: session.ref.agentRunId,
+    });
+  }
+
   abortTask(taskId: string): Promise<TaskControlResult> {
     const session = this.liveRuns.get(taskId);
     if (session === undefined) {

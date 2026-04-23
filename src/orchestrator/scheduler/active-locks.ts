@@ -1,7 +1,9 @@
+import type { FeatureId, TaskId } from '@core/types/index';
+
 export interface LockHolder {
   agentRunId: string;
-  taskId: string;
-  featureId: string;
+  taskId: TaskId;
+  featureId: FeatureId;
 }
 
 export type ClaimResult =

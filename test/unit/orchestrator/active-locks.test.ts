@@ -1,18 +1,19 @@
+import type { LockHolder } from '@orchestrator/scheduler/active-locks';
 import { ActiveLocks } from '@orchestrator/scheduler/active-locks';
 import { describe, expect, it } from 'vitest';
 
 describe('ActiveLocks', () => {
-  const claimer = {
+  const claimer: LockHolder = {
     agentRunId: 'run-1',
     taskId: 't-1',
     featureId: 'f-1',
   };
-  const otherClaimer = {
+  const otherClaimer: LockHolder = {
     agentRunId: 'run-2',
     taskId: 't-2',
     featureId: 'f-1',
   };
-  const crossFeatureClaimer = {
+  const crossFeatureClaimer: LockHolder = {
     agentRunId: 'run-3',
     taskId: 't-3',
     featureId: 'f-2',

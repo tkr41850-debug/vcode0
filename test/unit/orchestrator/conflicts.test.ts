@@ -71,6 +71,9 @@ function createPorts(root: string): OrchestratorPorts {
         Promise.resolve({ kind: 'not_running' as const, taskId }),
       ),
       abortTask: vi.fn(),
+      respondClaim: vi.fn((taskId: string) =>
+        Promise.resolve({ kind: 'not_running' as const, taskId }),
+      ),
       idleWorkerCount: vi.fn(() => 0),
       stopAll: vi.fn(),
     },

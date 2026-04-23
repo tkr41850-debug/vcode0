@@ -144,6 +144,15 @@ export interface RuntimePort {
     text: string,
   ): Promise<TaskControlResult>;
   abortTask(this: void, taskId: string): Promise<TaskControlResult>;
+  respondClaim(
+    this: void,
+    taskId: string,
+    decision: {
+      claimId: string;
+      kind: 'granted' | 'denied';
+      deniedPaths?: readonly string[];
+    },
+  ): Promise<TaskControlResult>;
   idleWorkerCount(this: void): number;
   stopAll(this: void): Promise<void>;
 }

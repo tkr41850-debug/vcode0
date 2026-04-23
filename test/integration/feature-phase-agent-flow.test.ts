@@ -59,6 +59,8 @@ function createRuntimeStub(): RuntimePort {
       Promise.resolve({ kind: 'not_running', taskId }),
     abortTask: (taskId: string) =>
       Promise.resolve({ kind: 'not_running', taskId }),
+    respondClaim: (taskId: string) =>
+      Promise.resolve({ kind: 'not_running', taskId }),
     idleWorkerCount: () => 1,
     stopAll: () => Promise.resolve(),
   };

@@ -18,6 +18,7 @@ import type { ProposalPhase } from '@orchestrator/proposals/index';
 import { SummaryCoordinator } from '@orchestrator/summaries/index';
 import type { WorkerToOrchestratorMessage } from '@runtime/contracts';
 
+import { ActiveLocks } from './active-locks.js';
 import {
   dispatchReadyWork as dispatchSchedulerReadyWork,
   markFeaturePhaseRunning as markRunningFeaturePhase,
@@ -86,6 +87,7 @@ export class SchedulerLoop {
   private readonly conflicts: ConflictCoordinator;
   private readonly summaries: SummaryCoordinator;
   private readonly warnings: WarningEvaluator;
+  private readonly activeLocks = new ActiveLocks();
   private emittedWarnings = new Set<string>();
   private running = false;
   private loopPromise: Promise<void> | undefined;
@@ -214,6 +216,7 @@ export class SchedulerLoop {
       features: this.features,
       conflicts: this.conflicts,
       summaries: this.summaries,
+      activeLocks: this.activeLocks,
       emitEmptyVerificationChecksWarning: (entityId, layer, now) =>
         this.emitEmptyVerificationChecksWarning(entityId, layer, now),
     });

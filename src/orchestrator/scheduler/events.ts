@@ -11,6 +11,8 @@ import {
 import type { SummaryCoordinator } from '@orchestrator/summaries/index';
 import { runtimeUsageToTokenUsageAggregate } from '@runtime/usage';
 
+import type { ActiveLocks } from './active-locks.js';
+import { handleClaimLock } from './claim-lock-handler.js';
 import type { SchedulerEvent } from './index.js';
 
 function completeTaskRun(
@@ -41,16 +43,32 @@ export async function handleSchedulerEvent(params: {
   features: FeatureLifecycleCoordinator;
   conflicts: ConflictCoordinator;
   summaries: SummaryCoordinator;
+  activeLocks: ActiveLocks;
   emitEmptyVerificationChecksWarning: (
     entityId: FeatureId,
     layer: 'feature' | 'task' | 'mergeTrain',
     now: number,
   ) => void;
 }): Promise<void> {
-  const { event, graph, ports, features, conflicts, summaries } = params;
+  const { event, graph, ports, features, conflicts, summaries, activeLocks } =
+    params;
 
   if (event.type === 'worker_message') {
     const message = event.message;
+
+    if (message.type === 'claim_lock') {
+      await handleClaimLock(
+        {
+          graph,
+          locks: activeLocks,
+          conflicts,
+          runtime: ports.runtime,
+        },
+        message,
+      );
+      return;
+    }
+
     const run = ports.store.getAgentRun(message.agentRunId);
     if (run?.scopeType !== 'task') {
       return;
