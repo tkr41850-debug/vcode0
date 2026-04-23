@@ -9,8 +9,16 @@ Use this page as the canonical scenario index. For testing strategy and faux-pro
 - [test_feature_branch_lifecycle](./test_feature_branch_lifecycle.md) — feature branches/worktrees open on request, task worktrees merge back into them, and cleanup follows the feature lifecycle.
 - [test_feature_verification_repair_loop](./test_feature_verification_repair_loop.md) — failed `ci_check` enqueues a same-branch repair task, while failed agent-level `verifying` routes through `replanning` with persisted `VerifyIssue[]` before queue entry.
 - [test_merge_train_ordering](./test_merge_train_ordering.md) — completed feature branches queue and integrate to `main` one at a time.
-- [test_merge_train_conflict_handling](./test_merge_train_conflict_handling.md) — integration rebase or merge-train verification failure ejects a feature for same-branch repair and re-entry.
+- [test_merge_train_conflict_handling](./test_merge_train_conflict_handling.md) — integration-stage failures eject a feature and route to replanning; executor-specific scenarios live in the integration specs below.
 - [test_feature_summary_lifecycle](./test_feature_summary_lifecycle.md) — post-merge summarizing writes summary text in the normal path while budget mode skips summary creation.
+
+## Integration Executor
+
+- [test_integration_rebase_conflict](./test_integration_rebase_conflict.md) — `git rebase` conflict during integration ejects and reroutes to replanning with `source: 'rebase'`; re-enqueue uses `--onto` anchor.
+- [test_integration_post_rebase_ci_fail](./test_integration_post_rebase_ci_fail.md) — post-rebase `ci_check` failure ejects and reroutes with `source: 'ci_check', phase: 'post_rebase'`; `verification.feature` snapshot shields from mid-cycle config edits.
+- [test_integration_reconciler_crash](./test_integration_reconciler_crash.md) — startup reconciler decision tree reading marker row + git refs (authoritative).
+- [test_integration_cancel](./test_integration_cancel.md) — hard cancellation flips marker intent, kills subprocess, resets feature branch.
+- [test_integration_cross_feature_blocked_reroute](./test_integration_cross_feature_blocked_reroute.md) — downstream blocked feature routes to replanning after an upstream merge, not the just-merged one.
 
 ## Scheduler / Graph
 

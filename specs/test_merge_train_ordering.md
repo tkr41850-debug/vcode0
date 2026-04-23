@@ -32,6 +32,6 @@ Capture serialized feature-branch integration into `main`.
 
 ### Feature finishes integration before next begins
 - Given one feature is at the head of the merge train
-- When it rebases, verifies, and merges successfully
+- When it rebases, runs post-rebase `ci_check`, and merges successfully
 - Then the next queued feature may enter `integrating`
 - And not before

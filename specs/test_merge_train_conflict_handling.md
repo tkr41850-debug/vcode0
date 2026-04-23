@@ -2,12 +2,13 @@
 
 ## Goal
 
-Capture how integration-stage rebase and merge-train verification failures are handled during feature integration. Protects the invariant that `main` never advances to a state that has not passed merge-train verification at its post-rebase tip (see `docs/architecture/graph-operations.md`).
+Capture high-level merge-queue framing for integration-stage failures. The executor protects `main` by ejecting and rerouting any failing feature to `replanning` with a typed `VerifyIssue[]`. Specific executor scenarios live in dedicated specs:
 
-## Wiring Status
-
-- `integrating`-stage rebase onto latest `main` is part of the baseline merge-train flow.
-- `verification.mergeTrain` is parsed in config and carries inheritance rules (falls back to `verification.feature` only when omitted entirely), but the currently wired verification executor is the feature-level `ci_check` path. Scenarios that depend on automatic merge-train verification execution are marked **[deferred]** until that path is wired (see `docs/operations/verification-and-recovery.md`).
+- Rebase conflict — [test_integration_rebase_conflict](./test_integration_rebase_conflict.md)
+- Post-rebase `ci_check` failure — [test_integration_post_rebase_ci_fail](./test_integration_post_rebase_ci_fail.md)
+- Cross-feature blocked reroute — [test_integration_cross_feature_blocked_reroute](./test_integration_cross_feature_blocked_reroute.md)
+- Reconciler after crash — [test_integration_reconciler_crash](./test_integration_reconciler_crash.md)
+- Hard cancellation — [test_integration_cancel](./test_integration_cancel.md)
 
 ## Scenarios
 
@@ -17,30 +18,17 @@ Capture how integration-stage rebase and merge-train verification failures are h
 - Then no task-level file-lock reset to `main` occurs
 - And both features may still reach `merge_queued`
 
-### Rebase failure moves feature into conflict state
-- Given a feature in `integrating` rebases onto the latest `main`
-- When that rebase cannot be completed cleanly because of another feature's changes
-- Then feature collaboration control becomes `conflict`
-- And the feature is removed from the merge queue
-- And the feature does not merge to `main`
+### Any integration-stage failure reroutes to replanning, not repair
+- Given a feature in `integrating` hits any executor failure (rebase conflict, post-rebase `ci_check` fail)
+- When the executor observes the failure
+- Then the feature is ejected from the merge queue
+- And `features.verify_issues` is set with a typed payload keyed by `source`
+- And `workControl` moves to `replanning`
 - And `mergeTrainReentryCount` increments on re-queue
+- And no repair task is created directly by the executor
 
-### Merge-train verification failure also ejects the feature [deferred]
-- Given a feature in `integrating` rebases cleanly onto the latest `main`
-- When the configured merge-train verification checks fail
-- Then the feature is removed from the merge queue
-- And `main` does not advance
-- And it is no longer merge-ready until repair work lands and the normal `ci_check -> verifying` path passes again
-
-### Conflict triggers repair work on the same feature branch first
-- Given a feature hits integration rebase failure (or, once wired, merge-train verification failure)
-- When the orchestrator cannot resolve it mechanically
-- Then repair work is scheduled on the same feature branch
-- And only repeated or structural failure escalates to `replanning`
-
-### Successful repair re-enters under the normal queue policy
-- Given integration repair work lands on the same feature branch
+### Successful replan re-enters under the normal queue policy
+- Given approved replan tasks land on the same feature branch
 - When the feature passes the normal `ci_check` then `verifying` path again
-- Then feature collaboration control clears from `conflict`
-- And the feature returns to `awaiting_merge`
+- Then the feature returns to `awaiting_merge`
 - And it re-enters `merge_queued` under the normal automatic queue policy
