@@ -1,6 +1,4 @@
-import {
-  validateFeatureCollabTransition,
-} from '@core/fsm/index';
+import { validateFeatureCollabTransition } from '@core/fsm/index';
 import { describe, expect, it } from 'vitest';
 
 // ── Collab-control axis: legal transitions ──────────────────────────────
@@ -102,13 +100,15 @@ describe('collab-control axis — cancellation edges', () => {
     ['merge_queued', 'cancelled', 'awaiting_merge', 'pending'],
     ['conflict', 'cancelled', 'executing', 'in_progress'],
     ['none', 'cancelled', 'discussing', 'pending'],
-  ] as const)(
-    '%s → cancelled',
-    (from, to, workControl, status) => {
-      const result = validateFeatureCollabTransition(from, to, workControl, status);
-      expect(result.valid).toBe(true);
-    },
-  );
+  ] as const)('%s → cancelled', (from, to, workControl, status) => {
+    const result = validateFeatureCollabTransition(
+      from,
+      to,
+      workControl,
+      status,
+    );
+    expect(result.valid).toBe(true);
+  });
 });
 
 describe('collab-control axis — repair ejection (merge_queued → branch_open)', () => {
@@ -143,16 +143,18 @@ describe('collab-control axis — illegal transitions', () => {
     ['integrating', 'merge_queued', 'awaiting_merge', 'pending'],
     // branch can't open without executing phase
     ['none', 'branch_open', 'planning', 'pending'],
-  ] as const)(
-    'illegal: %s → %s',
-    (from, to, workControl, status) => {
-      const result = validateFeatureCollabTransition(from, to, workControl, status);
-      expect(result.valid).toBe(false);
-      if (!result.valid) {
-        expect(result.reason.length).toBeGreaterThan(0);
-      }
-    },
-  );
+  ] as const)('illegal: %s → %s', (from, to, workControl, status) => {
+    const result = validateFeatureCollabTransition(
+      from,
+      to,
+      workControl,
+      status,
+    );
+    expect(result.valid).toBe(false);
+    if (!result.valid) {
+      expect(result.reason.length).toBeGreaterThan(0);
+    }
+  });
 
   it('no-op transition is rejected', () => {
     const result = validateFeatureCollabTransition(
