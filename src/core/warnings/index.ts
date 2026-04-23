@@ -43,30 +43,36 @@ const LAYER_LABELS: Record<VerificationLayerName, string> = {
   task: 'task',
 };
 
+/**
+ * @warns verify agent keeps raising issues after repeated replans without progress
+ */
 export function createVerifyReplanLoopWarning(
   featureId: string,
   failedVerifyCount: number,
-  now = Date.now(),
+  nowMs: number,
 ): WarningSignal {
   return {
     category: 'verify_replan_loop',
     entityId: featureId,
     message: `Feature ${featureId} has failed verify ${failedVerifyCount} times since last approved replan`,
-    occurredAt: now,
+    occurredAt: nowMs,
     payload: { failedVerifyCount },
   };
 }
 
+/**
+ * @warns a verification layer resolved to no configured checks and ran as advisory-only
+ */
 export function createEmptyVerificationChecksWarning(
   entityId: string,
   layer: VerificationLayerName,
-  now = Date.now(),
+  nowMs: number,
 ): WarningSignal {
   return {
     category: 'empty_verification_checks',
     entityId,
     message: `verification.${layer}.checks empty; ${LAYER_LABELS[layer]} running without configured checks`,
-    occurredAt: now,
+    occurredAt: nowMs,
     payload: { layer },
   };
 }
@@ -78,7 +84,10 @@ export class WarningEvaluator {
     this.thresholds = thresholds;
   }
 
-  evaluateBudget(state: BudgetState, now?: number): WarningSignal[] {
+  /**
+   * @warns global budget usage crosses its configured warn threshold
+   */
+  evaluateBudget(state: BudgetState, nowMs: number): WarningSignal[] {
     const warnings: WarningSignal[] = [];
     const percent = (state.totalUsd / this.thresholds.budgetGlobalUsd) * 100;
 
@@ -87,7 +96,7 @@ export class WarningEvaluator {
         category: 'budget_pressure',
         entityId: 'global',
         message: `Budget usage at ${Math.round(percent)}% ($${state.totalUsd.toFixed(2)} / $${this.thresholds.budgetGlobalUsd.toFixed(2)})`,
-        occurredAt: now ?? Date.now(),
+        occurredAt: nowMs,
         payload: {
           totalUsd: state.totalUsd,
           budgetUsd: this.thresholds.budgetGlobalUsd,
@@ -99,13 +108,15 @@ export class WarningEvaluator {
     return warnings;
   }
 
+  /**
+   * @warns a feature repeatedly re-enters the merge train or a secondary feature has been blocked behind a primary for too long
+   */
   evaluateFeature(
     feature: Feature,
-    now?: number,
+    nowMs: number,
     tasks: Task[] = [],
   ): WarningSignal[] {
     const warnings: WarningSignal[] = [];
-    const occurredAt = now ?? Date.now();
     const reentryCount = feature.mergeTrainReentryCount ?? 0;
 
     if (reentryCount >= this.thresholds.featureChurnThreshold) {
@@ -113,7 +124,7 @@ export class WarningEvaluator {
         category: 'feature_churn',
         entityId: feature.id,
         message: `Feature ${feature.id} has re-entered the merge train ${reentryCount} times`,
-        occurredAt,
+        occurredAt: nowMs,
         payload: { reentryCount },
       });
     }
@@ -144,21 +155,21 @@ export class WarningEvaluator {
 
       if (
         oldestBlockedAt !== undefined &&
-        occurredAt - oldestBlockedAt >= this.thresholds.longFeatureBlockingMs
+        nowMs - oldestBlockedAt >= this.thresholds.longFeatureBlockingMs
       ) {
         const blockedHours = Math.floor(
-          (occurredAt - oldestBlockedAt) / (60 * 60 * 1000),
+          (nowMs - oldestBlockedAt) / (60 * 60 * 1000),
         );
         warnings.push({
           category: 'long_feature_blocking',
           entityId: feature.id,
           message: `Feature ${feature.id} has been blocked by ${feature.runtimeBlockedByFeatureId} for ${blockedHours}h`,
-          occurredAt,
+          occurredAt: nowMs,
           payload: {
             blockedByFeatureId: feature.runtimeBlockedByFeatureId,
             blockedSince: oldestBlockedAt,
             blockedTaskIds: blockedTasks.map((task) => task.id),
-            blockedDurationMs: occurredAt - oldestBlockedAt,
+            blockedDurationMs: nowMs - oldestBlockedAt,
           },
         });
       }
@@ -167,7 +178,10 @@ export class WarningEvaluator {
     return warnings;
   }
 
-  evaluateTask(task: Task, now?: number): WarningSignal[] {
+  /**
+   * @warns a single task has failed repeatedly (stuck-task / repeated failure loop)
+   */
+  evaluateTask(task: Task, nowMs: number): WarningSignal[] {
     const warnings: WarningSignal[] = [];
     const consecutiveFailures = task.consecutiveFailures ?? 0;
 
@@ -176,7 +190,7 @@ export class WarningEvaluator {
         category: 'task_failure_loop',
         entityId: task.id,
         message: `Task ${task.id} has ${consecutiveFailures} consecutive failures`,
-        occurredAt: now ?? Date.now(),
+        occurredAt: nowMs,
         payload: { consecutiveFailures },
       });
     }
