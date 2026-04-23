@@ -11,3 +11,4 @@ Current entries:
 - [Verification Reuse](./verification-and-recovery.md)
 - [Abort In-Flight Scheduler Tick](./abort-in-flight-scheduler-tick.md)
 - [Explicit Lock Release](./explicit-lock-release.md)
+- [Graceful Claude Code Suspend](./graceful-claude-code-suspend.md)

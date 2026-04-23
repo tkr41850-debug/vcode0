@@ -95,6 +95,22 @@ Set hook handlers in `settings.json`. Relevant for a harness:
 
 `--include-hook-events` emits hook events into the `stream-json` channel, giving the orchestrator visibility into every pre/post tool decision without custom plumbing.
 
+## Stream-json Parsing
+
+`stream-json` is an NDJSON event stream with several event kinds (`system`, `assistant`, `user`, `result`, `tool_use`, `tool_result`, plus hook events when `--include-hook-events` is set). The harness parses it and routes into the existing `WorkerToOrchestratorMessage` shapes so the orchestrator/TUI see Claude Code workers the same way they see `PiSdkHarness` workers.
+
+The parser is not optional. It is needed for:
+
+- **TUI output**: map `assistant` text blocks to `assistant_output` and turn boundaries to `progress`. Without parsing, the operator sees a blank scoreboard while the worker runs.
+- **Usage accounting**: the terminal `result` event carries the authoritative `usage` block (tokens, cache, cost hints). Only source for `RuntimeUsageDelta`.
+- **Error classification**: subprocess exit code alone cannot distinguish a clean finish from an agent-side error. The `result` event's `subtype` (e.g. `success` vs `error_during_execution`) disambiguates; map to `result` / `error` IPC frames accordingly.
+- **Audit log**: `PostToolUse` hook events carry the paths and commands that actually ran. Feeds the events table for forensics and cross-checks the `filesChanged` that `submit` reports at merge-train time.
+- **Tool-use visibility**: real-time `tool_use` / `tool_result` events drive the operator's live view of what the worker is doing, matching the turn-level visibility `PiSdkHarness` already provides.
+
+Terminal task signalling does **not** go through stream-json: `submit` is an orchestration MCP tool, so the orchestrator learns about completion directly from the MCP server and uses the stream-json `result` event only to finalize usage and detect errors.
+
+Parser lives with the harness (e.g. `src/runtime/harness/claude-code/stream-json.ts`). TypeBox-validate inbound events, reject unknown shapes loudly during development, and keep a thin mapping layer so the rest of the runtime stays transport-agnostic.
+
 ## Human-in-the-loop Permission Forwarding
 
 The orchestrator (or a human reviewer) can gate every tool call using one of:
@@ -196,6 +212,77 @@ MCP remains the right answer when the harness needs typed external integration w
 ### Recommendation
 
 Option 1 is now viable with documented flags (was blocked on session-id/stream-json/permission-prompt-tool, all of which are now documented). Defer work until a concrete use case needs it, but plan the harness abstraction so a future `ClaudeCodeHarness` can slot in alongside `PiSdkHarness`.
+
+## Baseline Decisions
+
+Concrete choices for the first implementation pass. Flagged as defaults; revisit only if operational reality forces.
+
+### Tool surface
+
+- **Orchestration-only MCP**. Expose via `mcp__gvc0__*` namespace: `submit`, `request_help`, `request_approval`, `raiseIssue`, feature-phase `submitDiscuss/Research/Summarize/Verify`, planner proposal tools, and knowledge/decision writes (`appendKnowledge`, `recordDecision`). No MCP wrappers around built-ins.
+- **Built-ins via allowlist**, not replaced. File/command work uses Claude Code's `Read`, `Write`, `Edit`, `Glob`, `Grep`, `Bash`.
+- **No `reserve_write` MCP tool**. Path coordination lives in the `PreToolUse` hook (see below), not in a model-cooperative tool.
+- Baseline allowlist:
+
+  ```
+  --allowedTools "Read,Write,Edit,Glob,Grep,Bash(*),mcp__gvc0__*"
+  ```
+
+  with `permissions.deny` rules for `Bash(rm -rf:*)`, `Bash(git push:*)`, `Bash(sudo:*)`, `Write(/**/.env*)`, and peers.
+
+### Write-prehook path coordination
+
+- `PreToolUse` hook on `Write` / `Edit` / `Bash` blocks synchronously against orchestrator IPC (Unix socket), equivalent to the current pi-sdk `claim_lock` flow. Hook returns `{"permissionDecision":"allow|deny", ...}` on **every** code path — unit-tested to guarantee valid JSON even on IPC errors or timeouts (fail-closed to `deny` with actionable `reason`).
+- `PostToolUse` hook logs touched paths and commands into the events table for forensics and to cross-check `filesChanged` at merge-train time.
+- Runtime overlap detection for the Claude Code harness is intact via this path; same entry points (`handleSameFeatureOverlap`, `handleCrossFeatureOverlap`) fire as for `PiSdkHarness`.
+
+### Permission mode
+
+- `--permission-mode default` (or `bypassPermissions`) with the `PreToolUse` hook as the authoritative gate. Exact choice depends on whether `default` falls back to interactive prompt when a hook returns non-standard JSON — verify against the Claude Code source before locking in. Hook unit tests cover every return path to avoid the fallback firing in practice.
+
+### Human-in-the-loop
+
+- `request_approval` is a blocking MCP tool. Orchestrator holds the response; MCP handler awaits.
+- **10-minute timeout** on human wait. On expiry, orchestrator kills the Claude Code subprocess, marks the run `awaiting_human`, and respawns via `--resume` once the decision lands.
+
+### MCP server lifecycle
+
+- **One stdio MCP server per worker**, task context injected via `env: { GVC_TASK_ID, GVC_AGENT_RUN_ID }`. Matches per-task isolation of the baseline worker pool.
+- MCP server crash → kill Claude Code subprocess → run marked failed → normal retry path. No attempt to recover the server in-place.
+
+### Suspend / resume
+
+- **Immediate** suspend only in baseline: SIGTERM the subprocess. Any partial turn is lost; last completed turn persists in session jsonl.
+- Resume: new `claude -p --resume <session-id>` with the steering directive as the `-p` prompt (same content the current pi-sdk `formatResumeMessage` produces).
+- Retry branches: `--fork-session` off the last good session id. GC pass on feature merge-to-main deletes orphaned session jsonls for that feature's worktrees.
+- Graceful mid-turn suspend is deferred; see [optimization-candidates/graceful-claude-code-suspend.md](../optimization-candidates/graceful-claude-code-suspend.md).
+
+### Orphaned subprocess recovery
+
+- Orchestrator stores subprocess PID + boot epoch on `agent_runs`. Startup reconciler kills stale PIDs belonging to prior orchestrator instances before attempting resume. Prevents zombie Claude Code processes after orchestrator crash.
+
+### Usage accounting
+
+- Parse the `result` event's `usage` block from `stream-json` into `RuntimeUsageDelta`. Tag `rawUsage` with auth-mode (`oauth_max_plan` vs `api_key`) so budget rollup does not double-count OAuth max-plan sessions as paid API usage.
+
+### Model selection
+
+- Model pinned per subprocess via `--model`. Tier escalation requires a respawn (acceptable; escalations are rare). Document the respawn path in the model router when wiring.
+
+### System prompt + CLAUDE.md
+
+- `--append-system-prompt-file <rendered>` is the authoritative per-task context, always passed. Independent of CLAUDE.md presence.
+- Repo-root `CLAUDE.md` loads via Claude Code's upward directory walk when present on the checked-out branch of a parent worktree. No fallback file is written when absent; the task prompt stands alone.
+- User-level `~/.claude/CLAUDE.md` contamination is mitigated with the narrowest documented mechanism Claude Code exposes (env var or flag — verify against the Claude Code source before implementing). `--bare` is rejected: it strips repo CLAUDE.md, plugins, and user hooks in one blow, overshoots the goal. If no narrower mechanism exists, accept user-CLAUDE.md bleed as a known baseline limitation and flag in operator docs.
+
+### Settings isolation
+
+- `--settings <abs-path>` points at a gvc0-generated settings file with absolute hook paths baked in (reproducible across worktrees).
+- `--setting-sources project,local` excludes the user-level `settings.json` layer, so operator personal settings cannot perturb worker behavior. Note: this flag controls `settings.json` hierarchy only; the CLAUDE.md memory hierarchy is governed separately (see above).
+
+### Session identity
+
+- Session ids are orchestrator-assigned UUIDs via `--session-id`. Session jsonl persists at `~/.claude/projects/<cwd-slug>/<session-id>.jsonl`; orchestrator stores the cwd alongside `agent_runs.session_id` to avoid slug-mismatch on resume.
 
 ## Related
 
