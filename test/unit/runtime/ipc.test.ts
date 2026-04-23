@@ -109,6 +109,64 @@ describe('NdjsonStdioTransport (orchestrator side)', () => {
     });
   });
 
+  describe('claim_decision', () => {
+    it('serializes a granted claim_decision as a single NDJSON line', () => {
+      const chunks: Buffer[] = [];
+      stdin.on('data', (chunk: Buffer) => chunks.push(chunk));
+
+      const message: OrchestratorToWorkerMessage = {
+        type: 'claim_decision',
+        taskId: 't-1',
+        agentRunId: 'run-1',
+        claimId: 'claim-abc',
+        kind: 'granted',
+      };
+
+      transport.send(message);
+
+      const written = Buffer.concat(chunks).toString();
+      expect(written).toBe(`${JSON.stringify(message)}\n`);
+    });
+
+    it('serializes a denied claim_decision with deniedPaths', () => {
+      const chunks: Buffer[] = [];
+      stdin.on('data', (chunk: Buffer) => chunks.push(chunk));
+
+      const message: OrchestratorToWorkerMessage = {
+        type: 'claim_decision',
+        taskId: 't-1',
+        agentRunId: 'run-1',
+        claimId: 'claim-abc',
+        kind: 'denied',
+        deniedPaths: ['src/foo.ts'],
+      };
+
+      transport.send(message);
+
+      const written = Buffer.concat(chunks).toString();
+      expect(written).toBe(`${JSON.stringify(message)}\n`);
+    });
+
+    it('parses incoming claim_lock from worker', async () => {
+      const received: WorkerToOrchestratorMessage[] = [];
+      transport.onMessage((msg) => received.push(msg));
+
+      const workerMsg: WorkerToOrchestratorMessage = {
+        type: 'claim_lock',
+        taskId: 't-1',
+        agentRunId: 'run-1',
+        claimId: 'claim-abc',
+        paths: ['src/foo.ts', 'src/bar.ts'],
+      };
+
+      stdout.write(`${JSON.stringify(workerMsg)}\n`);
+      await tick();
+
+      expect(received).toHaveLength(1);
+      expect(received[0]).toEqual(workerMsg);
+    });
+  });
+
   describe('close', () => {
     it('closes the readline interface and writable', () => {
       transport.close();
@@ -197,6 +255,46 @@ describe('ChildNdjsonStdioTransport (worker side)', () => {
       } finally {
         stderrSpy.mockRestore();
       }
+    });
+  });
+
+  describe('claim_lock', () => {
+    it('serializes a claim_lock worker message as a single NDJSON line', () => {
+      const chunks: Buffer[] = [];
+      output.on('data', (chunk: Buffer) => chunks.push(chunk));
+
+      const msg: WorkerToOrchestratorMessage = {
+        type: 'claim_lock',
+        taskId: 't-1',
+        agentRunId: 'run-1',
+        claimId: 'claim-abc',
+        paths: ['src/foo.ts'],
+      };
+
+      transport.send(msg);
+
+      const written = Buffer.concat(chunks).toString();
+      expect(written).toBe(`${JSON.stringify(msg)}\n`);
+    });
+
+    it('parses incoming claim_decision from orchestrator', async () => {
+      const received: OrchestratorToWorkerMessage[] = [];
+      transport.onMessage((msg) => received.push(msg));
+
+      const orchMsg: OrchestratorToWorkerMessage = {
+        type: 'claim_decision',
+        taskId: 't-1',
+        agentRunId: 'run-1',
+        claimId: 'claim-abc',
+        kind: 'denied',
+        deniedPaths: ['src/foo.ts'],
+      };
+
+      input.write(`${JSON.stringify(orchMsg)}\n`);
+      await tick();
+
+      expect(received).toHaveLength(1);
+      expect(received[0]).toEqual(orchMsg);
     });
   });
 

@@ -198,6 +198,14 @@ export type OrchestratorToWorkerMessage =
       taskId: string;
       agentRunId: string;
       text: string;
+    }
+  | {
+      type: 'claim_decision';
+      taskId: string;
+      agentRunId: string;
+      claimId: string;
+      kind: 'granted' | 'denied';
+      deniedPaths?: readonly string[];
     };
 
 export type WorkerToOrchestratorMessage =
@@ -239,4 +247,11 @@ export type WorkerToOrchestratorMessage =
       taskId: string;
       agentRunId: string;
       text: string;
+    }
+  | {
+      type: 'claim_lock';
+      taskId: string;
+      agentRunId: string;
+      claimId: string;
+      paths: readonly string[];
     };
