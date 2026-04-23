@@ -13,6 +13,7 @@ import type {
 } from '@runtime/contracts';
 import { NdjsonStdioTransport } from '@runtime/ipc/index';
 import type { SessionStore } from '@runtime/sessions/index';
+import type { WorkerPidRegistry } from '@runtime/worktree/pid-registry';
 
 export interface SessionExitInfo {
   code: number | null;
@@ -78,10 +79,16 @@ interface ChildLike {
 }
 
 export class PiSdkHarness implements SessionHarness {
+  // Plan 03-01: `pidRegistry` is optional to preserve existing unit-test
+  // call-sites that did not thread a registry. Production wiring in
+  // `src/compose.ts` passes `createWorkerPidRegistry(store)`. When absent, the
+  // set/clear calls are skipped — the registry itself is responsible for the
+  // UPDATE-on-missing no-op semantics, but tests may omit the store entirely.
   constructor(
     private readonly sessionStore: SessionStore,
     private readonly projectRoot: string,
     private readonly entryPath: string = WORKER_ENTRY,
+    private readonly pidRegistry?: WorkerPidRegistry,
   ) {}
 
   start(
@@ -93,6 +100,9 @@ export class PiSdkHarness implements SessionHarness {
     const worktreeDir = this.resolveWorktreePath(task);
 
     const child = this.forkWorker(worktreeDir);
+    // PID registry write MUST happen before any IPC frame handling so Phase 9
+    // crash recovery on a mid-dispatch crash sees the row.
+    this.recordPid(agentRunId, child);
     const transport = new NdjsonStdioTransport({
       stdin: child.stdin as Writable,
       stdout: child.stdout as Readable,
@@ -104,6 +114,7 @@ export class PiSdkHarness implements SessionHarness {
       sessionId,
       child,
       transport,
+      () => this.clearPid(agentRunId),
     );
 
     transport.send({
@@ -134,6 +145,7 @@ export class PiSdkHarness implements SessionHarness {
 
     const worktreeDir = this.resolveWorktreePath(task);
     const child = this.forkWorker(worktreeDir);
+    this.recordPid(run.agentRunId, child);
     const transport = new NdjsonStdioTransport({
       stdin: child.stdin as Writable,
       stdout: child.stdout as Readable,
@@ -145,6 +157,7 @@ export class PiSdkHarness implements SessionHarness {
       run.sessionId,
       child,
       transport,
+      () => this.clearPid(run.agentRunId),
     );
 
     transport.send({
@@ -161,6 +174,21 @@ export class PiSdkHarness implements SessionHarness {
     });
 
     return { kind: 'resumed', handle };
+  }
+
+  private recordPid(
+    agentRunId: string,
+    child: child_process.ChildProcess,
+  ): void {
+    if (this.pidRegistry === undefined) return;
+    const pid = child.pid;
+    // `fork()` returns a child with `pid` set unless spawn immediately failed
+    // — in that case stdio pipes would also be null and we'd already throw.
+    if (typeof pid === 'number') this.pidRegistry.set(agentRunId, pid);
+  }
+
+  private clearPid(agentRunId: string): void {
+    this.pidRegistry?.clear(agentRunId);
   }
 
   private forkWorker(cwd: string): child_process.ChildProcess {
@@ -196,6 +224,10 @@ function createSessionHandle(
   sessionId: string,
   child: ChildLike,
   transport: NdjsonStdioTransport,
+  // Plan 03-01: `onBeforeExitDispatch` runs BEFORE user exit handlers fire so
+  // the PID registry is cleared before any retry-dispatch reacting to the
+  // error frame can observe a stale entry.
+  onBeforeExitDispatch?: () => void,
 ): SessionHandle {
   let exitInfo: SessionExitInfo | undefined;
   const exitHandlers: Array<(info: SessionExitInfo) => void> = [];
@@ -203,6 +235,9 @@ function createSessionHandle(
   const fireExit = (info: SessionExitInfo): void => {
     if (exitInfo !== undefined) return;
     exitInfo = info;
+    // Clear the PID registry entry FIRST so a same-tick retry dispatch (added
+    // in plan 03-03's retry policy) never sees a stale PID.
+    onBeforeExitDispatch?.();
     for (const handler of exitHandlers) handler(info);
   };
 
