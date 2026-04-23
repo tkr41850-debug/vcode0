@@ -35,6 +35,7 @@ export async function handleCrossFeatureOverlap(
     });
   }
 
+  const overlapFileSet = new Set(overlapFiles);
   for (const task of tasks) {
     if (
       task.featureId !== secondary.id ||
@@ -44,18 +45,24 @@ export async function handleCrossFeatureOverlap(
       continue;
     }
 
+    const taskOverlapFiles = (task.reservedWritePaths ?? []).filter((p) =>
+      overlapFileSet.has(p),
+    );
+
     graph?.transitionTask(task.id, {
       collabControl: 'suspended',
       suspendReason: 'cross_feature_overlap',
       suspendedAt: Date.now(),
       blockedByFeatureId: primary.id,
-      ...(overlapFiles.length > 0 ? { suspendedFiles: overlapFiles } : {}),
+      ...(taskOverlapFiles.length > 0
+        ? { suspendedFiles: taskOverlapFiles }
+        : {}),
     });
 
     await ports.runtime.suspendTask(
       task.id,
       'cross_feature_overlap',
-      overlapFiles,
+      taskOverlapFiles,
     );
   }
 }

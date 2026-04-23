@@ -976,6 +976,7 @@ describe('ConflictCoordinator', () => {
     updateTask(graph, 't-feature-2-running', {
       status: 'running',
       collabControl: 'branch_open',
+      reservedWritePaths: ['src/a.ts'],
     });
     updateTask(graph, 't-feature-2-ready', {
       status: 'ready',

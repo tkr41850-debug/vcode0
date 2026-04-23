@@ -3528,6 +3528,102 @@ describe('SchedulerLoop', () => {
     ]);
   });
 
+  it('suspends secondary-feature running tasks without overlapping reservations on cross-feature overlap', async () => {
+    const order: string[] = [];
+    const { ports, runtime } = createPorts(order);
+    vi.spyOn(runtime, 'idleWorkerCount').mockReturnValue(0);
+    const suspendTask = vi.spyOn(runtime, 'suspendTask');
+    const graph = createSchedulerGraph({
+      milestones: [createMilestoneFixture()],
+      features: [
+        createFeatureFixture({
+          id: 'f-1',
+          status: 'in_progress',
+          workControl: 'executing',
+          collabControl: 'branch_open',
+        }),
+        createFeatureFixture({
+          id: 'f-2',
+          orderInMilestone: 1,
+          status: 'in_progress',
+          workControl: 'executing',
+          collabControl: 'branch_open',
+        }),
+      ],
+      tasks: [
+        createTaskFixture({
+          id: 't-1',
+          featureId: 'f-1',
+          status: 'running',
+          collabControl: 'branch_open',
+          reservedWritePaths: ['src/a.ts'],
+        }),
+        createTaskFixture({
+          id: 't-2',
+          featureId: 'f-2',
+          orderInFeature: 0,
+          status: 'running',
+          collabControl: 'branch_open',
+          reservedWritePaths: ['src/a.ts'],
+        }),
+        createTaskFixture({
+          id: 't-3',
+          featureId: 'f-2',
+          orderInFeature: 1,
+          status: 'running',
+          collabControl: 'branch_open',
+          reservedWritePaths: ['src/unrelated.ts'],
+        }),
+        createTaskFixture({
+          id: 't-4',
+          featureId: 'f-2',
+          orderInFeature: 2,
+          status: 'running',
+          collabControl: 'branch_open',
+        }),
+      ],
+    });
+
+    const loop = new SchedulerLoop(graph, ports);
+    await loop.step(100);
+
+    expect(graph.features.get('f-2')).toMatchObject({
+      runtimeBlockedByFeatureId: 'f-1',
+    });
+    expect(graph.tasks.get('t-2')).toMatchObject({
+      collabControl: 'suspended',
+      suspendReason: 'cross_feature_overlap',
+      blockedByFeatureId: 'f-1',
+      suspendedFiles: ['src/a.ts'],
+    });
+    expect(graph.tasks.get('t-3')).toMatchObject({
+      collabControl: 'suspended',
+      suspendReason: 'cross_feature_overlap',
+      blockedByFeatureId: 'f-1',
+    });
+    expect(graph.tasks.get('t-3')?.suspendedFiles).toBeUndefined();
+    expect(graph.tasks.get('t-4')).toMatchObject({
+      collabControl: 'suspended',
+      suspendReason: 'cross_feature_overlap',
+      blockedByFeatureId: 'f-1',
+    });
+    expect(graph.tasks.get('t-4')?.suspendedFiles).toBeUndefined();
+    expect(suspendTask).toHaveBeenCalledTimes(3);
+    expect(suspendTask).toHaveBeenCalledWith('t-2', 'cross_feature_overlap', [
+      'src/a.ts',
+    ]);
+    expect(suspendTask).toHaveBeenCalledWith(
+      't-3',
+      'cross_feature_overlap',
+      [],
+    );
+    expect(suspendTask).toHaveBeenCalledWith(
+      't-4',
+      'cross_feature_overlap',
+      [],
+    );
+  });
+
   it('prefers dependency predecessor as cross-feature overlap primary', async () => {
     const order: string[] = [];
     const { ports, runtime } = createPorts(order);

@@ -85,8 +85,11 @@ export async function coordinateCrossFeatureRuntimeOverlaps({
       continue;
     }
 
-    const secondaryTasks = runningTasks.filter(
-      (task) => task.featureId === secondary.id,
+    const secondaryTasks = [...graph.tasks.values()].filter(
+      (task) =>
+        task.featureId === secondary.id &&
+        task.status === 'running' &&
+        task.collabControl === 'branch_open',
     );
     await conflicts.handleCrossFeatureOverlap(
       primary,
