@@ -123,6 +123,12 @@ export const GvcConfigSchema = z
     pauseTimeouts: PauseTimeoutsSchema,
     budget: BudgetConfigSchema.optional(),
 
+    // REQ-EXEC-03: how long the parent waits for health_pong before SIGKILL.
+    // `health_ping` is sent every `workerHealthTimeoutMs / 2` ms; missing
+    // two consecutive pongs (i.e. the full timeout window) triggers an
+    // unresponsive-worker signal. See RESEARCH §Config Touch Points.
+    workerHealthTimeoutMs: z.number().int().positive().default(10_000),
+
     // Parked aliases (see block above).
     tokenProfile: TokenProfileSchema.default('balanced'),
     modelRouting: ModelRoutingConfigSchema.optional(),

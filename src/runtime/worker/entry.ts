@@ -24,10 +24,25 @@ const transport = new ChildNdjsonStdioTransport();
 const projectRoot = resolveWorkerProjectRoot();
 const sessionStore = new FileSessionStore(projectRoot);
 
+// REQ-EXEC-03: when GVC0_TEST_SKIP_HEALTH_PONG is truthy, swallow inbound
+// `health_ping` frames instead of responding. Used exclusively by the
+// integration smoke test to exercise the parent-side timeout path.
+const skipHealthPong = process.env.GVC0_TEST_SKIP_HEALTH_PONG === '1';
+
 let runtime: WorkerRuntime | undefined;
 let initialized = false;
 
 transport.onMessage((message: OrchestratorToWorkerMessage) => {
+  // REQ-EXEC-03: health_ping is a pure IPC echo and MUST respond even if
+  // the pi-sdk Agent is mid-tool-call. Keep this above the agent-loop
+  // dispatch below so it is never gated on WorkerRuntime readiness.
+  if (message.type === 'health_ping') {
+    if (!skipHealthPong) {
+      transport.send({ type: 'health_pong', ts: Date.now() });
+    }
+    return;
+  }
+
   if (message.type === 'run' && !initialized) {
     initialized = true;
 

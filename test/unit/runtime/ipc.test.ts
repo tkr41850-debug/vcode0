@@ -91,21 +91,19 @@ describe('NdjsonStdioTransport (orchestrator side)', () => {
       expect(received[0]).toEqual(workerMsg);
     });
 
-    it('silently handles malformed JSON lines', async () => {
-      const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    it('quarantines malformed JSON lines instead of invoking the handler', async () => {
+      const received: WorkerToOrchestratorMessage[] = [];
+      transport.onMessage((msg) => received.push(msg));
 
-      try {
-        const received: WorkerToOrchestratorMessage[] = [];
-        transport.onMessage((msg) => received.push(msg));
+      stdout.write('not valid json\n');
+      await tick();
 
-        stdout.write('not valid json\n');
-        await tick();
-
-        expect(received).toHaveLength(0);
-        expect(stderrSpy).toHaveBeenCalled();
-      } finally {
-        stderrSpy.mockRestore();
-      }
+      expect(received).toHaveLength(0);
+      const quarantined = transport.quarantineHandle().recent();
+      expect(quarantined).toHaveLength(1);
+      expect(quarantined[0]?.direction).toBe('parent_from_child');
+      expect(quarantined[0]?.errorMessage).toMatch(/json_parse/);
+      expect(quarantined[0]?.raw).toBe('not valid json');
     });
   });
 
@@ -240,21 +238,18 @@ describe('ChildNdjsonStdioTransport (worker side)', () => {
       expect(received[0]).toEqual(orchMsg);
     });
 
-    it('handles malformed lines without crashing', async () => {
-      const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    it('quarantines malformed lines instead of crashing or invoking the handler', async () => {
+      const received: OrchestratorToWorkerMessage[] = [];
+      transport.onMessage((msg) => received.push(msg));
 
-      try {
-        const received: OrchestratorToWorkerMessage[] = [];
-        transport.onMessage((msg) => received.push(msg));
+      input.write('{incomplete\n');
+      await tick();
 
-        input.write('{incomplete\n');
-        await tick();
-
-        expect(received).toHaveLength(0);
-        expect(stderrSpy).toHaveBeenCalled();
-      } finally {
-        stderrSpy.mockRestore();
-      }
+      expect(received).toHaveLength(0);
+      const quarantined = transport.quarantineHandle().recent();
+      expect(quarantined).toHaveLength(1);
+      expect(quarantined[0]?.direction).toBe('child_from_parent');
+      expect(quarantined[0]?.errorMessage).toMatch(/json_parse/);
     });
   });
 
