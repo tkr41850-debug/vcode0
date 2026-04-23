@@ -1,6 +1,19 @@
-import type { Migration } from '@persistence/migrations/index';
+-- 0001_baseline.sql
+-- Consolidated baseline schema for gvc0 persistence.
+--
+-- Schema audit (Plan 02-01, Task 2):
+--   * Feature summaries live on `features.summary` (TEXT column), NOT in a
+--     separate table or view.
+--   * Token-usage rollups live on `features.token_usage` and
+--     `tasks.token_usage` (JSON blobs in TEXT columns), NOT in a dedicated
+--     `usage_rollup` table or view.
+--   * `agent_runs` is the single shared run/session table for both task
+--     execution runs and feature-phase runs.
+--
+-- Merge-train executor state (main_merge_sha / branch_head_sha on features,
+-- branch_head_sha on tasks, and the integration_state singleton) lands in
+-- 0002 so the two migrations can be applied independently on a fresh DB.
 
-const SCHEMA_SQL = `
 CREATE TABLE milestones (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
@@ -27,8 +40,15 @@ CREATE TABLE features (
   merge_train_entered_at INTEGER,
   merge_train_entry_seq INTEGER,
   merge_train_reentry_count INTEGER NOT NULL DEFAULT 0,
+  runtime_blocked_by_feature_id TEXT REFERENCES features(id),
   summary TEXT,
   token_usage TEXT,
+  rough_draft TEXT,
+  discuss_output TEXT,
+  research_output TEXT,
+  feature_objective TEXT,
+  feature_dod TEXT,
+  verify_issues TEXT,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
@@ -54,6 +74,11 @@ CREATE TABLE tasks (
   suspended_at INTEGER,
   suspend_reason TEXT,
   suspended_files TEXT,
+  objective TEXT,
+  scope TEXT,
+  expected_files TEXT,
+  references_json TEXT,
+  outcome_verification TEXT,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
@@ -68,6 +93,7 @@ CREATE TABLE agent_runs (
   attention TEXT NOT NULL DEFAULT 'none',
   session_id TEXT,
   payload_json TEXT,
+  token_usage TEXT,
   max_retries INTEGER NOT NULL DEFAULT 0,
   restart_count INTEGER NOT NULL DEFAULT 0,
   retry_at INTEGER,
@@ -89,13 +115,3 @@ CREATE TABLE events (
   entity_id TEXT NOT NULL,
   payload TEXT
 );
-`;
-
-export const Migration001Init: Migration = {
-  id: '001_init',
-  description:
-    'Initial schema: milestones, features, tasks, agent_runs, dependencies, events',
-  up(context): void {
-    context.execute(SCHEMA_SQL);
-  },
-};
