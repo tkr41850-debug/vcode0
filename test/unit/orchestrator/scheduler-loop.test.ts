@@ -160,6 +160,13 @@ function createStoreMock(): Store {
       openRuns: [...runs.values()],
       pendingEvents: [...events],
     }),
+    setWorkerPid: () => {
+      /* no-op — scheduler-loop tests do not exercise the PID registry */
+    },
+    clearWorkerPid: () => {
+      /* no-op */
+    },
+    getLiveWorkerPids: () => [],
     close: () => {
       /* no-op */
     },

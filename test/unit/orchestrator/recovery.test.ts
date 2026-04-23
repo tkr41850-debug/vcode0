@@ -68,6 +68,9 @@ function createStoreMock(runs: TaskAgentRun[]): Store {
       openRuns: [...byId.values()],
       pendingEvents: [],
     })),
+    setWorkerPid: vi.fn(),
+    clearWorkerPid: vi.fn(),
+    getLiveWorkerPids: vi.fn(() => []),
     close: vi.fn(),
   };
 }

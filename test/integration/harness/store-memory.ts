@@ -30,6 +30,7 @@ export class InMemoryStore implements Store {
   private readonly runs = new Map<string, AgentRun>();
   private readonly events: EventRecord[] = [];
   private readonly graphImpl = new InMemoryFeatureGraph();
+  private readonly workerPids = new Map<string, number>();
   private closed = false;
 
   getAgentRun(id: string): AgentRun | undefined {
@@ -117,6 +118,26 @@ export class InMemoryStore implements Store {
       openRuns,
       pendingEvents: [...this.events],
     };
+  }
+
+  // === PID registry (Phase 3, plan 03-01) ===
+  // Mirror SqliteStore semantics: set/clear on a missing run is a no-op
+  // (UPDATE semantics, not upsert). list() returns rows in agentRunId order
+  // so tests assert deterministically.
+
+  setWorkerPid(agentRunId: string, pid: number): void {
+    if (!this.runs.has(agentRunId)) return;
+    this.workerPids.set(agentRunId, pid);
+  }
+
+  clearWorkerPid(agentRunId: string): void {
+    this.workerPids.delete(agentRunId);
+  }
+
+  getLiveWorkerPids(): Array<{ agentRunId: string; pid: number }> {
+    return [...this.workerPids.entries()]
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([agentRunId, pid]) => ({ agentRunId, pid }));
   }
 
   close(): void {
