@@ -228,11 +228,18 @@ Concrete choices for the first implementation pass. Flagged as defaults; revisit
   --allowedTools "Read,Write,Edit,Glob,Grep,Bash(*),mcp__gvc0__*"
   ```
 
-  with `permissions.deny` rules for `Bash(rm -rf:*)`, `Bash(git push:*)`, `Bash(sudo:*)`, `Write(/**/.env*)`, and peers.
+- Baseline `permissions.deny` / `permissions.allow` rules (in settings file passed via `--settings`):
+  - `Write(/**)` deny + `Write(<worktree-abs>/**)` allow — prevents absolute-path escape out of worktree (`pi-sdk`'s `resolveInsideWorkdir` equivalent).
+  - `Edit(/**)` deny + `Edit(<worktree-abs>/**)` allow — same reasoning.
+  - `Bash(rm -rf:*)`, `Bash(git push:*)`, `Bash(sudo:*)` deny.
+  - `Bash(cd /:*)`, `Bash(cd ~:*)` deny (investigate Claude Code's `Bash` cwd semantics before locking in — if Bash inherits shell-state cd across calls, tighten; if each call starts from the declared cwd, the deny is belt-and-suspenders).
+  - `Write(/**/.env*)` deny.
+  - `Write(/**/.ssh/**)`, `Read(/**/.ssh/**)` deny.
+  - Knowledge/decision writes go through MCP tools (`appendKnowledge`, `recordDecision`), not `Write` — `<projectRoot>/.gvc0/**` stays denied for `Write`.
 
 ### Write-prehook path coordination
 
-- `PreToolUse` hook on `Write` / `Edit` / `Bash` blocks synchronously against orchestrator IPC (Unix socket), equivalent to the current pi-sdk `claim_lock` flow. Hook returns `{"permissionDecision":"allow|deny", ...}` on **every** code path — unit-tested to guarantee valid JSON even on IPC errors or timeouts (fail-closed to `deny` with actionable `reason`).
+- `PreToolUse` hook on `Write` / `Edit` / `Bash` blocks synchronously against the orchestrator's local HTTP endpoint (see MCP server lifecycle below for why HTTP), equivalent to the current pi-sdk `claim_lock` flow. Hook returns `{"permissionDecision":"allow|deny", ...}` on **every** code path — unit-tested to guarantee valid JSON even on IPC errors or timeouts (fail-closed to `deny` with actionable `reason`).
 - `PostToolUse` hook logs touched paths and commands into the events table for forensics and to cross-check `filesChanged` at merge-train time.
 - Runtime overlap detection for the Claude Code harness is intact via this path; same entry points (`handleSameFeatureOverlap`, `handleCrossFeatureOverlap`) fire as for `PiSdkHarness`.
 
@@ -247,8 +254,21 @@ Concrete choices for the first implementation pass. Flagged as defaults; revisit
 
 ### MCP server lifecycle
 
-- **One stdio MCP server per worker**, task context injected via `env: { GVC_TASK_ID, GVC_AGENT_RUN_ID }`. Matches per-task isolation of the baseline worker pool.
-- MCP server crash → kill Claude Code subprocess → run marked failed → normal retry path. No attempt to recover the server in-place.
+- **HTTP transport, orchestrator-hosted**. Single long-lived MCP server inside (or as a child of) the orchestrator process, listening on `127.0.0.1:<port>` and wired via Claude Code's `--mcp-config` with `{"type":"http","url":"http://127.0.0.1:<port>/mcp/<agentRunId>","headers":{"Authorization":"Bearer <token>"}}`. Per-worker scope is routed by URL path + bearer token keyed to `agentRunId`.
+- Benefit over stdio: MCP tool handlers call orchestrator state directly (no Unix socket, no cross-process IPC for `submit`/`request_help`/`request_approval`). Scope gating (see below) resolves against the orchestrator's in-memory run registry at call time.
+- Trust boundary: localhost-bind only, per-worker bearer token. Token leak grants remote tool invocation on behalf of that one worker's scope; not a cross-worker escalation.
+- Crash handling: if the MCP HTTP server dies, every in-flight worker stalls on its next tool call. Treat as orchestrator-level failure (not per-worker) — restart the server; in-flight Claude Code subprocesses fail their pending tool calls, get marked failed, and retry. Mirrors other orchestrator-shared-infra crashes.
+- Stdio MCP per worker is rejected as the baseline: adds a side channel to reach orchestrator state, duplicates process per task, and doesn't improve isolation beyond what the bearer-token scope already provides.
+
+### Scope gating
+
+- The same MCP server serves task workers, feature-phase agents, and planner agents. The tool set exposed for a given worker is gated by its scope.
+- Worker subprocess spawn passes `GVC_SCOPE_TYPE=task|feature_phase|planner` plus `GVC_PHASE` (when `feature_phase`) in env; the orchestrator records the same on the `agent_runs` row and associates it with the bearer token minted for that worker.
+- On each HTTP MCP request, the server resolves `agentRunId` → scope → allowed tool set. Tools outside the scope return MCP `method_not_found`. Prevents e.g. a task worker calling `submitVerify` or a verify-phase agent calling `submit`.
+- Tool subsets:
+  - `task`: `submit`, `request_help`, `request_approval`, `appendKnowledge`, `recordDecision`.
+  - `feature_phase` (phase-specific): `submitDiscuss`/`submitResearch`/`submitSummarize`/`submitVerify`, `raiseIssue`, inspection tools, plus `request_help`/`request_approval`.
+  - `planner`: proposal mutation tools (`addMilestone`/`addFeature`/…/`submit`), inspection tools, `request_help`/`request_approval`.
 
 ### Suspend / resume
 
@@ -283,6 +303,50 @@ Concrete choices for the first implementation pass. Flagged as defaults; revisit
 ### Session identity
 
 - Session ids are orchestrator-assigned UUIDs via `--session-id`. Session jsonl persists at `~/.claude/projects/<cwd-slug>/<session-id>.jsonl`; orchestrator stores the cwd alongside `agent_runs.session_id` to avoid slug-mismatch on resume.
+
+### Binary discovery + version compatibility
+
+- `claude` binary resolved from `CLAUDE_CODE_BINARY` env var first, then PATH. gvc0 config key `harness.claudeCode.binary` overrides both.
+- Version compatibility is best-effort, not fail-fast. At harness startup:
+  - Probe `claude --version`.
+  - Compare against the harness's tested range using `semver` (pin a hard floor; soft-warn above the tested upper bound).
+  - Log a warning (not an error) when outside the tested range; continue.
+- Stream-json parser tolerates unknown event types (skip-and-warn rather than throw) so schema additions in newer Claude Code versions don't break running harnesses. Known event types are typed strictly; unknown types are logged once per kind per session.
+
+### Harness selection
+
+- Swap site: `src/compose.ts` currently instantiates `PiSdkHarness` directly. Introduce config-driven selection there.
+- gvc0 config adds a top-level `harness` section:
+
+  ```ts
+  harness: {
+    kind: 'pi-sdk' | 'claude-code',  // default: 'pi-sdk'
+    claudeCode?: {
+      binary?: string,               // override CLAUDE_CODE_BINARY / PATH
+      settings?: string,             // absolute path to --settings file
+      mcpServerPort?: number,        // fixed port; otherwise orchestrator picks
+    },
+  }
+  ```
+
+- Baseline scope: global harness selection (all workers use one backend). Per-feature or per-task harness selection is a follow-on feature candidate if real use cases emerge.
+
+### Signal propagation
+
+- On orchestrator shutdown or worker abort, SIGTERM the Claude Code subprocess. Verify Claude Code propagates SIGTERM to its child processes (MCP server, hook scripts, active Bash tool invocations) via `child.on('exit', ...)` observation during integration tests.
+- Orchestrator tracks subprocess PID + MCP-session bearer-token in `agent_runs`. On startup reconciler pass, kill stale PIDs from prior orchestrator instances and revoke their tokens before attempting resume.
+
+### Observability
+
+- Claude Code writes its own logs under `~/.claude/logs/`. Orchestrator does not aggregate these; instead it records the Claude Code log file path in `agent_runs.extra` (or equivalent) so operators can `tail` the correct file when debugging a specific run.
+- Per-run stream-json events already flow into the events table (via the parser) so the TUI's existing per-run view remains the primary debugging surface.
+
+## Testing
+
+- **Integration tests** mock the `claude` binary itself: a lightweight Node script that ingests stream-json on stdin and emits scripted stream-json on stdout per scenario. Point the harness at it via `CLAUDE_CODE_BINARY` during tests.
+- Mock exposes the same session-id / `--resume` / `--fork-session` contract the real CLI does, driven by a fixture directory that mirrors `~/.claude/projects/<slug>/<session-id>.jsonl` layout.
+- `fauxModel`-equivalent scripting at the Claude API layer (to exercise a real `claude` binary deterministically) is a follow-on; not required for baseline harness integration tests.
+- **Unit tests** cover the stream-json parser (every known event type + unknown-kind skip-and-warn), the `PreToolUse` hook (every return path yields valid JSON), and the MCP server scope-gating table.
 
 ## Related
 
