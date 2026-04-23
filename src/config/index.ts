@@ -31,3 +31,8 @@ export {
   DEFAULT_CONFIG_PATH,
   JsonConfigLoader,
 } from './load.js';
+
+export {
+  resolveVerificationLayerConfig,
+  type VerificationLayerName,
+} from './verification-layer.js';

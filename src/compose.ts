@@ -20,7 +20,7 @@ import {
 import { openDatabase } from '@persistence/db';
 import { PersistentFeatureGraph } from '@persistence/feature-graph';
 import { SqliteStore } from '@persistence/sqlite-store';
-import { JsonConfigLoader } from '@root/config';
+import { JsonConfigLoader } from '@config';
 import type {
   ApprovalPayload,
   RuntimePort,

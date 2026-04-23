@@ -8,7 +8,7 @@ import type {
   VerificationSummary,
 } from '@core/types/index';
 import type { OrchestratorPorts } from '@orchestrator/ports/index';
-import { resolveVerificationLayerConfig } from '@root/config';
+import { resolveVerificationLayerConfig } from '@config';
 
 import {
   formatVerificationResult,
