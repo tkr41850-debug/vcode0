@@ -5,6 +5,10 @@ import type {
   HelpResponse,
 } from '@runtime/contracts';
 
+export type ClaimLockResult =
+  | { granted: true }
+  | { granted: false; deniedPaths: readonly string[] };
+
 /**
  * Narrow seam that worker tools use to talk to the orchestrator.
  *
@@ -25,6 +29,9 @@ export interface IpcBridge {
 
   /** Block until the operator responds to an approval request. */
   requestApproval(payload: ApprovalPayload): Promise<ApprovalDecision>;
+
+  /** Block until the orchestrator responds with a claim decision for the given paths. */
+  claimLock(paths: readonly string[]): Promise<ClaimLockResult>;
 
   /** Emit the terminal task result. */
   submitResult(result: TaskResult): void;

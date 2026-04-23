@@ -1,4 +1,5 @@
-import type { IpcBridge } from '@agents/worker';
+import { randomUUID } from 'node:crypto';
+import type { ClaimLockResult, IpcBridge } from '@agents/worker';
 import { buildWorkerToolset } from '@agents/worker';
 import type {
   GitConflictContext,
@@ -42,6 +43,10 @@ interface PendingApproval {
   resolve: (decision: ApprovalDecision) => void;
 }
 
+interface PendingClaim {
+  resolve: (result: ClaimLockResult) => void;
+}
+
 interface SuspensionState {
   reason: TaskSuspendReason;
   files: string[];
@@ -51,6 +56,7 @@ export class WorkerRuntime {
   private agent: Agent | undefined;
   private pendingHelp: PendingHelp | undefined;
   private pendingApproval: PendingApproval | undefined;
+  private readonly pendingClaims = new Map<string, PendingClaim>();
   private terminalResult: TaskResult | undefined;
   private suspended: SuspensionState | undefined;
 
@@ -222,6 +228,21 @@ export class WorkerRuntime {
         }
         break;
       }
+      case 'claim_decision': {
+        const pending = this.pendingClaims.get(message.claimId);
+        if (pending !== undefined) {
+          this.pendingClaims.delete(message.claimId);
+          pending.resolve(
+            message.kind === 'granted'
+              ? { granted: true }
+              : {
+                  granted: false,
+                  deniedPaths: message.deniedPaths ?? [],
+                },
+          );
+        }
+        break;
+      }
       case 'manual_input': {
         this.agent.followUp({
           role: 'user',
@@ -277,6 +298,19 @@ export class WorkerRuntime {
         });
         return new Promise<ApprovalDecision>((resolve) => {
           this.pendingApproval = { resolve };
+        });
+      },
+      claimLock: (paths: readonly string[]) => {
+        const claimId = randomUUID();
+        this.transport.send({
+          type: 'claim_lock',
+          taskId,
+          agentRunId,
+          claimId,
+          paths: [...paths],
+        });
+        return new Promise<ClaimLockResult>((resolve) => {
+          this.pendingClaims.set(claimId, { resolve });
         });
       },
       submitResult: (result: TaskResult) => {

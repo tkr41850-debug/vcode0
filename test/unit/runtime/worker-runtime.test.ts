@@ -145,6 +145,14 @@ function createAgentStub() {
   };
 }
 
+interface IpcBridgeLike {
+  claimLock(
+    paths: readonly string[],
+  ): Promise<
+    { granted: true } | { granted: false; deniedPaths: readonly string[] }
+  >;
+}
+
 describe('LocalWorkerPool', () => {
   describe('dispatchTask (start mode)', () => {
     it('starts a task and returns started result with sessionId', async () => {
@@ -671,6 +679,151 @@ describe('WorkerRuntime.handleMessage', () => {
       'conflict_kind: same_feature_task_rebase',
     );
     expect(steerCall?.content).toContain('conflicted_files: src/a.ts');
+  });
+
+  describe('IpcBridge.claimLock', () => {
+    function createBridge(transport: ChildIpcTransport) {
+      const sessionStore = createSessionStoreMock();
+      const runtime = new WorkerRuntime(transport, sessionStore, {
+        modelId: 'claude-sonnet-4-20250514',
+        projectRoot: '/tmp/project',
+      });
+      const agent = createAgentStub();
+      Object.assign(runtime, { agent });
+      const bridge = (
+        runtime as unknown as {
+          createIpcBridge: (
+            taskId: string,
+            agentRunId: string,
+          ) => IpcBridgeLike;
+        }
+      ).createIpcBridge('t-1', 'run-1');
+      return { runtime, bridge, transport };
+    }
+
+    it('sends a claim_lock message with a generated claimId', () => {
+      const transport = createTransportMock();
+      const { bridge } = createBridge(transport);
+
+      void bridge.claimLock(['src/foo.ts']);
+
+      const sendMock = vi.mocked(transport.send);
+      expect(sendMock).toHaveBeenCalledTimes(1);
+      const msg = sendMock.mock.calls[0]?.[0];
+      expect(msg).toMatchObject({
+        type: 'claim_lock',
+        taskId: 't-1',
+        agentRunId: 'run-1',
+        paths: ['src/foo.ts'],
+      });
+      expect(typeof (msg as { claimId?: unknown }).claimId === 'string').toBe(
+        true,
+      );
+      expect((msg as { claimId: string }).claimId.length).toBeGreaterThan(0);
+    });
+
+    it('resolves the returned promise when a matching claim_decision arrives', async () => {
+      const transport = createTransportMock();
+      const { runtime, bridge } = createBridge(transport);
+
+      const pending = bridge.claimLock(['src/foo.ts']);
+      const sentMsg = vi.mocked(transport.send).mock.calls[0]?.[0];
+      const claimId = (sentMsg as { claimId: string }).claimId;
+
+      runtime.handleMessage({
+        type: 'claim_decision',
+        taskId: 't-1',
+        agentRunId: 'run-1',
+        claimId,
+        kind: 'granted',
+      });
+
+      const result = await pending;
+      expect(result).toEqual({ granted: true });
+    });
+
+    it('resolves with denied + deniedPaths on a denied decision', async () => {
+      const transport = createTransportMock();
+      const { runtime, bridge } = createBridge(transport);
+
+      const pending = bridge.claimLock(['src/foo.ts', 'src/bar.ts']);
+      const sentMsg = vi.mocked(transport.send).mock.calls[0]?.[0];
+      const claimId = (sentMsg as { claimId: string }).claimId;
+
+      runtime.handleMessage({
+        type: 'claim_decision',
+        taskId: 't-1',
+        agentRunId: 'run-1',
+        claimId,
+        kind: 'denied',
+        deniedPaths: ['src/foo.ts'],
+      });
+
+      const result = await pending;
+      expect(result).toEqual({
+        granted: false,
+        deniedPaths: ['src/foo.ts'],
+      });
+    });
+
+    it('ignores a decision whose claimId does not match any pending claim', async () => {
+      const transport = createTransportMock();
+      const { runtime, bridge } = createBridge(transport);
+
+      const pending = bridge.claimLock(['src/foo.ts']);
+
+      runtime.handleMessage({
+        type: 'claim_decision',
+        taskId: 't-1',
+        agentRunId: 'run-1',
+        claimId: 'wrong-id',
+        kind: 'granted',
+      });
+
+      let settled = false;
+      void pending.then(() => {
+        settled = true;
+      });
+      await Promise.resolve();
+      expect(settled).toBe(false);
+    });
+
+    it('matches concurrent claims by claimId independently', async () => {
+      const transport = createTransportMock();
+      const { runtime, bridge } = createBridge(transport);
+
+      const firstPending = bridge.claimLock(['src/a.ts']);
+      const secondPending = bridge.claimLock(['src/b.ts']);
+
+      const sendMock = vi.mocked(transport.send);
+      const firstClaimId = (sendMock.mock.calls[0]?.[0] as { claimId: string })
+        .claimId;
+      const secondClaimId = (sendMock.mock.calls[1]?.[0] as { claimId: string })
+        .claimId;
+      expect(firstClaimId).not.toEqual(secondClaimId);
+
+      runtime.handleMessage({
+        type: 'claim_decision',
+        taskId: 't-1',
+        agentRunId: 'run-1',
+        claimId: secondClaimId,
+        kind: 'denied',
+        deniedPaths: ['src/b.ts'],
+      });
+      runtime.handleMessage({
+        type: 'claim_decision',
+        taskId: 't-1',
+        agentRunId: 'run-1',
+        claimId: firstClaimId,
+        kind: 'granted',
+      });
+
+      expect(await firstPending).toEqual({ granted: true });
+      expect(await secondPending).toEqual({
+        granted: false,
+        deniedPaths: ['src/b.ts'],
+      });
+    });
   });
 
   it('queues suspend as follow-up instead of aborting agent', () => {

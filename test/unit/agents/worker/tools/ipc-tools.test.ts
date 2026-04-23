@@ -38,6 +38,9 @@ function createMockBridge(): MockBridge {
         bridge._nextApprovalDecision ?? { kind: 'approved' },
       );
     },
+    claimLock(_paths: readonly string[]) {
+      return Promise.resolve({ granted: true } as const);
+    },
     submitResult(result: TaskResult) {
       bridge._lastResult = result;
     },
