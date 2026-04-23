@@ -1,4 +1,4 @@
-import type { FeatureGraph } from '@core/graph/index';
+import type { FeatureGraph, PlannerFeatureEditPatch } from '@core/graph/index';
 import { InMemoryFeatureGraph } from '@core/graph/index';
 import {
   type GraphProposal,
@@ -89,11 +89,19 @@ export class GraphProposalToolHost {
 
   editFeature(args: EditFeatureOptions): Feature {
     this.assertMutable();
+    const current = this.draft.features.get(args.featureId);
+    if (current === undefined) {
+      return this.draft.editFeature(args.featureId, args.patch);
+    }
+    const diff = diffFeaturePatch(current, args.patch);
     const feature = this.draft.editFeature(args.featureId, args.patch);
+    if (Object.keys(diff).length === 0) {
+      return feature;
+    }
     this.builder.addOp({
       kind: 'edit_feature',
       featureId: args.featureId,
-      patch: args.patch,
+      patch: diff,
     });
     return feature;
   }
@@ -132,27 +140,17 @@ export class GraphProposalToolHost {
   }
 
   setFeatureObjective(args: SetFeatureObjectiveOptions): Feature {
-    this.assertMutable();
-    const patch = { featureObjective: args.objective };
-    const feature = this.draft.editFeature(args.featureId, patch);
-    this.builder.addOp({
-      kind: 'edit_feature',
+    return this.editFeature({
       featureId: args.featureId,
-      patch,
+      patch: { featureObjective: args.objective },
     });
-    return feature;
   }
 
   setFeatureDoD(args: SetFeatureDoDOptions): Feature {
-    this.assertMutable();
-    const patch = { featureDoD: args.dod };
-    const feature = this.draft.editFeature(args.featureId, patch);
-    this.builder.addOp({
-      kind: 'edit_feature',
+    return this.editFeature({
       featureId: args.featureId,
-      patch,
+      patch: { featureDoD: args.dod },
     });
-    return feature;
   }
 
   removeTask(args: RemoveTaskOptions): void {
@@ -255,4 +253,41 @@ export function createProposalToolHost(
   mode: GraphProposalMode,
 ): GraphProposalToolHost {
   return new GraphProposalToolHost(graph, mode);
+}
+
+const EDITABLE_FEATURE_KEYS = [
+  'name',
+  'description',
+  'summary',
+  'roughDraft',
+  'featureObjective',
+  'featureDoD',
+] as const satisfies readonly (keyof PlannerFeatureEditPatch)[];
+
+function diffFeaturePatch(
+  current: Feature,
+  patch: PlannerFeatureEditPatch,
+): PlannerFeatureEditPatch {
+  const diff: PlannerFeatureEditPatch = {};
+  for (const key of EDITABLE_FEATURE_KEYS) {
+    const next = patch[key];
+    if (next === undefined) {
+      continue;
+    }
+    if (equalsFeatureField(current[key], next)) {
+      continue;
+    }
+    (diff as Record<string, unknown>)[key] = next;
+  }
+  return diff;
+}
+
+function equalsFeatureField(a: unknown, b: unknown): boolean {
+  if (a === b) {
+    return true;
+  }
+  if (Array.isArray(a) && Array.isArray(b)) {
+    return a.length === b.length && a.every((v, i) => v === b[i]);
+  }
+  return false;
 }

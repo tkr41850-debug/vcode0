@@ -185,6 +185,84 @@ describe('GraphProposalToolHost', () => {
     });
   });
 
+  it('editFeature with empty patch records no op', () => {
+    const graph = createGraphWithFeature();
+    const host = createProposalToolHost(graph, 'plan');
+
+    host.editFeature({ featureId: 'f-1', patch: {} });
+
+    host.submit(proposalDetails);
+    expect(host.buildProposal().ops).toEqual([]);
+  });
+
+  it('editFeature with patch matching current values records no op', () => {
+    const graph = createGraphWithFeature();
+    const host = createProposalToolHost(graph, 'plan');
+
+    host.editFeature({
+      featureId: 'f-1',
+      patch: { name: 'F', description: 'd' },
+    });
+
+    host.submit(proposalDetails);
+    expect(host.buildProposal().ops).toEqual([]);
+  });
+
+  it('editFeature with partial match records only changed keys', () => {
+    const graph = createGraphWithFeature();
+    const host = createProposalToolHost(graph, 'plan');
+
+    host.editFeature({
+      featureId: 'f-1',
+      patch: { name: 'F', description: 'different' },
+    });
+
+    host.submit(proposalDetails);
+    expect(host.buildProposal().ops).toEqual([
+      {
+        kind: 'edit_feature',
+        featureId: 'f-1',
+        patch: { description: 'different' },
+      },
+    ]);
+  });
+
+  it('editFeature with identical featureDoD array records no op', () => {
+    const graph = createGraphWithFeature();
+    const host = createProposalToolHost(graph, 'plan');
+    host.setFeatureDoD({ featureId: 'f-1', dod: ['a', 'b'] });
+
+    host.editFeature({
+      featureId: 'f-1',
+      patch: { featureDoD: ['a', 'b'] },
+    });
+
+    host.submit(proposalDetails);
+    expect(host.buildProposal().ops).toHaveLength(1);
+  });
+
+  it('setFeatureObjective skips op when objective unchanged', () => {
+    const graph = createGraphWithFeature();
+    const host = createProposalToolHost(graph, 'plan');
+    host.setFeatureObjective({ featureId: 'f-1', objective: 'ship it' });
+
+    host.setFeatureObjective({ featureId: 'f-1', objective: 'ship it' });
+
+    host.submit(proposalDetails);
+    expect(host.buildProposal().ops).toHaveLength(1);
+  });
+
+  it('setFeatureDoD skips op when DoD unchanged', () => {
+    const graph = createGraphWithFeature();
+    const host = createProposalToolHost(graph, 'plan');
+    host.setFeatureDoD({ featureId: 'f-1', dod: ['x'] });
+
+    host.setFeatureDoD({ featureId: 'f-1', dod: ['x'] });
+
+    host.submit(proposalDetails);
+    expect(host.buildProposal().ops).toHaveLength(1);
+  });
+
   it('rejects duplicate submit and post-submit mutation', () => {
     const graph = createGraphWithFeature();
     const host = createProposalToolHost(graph, 'plan');
