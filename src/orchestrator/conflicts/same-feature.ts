@@ -115,6 +115,11 @@ export async function reconcileSameFeatureTasks(
       graph.transitionTask(task.id, {
         collabControl: 'conflict',
       });
+    } else {
+      graph.transitionTask(task.id, {
+        status: 'ready',
+        collabControl: 'branch_open',
+      });
     }
   }
 }

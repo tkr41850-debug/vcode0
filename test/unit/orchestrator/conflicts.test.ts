@@ -891,6 +891,81 @@ describe('ConflictCoordinator', () => {
     });
   }, 20000);
 
+  it('falls back to ready when conflict steer returns not_running', async () => {
+    const root = getTmpDir();
+    const ports = createPorts(root);
+    vi.mocked(ports.runtime.steerTask).mockResolvedValue({
+      kind: 'not_running',
+      taskId: 't-suspended',
+    });
+    const feature = createFeature({
+      milestoneId: 'm-1',
+      status: 'in_progress',
+    });
+    const graph = new InMemoryFeatureGraph({
+      milestones: [
+        {
+          id: 'm-1',
+          name: 'M1',
+          description: 'd',
+          status: 'pending',
+          order: 0,
+        },
+      ],
+      features: [feature],
+      tasks: [
+        createTask({
+          id: 't-dominant',
+          orderInFeature: 0,
+          worktreeBranch: 'feat-feature-1-1-dominant',
+          reservedWritePaths: ['src/a.ts'],
+          result: { summary: 'dominant landed', filesChanged: ['src/a.ts'] },
+        }),
+        createTask({
+          id: 't-suspended',
+          orderInFeature: 1,
+          worktreeBranch: 'feat-feature-1-1-dirty',
+          reservedWritePaths: ['src/a.ts'],
+        }),
+      ],
+    });
+    const coordinator = new ConflictCoordinator(ports, graph);
+    const dominant = graph.tasks.get('t-dominant');
+    const suspended = graph.tasks.get('t-suspended');
+
+    assert(
+      dominant !== undefined &&
+        suspended !== undefined &&
+        suspended.worktreeBranch !== undefined,
+      'missing fixture state',
+    );
+
+    const taskDir = await writeTaskRebaseRepo(
+      root,
+      feature,
+      suspended.worktreeBranch,
+    );
+    await fs.writeFile(path.join(taskDir, 'src', 'a.ts'), 'dirty local edit\n');
+
+    await coordinator.handleSameFeatureOverlap(
+      feature,
+      {
+        featureId: feature.id,
+        taskIds: [dominant.id, suspended.id],
+        files: ['src/a.ts'],
+        suspendReason: 'same_feature_overlap',
+      },
+      [dominant, suspended],
+    );
+    await coordinator.reconcileSameFeatureTasks(feature.id, dominant.id);
+
+    expect(graph.tasks.get('t-suspended')).toMatchObject({
+      collabControl: 'branch_open',
+      status: 'ready',
+    });
+    expect(ports.runtime.steerTask).toHaveBeenCalled();
+  }, 20000);
+
   it('matches dominant changed files after normalizing path variants', async () => {
     const root = getTmpDir();
     const ports = createPorts(root);
