@@ -23,6 +23,13 @@ export interface WorkerToolsetDeps {
   workdir: string;
   /** Absolute path to the project root — knowledge files live under `.gvc0/`. */
   projectRoot: string;
+  /**
+   * REQ-EXEC-02: called by the run-command tool after each `git commit`
+   * lands (exit 0) — carries the resulting SHA and whether the required
+   * `gvc0-task-id` + `gvc0-run-id` trailers were found. The worker runtime
+   * translates this into a `commit_done` IPC frame.
+   */
+  onCommitDone?: (sha: string, trailerOk: boolean) => void;
 }
 
 /**
@@ -53,7 +60,14 @@ export function buildWorkerToolset(deps: WorkerToolsetDeps): WorkerTool[] {
     createEditFileTool(deps.workdir, claimer),
     createListFilesTool(deps.workdir),
     createSearchFilesTool(deps.workdir),
-    createRunCommandTool(deps.workdir),
+    createRunCommandTool({
+      workdir: deps.workdir,
+      taskId: deps.ipc.taskId,
+      agentRunId: deps.ipc.agentRunId,
+      ...(deps.onCommitDone !== undefined
+        ? { onCommitDone: deps.onCommitDone }
+        : {}),
+    }),
     createGitStatusTool(deps.workdir),
     createGitDiffTool(deps.workdir),
   ] as WorkerTool[];

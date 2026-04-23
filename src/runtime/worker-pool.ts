@@ -1,8 +1,10 @@
+import { randomUUID } from 'node:crypto';
 import type {
   Task,
   TaskResumeReason,
   TaskSuspendReason,
 } from '@core/types/index';
+import type { Store } from '@orchestrator/ports/index';
 import type { TaskPayload } from '@runtime/context/index';
 import type {
   DispatchTaskResult,
@@ -14,23 +16,52 @@ import type {
   WorkerToOrchestratorMessage,
 } from '@runtime/contracts';
 import type { SessionHandle, SessionHarness } from '@runtime/harness/index';
+import {
+  type RetryDecision,
+  type RetryPolicyConfig,
+  decideRetry,
+} from '@runtime/retry-policy';
 
 interface LiveSession {
   ref: TaskExecutionRunRef;
   handle: SessionHandle;
 }
 
+interface RetryState {
+  /** Number of failed attempts seen so far (1 = one error frame observed). */
+  attempts: number;
+  /** Cached dispatch payload for re-submission on retry. */
+  task: Task;
+  dispatch: TaskRuntimeDispatch;
+  payload: TaskPayload;
+}
+
 export type TaskCompleteCallback = (
   message: WorkerToOrchestratorMessage,
 ) => void;
 
+/**
+ * REQ-EXEC-04: dependencies the pool needs to honour the retry/inbox
+ * escalation policy. Both fields are optional for backwards compat with
+ * tests that construct pools without a Store (e.g. scheduler-loop unit
+ * tests). When absent, the pool degrades to the pre-03-03 behavior of
+ * forwarding every error frame straight to `onTaskComplete`.
+ */
+export interface LocalWorkerPoolRetryDeps {
+  store: Store;
+  config: RetryPolicyConfig;
+}
+
 export class LocalWorkerPool implements RuntimePort {
   private readonly liveRuns = new Map<string, LiveSession>();
+  /** REQ-EXEC-04: per-task attempt counter + cached payload for retry. */
+  private readonly retryState = new Map<string, RetryState>();
 
   constructor(
     private readonly harness: SessionHarness,
     private readonly maxConcurrency: number,
     private readonly onTaskComplete?: TaskCompleteCallback,
+    private readonly retryDeps?: LocalWorkerPoolRetryDeps,
   ) {}
 
   async dispatchTask(
@@ -38,6 +69,17 @@ export class LocalWorkerPool implements RuntimePort {
     dispatch: TaskRuntimeDispatch,
     payload: TaskPayload = {},
   ): Promise<DispatchTaskResult> {
+    // REQ-EXEC-04: keep the payload around so a transient failure can be
+    // retried in-pool without the scheduler needing to re-derive it.
+    if (this.retryDeps !== undefined) {
+      const existing = this.retryState.get(task.id);
+      this.retryState.set(task.id, {
+        attempts: existing?.attempts ?? 0,
+        task,
+        dispatch,
+        payload,
+      });
+    }
     if (dispatch.mode === 'resume') {
       const resumeResult = await this.harness.resume(
         task,
@@ -301,15 +343,21 @@ export class LocalWorkerPool implements RuntimePort {
               agentRunId: session.ref.agentRunId,
             };
 
-      if (
-        normalizedMessage.type === 'result' ||
-        normalizedMessage.type === 'error'
-      ) {
+      if (normalizedMessage.type === 'result') {
         this.liveRuns.delete(taskId);
+        // Clean retry bookkeeping — a successful run resets the counter.
+        this.retryState.delete(taskId);
         this.onTaskComplete?.(normalizedMessage);
-      } else {
-        this.onTaskComplete?.(normalizedMessage);
+        return;
       }
+
+      if (normalizedMessage.type === 'error') {
+        this.liveRuns.delete(taskId);
+        this.handleErrorFrame(taskId, normalizedMessage);
+        return;
+      }
+
+      this.onTaskComplete?.(normalizedMessage);
     });
 
     session.handle.onExit((info) => {
@@ -319,12 +367,73 @@ export class LocalWorkerPool implements RuntimePort {
         info.error !== undefined
           ? `worker_exited: ${info.error.message}`
           : `worker_exited: code=${info.code ?? 'null'} signal=${info.signal ?? 'null'}`;
-      this.onTaskComplete?.({
+      const errorFrame: WorkerToOrchestratorMessage = {
         type: 'error',
         taskId,
         agentRunId: session.ref.agentRunId,
         error: reason,
-      });
+      };
+      this.handleErrorFrame(taskId, errorFrame);
     });
+  }
+
+  /**
+   * REQ-EXEC-04: consult the retry policy before forwarding an error frame.
+   *
+   * - `retry` → schedule a delayed re-`dispatchTask` with the cached payload;
+   *   the scheduler never sees the transient failure.
+   * - `escalate_inbox` → write an `inbox_items` row and forward the frame so
+   *   the scheduler can transition the task into its normal failure path.
+   * - No retry deps wired → legacy behavior (forward unchanged).
+   */
+  private handleErrorFrame(
+    taskId: string,
+    message: Extract<WorkerToOrchestratorMessage, { type: 'error' }>,
+  ): void {
+    if (this.retryDeps === undefined) {
+      this.onTaskComplete?.(message);
+      return;
+    }
+
+    const state = this.retryState.get(taskId);
+    if (state === undefined) {
+      this.onTaskComplete?.(message);
+      return;
+    }
+
+    const nextAttempts = state.attempts + 1;
+    const decision: RetryDecision = decideRetry(
+      message.error,
+      nextAttempts,
+      this.retryDeps.config,
+    );
+
+    if (decision.kind === 'retry') {
+      this.retryState.set(taskId, { ...state, attempts: nextAttempts });
+      setTimeout(() => {
+        // Best-effort: ignore rejections here since the scheduler still
+        // owns the run lifecycle and will observe any dispatch error via
+        // the next frame.
+        void this.dispatchTask(state.task, state.dispatch, state.payload);
+      }, decision.delayMs);
+      return;
+    }
+
+    // Escalation: write to the inbox, clear retry state, and surface the
+    // frame so the scheduler performs its normal transition.
+    this.retryDeps.store.appendInboxItem({
+      id: `inbox-${randomUUID()}`,
+      ts: Date.now(),
+      taskId,
+      agentRunId: message.agentRunId,
+      kind: 'semantic_failure',
+      payload: {
+        reason: decision.reason,
+        error: message.error,
+        attempts: nextAttempts,
+      },
+    });
+    this.retryState.delete(taskId);
+    this.onTaskComplete?.(message);
   }
 }

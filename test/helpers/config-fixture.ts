@@ -19,6 +19,8 @@ export function testGvcConfigDefaults(): Pick<
   | 'reentryCap'
   | 'pauseTimeouts'
   | 'workerHealthTimeoutMs'
+  | 'retry'
+  | 'worktreeRoot'
 > {
   return {
     dbPath: '.gvc0/state.db',
@@ -33,5 +35,21 @@ export function testGvcConfigDefaults(): Pick<
     reentryCap: 10,
     pauseTimeouts: { hotWindowMs: 10 * 60 * 1000 },
     workerHealthTimeoutMs: 10_000,
+    retry: {
+      baseDelayMs: 250,
+      maxDelayMs: 30_000,
+      transientErrorPatterns: [
+        'ECONNRESET',
+        'ETIMEDOUT',
+        'ENOTFOUND',
+        'EAI_AGAIN',
+        '\\b5\\d\\d\\b',
+        'rate limit',
+        'too many requests',
+        'provider error',
+        'health_timeout',
+      ],
+    },
+    worktreeRoot: '.gvc0/worktrees',
   };
 }

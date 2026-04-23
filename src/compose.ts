@@ -27,6 +27,7 @@ import type {
   WorkerToOrchestratorMessage,
 } from '@runtime/contracts';
 import { PiSdkHarness } from '@runtime/harness/index';
+import { buildRetryPolicyConfig } from '@runtime/retry-policy';
 import { FileSessionStore } from '@runtime/sessions/index';
 import { LocalWorkerPool } from '@runtime/worker-pool';
 import {
@@ -204,7 +205,16 @@ export async function composeApplication(): Promise<GvcApplication> {
 
   const pidRegistry = createWorkerPidRegistry(store);
   const runtime = new LocalWorkerPool(
-    new PiSdkHarness(sessionStore, projectRoot, undefined, {}, pidRegistry),
+    new PiSdkHarness(
+      sessionStore,
+      projectRoot,
+      undefined,
+      {},
+      pidRegistry,
+      // Plan 03-03: thread config.models.taskWorker into the forked worker
+      // via env. Closes the REQ-CONFIG-01 hard-code gap at worker/entry.ts.
+      config.models.taskWorker,
+    ),
     maxWorkers,
     (message) => {
       // Health heartbeat frames are handled by the harness layer — drop
@@ -215,6 +225,14 @@ export async function composeApplication(): Promise<GvcApplication> {
         ui.onWorkerOutput(message.agentRunId, message.taskId, workerOutput);
       }
       schedulerRef.current?.enqueue({ type: 'worker_message', message });
+    },
+    // === Retry policy + inbox escalation (plan 03-03) ===
+    // REQ-EXEC-04: transient failures backoff in-pool; semantic failures
+    // escalate to `inbox_items` (migration 0005). Compile the config's
+    // string patterns to RegExp once at pool construction.
+    {
+      store,
+      config: buildRetryPolicyConfig(config),
     },
   );
   const agents = new PiFeatureAgentRuntime({

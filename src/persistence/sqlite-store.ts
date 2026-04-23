@@ -4,6 +4,7 @@ import type {
   AgentRunPatch,
   AgentRunQuery,
   EventQuery,
+  InboxItemAppend,
   QuarantinedFrameEntry,
   RehydrateSnapshot,
   Store,
@@ -54,6 +55,16 @@ interface QuarantineInsertParams {
   agent_run_id: string | null;
   raw: string;
   error_message: string;
+}
+
+interface InboxItemInsertParams {
+  id: string;
+  ts: number;
+  task_id: string | null;
+  agent_run_id: string | null;
+  feature_id: string | null;
+  kind: string;
+  payload: string;
 }
 
 interface AgentRunUpdateParams {
@@ -109,6 +120,8 @@ export class SqliteStore implements Store {
   private readonly setWorkerPidStmt;
   private readonly clearWorkerPidStmt;
   private readonly listLiveWorkerPidsStmt;
+  private readonly appendInboxItemStmt;
+  private readonly setLastCommitShaStmt;
   private readonly updateAgentRunTxn: (
     runId: string,
     patch: AgentRunPatch,
@@ -168,6 +181,19 @@ export class SqliteStore implements Store {
     );
     this.listLiveWorkerPidsStmt = db.prepare<[], LiveWorkerPidRow>(
       'SELECT id AS agentRunId, worker_pid AS pid FROM agent_runs WHERE worker_pid IS NOT NULL ORDER BY id ASC',
+    );
+
+    // === Inbox + last-commit SHA (Phase 3, plan 03-03) ===
+    // `inbox_items` payload is always JSON-serialised TEXT; unresolved rows
+    // leave `resolution` NULL (Phase 7 will mutate the column when operators
+    // act on an item). `last_commit_sha` is UPDATE-on-missing-is-no-op for
+    // consistency with the rest of the per-run column updates.
+    this.appendInboxItemStmt = db.prepare<InboxItemInsertParams>(
+      `INSERT INTO inbox_items (id, ts, task_id, agent_run_id, feature_id, kind, payload)
+       VALUES (:id, :ts, :task_id, :agent_run_id, :feature_id, :kind, :payload)`,
+    );
+    this.setLastCommitShaStmt = db.prepare<[string, string]>(
+      'UPDATE agent_runs SET last_commit_sha = ? WHERE id = ?',
     );
 
     // Read-modify-write is wrapped in a single transaction so concurrent
@@ -339,6 +365,24 @@ export class SqliteStore implements Store {
 
   getLiveWorkerPids(): Array<{ agentRunId: string; pid: number }> {
     return this.listLiveWorkerPidsStmt.all();
+  }
+
+  // ---------- Inbox + last-commit SHA (Phase 3, plan 03-03) ----------
+
+  appendInboxItem(item: InboxItemAppend): void {
+    this.appendInboxItemStmt.run({
+      id: item.id,
+      ts: item.ts,
+      task_id: item.taskId ?? null,
+      agent_run_id: item.agentRunId ?? null,
+      feature_id: item.featureId ?? null,
+      kind: item.kind,
+      payload: JSON.stringify(item.payload),
+    });
+  }
+
+  setLastCommitSha(agentRunId: string, sha: string): void {
+    this.setLastCommitShaStmt.run(sha, agentRunId);
   }
 
   // ---------- Lifecycle ----------

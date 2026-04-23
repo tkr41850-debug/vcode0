@@ -3,6 +3,7 @@ import * as crypto from 'node:crypto';
 import * as path from 'node:path';
 import type { Readable, Writable } from 'node:stream';
 
+import type { ModelRef } from '@config/schema';
 import { resolveTaskWorktreeBranch, worktreePath } from '@core/naming/index';
 import type { Task } from '@core/types/index';
 import type { TaskPayload } from '@runtime/context/index';
@@ -91,12 +92,19 @@ export class PiSdkHarness implements SessionHarness {
   // `src/compose.ts` passes `createWorkerPidRegistry(store)`. When absent, the
   // set/clear calls are skipped — the registry itself is responsible for the
   // UPDATE-on-missing no-op semantics, but tests may omit the store entirely.
+  //
+  // Plan 03-03: `taskWorkerModel` (optional) carries the per-role
+  // `config.models.taskWorker` pair forward to the forked worker via
+  // `GVC0_TASK_MODEL_PROVIDER` + `GVC0_TASK_MODEL_ID` env vars. When not
+  // supplied the harness falls back to whatever the caller sets in
+  // `process.env` (e.g., tests that already exported the vars directly).
   constructor(
     private readonly sessionStore: SessionStore,
     private readonly projectRoot: string,
     private readonly entryPath: string = WORKER_ENTRY,
     private readonly health: HarnessHealthConfig = {},
     private readonly pidRegistry?: WorkerPidRegistry,
+    private readonly taskWorkerModel?: ModelRef,
   ) {}
 
   private resolveHealthTimeoutMs(): number {
@@ -208,14 +216,31 @@ export class PiSdkHarness implements SessionHarness {
   }
 
   private forkWorker(cwd: string): child_process.ChildProcess {
+    // Plan 03-03: thread `config.models.taskWorker` forward via env so
+    // `worker/entry.ts` can read it without importing the full config layer.
+    // Fallback to any already-exported `GVC0_TASK_MODEL_*` env (tests that
+    // set them directly) so we never clobber an explicit opt-in.
+    const modelProvider =
+      this.taskWorkerModel?.provider ?? process.env.GVC0_TASK_MODEL_PROVIDER;
+    const modelId =
+      this.taskWorkerModel?.model ?? process.env.GVC0_TASK_MODEL_ID;
+
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      GVC0_PROJECT_ROOT: this.projectRoot,
+    };
+    if (modelProvider !== undefined) {
+      env.GVC0_TASK_MODEL_PROVIDER = modelProvider;
+    }
+    if (modelId !== undefined) {
+      env.GVC0_TASK_MODEL_ID = modelId;
+    }
+
     const child = child_process.fork(this.entryPath, [], {
       cwd,
       stdio: ['pipe', 'pipe', 'inherit'],
       execArgv: ['--import', 'tsx'],
-      env: {
-        ...process.env,
-        GVC0_PROJECT_ROOT: this.projectRoot,
-      },
+      env,
     });
 
     if (child.stdin === null || child.stdout === null) {

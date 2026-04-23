@@ -46,12 +46,27 @@ transport.onMessage((message: OrchestratorToWorkerMessage) => {
   if (message.type === 'run' && !initialized) {
     initialized = true;
 
+    // Plan 03-03: model selection is config-driven (REQ-CONFIG-01). The
+    // harness sets these env vars from `config.models.taskWorker` before
+    // forking. Missing values are a hard error — no implicit fallback, so
+    // a misconfigured compose path fails loudly instead of silently using
+    // a stale default.
+    const provider = process.env.GVC0_TASK_MODEL_PROVIDER;
+    const modelId = process.env.GVC0_TASK_MODEL_ID;
+    if (provider === undefined || modelId === undefined) {
+      process.stderr.write(
+        '[worker] fatal: GVC0_TASK_MODEL_PROVIDER and GVC0_TASK_MODEL_ID must be set by the harness\n',
+      );
+      process.exit(1);
+    }
+
     runtime = new WorkerRuntime(transport, sessionStore, {
-      modelId: 'claude-sonnet-4-20250514',
+      modelProvider: provider,
+      modelId,
       projectRoot,
-      getApiKey: (provider: string) => {
-        if (provider === 'anthropic') return process.env.ANTHROPIC_API_KEY;
-        if (provider === 'openai') return process.env.OPENAI_API_KEY;
+      getApiKey: (apiProvider: string) => {
+        if (apiProvider === 'anthropic') return process.env.ANTHROPIC_API_KEY;
+        if (apiProvider === 'openai') return process.env.OPENAI_API_KEY;
         return undefined;
       },
     });

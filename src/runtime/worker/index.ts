@@ -28,6 +28,13 @@ import { buildSystemPrompt } from '@runtime/worker/system-prompt';
 
 export interface WorkerRuntimeConfig {
   modelId: string;
+  /**
+   * Plan 03-03: provider id (e.g., 'anthropic' / 'openai') threaded through
+   * from `config.models.taskWorker.provider`. Optional for backwards compat
+   * with older callers that only supplied `modelId`; when absent the model
+   * bridge falls back to inference from the `modelId` string.
+   */
+  modelProvider?: string;
   /** Absolute path to the project root — used to locate `.gvc0/` knowledge files. */
   projectRoot: string;
   getApiKey?: (
@@ -71,15 +78,22 @@ export class WorkerRuntime {
     payload: TaskPayload,
     dispatch: TaskRuntimeDispatch,
   ): Promise<void> {
+    // Plan 03-03: prefer the explicit `modelProvider` (config-driven) when
+    // supplied; otherwise let `resolveModel` infer from the model id. The
+    // `provider:model` spec syntax sticks to the existing bridge contract.
+    const modelSpec =
+      this.config.modelProvider !== undefined
+        ? `${this.config.modelProvider}:${this.config.modelId}`
+        : this.config.modelId;
     const model = resolveModel(
-      { model: this.config.modelId, tier: 'standard' },
+      { model: modelSpec, tier: 'standard' },
       {
         enabled: false,
-        ceiling: this.config.modelId,
+        ceiling: modelSpec,
         tiers: {
-          heavy: this.config.modelId,
-          standard: this.config.modelId,
-          light: this.config.modelId,
+          heavy: modelSpec,
+          standard: modelSpec,
+          light: modelSpec,
         },
         escalateOnFailure: false,
         budgetPressure: false,
@@ -97,10 +111,23 @@ export class WorkerRuntime {
     }
 
     const ipcBridge = this.createIpcBridge(task.id, dispatch.agentRunId);
+    // === Commit trailer + commit_done (plan 03-03) ===
+    // The run-command tool rewrites `git commit` to carry the REQ-EXEC-02
+    // trailers, then fires this callback with the resulting SHA so the
+    // orchestrator can persist `agent_runs.last_commit_sha`.
     const tools = buildWorkerToolset({
       ipc: ipcBridge,
       workdir: process.cwd(),
       projectRoot: this.config.projectRoot,
+      onCommitDone: (sha: string, trailerOk: boolean) => {
+        this.transport.send({
+          type: 'commit_done',
+          taskId: task.id,
+          agentRunId: dispatch.agentRunId,
+          sha,
+          trailerOk,
+        });
+      },
     });
 
     const agentOptions: NonNullable<ConstructorParameters<typeof Agent>[0]> = {

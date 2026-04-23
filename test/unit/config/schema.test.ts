@@ -22,6 +22,54 @@ describe('GvcConfigSchema', () => {
     expect(cfg.tokenProfile).toBe('balanced');
   });
 
+  it('applies retry-policy defaults (Plan 03-03)', () => {
+    const cfg = GvcConfigSchema.parse(validMinimal);
+    expect(cfg.retry.baseDelayMs).toBe(250);
+    expect(cfg.retry.maxDelayMs).toBe(30_000);
+    expect(cfg.retry.transientErrorPatterns).toContain('ECONNRESET');
+    expect(cfg.retry.transientErrorPatterns).toContain('rate limit');
+    expect(cfg.retry.transientErrorPatterns).toContain('health_timeout');
+  });
+
+  it('honours explicit retry overrides', () => {
+    const cfg = GvcConfigSchema.parse({
+      ...validMinimal,
+      retry: {
+        baseDelayMs: 500,
+        maxDelayMs: 10_000,
+        transientErrorPatterns: ['custom_pattern'],
+      },
+    });
+    expect(cfg.retry.baseDelayMs).toBe(500);
+    expect(cfg.retry.maxDelayMs).toBe(10_000);
+    expect(cfg.retry.transientErrorPatterns).toEqual(['custom_pattern']);
+  });
+
+  it('rejects non-positive retry.maxDelayMs', () => {
+    expect(() =>
+      GvcConfigSchema.parse({ ...validMinimal, retry: { maxDelayMs: 0 } }),
+    ).toThrow();
+  });
+
+  it('rejects negative retry.baseDelayMs', () => {
+    expect(() =>
+      GvcConfigSchema.parse({ ...validMinimal, retry: { baseDelayMs: -1 } }),
+    ).toThrow();
+  });
+
+  it('applies worktreeRoot default (Plan 03-03)', () => {
+    const cfg = GvcConfigSchema.parse(validMinimal);
+    expect(cfg.worktreeRoot).toBe('.gvc0/worktrees');
+  });
+
+  it('honours explicit worktreeRoot override', () => {
+    const cfg = GvcConfigSchema.parse({
+      ...validMinimal,
+      worktreeRoot: '/tmp/custom-worktrees',
+    });
+    expect(cfg.worktreeRoot).toBe('/tmp/custom-worktrees');
+  });
+
   it('preserves the per-role model map as authored', () => {
     const cfg = GvcConfigSchema.parse(validMinimal);
     expect(cfg.models.topPlanner.model).toBe('claude-sonnet-4-6');
