@@ -11,6 +11,7 @@ import type {
   Milestone,
   MilestoneId,
   Task,
+  TaskId,
 } from '@core/types/index';
 
 import type {
@@ -49,9 +50,10 @@ export class GraphProposalToolHost {
       name: args.name,
       description: args.description,
     });
+    const alias = this.builder.allocateMilestoneId(milestone.id);
     this.builder.addOp({
       kind: 'add_milestone',
-      milestoneId: milestone.id,
+      milestoneId: alias as unknown as MilestoneId,
       name: args.name,
       description: args.description,
     });
@@ -67,11 +69,11 @@ export class GraphProposalToolHost {
       name: args.name,
       description: args.description,
     });
-    this.builder.allocateFeatureId(feature.id);
+    const alias = this.builder.allocateFeatureId(feature.id);
     this.builder.addOp({
       kind: 'add_feature',
-      featureId: feature.id,
-      milestoneId: args.milestoneId,
+      featureId: alias as unknown as FeatureId,
+      milestoneId: this.refMilestone(args.milestoneId),
       name: args.name,
       description: args.description,
     });
@@ -83,7 +85,7 @@ export class GraphProposalToolHost {
     this.draft.removeFeature(args.featureId);
     this.builder.addOp({
       kind: 'remove_feature',
-      featureId: args.featureId,
+      featureId: this.refFeature(args.featureId),
     });
   }
 
@@ -100,7 +102,7 @@ export class GraphProposalToolHost {
     }
     this.builder.addOp({
       kind: 'edit_feature',
-      featureId: args.featureId,
+      featureId: this.refFeature(args.featureId),
       patch: diff,
     });
     return feature;
@@ -128,11 +130,11 @@ export class GraphProposalToolHost {
       description: args.description,
       ...plannerFields,
     });
-    this.builder.allocateTaskId(task.id);
+    const alias = this.builder.allocateTaskId(task.id);
     this.builder.addOp({
       kind: 'add_task',
-      taskId: task.id,
-      featureId: args.featureId,
+      taskId: alias as unknown as TaskId,
+      featureId: this.refFeature(args.featureId),
       description: args.description,
       ...plannerFields,
     });
@@ -158,7 +160,7 @@ export class GraphProposalToolHost {
     this.draft.removeTask(args.taskId);
     this.builder.addOp({
       kind: 'remove_task',
-      taskId: args.taskId,
+      taskId: this.refTask(args.taskId),
     });
   }
 
@@ -167,7 +169,7 @@ export class GraphProposalToolHost {
     const task = this.draft.editTask(args.taskId, args.patch);
     this.builder.addOp({
       kind: 'edit_task',
-      taskId: args.taskId,
+      taskId: this.refTask(args.taskId),
       patch: args.patch,
     });
     return task;
@@ -178,8 +180,8 @@ export class GraphProposalToolHost {
     this.draft.addDependency(args);
     this.builder.addOp({
       kind: 'add_dependency',
-      fromId: args.from,
-      toId: args.to,
+      fromId: this.refEndpoint(args.from),
+      toId: this.refEndpoint(args.to),
     });
   }
 
@@ -188,8 +190,8 @@ export class GraphProposalToolHost {
     this.draft.removeDependency(args);
     this.builder.addOp({
       kind: 'remove_dependency',
-      fromId: args.from,
-      toId: args.to,
+      fromId: this.refEndpoint(args.from),
+      toId: this.refEndpoint(args.to),
     });
   }
 
@@ -223,6 +225,26 @@ export class GraphProposalToolHost {
     if (this.submitted) {
       throw new Error('proposal already submitted');
     }
+  }
+
+  private refMilestone(id: MilestoneId): MilestoneId {
+    const alias = this.builder.aliasFor(id);
+    return alias === undefined ? id : (alias as unknown as MilestoneId);
+  }
+
+  private refFeature(id: FeatureId): FeatureId {
+    const alias = this.builder.aliasFor(id);
+    return alias === undefined ? id : (alias as unknown as FeatureId);
+  }
+
+  private refTask(id: TaskId): TaskId {
+    const alias = this.builder.aliasFor(id);
+    return alias === undefined ? id : (alias as unknown as TaskId);
+  }
+
+  private refEndpoint<T extends FeatureId | TaskId>(id: T): T {
+    const alias = this.builder.aliasFor(id);
+    return alias === undefined ? id : (alias as unknown as T);
   }
 
   private nextMilestoneId(): MilestoneId {
