@@ -499,14 +499,14 @@ describe('feature-phase agent flow', () => {
         ops: [
           expect.objectContaining({
             kind: 'add_milestone',
-            milestoneId: 'm-2',
+            milestoneId: '#1',
             name: 'Milestone 2',
             description: 'Second milestone',
           }),
           expect.objectContaining({
             kind: 'add_feature',
-            featureId: 'f-2',
-            milestoneId: 'm-2',
+            featureId: '#2',
+            milestoneId: '#1',
             name: 'Follow-up feature',
             description: 'Added under new milestone',
           }),
