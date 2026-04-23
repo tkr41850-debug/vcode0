@@ -17,6 +17,8 @@
     "baseUrl": ".",
     "paths": {
       "@root/*": ["src/*.ts", "src/*/index.ts", "src/*"],
+      "@config": ["src/config/index.ts"],
+      "@config/*": ["src/config/*.ts", "src/config/*/index.ts", "src/config/*"],
       "@app/*": ["src/app/*.ts", "src/app/*/index.ts", "src/app/*"],
       "@core/*": ["src/core/*.ts", "src/core/*/index.ts", "src/core/*"],
       "@orchestrator/*": [
