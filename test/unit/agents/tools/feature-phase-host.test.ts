@@ -77,7 +77,7 @@ describe('createFeaturePhaseToolHost', () => {
     });
   });
 
-  it('submitVerify embeds accumulated issues and forces repair_needed when any exist', () => {
+  it('submitVerify forces repair_needed when a blocking issue exists', () => {
     const graph = createGraphWithFeature();
     const host = createFeaturePhaseToolHost('f-1', graph, new InMemoryStore());
 
@@ -96,5 +96,95 @@ describe('createFeaturePhaseToolHost', () => {
     expect(verdict.issues).toHaveLength(1);
     expect(verdict.issues?.[0]).toMatchObject({ severity: 'blocking' });
     expect(verdict.failedChecks).toEqual(['regression in login']);
+  });
+
+  it('submitVerify forces repair_needed when a concern issue exists', () => {
+    const graph = createGraphWithFeature();
+    const host = createFeaturePhaseToolHost('f-1', graph, new InMemoryStore());
+
+    host.raiseIssue({
+      severity: 'concern',
+      description: 'spec drift on retry policy',
+    });
+
+    const verdict = host.submitVerify({
+      outcome: 'pass',
+      summary: 'Attempted pass despite concern.',
+    });
+
+    expect(verdict.ok).toBe(false);
+    expect(verdict.outcome).toBe('repair_needed');
+    expect(verdict.issues).toHaveLength(1);
+    expect(verdict.issues?.[0]).toMatchObject({ severity: 'concern' });
+    expect(verdict.failedChecks).toEqual(['spec drift on retry policy']);
+  });
+
+  it('submitVerify keeps pass when only nit issues exist and surfaces them in the summary', () => {
+    const graph = createGraphWithFeature();
+    const host = createFeaturePhaseToolHost('f-1', graph, new InMemoryStore());
+
+    host.raiseIssue({
+      severity: 'nit',
+      description: 'typo in comment',
+      location: 'src/app.ts',
+    });
+
+    const verdict = host.submitVerify({
+      outcome: 'pass',
+      summary: 'All success criteria met; nit noted.',
+    });
+
+    expect(verdict.ok).toBe(true);
+    expect(verdict.outcome).toBe('pass');
+    expect(verdict.failedChecks).toBeUndefined();
+    expect(verdict.issues).toHaveLength(1);
+    expect(verdict.issues?.[0]).toMatchObject({
+      severity: 'nit',
+      description: 'typo in comment',
+      location: 'src/app.ts',
+    });
+  });
+
+  it('submitVerify surfaces nits alongside blocking issues but forces repair_needed', () => {
+    const graph = createGraphWithFeature();
+    const host = createFeaturePhaseToolHost('f-1', graph, new InMemoryStore());
+
+    host.raiseIssue({
+      severity: 'nit',
+      description: 'typo in comment',
+    });
+    host.raiseIssue({
+      severity: 'blocking',
+      description: 'missing integration proof',
+    });
+
+    const verdict = host.submitVerify({
+      outcome: 'pass',
+      summary: 'Mixed issues raised.',
+    });
+
+    expect(verdict.ok).toBe(false);
+    expect(verdict.outcome).toBe('repair_needed');
+    expect(verdict.issues).toHaveLength(2);
+    expect(verdict.issues?.map((issue) => issue.severity)).toEqual([
+      'nit',
+      'blocking',
+    ]);
+    expect(verdict.failedChecks).toEqual(['missing integration proof']);
+  });
+
+  it('submitVerify returns pass without issues field when none were raised', () => {
+    const graph = createGraphWithFeature();
+    const host = createFeaturePhaseToolHost('f-1', graph, new InMemoryStore());
+
+    const verdict = host.submitVerify({
+      outcome: 'pass',
+      summary: 'Clean feature pass.',
+    });
+
+    expect(verdict.ok).toBe(true);
+    expect(verdict.outcome).toBe('pass');
+    expect(verdict.failedChecks).toBeUndefined();
+    expect(verdict.issues).toBeUndefined();
   });
 });
