@@ -154,6 +154,24 @@ export async function handleSchedulerEvent(params: {
         payloadJson: JSON.stringify(message.payload),
         ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
       });
+
+      // === Destructive-op inbox stub (plan 03-04) ===
+      // REQ-EXEC-04: every blocked destructive git op routes to an
+      // `inbox_items` row with `kind: 'destructive_action'`. Phase 7
+      // materializes the resolution UI; Phase 3 only appends.
+      if (message.payload.kind === 'destructive_action') {
+        ports.store.appendInboxItem({
+          id: `inbox-${message.agentRunId}-${Date.now()}`,
+          ts: Date.now(),
+          taskId: run.scopeId,
+          agentRunId: run.id,
+          kind: 'destructive_action',
+          payload: {
+            description: message.payload.description,
+            affectedPaths: message.payload.affectedPaths,
+          },
+        });
+      }
     }
 
     // === Commit trailer + commit_done (plan 03-03) ===

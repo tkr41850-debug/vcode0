@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import type { ClaimLockResult, IpcBridge } from '@agents/worker';
 import { buildWorkerToolset } from '@agents/worker';
+import {
+  describeDestructive,
+  destructiveOpGuard,
+} from '@agents/worker/destructive-ops';
 import type {
   GitConflictContext,
   Task,
@@ -130,12 +134,71 @@ export class WorkerRuntime {
       },
     });
 
+    // === Write pre-hook (plan 03-04) ===
+    // REQ-EXEC-04: guard destructive git ops via pi-sdk's `beforeToolCall`
+    // hook. The guard BOTH blocks the tool (pi-sdk auto-surfaces a tool-
+    // error result) AND kicks off `ipc.requestApproval` so the orchestrator
+    // appends an `inbox_items` row with `kind: 'destructive_action'`.
+    //
+    // Known limitation (documented for Phase 7): pi-sdk crafts a NEW
+    // `toolCall.id` when the agent retries after a block, so the
+    // `bypassOnce` map cannot grant a "pre-approved" retry for the same
+    // logical command. The persistent record is the inbox row; Phase 7
+    // materializes a full approval-bypass protocol. For Phase 3 the stub
+    // flow is: attempt → block → inbox row appended → operator resolves
+    // out-of-band (no UI yet, default response is reject).
+    const bypassOnce = new Map<string, true>();
+    const workerCwd = process.cwd();
+    const ipcForGuard = ipcBridge;
+
     const agentOptions: NonNullable<ConstructorParameters<typeof Agent>[0]> = {
       initialState: {
         systemPrompt,
         model,
         tools,
         messages,
+      },
+      beforeToolCall: async (ctx) => {
+        const toolCallId = ctx.toolCall.id;
+        if (bypassOnce.get(toolCallId) === true) {
+          bypassOnce.delete(toolCallId);
+          return undefined;
+        }
+        const guardResult = await destructiveOpGuard(ctx);
+        if (guardResult?.block !== true) return guardResult;
+
+        // Fire-and-forget approval round-trip. The tool call is already
+        // blocked by pi-sdk; we append an inbox_item via
+        // `ipc.requestApproval` so the operator can act out-of-band.
+        const cmd = (ctx.args as { command?: unknown } | undefined)?.command;
+        if (typeof cmd === 'string') {
+          const descriptor = describeDestructive(cmd);
+          if (descriptor !== null) {
+            queueMicrotask(() => {
+              void (async () => {
+                try {
+                  const decision = await ipcForGuard.requestApproval({
+                    kind: 'destructive_action',
+                    description: cmd,
+                    affectedPaths: [workerCwd],
+                  });
+                  if (
+                    decision.kind === 'approved' ||
+                    decision.kind === 'approve_always'
+                  ) {
+                    // See bypass-limitation comment above. We still set
+                    // the bypass for symmetry; it lets same-toolCall-id
+                    // retries through on harnesses that reuse ids.
+                    bypassOnce.set(toolCallId, true);
+                  }
+                } catch {
+                  // Phase 7 will materialize richer UX; for now swallow.
+                }
+              })();
+            });
+          }
+        }
+        return guardResult;
       },
     };
     if (this.config.getApiKey !== undefined) {
