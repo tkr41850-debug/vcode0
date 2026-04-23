@@ -70,16 +70,16 @@ export class GitWorktreeProvisioner implements WorktreeProvisioner {
   }
 
   async pruneStaleWorktrees(): Promise<string[]> {
-    // `git worktree prune -v` emits lines like:
-    //   "Removing worktrees/feat-x/: gitdir file points to non-existent location"
-    // Trailing slash varies by git version; tolerate both.
-    const raw = await this.git.raw(['worktree', 'prune', '-v']);
-    const removed: string[] = [];
-    for (const line of raw.split('\n')) {
-      const match = /^Removing worktrees\/([^/:]+)\/?:/.exec(line);
-      if (match?.[1] !== undefined) removed.push(match[1]);
-    }
-    return removed;
+    // `git worktree prune -v` writes its "Removing worktrees/<name>:" lines to
+    // STDERR, which simple-git's `raw` does not capture. We read the worktree
+    // metadata directory before and after `prune` and diff the names. This
+    // also avoids brittle parsing of git version-specific message formatting.
+    const worktreesDir = path.join(this.projectRoot, '.git', 'worktrees');
+    const before = await safeReaddir(worktreesDir);
+    await this.git.raw(['worktree', 'prune']);
+    const after = await safeReaddir(worktreesDir);
+    const afterSet = new Set(after);
+    return before.filter((name) => !afterSet.has(name));
   }
 
   async sweepStaleLocks(
@@ -87,14 +87,7 @@ export class GitWorktreeProvisioner implements WorktreeProvisioner {
     _isAlive: (pid: number) => boolean,
   ): Promise<string[]> {
     const worktreesDir = path.join(this.projectRoot, '.git', 'worktrees');
-    let entries: string[];
-    try {
-      entries = await fs.readdir(worktreesDir);
-    } catch (err: unknown) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
-      throw err;
-    }
-
+    const entries = await safeReaddir(worktreesDir);
     const cleared: string[] = [];
     for (const name of entries) {
       const lockFile = path.join(worktreesDir, name, 'locked');
@@ -188,6 +181,15 @@ function isAlreadyRemovedError(err: unknown): boolean {
     msg.includes('does not exist') ||
     msg.includes('is not a working tree')
   );
+}
+
+async function safeReaddir(dir: string): Promise<string[]> {
+  try {
+    return await fs.readdir(dir);
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw err;
+  }
 }
 
 export type { WorkerPidRegistry } from './pid-registry.js';
