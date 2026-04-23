@@ -374,15 +374,19 @@ export function deriveReplanReason(
   const latestVerify = findLatestPhaseCompletion(events, 'verify');
   const latestFeatureCi = findLatestPhaseCompletion(events, 'ci_check');
 
-  return (
+  const primary =
     readEventSummary(latestRerun) ??
     readEventSummary(latestApplyFailed) ??
     readEventSummary(latestRejected) ??
-    summarizeVerifyIssues(feature.verifyIssues) ??
     readFailedVerificationSummary(latestVerify) ??
-    readFailedVerificationSummary(latestFeatureCi) ??
-    'Scheduler requested replanning.'
-  );
+    readFailedVerificationSummary(latestFeatureCi);
+
+  const issuesSummary = summarizeVerifyIssues(feature.verifyIssues);
+
+  if (primary !== undefined && issuesSummary !== undefined) {
+    return `${primary}\n\n${issuesSummary}`;
+  }
+  return primary ?? issuesSummary ?? 'Scheduler requested replanning.';
 }
 
 function summarizeVerifyIssues(
@@ -391,13 +395,17 @@ function summarizeVerifyIssues(
   if (issues === undefined || issues.length === 0) {
     return undefined;
   }
-  const lines = issues.map(
+  const actionable = issues.filter((issue) => issue.severity !== 'nit');
+  if (actionable.length === 0) {
+    return undefined;
+  }
+  const lines = actionable.map(
     (issue) => `- [${issue.source}] ${issue.description}`,
   );
   const header =
-    issues.length === 1
-      ? 'Replanning due to outstanding verify issue:'
-      : `Replanning due to ${issues.length} outstanding verify issues:`;
+    actionable.length === 1
+      ? 'Outstanding verify issue:'
+      : `Outstanding verify issues (${actionable.length}):`;
   return [header, ...lines].join('\n');
 }
 

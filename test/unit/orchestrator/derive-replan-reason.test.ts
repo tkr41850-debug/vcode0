@@ -68,7 +68,7 @@ describe('deriveReplanReason', () => {
     expect(reason).toContain('lint failed');
   });
 
-  it('prefers user-driven rerun event over verifyIssues', () => {
+  it('combines user-driven rerun event with verifyIssues', () => {
     const store = makeStore([
       {
         eventType: 'proposal_rerun_requested',
@@ -80,9 +80,44 @@ describe('deriveReplanReason', () => {
     const feature = makeFeature({
       verifyIssues: [rebaseIssue('rebase conflict')],
     });
+    const reason = deriveReplanReason({ store } as never, feature);
+    expect(reason).toContain('User wants redo');
+    expect(reason).toContain('rebase conflict');
+  });
+
+  it('filters nit severity out of verifyIssues summary', () => {
+    const store = makeStore();
+    const feature = makeFeature({
+      verifyIssues: [
+        {
+          source: 'verify',
+          id: 'vi-1',
+          severity: 'nit',
+          description: 'minor style suggestion',
+        },
+      ],
+    });
     expect(deriveReplanReason({ store } as never, feature)).toBe(
-      'User wants redo',
+      'Scheduler requested replanning.',
     );
+  });
+
+  it('keeps blocking issues and drops nits within the same list', () => {
+    const store = makeStore();
+    const feature = makeFeature({
+      verifyIssues: [
+        {
+          source: 'verify',
+          id: 'vi-nit',
+          severity: 'nit',
+          description: 'style suggestion',
+        },
+        rebaseIssue('rebase conflict in x.ts'),
+      ],
+    });
+    const reason = deriveReplanReason({ store } as never, feature);
+    expect(reason).toContain('rebase conflict in x.ts');
+    expect(reason).not.toContain('style suggestion');
   });
 
   it('uses event summary when verifyIssues empty', () => {
