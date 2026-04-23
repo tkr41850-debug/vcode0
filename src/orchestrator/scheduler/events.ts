@@ -155,6 +155,27 @@ export async function handleSchedulerEvent(params: {
         ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
       });
     }
+
+    // === Commit trailer + commit_done (plan 03-03) ===
+    // REQ-EXEC-02: persist the SHA of the last commit each run produced so
+    // the merge-train reconciler (Wave 3) can attribute ranges to tasks.
+    // A false `trailerOk` is a correctness bug — surface it as an event
+    // so the TUI can warn and Wave 3 diagnostics can flag the run.
+    if (message.type === 'commit_done') {
+      ports.store.setLastCommitSha(run.id, message.sha);
+      if (!message.trailerOk) {
+        ports.store.appendEvent({
+          eventType: 'commit_trailer_missing',
+          entityId: run.scopeId,
+          timestamp: Date.now(),
+          payload: {
+            agentRunId: run.id,
+            sha: message.sha,
+          },
+        });
+      }
+      return;
+    }
     return;
   }
 

@@ -111,10 +111,23 @@ export class WorkerRuntime {
     }
 
     const ipcBridge = this.createIpcBridge(task.id, dispatch.agentRunId);
+    // === Commit trailer + commit_done (plan 03-03) ===
+    // The run-command tool rewrites `git commit` to carry the REQ-EXEC-02
+    // trailers, then fires this callback with the resulting SHA so the
+    // orchestrator can persist `agent_runs.last_commit_sha`.
     const tools = buildWorkerToolset({
       ipc: ipcBridge,
       workdir: process.cwd(),
       projectRoot: this.config.projectRoot,
+      onCommitDone: (sha: string, trailerOk: boolean) => {
+        this.transport.send({
+          type: 'commit_done',
+          taskId: task.id,
+          agentRunId: dispatch.agentRunId,
+          sha,
+          trailerOk,
+        });
+      },
     });
 
     const agentOptions: NonNullable<ConstructorParameters<typeof Agent>[0]> = {

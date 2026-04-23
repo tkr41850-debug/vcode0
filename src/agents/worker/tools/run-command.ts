@@ -1,5 +1,10 @@
 import { spawn } from 'node:child_process';
 
+import {
+  isGitCommitCommand,
+  maybeInjectTrailer,
+  validateTrailers,
+} from '@agents/worker/tools/commit-trailer';
 import type { AgentTool } from '@mariozechner/pi-agent-core';
 import { Type } from '@sinclair/typebox';
 
@@ -35,6 +40,26 @@ interface RunResult {
 
 /** Per-stream capture cap. Prevents OOM from chatty builds / `cat bigfile`. */
 const MAX_STREAM_BYTES = 1 * 1024 * 1024;
+
+/**
+ * REQ-EXEC-02: callback the run-command tool fires after a `git commit`
+ * completes (exit 0) and we've asserted the required trailers. Wires into
+ * the worker runtime to emit a `commit_done` IPC frame.
+ */
+export interface CommitDoneEmitter {
+  (sha: string, trailerOk: boolean): void;
+}
+
+export interface RunCommandDeps {
+  /** Absolute path to the task's git worktree. */
+  workdir: string;
+  /** REQ-EXEC-02: task id for `gvc0-task-id` trailer injection. */
+  taskId?: string;
+  /** REQ-EXEC-02: agent run id for `gvc0-run-id` trailer injection. */
+  agentRunId?: string;
+  /** Called after a successful `git commit` with SHA + trailer validation result. */
+  onCommitDone?: CommitDoneEmitter;
+}
 
 function runShell(
   command: string,
@@ -129,9 +154,37 @@ function runShell(
   });
 }
 
+/** Spawn helper that captures stdout+stderr and returns exit code. */
+function runQuick(
+  args: string[],
+  cwd: string,
+): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(args[0]!, args.slice(1), {
+      cwd,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout?.on('data', (c: Buffer) => {
+      stdout += c.toString('utf-8');
+    });
+    child.stderr?.on('data', (c: Buffer) => {
+      stderr += c.toString('utf-8');
+    });
+    child.on('error', (err) => reject(err));
+    child.on('close', (code) => {
+      resolve({ stdout, stderr, exitCode: code });
+    });
+  });
+}
+
 export function createRunCommandTool(
-  workdir: string,
+  deps: RunCommandDeps | string,
 ): AgentTool<typeof parameters, RunCommandDetails> {
+  // Back-compat: older callers passed a bare workdir string; normalize.
+  const cfg: RunCommandDeps =
+    typeof deps === 'string' ? { workdir: deps } : deps;
   return {
     name: 'run_command',
     label: 'Run Command',
@@ -140,7 +193,60 @@ export function createRunCommandTool(
     parameters,
     execute: async (_toolCallId, params, signal) => {
       const timeoutMs = params.timeoutMs ?? 60_000;
-      const result = await runShell(params.command, workdir, timeoutMs, signal);
+
+      // === Commit trailer + commit_done (plan 03-03) ===
+      // Rewrite git-commit invocations so every worker-produced commit
+      // carries the required trailers. `maybeInjectTrailer` is a no-op for
+      // every other command (git status, git log, npm test, …).
+      const needsTrailerRewrite =
+        isGitCommitCommand(params.command) &&
+        cfg.taskId !== undefined &&
+        cfg.agentRunId !== undefined;
+      const rewritten = needsTrailerRewrite
+        ? maybeInjectTrailer(params.command, cfg.taskId!, cfg.agentRunId!)
+        : params.command;
+
+      const result = await runShell(rewritten, cfg.workdir, timeoutMs, signal);
+
+      // Only on a clean `git commit` do we validate + emit `commit_done`.
+      if (
+        needsTrailerRewrite &&
+        result.exitCode === 0 &&
+        !result.timedOut &&
+        cfg.onCommitDone !== undefined
+      ) {
+        try {
+          const shaRes = await runQuick(
+            ['git', 'rev-parse', 'HEAD'],
+            cfg.workdir,
+          );
+          const sha = shaRes.stdout.trim();
+          if (sha.length > 0) {
+            const logRes = await runQuick(
+              ['git', 'log', '-1', '--pretty=%B', sha],
+              cfg.workdir,
+            );
+            const trailerRes = await runQuick(
+              ['git', 'interpret-trailers', '--parse'],
+              cfg.workdir,
+            );
+            // `git interpret-trailers --parse` needs stdin — when we can't
+            // feed it (no-TTY child), fall back to scanning the raw commit
+            // message for the trailer lines.
+            const trailerSource =
+              trailerRes.stdout.length > 0 ? trailerRes.stdout : logRes.stdout;
+            const trailerOk = validateTrailers(
+              trailerSource,
+              cfg.taskId!,
+              cfg.agentRunId!,
+            );
+            cfg.onCommitDone(sha, trailerOk);
+          }
+        } catch {
+          // Post-commit inspection is best-effort — swallow so the agent
+          // keeps going even if git is momentarily unhappy.
+        }
+      }
 
       const statusLine = result.timedOut
         ? `[timed out after ${timeoutMs}ms]`
@@ -163,7 +269,7 @@ export function createRunCommandTool(
       return {
         content: [{ type: 'text', text: body }],
         details: {
-          command: params.command,
+          command: rewritten,
           exitCode: result.exitCode,
           signal: result.signal,
           timedOut: result.timedOut,
