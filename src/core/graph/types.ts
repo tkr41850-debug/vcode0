@@ -1,10 +1,8 @@
 import type {
-  Decision,
   Feature,
   FeatureCollabControl,
   FeatureId,
   FeatureWorkControl,
-  Finding,
   Milestone,
   MilestoneId,
   RepairSource,
@@ -79,8 +77,8 @@ export interface PlannerFeatureEditPatch {
   description?: string;
   summary?: string;
   roughDraft?: string;
-  discussOutput?: Decision[];
-  researchOutput?: Finding[];
+  discussOutput?: string;
+  researchOutput?: string;
   featureObjective?: string;
   featureDoD?: string[];
   verifyIssues?: VerifyIssue[];

@@ -121,8 +121,8 @@ interface Feature {
   summary?: string;
   tokenUsage?: TokenUsageAggregate;   // lifetime aggregate across all task/model calls in the feature
   roughDraft?: string;                // seed text captured before `discussing` (rough idea / ticket body)
-  discussOutput?: Decision[];         // planner-baked decisions persisted by discuss-phase completion
-  researchOutput?: Finding[];         // planner-baked findings persisted by research-phase completion
+  discussOutput?: string;             // raw markdown blob persisted by discuss-phase completion
+  researchOutput?: string;            // raw markdown blob persisted by research-phase completion
   featureObjective?: string;          // planner-baked feature-level objective (written on plan approval)
   featureDoD?: string[];              // planner-baked definition-of-done bullets for the feature
   verifyIssues?: VerifyIssue[];       // typed issues raised by verify agent; cleared on next approved replan
@@ -152,26 +152,8 @@ interface Task {
   objective?: string;              // planner-baked task objective (one-liner what to achieve)
   scope?: string;                  // planner-baked scope boundary (what is in / out of scope)
   expectedFiles?: string[];        // planner-baked list of files the task is expected to touch
-  references?: Reference[];        // planner-baked reference pointers (knowledge, decisions, code)
+  references?: string[];           // planner-baked reference pointers (paths, URLs, knowledge ids)
   outcomeVerification?: string;    // planner-baked how-to-verify text (commands, assertions)
-}
-
-interface Decision {
-  topic: string;
-  decision: string;
-  rationale?: string;
-}
-
-interface Finding {
-  topic: string;
-  summary: string;
-  references?: string[];
-}
-
-interface Reference {
-  kind: 'file' | 'knowledge' | 'decision' | 'url';
-  location: string;                // file path, knowledge entry id, decision id, or URL
-  note?: string;
 }
 
 interface VerifyIssue {

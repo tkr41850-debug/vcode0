@@ -1,10 +1,4 @@
-import type {
-  Decision,
-  Feature,
-  Finding,
-  Task,
-  VerifyIssue,
-} from '@core/types/index';
+import type { Feature, Task, VerifyIssue } from '@core/types/index';
 
 /**
  * Typed per-phase contexts composed from the Feature row. Each phase consumes
@@ -19,21 +13,21 @@ export interface DiscussContext {
 export interface ResearchContext {
   feature: Feature;
   roughDraft?: string;
-  discussOutput?: Decision[];
+  discussOutput?: string;
 }
 
 export interface PlanContext {
   feature: Feature;
   roughDraft?: string;
-  discussOutput?: Decision[];
-  researchOutput?: Finding[];
+  discussOutput?: string;
+  researchOutput?: string;
 }
 
 export interface VerifyContext {
   feature: Feature;
   roughDraft?: string;
-  discussOutput?: Decision[];
-  researchOutput?: Finding[];
+  discussOutput?: string;
+  researchOutput?: string;
   featureObjective?: string;
   featureDoD?: string[];
   tasks: Task[];

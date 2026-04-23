@@ -10,14 +10,12 @@ import {
 import type { FeatureGraph } from '@core/graph/index';
 import type {
   AgentRun,
-  Decision,
   DiscussPhaseDetails,
   DiscussPhaseResult,
   EventRecord,
   Feature,
   FeaturePhaseResult,
   FeaturePhaseRunContext,
-  Finding,
   GvcConfig,
   ProposalPhaseDetails,
   ResearchPhaseDetails,
@@ -427,7 +425,7 @@ export class PiFeatureAgentRuntime {
       const details = extractDiscussDetails(extra);
       if (details !== undefined) {
         this.deps.graph.editFeature(feature.id, {
-          discussOutput: decisionsFromDiscuss(details),
+          discussOutput: markdownFromDiscuss(details),
         });
       }
       return;
@@ -436,7 +434,7 @@ export class PiFeatureAgentRuntime {
       const details = extractResearchDetails(extra);
       if (details !== undefined) {
         this.deps.graph.editFeature(feature.id, {
-          researchOutput: findingsFromResearch(details),
+          researchOutput: markdownFromResearch(details),
         });
       }
       return;
@@ -450,63 +448,77 @@ export class PiFeatureAgentRuntime {
   }
 }
 
-function decisionsFromDiscuss(details: DiscussPhaseDetails): Decision[] {
-  const out: Decision[] = [];
-  if (details.intent && details.intent.length > 0) {
-    out.push({ topic: 'intent', decision: details.intent });
-  }
-  for (const item of details.successCriteria) {
-    out.push({ topic: 'success-criterion', decision: item });
-  }
-  for (const item of details.constraints) {
-    out.push({ topic: 'constraint', decision: item });
-  }
-  for (const item of details.externalIntegrations) {
-    out.push({ topic: 'external-integration', decision: item });
-  }
-  for (const item of details.antiGoals) {
-    out.push({ topic: 'anti-goal', decision: item });
-  }
-  for (const item of details.risks) {
-    out.push({ topic: 'risk', decision: item });
-  }
-  for (const item of details.openQuestions) {
-    out.push({ topic: 'open-question', decision: item });
-  }
-  return out;
+function renderBulletSection(heading: string, bullets: string[]): string {
+  return `## ${heading}\n${bullets.map((b) => `- ${b}`).join('\n')}`;
 }
 
-function findingsFromResearch(details: ResearchPhaseDetails): Finding[] {
-  const out: Finding[] = [];
+function markdownFromDiscuss(details: DiscussPhaseDetails): string {
+  const sections: string[] = [];
+  if (details.intent.length > 0) {
+    sections.push(`**Intent**: ${details.intent}`);
+  }
+  if (details.successCriteria.length > 0) {
+    sections.push(
+      renderBulletSection('Success Criteria', details.successCriteria),
+    );
+  }
+  if (details.constraints.length > 0) {
+    sections.push(renderBulletSection('Constraints', details.constraints));
+  }
+  if (details.risks.length > 0) {
+    sections.push(renderBulletSection('Risks', details.risks));
+  }
+  if (details.externalIntegrations.length > 0) {
+    sections.push(
+      renderBulletSection(
+        'External Integrations',
+        details.externalIntegrations,
+      ),
+    );
+  }
+  if (details.antiGoals.length > 0) {
+    sections.push(renderBulletSection('Anti-Goals', details.antiGoals));
+  }
+  if (details.openQuestions.length > 0) {
+    sections.push(renderBulletSection('Open Questions', details.openQuestions));
+  }
+  return sections.join('\n\n');
+}
+
+function markdownFromResearch(details: ResearchPhaseDetails): string {
+  const sections: string[] = [];
   if (details.existingBehavior.length > 0) {
-    out.push({
-      topic: 'existing-behavior',
-      finding: details.existingBehavior,
-    });
+    sections.push(`**Existing Behavior**: ${details.existingBehavior}`);
   }
-  for (const file of details.essentialFiles) {
-    out.push({
-      topic: 'essential-file',
-      finding: file.responsibility,
-      source: file.path,
-    });
+  if (details.essentialFiles.length > 0) {
+    const bullets = details.essentialFiles.map(
+      (f) => `\`${f.path}\` — ${f.responsibility}`,
+    );
+    sections.push(renderBulletSection('Essential Files', bullets));
   }
-  for (const item of details.reusePatterns) {
-    out.push({ topic: 'reuse-pattern', finding: item });
+  if (details.reusePatterns.length > 0) {
+    sections.push(renderBulletSection('Reuse Patterns', details.reusePatterns));
   }
-  for (const item of details.riskyBoundaries) {
-    out.push({ topic: 'risky-boundary', finding: item });
+  if (details.riskyBoundaries.length > 0) {
+    sections.push(
+      renderBulletSection('Risky Boundaries', details.riskyBoundaries),
+    );
   }
-  for (const item of details.proofsNeeded) {
-    out.push({ topic: 'proof-needed', finding: item });
+  if (details.proofsNeeded.length > 0) {
+    sections.push(renderBulletSection('Proofs Needed', details.proofsNeeded));
   }
-  for (const item of details.verificationSurfaces) {
-    out.push({ topic: 'verification-surface', finding: item });
+  if (details.verificationSurfaces.length > 0) {
+    sections.push(
+      renderBulletSection(
+        'Verification Surfaces',
+        details.verificationSurfaces,
+      ),
+    );
   }
-  for (const item of details.planningNotes) {
-    out.push({ topic: 'planning-note', finding: item });
+  if (details.planningNotes.length > 0) {
+    sections.push(renderBulletSection('Planning Notes', details.planningNotes));
   }
-  return out;
+  return sections.join('\n\n');
 }
 
 function extractDiscussDetails(

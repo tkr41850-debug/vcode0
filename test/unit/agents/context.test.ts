@@ -15,8 +15,8 @@ import {
 function featureWithPhaseOutputs(overrides: Partial<Feature> = {}): Feature {
   return createFeatureFixture({
     roughDraft: 'draft v1',
-    discussOutput: [{ topic: 'scope', decision: 'only email' }],
-    researchOutput: [{ topic: 'lib', finding: 'bcrypt-js' }],
+    discussOutput: '## Success Criteria\n- only email',
+    researchOutput: '## Essential Files\n- `bcrypt-js`',
     featureObjective: 'ship login',
     featureDoD: ['login works', 'tests green'],
     ...overrides,
@@ -43,18 +43,16 @@ describe('feature-phase context composers', () => {
     const feature = featureWithPhaseOutputs();
     const ctx = buildResearchContext(feature);
     expect(ctx.roughDraft).toBe('draft v1');
-    expect(ctx.discussOutput).toEqual([
-      { topic: 'scope', decision: 'only email' },
-    ]);
+    expect(ctx.discussOutput).toBe('## Success Criteria\n- only email');
     expect(ctx).not.toHaveProperty('researchOutput');
   });
 
-  it('buildPlanContext carries draft + decisions + findings', () => {
+  it('buildPlanContext carries draft + discuss + research markdown', () => {
     const feature = featureWithPhaseOutputs();
     const ctx = buildPlanContext(feature);
     expect(ctx.roughDraft).toBe('draft v1');
-    expect(ctx.discussOutput?.[0]?.decision).toBe('only email');
-    expect(ctx.researchOutput?.[0]?.finding).toBe('bcrypt-js');
+    expect(ctx.discussOutput).toContain('only email');
+    expect(ctx.researchOutput).toContain('bcrypt-js');
   });
 
   it('buildVerifyContext includes objective/DoD and tasks', () => {

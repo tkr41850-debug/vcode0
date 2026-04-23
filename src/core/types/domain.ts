@@ -1,4 +1,4 @@
-import type { Decision, Finding, TaskResult } from './phases.js';
+import type { TaskResult } from './phases.js';
 import type { TokenUsageAggregate } from './usage.js';
 import type { VerifyIssue } from './verification.js';
 import type {
@@ -45,8 +45,8 @@ export interface Feature {
   summary?: string;
   tokenUsage?: TokenUsageAggregate;
   roughDraft?: string;
-  discussOutput?: Decision[];
-  researchOutput?: Finding[];
+  discussOutput?: string;
+  researchOutput?: string;
   featureObjective?: string;
   featureDoD?: string[];
   verifyIssues?: VerifyIssue[];

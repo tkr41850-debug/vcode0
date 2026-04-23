@@ -3,18 +3,6 @@ export interface TaskResult {
   filesChanged: string[];
 }
 
-export interface Decision {
-  topic: string;
-  decision: string;
-  rationale?: string;
-}
-
-export interface Finding {
-  topic: string;
-  finding: string;
-  source?: string;
-}
-
 export interface DiscussPhaseDetails {
   intent: string;
   successCriteria: string[];

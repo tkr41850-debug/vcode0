@@ -718,21 +718,10 @@ describe('PersistentFeatureGraph', () => {
       });
       graph.editFeature('f-1', {
         roughDraft: 'draft v1',
-        discussOutput: [
-          { topic: 'scope', decision: 'only email/password' },
-          {
-            topic: 'storage',
-            decision: 'bcrypt hashes',
-            rationale: 'compliance',
-          },
-        ],
-        researchOutput: [
-          {
-            topic: 'lib',
-            finding: 'bcrypt-js available',
-            source: 'npm',
-          },
-        ],
+        discussOutput:
+          '## Success Criteria\n- only email/password\n- bcrypt hashes',
+        researchOutput:
+          '## Essential Files\n- `src/auth/login.ts` — login handler',
         featureObjective: 'ship secure login',
         featureDoD: ['login works', 'tests green'],
         verifyIssues: [
@@ -757,17 +746,12 @@ describe('PersistentFeatureGraph', () => {
       const graph2 = new PersistentFeatureGraph(db);
       const f = graph2.features.get('f-1');
       expect(f?.roughDraft).toBe('draft v1');
-      expect(f?.discussOutput).toEqual([
-        { topic: 'scope', decision: 'only email/password' },
-        {
-          topic: 'storage',
-          decision: 'bcrypt hashes',
-          rationale: 'compliance',
-        },
-      ]);
-      expect(f?.researchOutput).toEqual([
-        { topic: 'lib', finding: 'bcrypt-js available', source: 'npm' },
-      ]);
+      expect(f?.discussOutput).toBe(
+        '## Success Criteria\n- only email/password\n- bcrypt hashes',
+      );
+      expect(f?.researchOutput).toBe(
+        '## Essential Files\n- `src/auth/login.ts` — login handler',
+      );
       expect(f?.featureObjective).toBe('ship secure login');
       expect(f?.featureDoD).toEqual(['login works', 'tests green']);
       expect(f?.verifyIssues).toEqual([

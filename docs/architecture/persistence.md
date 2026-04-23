@@ -43,8 +43,8 @@ CREATE TABLE features (
   summary TEXT,
   token_usage TEXT,
   rough_draft TEXT,
-  discuss_output TEXT,              -- JSON Decision[]
-  research_output TEXT,             -- JSON Finding[]
+  discuss_output TEXT,              -- markdown blob
+  research_output TEXT,             -- markdown blob
   feature_objective TEXT,
   feature_dod TEXT,                 -- JSON string[]
   verify_issues TEXT,               -- JSON VerifyIssue[]

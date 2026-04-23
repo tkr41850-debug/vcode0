@@ -18,12 +18,10 @@ export type {
 export type { Feature, Milestone, Task } from './domain.js';
 export type { EventRecord } from './events.js';
 export type {
-  Decision,
   DiscussPhaseDetails,
   DiscussPhaseResult,
   FeaturePhaseResult,
   FeaturePhaseRunContext,
-  Finding,
   ProposalPhaseDetails,
   ResearchFileDetail,
   ResearchPhaseDetails,
