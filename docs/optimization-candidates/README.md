@@ -9,3 +9,4 @@ Current entries:
 - [Push-Based Reservation Overlap Detection](./push-based-conflict-detection.md)
 - [Testing Cost Reduction](./testing.md)
 - [Verification Reuse](./verification-and-recovery.md)
+- [Abort In-Flight Scheduler Tick](./abort-in-flight-scheduler-tick.md)
