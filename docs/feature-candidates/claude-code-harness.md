@@ -293,7 +293,13 @@ Concrete choices for the first implementation pass. Flagged as defaults; revisit
 
 - `--append-system-prompt-file <rendered>` is the authoritative per-task context, always passed. Independent of CLAUDE.md presence.
 - Repo-root `CLAUDE.md` loads via Claude Code's upward directory walk when present on the checked-out branch of a parent worktree. No fallback file is written when absent; the task prompt stands alone.
-- User-level `~/.claude/CLAUDE.md` contamination is mitigated with the narrowest documented mechanism Claude Code exposes (env var or flag — verify against the Claude Code source before implementing). `--bare` is rejected: it strips repo CLAUDE.md, plugins, and user hooks in one blow, overshoots the goal. If no narrower mechanism exists, accept user-CLAUDE.md bleed as a known baseline limitation and flag in operator docs.
+- User-level `~/.claude/CLAUDE.md` contamination is mitigated via the `claudeMdExcludes` settings key (the narrowest documented mechanism). In the harness-generated `--settings` file:
+
+  ```json
+  { "claudeMdExcludes": ["<user-home>/.claude/CLAUDE.md"] }
+  ```
+
+  Excludes only the user file by absolute path, leaves repo `CLAUDE.md`, plugins, hooks, and auto-memory intact. `--bare` / `CLAUDE_CODE_SIMPLE=1` is rejected (strips plugins + hooks + MCP + auto-memory as collateral). `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1` is also too broad (drops project CLAUDE.md too). Source: [Claude Code memory docs](https://code.claude.com/docs/en/memory) — "Exclude specific CLAUDE.md files".
 
 ### Settings isolation
 
