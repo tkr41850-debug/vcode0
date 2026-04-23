@@ -96,15 +96,14 @@ Each feature owns exactly one long-lived integration branch.
    terminal results with `completionKind === 'submitted'` as landed task work
    on the feature branch.
 4. After the last task or repair task lands, the feature runs
-   `ci_check` on the feature branch,
+   `ci_check` on the feature branch (pre-verify),
    then agent-level `verifying`.
 5. If that path passes, feature work control becomes
    `awaiting_merge` and feature collaboration control may become
    `merge_queued`.
-6. The merge train rebases the feature branch onto the latest
-   `main` and coordinates final integration; merge-train verification remains
-   part of the architecture/config surface, while the currently wired
-   verification executor is the feature-level `ci_check` path.
+6. The in-process integration executor (see below) moves the queue head
+   through `integrating` and either lands it on `main` or ejects to
+   `replanning`.
 7. After collaboration control reaches `merged`,
    the feature normally runs blocking `summarizing`
    and then reaches `work_complete`;
@@ -115,6 +114,48 @@ Each feature owns exactly one long-lived integration branch.
    fail-closed mechanical rebase first,
    then task-local agent reconciliation with injected conflict
    context if git cannot resolve cleanly.
+
+### Integration Executor: In-Process Subprocess
+
+The orchestrator runs a dedicated **integration-worker subprocess**
+per merge-train cycle. This is distinct from task workers and
+distinct from the tick-synchronous cross-feature rebase path used
+during task execution — integration runs asynchronously so
+long-running post-rebase `ci_check` does not block the scheduler
+loop.
+
+Canonical sequence inside the executor:
+
+```text
+awaiting_merge → merge_queued → integrating
+  ↓
+  write integration marker row (expectedParentSha, featureBranchPreIntegrationSha,
+                                config_snapshot of verification.feature, intent='integrate')
+  ↓
+  git rebase onto latest main   — fail → eject, reroute to replanning with source:'rebase'
+  ↓
+  post-rebase ci_check          — fail → eject, reroute to replanning with
+                                         source:'ci_check', phase:'post_rebase'
+  ↓
+  git merge --no-ff --force-with-lease=<expectedParentSha>
+  ↓
+  atomic DB tx: clear marker + set mainMergeSha/branchHeadSha +
+                collabControl='merged' + workControl='summarizing'
+  ↓
+merged → summarizing → work_complete
+```
+
+Re-enqueue after eject uses `git rebase --onto <newMain>
+<featureBranchPreIntegrationSha> HEAD` so the stale first-rebase
+layer drops; git `rerere` is enabled as a backstop.
+
+Crash between `git merge` and the clearing DB tx is resolved by the
+startup reconciler treating git refs as authoritative
+(see [verification-and-recovery.md](../operations/verification-and-recovery.md)).
+
+Integration-worker IPC carries progress and result frames for each
+sub-phase (rebase, ci_check, merge); full frame schema lives with
+the executor implementation.
 
 ## IPC: NDJSON over stdio (swappable)
 

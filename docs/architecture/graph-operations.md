@@ -325,9 +325,25 @@ premature feature split.
 
 Completed feature branches do not merge directly to `main`. Instead, merge-train ordering remains feature-owned: queue eligibility and ordering derive from feature merge-train fields plus dependency legality and current milestone steering context.
 
-### Invariant: `main` is never in a bad state
+### How the Executor Protects `main`
 
-The merge train exists to protect `main`. A feature branch only updates `main` after it has rebased onto the current `main`, run merge-train verification against that rebased state, and passed. If rebase fails or verification fails, the feature is ejected from the queue (`integrating → branch_open`, `mergeTrainReentryCount` increments) and repair work lands on the feature branch before it may re-queue. `main` never advances to a state that has not passed merge-train verification at its post-rebase tip.
+The merge train protects `main` through a sequence of executor-enforced
+steps: pre-verify `ci_check` before queue entry, rebase onto latest
+`main` inside the integration executor, post-rebase `ci_check` against
+the rebased tip, and a final `git merge --no-ff
+--force-with-lease=<expectedParentSha>` that aborts if `main` moved
+under us. The `--force-with-lease` guard closes the race between
+reading `main` for rebase and updating its ref at merge. A two-phase
+marker row plus a startup reconciler (git refs authoritative) handle
+crash windows between `git merge` and the DB transition — see
+[verification-and-recovery.md](../operations/verification-and-recovery.md).
+
+If any of rebase, post-rebase `ci_check`, or the `--force-with-lease`
+merge fails, the executor ejects the feature (`integrating →
+branch_open`, `mergeTrainReentryCount` increments) and routes the
+feature to `replanning` with a typed `VerifyIssue[]` payload. No
+repair task is created directly. `main` advances only after the
+entire sequence passes atomically.
 
 Queue rules:
 1. Only features whose feature deps are already merged to `main` may integrate.
@@ -347,12 +363,18 @@ Queue rules:
    persistent manual ordering is deferred as a feature candidate
    because it adds persistence/update complexity. See
    [Feature Candidate: Arbitrary Merge-Train Manual Ordering](../feature-candidates/arbitrary-merge-train-manual-ordering.md).
-5. The queue head rebases onto the latest `main`,
-   runs merge-train verification, and either merges or is
-   removed from the queue for repair work on the same
-   feature branch.
+5. The queue head moves into `integrating` through the in-process
+   integration executor, which runs rebase → post-rebase `ci_check`
+   → `git merge --no-ff --force-with-lease` under a marker-row
+   transaction. Success atomically clears the marker and advances
+   feature work control to `summarizing`.
 6. Cross-feature conflicts are surfaced here,
    not by task-level file resets.
    Reservation overlap only penalizes scheduling;
    runtime overlap uses the feature-pair coordination protocol
    described in [conflict coordination](../operations/conflict-coordination.md).
+7. Re-enqueue after eject uses
+   `git rebase --onto <newMain> <featureBranchPreIntegrationSha> HEAD`
+   so the stale first-rebase layer drops. `rerere` is enabled as a
+   backstop so recurrent conflicts resolve with the prior human
+   decision.
