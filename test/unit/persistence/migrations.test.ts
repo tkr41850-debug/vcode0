@@ -275,9 +275,7 @@ describe('persistence migrations', () => {
       runner.run();
 
       const columns = inst
-        .prepare<[], { name: string }>(
-          "PRAGMA table_info('schema_migrations')",
-        )
+        .prepare<[], { name: string }>("PRAGMA table_info('schema_migrations')")
         .all()
         .map((r) => r.name);
       expect(columns).toContain('version');

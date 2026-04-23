@@ -65,9 +65,7 @@ describe('SqliteStore transaction rollback (real file DB)', () => {
       // Cross-feature task dep is a graph validation violation — the
       // snapshot-diff-rollback path in PersistentFeatureGraph must leave
       // both the in-memory graph and the SQL file untouched.
-      expect(() =>
-        graph.addDependency({ from: 't-2', to: 't-1' }),
-      ).toThrow();
+      expect(() => graph.addDependency({ from: 't-2', to: 't-1' })).toThrow();
 
       const postSnapshot = store.snapshotGraph();
       expect(isDeepStrictEqual(postSnapshot, preSnapshot)).toBe(true);
@@ -108,9 +106,7 @@ describe('SqliteStore transaction rollback (real file DB)', () => {
       graph.createTask({ id: 't-2', featureId: 'f-2', description: 'T2' });
 
       const preFail = store1.snapshotGraph();
-      expect(() =>
-        graph.addDependency({ from: 't-2', to: 't-1' }),
-      ).toThrow();
+      expect(() => graph.addDependency({ from: 't-2', to: 't-1' })).toThrow();
 
       // Post-fail snapshot from the live in-memory graph must match
       // pre-fail exactly — confirms the rollback path restores state in
@@ -134,10 +130,7 @@ describe('SqliteStore transaction rollback (real file DB)', () => {
       const replayed = store2.snapshotGraph();
 
       expect(replayed.milestones.map((m) => m.id).sort()).toEqual(['m-1']);
-      expect(replayed.features.map((f) => f.id).sort()).toEqual([
-        'f-1',
-        'f-2',
-      ]);
+      expect(replayed.features.map((f) => f.id).sort()).toEqual(['f-1', 'f-2']);
       expect(replayed.tasks.map((t) => t.id).sort()).toEqual(['t-1', 't-2']);
 
       for (const f of replayed.features) {
@@ -177,8 +170,6 @@ describe('SqliteStore transaction rollback (real file DB)', () => {
     store.close();
 
     // better-sqlite3 rejects prepared-statement use after close().
-    expect(() =>
-      db.prepare('SELECT 1').get(),
-    ).toThrow();
+    expect(() => db.prepare('SELECT 1').get()).toThrow();
   });
 });

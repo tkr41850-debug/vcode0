@@ -257,10 +257,9 @@ export class SqliteStore implements Store {
   rehydrate(): RehydrateSnapshot {
     const placeholders = OPEN_RUN_STATUSES.map(() => '?').join(', ');
     const openRunRows = this.db
-      .prepare<
-        string[],
-        AgentRunRow
-      >(`SELECT ${AGENT_RUN_COLUMNS} FROM agent_runs WHERE run_status IN (${placeholders}) ORDER BY created_at ASC, id ASC`)
+      .prepare<string[], AgentRunRow>(
+        `SELECT ${AGENT_RUN_COLUMNS} FROM agent_runs WHERE run_status IN (${placeholders}) ORDER BY created_at ASC, id ASC`,
+      )
       .all(...OPEN_RUN_STATUSES);
     const openRuns = openRunRows.map(rowToAgentRun);
 
@@ -268,10 +267,9 @@ export class SqliteStore implements Store {
     // `id ASC` gives chronological order; we limit by selecting the tail
     // via a sub-select and re-sorting.
     const pendingEventRows = this.db
-      .prepare<
-        [number],
-        EventRow
-      >(`SELECT ${EVENT_COLUMNS} FROM (SELECT ${EVENT_COLUMNS} FROM events ORDER BY id DESC LIMIT ?) AS tail ORDER BY id ASC`)
+      .prepare<[number], EventRow>(
+        `SELECT ${EVENT_COLUMNS} FROM (SELECT ${EVENT_COLUMNS} FROM events ORDER BY id DESC LIMIT ?) AS tail ORDER BY id ASC`,
+      )
       .all(PENDING_EVENTS_LIMIT);
     const pendingEvents = pendingEventRows.map(rowToEvent);
 

@@ -1,5 +1,5 @@
-import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { MigrationRunner } from '@persistence/migrations/runner';
 import Database from 'better-sqlite3';
 

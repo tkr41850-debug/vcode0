@@ -942,9 +942,7 @@ describe('PersistentFeatureGraph', () => {
         .prepare<[], { c: number }>('SELECT COUNT(*) AS c FROM dependencies')
         .get();
 
-      expect(() =>
-        graph.addDependency({ from: 't-2', to: 't-1' }),
-      ).toThrow();
+      expect(() => graph.addDependency({ from: 't-2', to: 't-1' })).toThrow();
 
       const postSnapshot = graph.snapshot();
       expect(isDeepStrictEqual(postSnapshot, preSnapshot)).toBe(true);

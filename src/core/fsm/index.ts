@@ -59,9 +59,22 @@ export type CompositeGuardResult =
  * Note: `manual` is not a RunStatus value — manual ownership is tracked
  * separately via RunOwner on the agent_runs row.
  */
-const RUN_STATE_TRANSITIONS = new Map<AgentRunStatus, ReadonlySet<AgentRunStatus>>([
+const RUN_STATE_TRANSITIONS = new Map<
+  AgentRunStatus,
+  ReadonlySet<AgentRunStatus>
+>([
   ['ready', new Set(['running', 'cancelled'])],
-  ['running', new Set(['retry_await', 'await_response', 'await_approval', 'completed', 'failed', 'cancelled'])],
+  [
+    'running',
+    new Set([
+      'retry_await',
+      'await_response',
+      'await_approval',
+      'completed',
+      'failed',
+      'cancelled',
+    ]),
+  ],
   ['retry_await', new Set(['ready', 'running', 'cancelled'])],
   ['await_response', new Set(['ready', 'running', 'cancelled'])],
   ['await_approval', new Set(['ready', 'running', 'cancelled'])],

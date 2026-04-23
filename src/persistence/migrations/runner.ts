@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type Database from 'better-sqlite3';
 
@@ -87,7 +87,6 @@ export class MigrationRunner {
       .map((row) => row.name);
     if (columns.length === 0) return;
     if (columns.includes('id') && !columns.includes('version')) {
-      // eslint-disable-next-line no-console
       console.warn(
         '[persistence] Resetting legacy TS-migration bookkeeping (schema_migrations.id) — applying consolidated baseline.',
       );
