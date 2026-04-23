@@ -1,8 +1,10 @@
+import type { FeatureGraph, GraphSnapshot } from '@core/graph/index';
 import type { AgentRun, EventRecord } from '@core/types/index';
 import type {
   AgentRunPatch,
   AgentRunQuery,
   EventQuery,
+  RehydrateSnapshot,
   Store,
 } from '@orchestrator/ports/index';
 import {
@@ -11,6 +13,7 @@ import {
   rowToAgentRun,
   rowToEvent,
 } from '@persistence/codecs';
+import { PersistentFeatureGraph } from '@persistence/feature-graph';
 import type { AgentRunRow, EventRow } from '@persistence/queries/index';
 import type Database from 'better-sqlite3';
 
@@ -64,6 +67,25 @@ interface AgentRunUpdateParams {
  * for agent run CRUD and event append/query. Graph entity persistence lives
  * in `PersistentFeatureGraph`, not here.
  */
+// Rehydration open-run filter: the runtime must resume any run that is
+// pre-terminal (anything except completed/failed/cancelled). Matches the
+// Plan 02-01 Store-port spec and docs/architecture/worker-model.md
+// recovery sweep.
+const OPEN_RUN_STATUSES: readonly string[] = [
+  'ready',
+  'running',
+  'retry_await',
+  'await_response',
+  'await_approval',
+];
+
+// Bounded pendingEvents fallback: rehydrate() replays the tail of the
+// event log so the orchestrator can restore transient UI/reporting state
+// without scanning the entire history. 1000 events covers the recent
+// activity window for Phase 3 worker resume; scheduler truth is always
+// read from structured columns, not this log.
+const PENDING_EVENTS_LIMIT = 1000;
+
 export class SqliteStore implements Store {
   private readonly getAgentRunStmt;
   private readonly insertAgentRunStmt;
@@ -73,11 +95,14 @@ export class SqliteStore implements Store {
     runId: string,
     patch: AgentRunPatch,
   ) => void;
+  private readonly graphImpl: PersistentFeatureGraph;
 
   constructor(
     private readonly db: Database.Database,
     private readonly now: () => number = Date.now,
   ) {
+    this.graphImpl = new PersistentFeatureGraph(db, now);
+
     this.getAgentRunStmt = db.prepare<[string], AgentRunRow>(
       `SELECT ${AGENT_RUN_COLUMNS} FROM agent_runs WHERE id = ?`,
     );
@@ -215,5 +240,51 @@ export class SqliteStore implements Store {
 
   appendEvent(event: EventRecord): void {
     this.appendEventStmt.run(eventToRow(event));
+  }
+
+  // ---------- Graph ----------
+
+  graph(): FeatureGraph {
+    return this.graphImpl;
+  }
+
+  snapshotGraph(): GraphSnapshot {
+    return this.graphImpl.snapshot();
+  }
+
+  // ---------- Rehydration ----------
+
+  rehydrate(): RehydrateSnapshot {
+    const placeholders = OPEN_RUN_STATUSES.map(() => '?').join(', ');
+    const openRunRows = this.db
+      .prepare<
+        string[],
+        AgentRunRow
+      >(`SELECT ${AGENT_RUN_COLUMNS} FROM agent_runs WHERE run_status IN (${placeholders}) ORDER BY created_at ASC, id ASC`)
+      .all(...OPEN_RUN_STATUSES);
+    const openRuns = openRunRows.map(rowToAgentRun);
+
+    // Bounded tail: last PENDING_EVENTS_LIMIT events ordered ascending.
+    // `id ASC` gives chronological order; we limit by selecting the tail
+    // via a sub-select and re-sorting.
+    const pendingEventRows = this.db
+      .prepare<
+        [number],
+        EventRow
+      >(`SELECT ${EVENT_COLUMNS} FROM (SELECT ${EVENT_COLUMNS} FROM events ORDER BY id DESC LIMIT ?) AS tail ORDER BY id ASC`)
+      .all(PENDING_EVENTS_LIMIT);
+    const pendingEvents = pendingEventRows.map(rowToEvent);
+
+    return {
+      graph: this.graphImpl.snapshot(),
+      openRuns,
+      pendingEvents,
+    };
+  }
+
+  // ---------- Lifecycle ----------
+
+  close(): void {
+    this.db.close();
   }
 }

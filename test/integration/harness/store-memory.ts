@@ -1,24 +1,36 @@
+import type { FeatureGraph, GraphSnapshot } from '@core/graph/index';
+import { InMemoryFeatureGraph } from '@core/graph/index';
 import type { AgentRun, EventRecord } from '@core/types/index';
 import type {
   AgentRunPatch,
   AgentRunQuery,
   EventQuery,
+  RehydrateSnapshot,
   Store,
 } from '@orchestrator/ports/index';
 
+const OPEN_RUN_STATUSES = new Set([
+  'ready',
+  'running',
+  'retry_await',
+  'await_response',
+  'await_approval',
+]);
+
 /**
- * In-memory implementation of the narrowed `Store` port (agent runs +
- * events only). Matches the synchronous `SqliteStore` contract so
- * integration tests can pick between sqlite `:memory:` and this
- * without changing call sites.
+ * In-memory implementation of the widened `Store` port. Matches the
+ * synchronous `SqliteStore` contract so integration tests can pick
+ * between sqlite `:memory:` and this without changing call sites.
  *
- * Intended for integration tests that only need the flat run/event
- * row surface and don't want to pay for better-sqlite3 setup.
- * `PersistentFeatureGraph` / graph CRUD still require sqlite.
+ * Graph state is backed by a plain `InMemoryFeatureGraph` — the
+ * snapshot-diff-rollback and sqlite IO that `PersistentFeatureGraph`
+ * adds are not required for the in-memory harness.
  */
 export class InMemoryStore implements Store {
   private readonly runs = new Map<string, AgentRun>();
   private readonly events: EventRecord[] = [];
+  private readonly graphImpl = new InMemoryFeatureGraph();
+  private closed = false;
 
   getAgentRun(id: string): AgentRun | undefined {
     return this.runs.get(id);
@@ -85,6 +97,35 @@ export class InMemoryStore implements Store {
 
   appendEvent(event: EventRecord): void {
     this.events.push(event);
+  }
+
+  graph(): FeatureGraph {
+    return this.graphImpl;
+  }
+
+  snapshotGraph(): GraphSnapshot {
+    return this.graphImpl.snapshot();
+  }
+
+  rehydrate(): RehydrateSnapshot {
+    const openRuns: AgentRun[] = [];
+    for (const run of this.runs.values()) {
+      if (OPEN_RUN_STATUSES.has(run.runStatus)) openRuns.push(run);
+    }
+    return {
+      graph: this.graphImpl.snapshot(),
+      openRuns,
+      pendingEvents: [...this.events],
+    };
+  }
+
+  close(): void {
+    this.closed = true;
+  }
+
+  /** Test-only helper so assertions can confirm close() fired. */
+  isClosed(): boolean {
+    return this.closed;
   }
 }
 

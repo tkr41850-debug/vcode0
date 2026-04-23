@@ -150,6 +150,18 @@ function createStoreMock(): Store {
     appendEvent: (event: EventRecord) => {
       events.push(event);
     },
+    graph: () => {
+      throw new Error('graph() not implemented in scheduler-loop store mock');
+    },
+    snapshotGraph: () => ({ milestones: [], features: [], tasks: [] }),
+    rehydrate: () => ({
+      graph: { milestones: [], features: [], tasks: [] },
+      openRuns: [...runs.values()],
+      pendingEvents: [...events],
+    }),
+    close: () => {
+      /* no-op */
+    },
   };
 }
 
