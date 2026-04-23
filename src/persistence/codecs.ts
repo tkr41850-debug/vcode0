@@ -138,7 +138,17 @@ export function rowToFeature(row: FeatureRow, dependsOn: FeatureId[]): Feature {
     ...optional('mergeTrainManualPosition', row.merge_train_manual_position),
     ...optional('mergeTrainEnteredAt', row.merge_train_entered_at),
     ...optional('mergeTrainEntrySeq', row.merge_train_entry_seq),
-    mergeTrainReentryCount: row.merge_train_reentry_count,
+    // mergeTrainReentryCount is stored NOT NULL DEFAULT 0; we omit the
+    // field on read when it equals the default so reload matches the
+    // in-memory shape produced by createFeature() (which never sets it).
+    // This keeps `snapshot() === rehydrate().graph` deep-equal across a
+    // close/reopen cycle (Plan 02-02 rehydration invariant).
+    ...optional(
+      'mergeTrainReentryCount',
+      row.merge_train_reentry_count === 0
+        ? undefined
+        : row.merge_train_reentry_count,
+    ),
     ...optional('runtimeBlockedByFeatureId', row.runtime_blocked_by_feature_id),
     ...optional('summary', row.summary),
     ...optional(
@@ -224,7 +234,14 @@ export function rowToTask(row: TaskRow, dependsOn: TaskId[]): Task {
     ),
     ...optional('blockedByFeatureId', row.blocked_by_feature_id),
     ...optional('sessionId', row.session_id),
-    consecutiveFailures: row.consecutive_failures,
+    // consecutiveFailures: stored NOT NULL DEFAULT 0; omit on read when
+    // equal to the default so reload matches the in-memory shape
+    // produced by createTask() (which never sets it). See matching note
+    // on mergeTrainReentryCount above.
+    ...optional(
+      'consecutiveFailures',
+      row.consecutive_failures === 0 ? undefined : row.consecutive_failures,
+    ),
     ...optional('suspendedAt', row.suspended_at),
     ...optional('suspendReason', row.suspend_reason),
     ...optional(

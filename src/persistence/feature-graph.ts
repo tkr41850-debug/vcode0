@@ -373,17 +373,22 @@ export class PersistentFeatureGraph implements FeatureGraph {
     const db = this.db;
 
     return {
+      // Deterministic orderings (Plan 02-02 Task 1): rehydrate() output
+      // must be stable across repeated close/reopen cycles on the same DB
+      // state. The `id ASC` tiebreaker ensures distinguishability whenever
+      // the primary ordering key collides (e.g., two milestones with the
+      // same display_order).
       selectMilestones: db.prepare<[], MilestoneRow>(
-        `SELECT ${MILESTONE_COLUMNS} FROM milestones ORDER BY id`,
+        `SELECT ${MILESTONE_COLUMNS} FROM milestones ORDER BY display_order ASC, id ASC`,
       ),
       selectFeatures: db.prepare<[], FeatureRow>(
-        `SELECT ${FEATURE_COLUMNS} FROM features ORDER BY id`,
+        `SELECT ${FEATURE_COLUMNS} FROM features ORDER BY milestone_id ASC, order_in_milestone ASC, id ASC`,
       ),
       selectTasks: db.prepare<[], TaskRow>(
-        `SELECT ${TASK_COLUMNS} FROM tasks ORDER BY id`,
+        `SELECT ${TASK_COLUMNS} FROM tasks ORDER BY feature_id ASC, order_in_feature ASC, id ASC`,
       ),
       selectDeps: db.prepare<[], DependencyRow>(
-        'SELECT from_id, to_id, dep_type FROM dependencies',
+        'SELECT from_id, to_id, dep_type FROM dependencies ORDER BY from_id ASC, to_id ASC, dep_type ASC',
       ),
 
       upsertMilestone: db.prepare<Record<string, unknown>>(
