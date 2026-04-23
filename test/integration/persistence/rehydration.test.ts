@@ -54,7 +54,11 @@ function seedAll(store: SqliteStore): void {
   // 3 terminal runs (completed/failed/cancelled — must be filtered out of
   // openRuns), plus 10 events with varied types.
   const graph = store.graph();
-  graph.createMilestone({ id: 'm-1', name: 'M1', description: 'milestone one' });
+  graph.createMilestone({
+    id: 'm-1',
+    name: 'M1',
+    description: 'milestone one',
+  });
   graph.createFeature({
     id: 'f-1',
     milestoneId: 'm-1',
@@ -132,16 +136,46 @@ function seedAll(store: SqliteStore): void {
   }
 
   const events: EventRecord[] = [
-    { eventType: 'run.started', entityId: 't-1', timestamp: 1000, payload: { worker: 'w1' } },
+    {
+      eventType: 'run.started',
+      entityId: 't-1',
+      timestamp: 1000,
+      payload: { worker: 'w1' },
+    },
     { eventType: 'run.progress', entityId: 't-1', timestamp: 1100 },
-    { eventType: 'run.completed', entityId: 't-1', timestamp: 1200, payload: { exit: 0 } },
-    { eventType: 'feature.phase', entityId: 'f-1', timestamp: 1300, payload: { phase: 'plan' } },
-    { eventType: 'feature.phase', entityId: 'f-1', timestamp: 1400, payload: { phase: 'execute' } },
+    {
+      eventType: 'run.completed',
+      entityId: 't-1',
+      timestamp: 1200,
+      payload: { exit: 0 },
+    },
+    {
+      eventType: 'feature.phase',
+      entityId: 'f-1',
+      timestamp: 1300,
+      payload: { phase: 'plan' },
+    },
+    {
+      eventType: 'feature.phase',
+      entityId: 'f-1',
+      timestamp: 1400,
+      payload: { phase: 'execute' },
+    },
     { eventType: 'warn.budget', entityId: 'f-1', timestamp: 1500 },
     { eventType: 'merge.queued', entityId: 'f-2', timestamp: 1600 },
     { eventType: 'merge.completed', entityId: 'f-2', timestamp: 1700 },
-    { eventType: 'schedule.tick', entityId: 'system', timestamp: 1800, payload: { ready: 2 } },
-    { eventType: 'schedule.tick', entityId: 'system', timestamp: 1900, payload: { ready: 0 } },
+    {
+      eventType: 'schedule.tick',
+      entityId: 'system',
+      timestamp: 1800,
+      payload: { ready: 2 },
+    },
+    {
+      eventType: 'schedule.tick',
+      entityId: 'system',
+      timestamp: 1900,
+      payload: { ready: 0 },
+    },
   ];
   for (const e of events) {
     store.appendEvent(e);
