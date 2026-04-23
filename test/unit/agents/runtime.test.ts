@@ -560,6 +560,12 @@ describe('PiFeatureAgentRuntime', () => {
       'Plan ready.',
       proposalDetails,
     );
+    store.appendEvent({
+      eventType: 'proposal_applied',
+      entityId: feature.id,
+      timestamp: Date.now(),
+      payload: { phase: 'plan' },
+    });
 
     faux.setResponses([
       fauxAssistantMessage(
