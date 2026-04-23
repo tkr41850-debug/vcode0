@@ -125,10 +125,11 @@ export class FeatureLifecycleCoordinator {
         if (verification === undefined) {
           throw new Error('verify completion requires verification summary');
         }
-        if (
-          verification.ok === false ||
-          (verification.issues !== undefined && verification.issues.length > 0)
-        ) {
+        // `verification.ok` already encodes severity policy: blocking/concern
+        // issues force `ok=false`; nit-only verdicts stay `ok=true` and pass
+        // through to awaiting_merge. Nits surface in `verification.issues`
+        // for persistence without triggering replanning.
+        if (verification.ok === false) {
           this.markPhaseFailed(featureId);
           this.advancePhase(featureId, 'replanning');
           return;

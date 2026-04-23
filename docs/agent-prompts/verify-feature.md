@@ -34,16 +34,22 @@ Check:
 - major decisions still hold after implementation reality
 - follow-up work is clearly classified as repair or later improvement
 
-Output should use `submitVerify(...)` exactly once and include:
+Issue raising:
+- call `raiseIssue({severity, description, location?, suggestedFix?})` for each high-signal problem found
+- severity: 'blocking' (must fix before merge), 'concern' (should fix), 'nit' (optional polish)
+- raising any 'blocking' or 'concern' issue forces verdict to repair_needed regardless of submitVerify outcome
+- 'nit' issues are non-blocking: they still surface in the verification summary and persisted issue list, but do not force repair
+- do not bundle multiple problems into one issue; one raiseIssue call per distinct problem
+
+Output should use `submitVerify(...)` exactly once after all issues raised, and include:
 - verification result: pass or repair needed
 - evidence for each success criterion
 - missing proof or failed checks
-- highest-signal issues only
 - concise repair focus when verdict is repair needed
 
 Do not:
 - devolve into generic style review
-- report low-confidence nits
+- report low-confidence nits via raiseIssue
 - treat partial implementation as feature success
 - return free-text verdict instead of `submitVerify(...)`
 ```

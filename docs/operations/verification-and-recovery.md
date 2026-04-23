@@ -111,7 +111,7 @@ If `ci_check` fails:
 If `verifying` finds that the code does not satisfy the feature spec:
 1. Keep the feature on the same feature branch.
 2. The verify agent emits typed `VerifyIssue[]` via the `raiseIssue` tool; the run's terminal payload carries the accumulated list and the orchestrator persists it onto `features.verify_issues`. A `verifier_issue_raised` event is written per call for audit.
-3. If the verify run emits no blocking/concern issues the feature moves to `awaiting_merge`; otherwise feature work control moves to `replanning` (the replanner consumes `verifyIssues` and proposes the next task set rather than the orchestrator creating a repair task directly).
+3. If the verify run emits no blocking/concern issues the feature moves to `awaiting_merge`; otherwise feature work control moves to `replanning` (the replanner consumes `verifyIssues` and proposes the next task set rather than the orchestrator creating a repair task directly). `nit`-severity issues are non-blocking: they still land on `features.verify_issues` and surface in the verification summary, but do not force `repair_needed`. See [Verify Nit Task Pool](../feature-candidates/verify-nit-task-pool.md) for the eventual mechanism to route these into post-merge follow-up work.
 4. On approved replan, `verifyIssues` clears; new/modified tasks land on the same feature branch.
 5. Return to `ci_check` after repair tasks land.
 

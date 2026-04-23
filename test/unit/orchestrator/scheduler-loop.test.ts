@@ -2870,6 +2870,69 @@ describe('SchedulerLoop', () => {
     expect([...graph.tasks.values()]).toHaveLength(0);
   });
 
+  it('routes nit-only verify verdicts through awaiting_merge', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const graph = new InMemoryFeatureGraph({
+      milestones: [
+        {
+          id: 'm-1',
+          name: 'Milestone 1',
+          description: 'desc',
+          status: 'pending',
+          order: 0,
+        },
+      ],
+      features: [
+        {
+          id: 'f-1',
+          milestoneId: 'm-1',
+          orderInMilestone: 0,
+          name: 'Feature 1',
+          description: 'desc',
+          dependsOn: [],
+          status: 'in_progress',
+          workControl: 'verifying',
+          collabControl: 'branch_open',
+          featureBranch: 'feat-feature-1-1',
+        },
+      ],
+      tasks: [],
+    });
+    ports.store.createAgentRun(makeFeaturePhaseRun('verify'));
+
+    const loop = new SchedulerLoop(graph, ports);
+
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
+      type: 'feature_phase_complete',
+      featureId: 'f-1',
+      phase: 'verify',
+      summary: 'verified with nits',
+      verification: {
+        ok: true,
+        outcome: 'pass',
+        summary: 'verified with nits',
+        issues: [
+          {
+            id: 'vi-1',
+            severity: 'nit',
+            description: 'typo in comment',
+          },
+        ],
+      },
+    });
+    await loop.step(100);
+
+    expect(graph.features.get('f-1')).toEqual(
+      expect.objectContaining({
+        workControl: 'awaiting_merge',
+        status: 'in_progress',
+      }),
+    );
+    expect([...graph.tasks.values()]).toHaveLength(0);
+  });
+
   it('routes verify failure to replanning regardless of prior repair-named tasks', async () => {
     const order: string[] = [];
     const { ports } = createPorts(order);
