@@ -86,6 +86,8 @@ export interface PlannerFeatureEditPatch {
 
 export interface FeatureEditPatch extends PlannerFeatureEditPatch {
   runtimeBlockedByFeatureId?: FeatureId | undefined;
+  mainMergeSha?: string;
+  branchHeadSha?: string;
 }
 
 export interface TaskEditPatch {

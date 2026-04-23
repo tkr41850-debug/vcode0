@@ -16,6 +16,7 @@ import {
 } from '@core/warnings/index';
 import { ConflictCoordinator } from '@orchestrator/conflicts/index';
 import { FeatureLifecycleCoordinator } from '@orchestrator/features/index';
+import { IntegrationCoordinator } from '@orchestrator/integration/index';
 import type { OrchestratorPorts } from '@orchestrator/ports/index';
 import type { ProposalPhase } from '@orchestrator/proposals/index';
 import { SummaryCoordinator } from '@orchestrator/summaries/index';
@@ -84,6 +85,7 @@ export class SchedulerLoop {
   private readonly features: FeatureLifecycleCoordinator;
   private readonly conflicts: ConflictCoordinator;
   private readonly summaries: SummaryCoordinator;
+  private readonly integration: IntegrationCoordinator;
   private readonly warnings: WarningEvaluator;
   private readonly activeLocks = new ActiveLocks();
   private emittedWarnings = new Set<string>();
@@ -99,6 +101,11 @@ export class SchedulerLoop {
     this.features = new FeatureLifecycleCoordinator(graph);
     this.conflicts = new ConflictCoordinator(ports, graph);
     this.summaries = new SummaryCoordinator(graph, ports.config.tokenProfile);
+    this.integration = new IntegrationCoordinator({
+      ports,
+      graph,
+      features: this.features,
+    });
     this.warnings = new WarningEvaluator({
       budgetWarnPercent: ports.config.budget?.warnAtPercent ?? 80,
       budgetGlobalUsd: ports.config.budget?.globalUsd ?? 1,
@@ -200,7 +207,16 @@ export class SchedulerLoop {
     }
 
     this.summaries.reconcilePostMerge();
-    this.features.beginNextIntegration();
+    const integratingId = this.features.beginNextIntegration();
+    if (integratingId !== undefined) {
+      const outcome = await this.integration.runIntegration(integratingId);
+      if (outcome.kind === 'merged') {
+        this.enqueue({
+          type: 'feature_integration_complete',
+          featureId: integratingId,
+        });
+      }
+    }
     await this.coordinateSameFeatureRuntimeOverlaps();
     await this.coordinateCrossFeatureRuntimeOverlaps();
     const warningsChanged = this.emitWarningSignals(now);

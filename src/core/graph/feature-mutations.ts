@@ -394,6 +394,12 @@ export function editFeature(
   } else if ('runtimeBlockedByFeatureId' in patch) {
     delete updated.runtimeBlockedByFeatureId;
   }
+  if (patch.mainMergeSha !== undefined) {
+    updated.mainMergeSha = patch.mainMergeSha;
+  }
+  if (patch.branchHeadSha !== undefined) {
+    updated.branchHeadSha = patch.branchHeadSha;
+  }
   graph.features.set(featureId, updated);
   return updated;
 }

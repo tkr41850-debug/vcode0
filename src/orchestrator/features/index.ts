@@ -146,16 +146,16 @@ export class FeatureLifecycleCoordinator {
     }
   }
 
-  beginNextIntegration(): void {
+  beginNextIntegration(): FeatureId | undefined {
     for (const feature of this.graph.features.values()) {
       if (feature.collabControl === 'integrating') {
-        return;
+        return feature.id;
       }
     }
 
     const nextFeatureId = this.mergeTrain.nextToIntegrate(this.graph);
     if (nextFeatureId === undefined) {
-      return;
+      return undefined;
     }
 
     const feature = this.requireFeature(nextFeatureId);
@@ -164,6 +164,7 @@ export class FeatureLifecycleCoordinator {
     }
 
     this.mergeTrain.beginIntegration(nextFeatureId, this.graph);
+    return nextFeatureId;
   }
 
   private markPhaseDone(featureId: FeatureId): void {
