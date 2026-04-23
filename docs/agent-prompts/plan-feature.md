@@ -45,6 +45,13 @@ When replanning:
 - prefer smallest change that restores coherent path to success
 - keep capability set same as planning; this is not weaker or separate mode
 
+Replan input — `VerifyIssue[]`:
+- each issue carries a `source` discriminator; branch decisions by source
+- `source: 'verify'` — agent-raised semantic issues; address with smallest coherent change tied to feature spec
+- `source: 'ci_check'` — shell check failed (`phase: 'feature'` pre-verify, `phase: 'post_rebase'` during integration); propose fix tasks keyed off `checkName` + `command`; treat truncated `output` (4KB cap) as evidence, not prescription
+- `source: 'rebase'` — integration-time rebase conflict; propose reconciliation on `conflictedFiles`; prefer merging upstream changes over discarding them
+- total `VerifyIssue[]` payload capped at 32KB with severity-ranked retention (blocking > concern > nit, most-recent first within severity); missing lower-severity items are expected, not bugs
+
 Output should use `submit(...)` exactly once after building draft proposal with available tools and include:
 - summary
 - chosen approach

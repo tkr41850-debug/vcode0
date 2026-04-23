@@ -1,8 +1,12 @@
 import { createProposalToolHost } from '@agents/tools';
+import { applyGraphProposal } from '@core/proposals/index';
 import type { ProposalPhaseDetails } from '@core/types/index';
 import { describe, expect, it } from 'vitest';
 
-import { createGraphWithFeature } from '../../../helpers/graph-builders.js';
+import {
+  createGraphWithFeature,
+  createGraphWithMilestone,
+} from '../../../helpers/graph-builders.js';
 
 const proposalDetails: ProposalPhaseDetails = {
   summary: 'Plan ready.',
@@ -46,11 +50,11 @@ describe('GraphProposalToolHost', () => {
     expect(host.buildProposal()).toEqual({
       version: 1,
       mode: 'plan',
-      aliases: {},
+      aliases: { '#1': 'm-2' },
       ops: [
         {
           kind: 'add_milestone',
-          milestoneId: 'm-2',
+          milestoneId: '#1',
           name: 'Milestone 2',
           description: 'second milestone',
         },
@@ -93,7 +97,7 @@ describe('GraphProposalToolHost', () => {
       ops: [
         {
           kind: 'add_task',
-          taskId: 't-1',
+          taskId: '#1',
           featureId: 'f-1',
           description: 'Draft task',
           reservedWritePaths: ['src/new.ts'],
@@ -183,6 +187,144 @@ describe('GraphProposalToolHost', () => {
       featureId: 'f-1',
       patch: { featureDoD: ['login works', 'tests green'] },
     });
+  });
+
+  it('editFeature with empty patch records no op', () => {
+    const graph = createGraphWithFeature();
+    const host = createProposalToolHost(graph, 'plan');
+
+    host.editFeature({ featureId: 'f-1', patch: {} });
+
+    host.submit(proposalDetails);
+    expect(host.buildProposal().ops).toEqual([]);
+  });
+
+  it('editFeature with patch matching current values records no op', () => {
+    const graph = createGraphWithFeature();
+    const host = createProposalToolHost(graph, 'plan');
+
+    host.editFeature({
+      featureId: 'f-1',
+      patch: { name: 'F', description: 'd' },
+    });
+
+    host.submit(proposalDetails);
+    expect(host.buildProposal().ops).toEqual([]);
+  });
+
+  it('editFeature with partial match records only changed keys', () => {
+    const graph = createGraphWithFeature();
+    const host = createProposalToolHost(graph, 'plan');
+
+    host.editFeature({
+      featureId: 'f-1',
+      patch: { name: 'F', description: 'different' },
+    });
+
+    host.submit(proposalDetails);
+    expect(host.buildProposal().ops).toEqual([
+      {
+        kind: 'edit_feature',
+        featureId: 'f-1',
+        patch: { description: 'different' },
+      },
+    ]);
+  });
+
+  it('editFeature with identical featureDoD array records no op', () => {
+    const graph = createGraphWithFeature();
+    const host = createProposalToolHost(graph, 'plan');
+    host.setFeatureDoD({ featureId: 'f-1', dod: ['a', 'b'] });
+
+    host.editFeature({
+      featureId: 'f-1',
+      patch: { featureDoD: ['a', 'b'] },
+    });
+
+    host.submit(proposalDetails);
+    expect(host.buildProposal().ops).toHaveLength(1);
+  });
+
+  it('setFeatureObjective skips op when objective unchanged', () => {
+    const graph = createGraphWithFeature();
+    const host = createProposalToolHost(graph, 'plan');
+    host.setFeatureObjective({ featureId: 'f-1', objective: 'ship it' });
+
+    host.setFeatureObjective({ featureId: 'f-1', objective: 'ship it' });
+
+    host.submit(proposalDetails);
+    expect(host.buildProposal().ops).toHaveLength(1);
+  });
+
+  it('setFeatureDoD skips op when DoD unchanged', () => {
+    const graph = createGraphWithFeature();
+    const host = createProposalToolHost(graph, 'plan');
+    host.setFeatureDoD({ featureId: 'f-1', dod: ['x'] });
+
+    host.setFeatureDoD({ featureId: 'f-1', dod: ['x'] });
+
+    host.submit(proposalDetails);
+    expect(host.buildProposal().ops).toHaveLength(1);
+  });
+
+  it('emits aliases for newly added feature/task refs', () => {
+    const graph = createGraphWithMilestone();
+    const host = createProposalToolHost(graph, 'plan');
+
+    const feature = host.addFeature({
+      milestoneId: 'm-1',
+      name: 'New',
+      description: 'd',
+    });
+    const task = host.addTask({
+      featureId: feature.id,
+      description: 'Task',
+    });
+
+    host.submit(proposalDetails);
+    const proposal = host.buildProposal();
+
+    expect(proposal.ops[0]).toMatchObject({
+      kind: 'add_feature',
+      featureId: '#1',
+      milestoneId: 'm-1',
+    });
+    expect(proposal.ops[1]).toMatchObject({
+      kind: 'add_task',
+      taskId: '#2',
+      featureId: '#1',
+    });
+    expect(proposal.aliases).toEqual({ '#1': feature.id, '#2': task.id });
+  });
+
+  it('sequential apply of two host-built proposals allocates non-colliding real ids', () => {
+    const graph = createGraphWithMilestone();
+
+    const firstHost = createProposalToolHost(graph, 'plan');
+    firstHost.addFeature({
+      milestoneId: 'm-1',
+      name: 'First',
+      description: 'd',
+    });
+    firstHost.submit(proposalDetails);
+
+    const secondHost = createProposalToolHost(graph, 'plan');
+    secondHost.addFeature({
+      milestoneId: 'm-1',
+      name: 'Second',
+      description: 'd',
+    });
+    secondHost.submit(proposalDetails);
+
+    const firstResult = applyGraphProposal(graph, firstHost.buildProposal());
+    const secondResult = applyGraphProposal(graph, secondHost.buildProposal());
+
+    expect(firstResult.applied).toHaveLength(1);
+    expect(secondResult.applied).toHaveLength(1);
+    expect(firstResult.resolvedAliases['#1']).toBe('f-1');
+    expect(secondResult.resolvedAliases['#1']).toBe('f-2');
+    expect(graph.features.get('f-1')?.name).toBe('First');
+    expect(graph.features.get('f-2')?.name).toBe('Second');
   });
 
   it('rejects duplicate submit and post-submit mutation', () => {

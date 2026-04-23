@@ -32,8 +32,9 @@ Check:
 
 Issue raising:
 - call \`raiseIssue({severity, description, location?, suggestedFix?})\` for each high-signal problem found
-- severity: 'blocking' (must fix before merge), 'concern' (should fix), 'nit' (optional)
-- raising any issue forces verdict to repair_needed regardless of submitVerify outcome
+- severity: 'blocking' (must fix before merge), 'concern' (should fix), 'nit' (optional polish)
+- raising any 'blocking' or 'concern' issue forces verdict to repair_needed regardless of submitVerify outcome
+- 'nit' issues are non-blocking: they still surface in the verification summary and persisted issue list, but do not force repair
 - do not bundle multiple problems into one issue; one raiseIssue call per distinct problem
 
 Output should use \`submitVerify(...)\` exactly once after all issues raised, and include:

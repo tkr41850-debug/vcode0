@@ -38,9 +38,12 @@ main
   dispatch by the orchestrator's scheduler — task worktrees when
   the task is dispatched, the feature worktree when a task or
   feature-phase agent first needs it. The feature *branch* is
-  created eagerly when the feature enters `in_progress`; only the
-  checkout directory is lazy. Task worktrees branch from feature
-  branch HEAD using the same basename as the task branch
+  created eagerly when the feature advances to
+  `workControl = 'executing'` with `collabControl = 'branch_open'`
+  (the canonical branch-creation trigger in
+  [data-model.md](./data-model.md) and the FSM); only the checkout
+  directory is lazy. Task worktrees branch from feature branch HEAD
+  using the same basename as the task branch
   (`feat-<slugified-name>-<feature-id>-<task-id>`), squash-merged
   back into the feature branch on success, and retained until the
   owning feature lands on `main` or garbage collection snapshots
@@ -93,15 +96,14 @@ Each feature owns exactly one long-lived integration branch.
    terminal results with `completionKind === 'submitted'` as landed task work
    on the feature branch.
 4. After the last task or repair task lands, the feature runs
-   `ci_check` on the feature branch,
+   `ci_check` on the feature branch (pre-verify),
    then agent-level `verifying`.
 5. If that path passes, feature work control becomes
    `awaiting_merge` and feature collaboration control may become
    `merge_queued`.
-6. The merge train rebases the feature branch onto the latest
-   `main` and coordinates final integration; merge-train verification remains
-   part of the architecture/config surface, while the currently wired
-   verification executor is the feature-level `ci_check` path.
+6. The in-process integration executor (see below) moves the queue head
+   through `integrating` and either lands it on `main` or ejects to
+   `replanning`.
 7. After collaboration control reaches `merged`,
    the feature normally runs blocking `summarizing`
    and then reaches `work_complete`;
@@ -112,6 +114,48 @@ Each feature owns exactly one long-lived integration branch.
    fail-closed mechanical rebase first,
    then task-local agent reconciliation with injected conflict
    context if git cannot resolve cleanly.
+
+### Integration Executor: In-Process Subprocess
+
+The orchestrator runs a dedicated **integration-worker subprocess**
+per merge-train cycle. This is distinct from task workers and
+distinct from the tick-synchronous cross-feature rebase path used
+during task execution — integration runs asynchronously so
+long-running post-rebase `ci_check` does not block the scheduler
+loop.
+
+Canonical sequence inside the executor:
+
+```text
+awaiting_merge → merge_queued → integrating
+  ↓
+  write integration marker row (expectedParentSha, featureBranchPreIntegrationSha,
+                                config_snapshot of verification.feature, intent='integrate')
+  ↓
+  git rebase onto latest main   — fail → eject, reroute to replanning with source:'rebase'
+  ↓
+  post-rebase ci_check          — fail → eject, reroute to replanning with
+                                         source:'ci_check', phase:'post_rebase'
+  ↓
+  git merge --no-ff --force-with-lease=<expectedParentSha>
+  ↓
+  atomic DB tx: clear marker + set mainMergeSha/branchHeadSha +
+                collabControl='merged' + workControl='summarizing'
+  ↓
+merged → summarizing → work_complete
+```
+
+Re-enqueue after eject uses `git rebase --onto <newMain>
+<featureBranchPreIntegrationSha> HEAD` so the stale first-rebase
+layer drops; git `rerere` is enabled as a backstop.
+
+Crash between `git merge` and the clearing DB tx is resolved by the
+startup reconciler treating git refs as authoritative
+(see [verification-and-recovery.md](../operations/verification-and-recovery.md)).
+
+Integration-worker IPC carries progress and result frames for each
+sub-phase (rebase, ci_check, merge); full frame schema lives with
+the executor implementation.
 
 ## IPC: NDJSON over stdio (swappable)
 
@@ -191,6 +235,13 @@ type WorkerToOrchestratorMessage =
       taskId: string;
       agentRunId: string;
       text: string;
+    }
+  | {
+      type: "claim_lock";
+      taskId: string;
+      agentRunId: string;
+      claimId: string;
+      paths: readonly string[];
     };
 
 // Orchestrator → Worker
@@ -235,7 +286,15 @@ type OrchestratorToWorkerMessage =
       agentRunId: string;
       decision: ApprovalDecision;
     }
-  | { type: "manual_input"; taskId: string; agentRunId: string; text: string };
+  | { type: "manual_input"; taskId: string; agentRunId: string; text: string }
+  | {
+      type: "claim_decision";
+      taskId: string;
+      agentRunId: string;
+      claimId: string;
+      kind: "granted" | "denied";
+      deniedPaths?: readonly string[];
+    };
 ```
 
 The `suspend` / `resume` messages are a general
@@ -260,6 +319,25 @@ those remain execution-run concerns on `agent_runs`, while task status
 stays coarse and `blocked` remains derived in the UI.
 See [Conflict Coordination](./operations/conflict-coordination.md)
 for the recommendation/required-sync/escalation ladder.
+
+The `claim_lock` / `claim_decision` pair implements the write-prehook
+lock flow described above. Each `claim_lock` carries a
+worker-generated `claimId` so a single run can have multiple claims
+in flight and route replies by id. The orchestrator answers with a
+matching `claim_decision`; on `denied` the worker's write tool throws
+a tool-level error, the run aborts, and the same
+`ConflictCoordinator` entry points used by the preventive scheduler
+scan (`handleSameFeatureOverlap`, `handleCrossFeatureOverlap`) fire —
+so whether overlap is caught preventively at dispatch time or
+reactively at first-write time, downstream suspend-and-rebase
+behavior is identical. Locks release exit-driven: when a terminal
+`result` or `error` message arrives, every lock held by that
+`agentRunId` is dropped. Mid-run explicit release is tracked as an
+[optimization candidate](./optimization-candidates/explicit-lock-release.md).
+The active-lock registry lives beside `ConflictCoordinator` in the
+scheduler loop (`src/orchestrator/scheduler/active-locks.ts`); the
+runtime overlap detector it complements lives in
+`src/orchestrator/scheduler/overlaps.ts`.
 
 ### Transport Abstraction
 

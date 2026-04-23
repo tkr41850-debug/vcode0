@@ -1,4 +1,4 @@
-import type { FeatureGraph } from '@core/graph/index';
+import type { FeatureGraph, PlannerFeatureEditPatch } from '@core/graph/index';
 import { InMemoryFeatureGraph } from '@core/graph/index';
 import {
   type GraphProposal,
@@ -11,6 +11,7 @@ import type {
   Milestone,
   MilestoneId,
   Task,
+  TaskId,
 } from '@core/types/index';
 
 import type {
@@ -49,9 +50,10 @@ export class GraphProposalToolHost {
       name: args.name,
       description: args.description,
     });
+    const alias = this.builder.allocateMilestoneId(milestone.id);
     this.builder.addOp({
       kind: 'add_milestone',
-      milestoneId: milestone.id,
+      milestoneId: alias as unknown as MilestoneId,
       name: args.name,
       description: args.description,
     });
@@ -67,11 +69,11 @@ export class GraphProposalToolHost {
       name: args.name,
       description: args.description,
     });
-    this.builder.allocateFeatureId(feature.id);
+    const alias = this.builder.allocateFeatureId(feature.id);
     this.builder.addOp({
       kind: 'add_feature',
-      featureId: feature.id,
-      milestoneId: args.milestoneId,
+      featureId: alias as unknown as FeatureId,
+      milestoneId: this.refMilestone(args.milestoneId),
       name: args.name,
       description: args.description,
     });
@@ -83,17 +85,25 @@ export class GraphProposalToolHost {
     this.draft.removeFeature(args.featureId);
     this.builder.addOp({
       kind: 'remove_feature',
-      featureId: args.featureId,
+      featureId: this.refFeature(args.featureId),
     });
   }
 
   editFeature(args: EditFeatureOptions): Feature {
     this.assertMutable();
+    const current = this.draft.features.get(args.featureId);
+    if (current === undefined) {
+      return this.draft.editFeature(args.featureId, args.patch);
+    }
+    const diff = diffFeaturePatch(current, args.patch);
     const feature = this.draft.editFeature(args.featureId, args.patch);
+    if (Object.keys(diff).length === 0) {
+      return feature;
+    }
     this.builder.addOp({
       kind: 'edit_feature',
-      featureId: args.featureId,
-      patch: args.patch,
+      featureId: this.refFeature(args.featureId),
+      patch: diff,
     });
     return feature;
   }
@@ -120,11 +130,11 @@ export class GraphProposalToolHost {
       description: args.description,
       ...plannerFields,
     });
-    this.builder.allocateTaskId(task.id);
+    const alias = this.builder.allocateTaskId(task.id);
     this.builder.addOp({
       kind: 'add_task',
-      taskId: task.id,
-      featureId: args.featureId,
+      taskId: alias as unknown as TaskId,
+      featureId: this.refFeature(args.featureId),
       description: args.description,
       ...plannerFields,
     });
@@ -132,27 +142,17 @@ export class GraphProposalToolHost {
   }
 
   setFeatureObjective(args: SetFeatureObjectiveOptions): Feature {
-    this.assertMutable();
-    const patch = { featureObjective: args.objective };
-    const feature = this.draft.editFeature(args.featureId, patch);
-    this.builder.addOp({
-      kind: 'edit_feature',
+    return this.editFeature({
       featureId: args.featureId,
-      patch,
+      patch: { featureObjective: args.objective },
     });
-    return feature;
   }
 
   setFeatureDoD(args: SetFeatureDoDOptions): Feature {
-    this.assertMutable();
-    const patch = { featureDoD: args.dod };
-    const feature = this.draft.editFeature(args.featureId, patch);
-    this.builder.addOp({
-      kind: 'edit_feature',
+    return this.editFeature({
       featureId: args.featureId,
-      patch,
+      patch: { featureDoD: args.dod },
     });
-    return feature;
   }
 
   removeTask(args: RemoveTaskOptions): void {
@@ -160,7 +160,7 @@ export class GraphProposalToolHost {
     this.draft.removeTask(args.taskId);
     this.builder.addOp({
       kind: 'remove_task',
-      taskId: args.taskId,
+      taskId: this.refTask(args.taskId),
     });
   }
 
@@ -169,7 +169,7 @@ export class GraphProposalToolHost {
     const task = this.draft.editTask(args.taskId, args.patch);
     this.builder.addOp({
       kind: 'edit_task',
-      taskId: args.taskId,
+      taskId: this.refTask(args.taskId),
       patch: args.patch,
     });
     return task;
@@ -180,8 +180,8 @@ export class GraphProposalToolHost {
     this.draft.addDependency(args);
     this.builder.addOp({
       kind: 'add_dependency',
-      fromId: args.from,
-      toId: args.to,
+      fromId: this.refEndpoint(args.from),
+      toId: this.refEndpoint(args.to),
     });
   }
 
@@ -190,8 +190,8 @@ export class GraphProposalToolHost {
     this.draft.removeDependency(args);
     this.builder.addOp({
       kind: 'remove_dependency',
-      fromId: args.from,
-      toId: args.to,
+      fromId: this.refEndpoint(args.from),
+      toId: this.refEndpoint(args.to),
     });
   }
 
@@ -227,6 +227,26 @@ export class GraphProposalToolHost {
     }
   }
 
+  private refMilestone(id: MilestoneId): MilestoneId {
+    const alias = this.builder.aliasFor(id);
+    return alias === undefined ? id : (alias as unknown as MilestoneId);
+  }
+
+  private refFeature(id: FeatureId): FeatureId {
+    const alias = this.builder.aliasFor(id);
+    return alias === undefined ? id : (alias as unknown as FeatureId);
+  }
+
+  private refTask(id: TaskId): TaskId {
+    const alias = this.builder.aliasFor(id);
+    return alias === undefined ? id : (alias as unknown as TaskId);
+  }
+
+  private refEndpoint<T extends FeatureId | TaskId>(id: T): T {
+    const alias = this.builder.aliasFor(id);
+    return alias === undefined ? id : (alias as unknown as T);
+  }
+
   private nextMilestoneId(): MilestoneId {
     let max = 0;
     for (const milestoneId of this.draft.milestones.keys()) {
@@ -255,4 +275,41 @@ export function createProposalToolHost(
   mode: GraphProposalMode,
 ): GraphProposalToolHost {
   return new GraphProposalToolHost(graph, mode);
+}
+
+const EDITABLE_FEATURE_KEYS = [
+  'name',
+  'description',
+  'summary',
+  'roughDraft',
+  'featureObjective',
+  'featureDoD',
+] as const satisfies readonly (keyof PlannerFeatureEditPatch)[];
+
+function diffFeaturePatch(
+  current: Feature,
+  patch: PlannerFeatureEditPatch,
+): PlannerFeatureEditPatch {
+  const diff: PlannerFeatureEditPatch = {};
+  for (const key of EDITABLE_FEATURE_KEYS) {
+    const next = patch[key];
+    if (next === undefined) {
+      continue;
+    }
+    if (equalsFeatureField(current[key], next)) {
+      continue;
+    }
+    (diff as Record<string, unknown>)[key] = next;
+  }
+  return diff;
+}
+
+function equalsFeatureField(a: unknown, b: unknown): boolean {
+  if (a === b) {
+    return true;
+  }
+  if (Array.isArray(a) && Array.isArray(b)) {
+    return a.length === b.length && a.every((v, i) => v === b[i]);
+  }
+  return false;
 }

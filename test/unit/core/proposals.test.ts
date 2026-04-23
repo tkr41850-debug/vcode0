@@ -639,3 +639,224 @@ describe('applyGraphProposal', () => {
     expect(graph.tasks.get('t-4')?.orderInFeature).toBe(3);
   });
 });
+
+describe('applyGraphProposal — apply-time alias resolution', () => {
+  it('resolves add_feature alias into fresh concrete id and rewrites dependent ops', () => {
+    const graph = createGraph();
+
+    const proposal = {
+      version: 1,
+      mode: 'plan',
+      aliases: { '#1': 'f-new', '#2': 't-new' },
+      ops: [
+        {
+          kind: 'add_feature',
+          featureId: '#1',
+          milestoneId: 'm-1',
+          name: 'Feature new',
+          description: 'desc',
+        },
+        {
+          kind: 'add_task',
+          taskId: '#2',
+          featureId: '#1',
+          description: 'Task new',
+        },
+      ],
+    } as unknown as Parameters<typeof applyGraphProposal>[1];
+
+    const result = applyGraphProposal(graph, proposal);
+
+    expect(result.applied).toHaveLength(2);
+    expect(result.skipped).toHaveLength(0);
+    expect(result.resolvedAliases?.['#1']).toBe('f-1');
+    expect(result.resolvedAliases?.['#2']).toBe('t-1');
+    expect(graph.features.get('f-1')?.name).toBe('Feature new');
+    expect(graph.tasks.get('t-1')?.featureId).toBe('f-1');
+  });
+
+  it('allocates fresh ids past existing concrete ids in authoritative graph', () => {
+    const graph = createGraph();
+    graph.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'Feature 1',
+      description: 'desc',
+    });
+
+    const proposal = {
+      version: 1,
+      mode: 'plan',
+      aliases: { '#1': 'f-draft' },
+      ops: [
+        {
+          kind: 'add_feature',
+          featureId: '#1',
+          milestoneId: 'm-1',
+          name: 'Feature new',
+          description: 'desc',
+        },
+      ],
+    } as unknown as Parameters<typeof applyGraphProposal>[1];
+
+    const result = applyGraphProposal(graph, proposal);
+
+    expect(result.resolvedAliases?.['#1']).toBe('f-2');
+    expect(graph.features.get('f-2')?.name).toBe('Feature new');
+  });
+
+  it('resolves add_dependency alias endpoints after fresh allocation', () => {
+    const graph = createGraph();
+
+    const proposal = {
+      version: 1,
+      mode: 'plan',
+      aliases: { '#1': 'f-a', '#2': 'f-b' },
+      ops: [
+        {
+          kind: 'add_feature',
+          featureId: '#1',
+          milestoneId: 'm-1',
+          name: 'A',
+          description: 'a',
+        },
+        {
+          kind: 'add_feature',
+          featureId: '#2',
+          milestoneId: 'm-1',
+          name: 'B',
+          description: 'b',
+        },
+        {
+          kind: 'add_dependency',
+          fromId: '#2',
+          toId: '#1',
+        },
+      ],
+    } as unknown as Parameters<typeof applyGraphProposal>[1];
+
+    const result = applyGraphProposal(graph, proposal);
+
+    expect(result.applied).toHaveLength(3);
+    expect(result.resolvedAliases?.['#1']).toBe('f-1');
+    expect(result.resolvedAliases?.['#2']).toBe('f-2');
+    expect(graph.features.get('f-2')?.dependsOn).toEqual(['f-1']);
+  });
+
+  it('allocates non-colliding real ids across two sequentially-applied proposals', () => {
+    const graph = createGraph();
+
+    const first = {
+      version: 1,
+      mode: 'plan',
+      aliases: { '#1': 'f-draft' },
+      ops: [
+        {
+          kind: 'add_feature',
+          featureId: '#1',
+          milestoneId: 'm-1',
+          name: 'Feature first',
+          description: 'desc',
+        },
+      ],
+    } as unknown as Parameters<typeof applyGraphProposal>[1];
+
+    const second = {
+      version: 1,
+      mode: 'plan',
+      aliases: { '#1': 'f-draft' },
+      ops: [
+        {
+          kind: 'add_feature',
+          featureId: '#1',
+          milestoneId: 'm-1',
+          name: 'Feature second',
+          description: 'desc',
+        },
+      ],
+    } as unknown as Parameters<typeof applyGraphProposal>[1];
+
+    const firstResult = applyGraphProposal(graph, first);
+    const secondResult = applyGraphProposal(graph, second);
+
+    expect(firstResult.resolvedAliases?.['#1']).toBe('f-1');
+    expect(secondResult.resolvedAliases?.['#1']).toBe('f-2');
+    expect(graph.features.get('f-1')?.name).toBe('Feature first');
+    expect(graph.features.get('f-2')?.name).toBe('Feature second');
+  });
+
+  it('cascades skip to dependent ops when parent alias op is skipped', () => {
+    const graph = createGraph();
+
+    const proposal = {
+      version: 1,
+      mode: 'plan',
+      aliases: { '#1': 'f-new', '#2': 't-new' },
+      ops: [
+        {
+          kind: 'add_feature',
+          featureId: '#1',
+          milestoneId: 'm-missing',
+          name: 'Feature new',
+          description: 'desc',
+        },
+        {
+          kind: 'add_task',
+          taskId: '#2',
+          featureId: '#1',
+          description: 'Task new',
+        },
+      ],
+    } as unknown as Parameters<typeof applyGraphProposal>[1];
+
+    const result = applyGraphProposal(graph, proposal);
+
+    expect(result.applied).toHaveLength(0);
+    expect(result.skipped).toHaveLength(2);
+    expect(result.skipped[1]?.reason).toContain('does not exist');
+    expect(result.resolvedAliases?.['#1']).toBeUndefined();
+    expect(result.resolvedAliases?.['#2']).toBeUndefined();
+  });
+
+  it('passes through legacy proposals without aliases', () => {
+    const graph = createGraph();
+
+    const builder = new GraphProposalBuilder('plan');
+    builder.addOp({
+      kind: 'add_feature',
+      featureId: 'f-1',
+      milestoneId: 'm-1',
+      name: 'Feature 1',
+      description: 'desc',
+    });
+
+    const result = applyGraphProposal(graph, builder.build());
+
+    expect(result.applied).toHaveLength(1);
+    expect(result.resolvedAliases ?? {}).toEqual({});
+    expect(graph.features.get('f-1')?.name).toBe('Feature 1');
+  });
+
+  it('exposes resolvedAliases on result for add_milestone alias', () => {
+    const graph = createGraph();
+
+    const proposal = {
+      version: 1,
+      mode: 'plan',
+      aliases: { '#1': 'm-draft' },
+      ops: [
+        {
+          kind: 'add_milestone',
+          milestoneId: '#1',
+          name: 'Milestone new',
+          description: 'd',
+        },
+      ],
+    } as unknown as Parameters<typeof applyGraphProposal>[1];
+
+    const result = applyGraphProposal(graph, proposal);
+
+    expect(result.resolvedAliases?.['#1']).toBe('m-2');
+    expect(graph.milestones.get('m-2')?.name).toBe('Milestone new');
+  });
+});

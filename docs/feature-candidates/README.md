@@ -25,4 +25,6 @@ Current entries:
 - [Runtime ID Validation and Factories](./runtime-id-validation.md)
 - [Soft Cancel](./soft-cancel.md)
 - [Structured Feature-Phase Outputs](./structured-feature-phase-outputs.md)
+- [User Feature Kill](./user-feature-kill.md)
+- [Verify Nit Task Pool](./verify-nit-task-pool.md)
 - [Worker Scheduling Policies](./worker-scheduling-policies.md)

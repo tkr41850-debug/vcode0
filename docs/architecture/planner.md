@@ -25,7 +25,7 @@ const plannerTools = [
   'addFeature',          // (AddFeatureOptions) → Feature — requires milestoneId
   'removeFeature',       // (RemoveFeatureOptions) → void
   'editFeature',         // (EditFeatureOptions) → Feature — PlannerFeatureEditPatch
-  'addTask',             // (AddTaskOptions) → Task — planner-baked payload, deps, reservedWritePaths
+  'addTask',             // (AddTaskOptions) → Task — planner-baked payload, reservedWritePaths (deps via addDependency)
   'removeTask',          // (RemoveTaskOptions) → void
   'editTask',            // (EditTaskOptions) → Task — TaskEditPatch
   'setFeatureObjective', // (SetFeatureObjectiveOptions) → Feature

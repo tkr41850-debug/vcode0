@@ -93,7 +93,7 @@ export type GraphProposalOp =
 export interface GraphProposal {
   version: 1;
   mode: GraphProposalMode;
-  aliases: Record<ProposalAlias, FeatureId | TaskId>;
+  aliases: Record<ProposalAlias, MilestoneId | FeatureId | TaskId>;
   ops: GraphProposalOp[];
 }
 
@@ -120,6 +120,7 @@ export interface ProposalApplyResult {
   skipped: ProposalSkippedOp[];
   warnings: ProposalWarning[];
   summary: string;
+  resolvedAliases: Record<ProposalAlias, MilestoneId | FeatureId | TaskId>;
 }
 
 export function isGraphProposal(value: unknown): value is GraphProposal {
@@ -137,14 +138,21 @@ export function isGraphProposal(value: unknown): value is GraphProposal {
 
 export class GraphProposalBuilder {
   private readonly ops: GraphProposalOp[] = [];
-  private readonly aliases = new Map<ProposalAlias, FeatureId | TaskId>();
+  private readonly aliases = new Map<
+    ProposalAlias,
+    MilestoneId | FeatureId | TaskId
+  >();
   private readonly reverseAliases = new Map<
-    FeatureId | TaskId,
+    MilestoneId | FeatureId | TaskId,
     ProposalAlias
   >();
   private nextAlias = 1;
 
   constructor(private readonly mode: GraphProposalMode) {}
+
+  allocateMilestoneId(milestoneId: MilestoneId): ProposalAlias {
+    return this.allocateAlias(milestoneId);
+  }
 
   allocateFeatureId(featureId: FeatureId): ProposalAlias {
     return this.allocateAlias(featureId);
@@ -152,6 +160,10 @@ export class GraphProposalBuilder {
 
   allocateTaskId(taskId: TaskId): ProposalAlias {
     return this.allocateAlias(taskId);
+  }
+
+  aliasFor(id: MilestoneId | FeatureId | TaskId): ProposalAlias | undefined {
+    return this.reverseAliases.get(id);
   }
 
   addOp(op: GraphProposalOp): void {
@@ -164,13 +176,13 @@ export class GraphProposalBuilder {
       mode: this.mode,
       aliases: Object.fromEntries(this.aliases) as Record<
         ProposalAlias,
-        FeatureId | TaskId
+        MilestoneId | FeatureId | TaskId
       >,
       ops: [...this.ops],
     };
   }
 
-  private allocateAlias(id: FeatureId | TaskId): ProposalAlias {
+  private allocateAlias(id: MilestoneId | FeatureId | TaskId): ProposalAlias {
     const existing = this.reverseAliases.get(id);
     if (existing !== undefined) {
       return existing;
@@ -187,7 +199,7 @@ export class GraphProposalBuilder {
 export function resolveProposalAlias(
   proposal: GraphProposal,
   alias: ProposalAlias,
-): FeatureId | TaskId | undefined {
+): MilestoneId | FeatureId | TaskId | undefined {
   return proposal.aliases[alias];
 }
 
@@ -236,10 +248,18 @@ export function applyGraphProposal(
   }
 
   const warnings = collectProposalWarnings(graph, proposal);
+  const { ops: resolvedOps, aliasForOp } = resolveProposalAliases(
+    graph,
+    proposal.ops,
+  );
   const applied: GraphProposalOp[] = [];
   const skipped: ProposalSkippedOp[] = [];
+  const resolvedAliases: Record<
+    ProposalAlias,
+    MilestoneId | FeatureId | TaskId
+  > = {};
 
-  for (const [opIndex, op] of proposal.ops.entries()) {
+  for (const [opIndex, op] of resolvedOps.entries()) {
     const staleReason = staleReasonForOp(graph, op);
     if (staleReason !== undefined) {
       skipped.push({ opIndex, op, reason: staleReason });
@@ -249,6 +269,10 @@ export function applyGraphProposal(
     try {
       applyProposalOp(graph, op);
       applied.push(op);
+      const binding = aliasForOp.get(opIndex);
+      if (binding !== undefined) {
+        resolvedAliases[binding.alias] = binding.concrete;
+      }
     } catch (error) {
       if (error instanceof GraphValidationError) {
         skipped.push({ opIndex, op, reason: error.message });
@@ -264,7 +288,210 @@ export function applyGraphProposal(
     skipped,
     warnings,
     summary: `${applied.length} applied, ${skipped.length} skipped, ${warnings.length} warnings`,
+    resolvedAliases,
   };
+}
+
+interface AliasCounters {
+  m: number;
+  f: number;
+  t: number;
+}
+
+interface AliasBinding {
+  alias: ProposalAlias;
+  concrete: MilestoneId | FeatureId | TaskId;
+}
+
+function resolveProposalAliases(
+  graph: FeatureGraph,
+  ops: readonly GraphProposalOp[],
+): {
+  ops: GraphProposalOp[];
+  aliasForOp: Map<number, AliasBinding>;
+} {
+  const resolved: Record<ProposalAlias, MilestoneId | FeatureId | TaskId> = {};
+  const counters: AliasCounters = {
+    m: maxNumericSuffix(graph.milestones.keys()),
+    f: maxNumericSuffix(graph.features.keys()),
+    t: maxNumericSuffix(graph.tasks.keys()),
+  };
+  const aliasForOp = new Map<number, AliasBinding>();
+
+  const rewritten: GraphProposalOp[] = [];
+  for (const [index, op] of ops.entries()) {
+    const declared = declaredAlias(op);
+    const next = rewriteOp(op, resolved, counters);
+    if (declared !== undefined) {
+      const concrete = resolved[declared];
+      if (concrete !== undefined) {
+        aliasForOp.set(index, { alias: declared, concrete });
+      }
+    }
+    rewritten.push(next);
+  }
+  return { ops: rewritten, aliasForOp };
+}
+
+function declaredAlias(op: GraphProposalOp): ProposalAlias | undefined {
+  switch (op.kind) {
+    case 'add_milestone':
+      return isAlias(op.milestoneId) ? op.milestoneId : undefined;
+    case 'add_feature':
+      return isAlias(op.featureId) ? op.featureId : undefined;
+    case 'add_task':
+      return isAlias(op.taskId) ? op.taskId : undefined;
+    default:
+      return undefined;
+  }
+}
+
+function rewriteOp(
+  op: GraphProposalOp,
+  resolved: Record<ProposalAlias, MilestoneId | FeatureId | TaskId>,
+  counters: AliasCounters,
+): GraphProposalOp {
+  switch (op.kind) {
+    case 'add_milestone':
+      return {
+        ...op,
+        milestoneId: allocateMilestoneAlias(op.milestoneId, resolved, counters),
+      };
+    case 'add_feature':
+      return {
+        ...op,
+        featureId: allocateFeatureAlias(op.featureId, resolved, counters),
+        milestoneId: resolveMilestoneRef(op.milestoneId, resolved),
+      };
+    case 'add_task':
+      return {
+        ...op,
+        taskId: allocateTaskAlias(op.taskId, resolved, counters),
+        featureId: resolveFeatureRef(op.featureId, resolved),
+      };
+    case 'remove_feature':
+      return { ...op, featureId: resolveFeatureRef(op.featureId, resolved) };
+    case 'edit_feature':
+      return { ...op, featureId: resolveFeatureRef(op.featureId, resolved) };
+    case 'remove_task':
+      return { ...op, taskId: resolveTaskRef(op.taskId, resolved) };
+    case 'edit_task':
+      return { ...op, taskId: resolveTaskRef(op.taskId, resolved) };
+    case 'add_dependency':
+    case 'remove_dependency':
+      return {
+        ...op,
+        fromId: resolveEndpointRef(op.fromId, resolved),
+        toId: resolveEndpointRef(op.toId, resolved),
+      };
+  }
+}
+
+function allocateMilestoneAlias(
+  id: MilestoneId | string,
+  resolved: Record<ProposalAlias, MilestoneId | FeatureId | TaskId>,
+  counters: AliasCounters,
+): MilestoneId {
+  if (!isAlias(id)) {
+    return id as MilestoneId;
+  }
+  counters.m += 1;
+  const concrete: MilestoneId = `m-${counters.m}`;
+  resolved[id] = concrete;
+  return concrete;
+}
+
+function allocateFeatureAlias(
+  id: FeatureId | string,
+  resolved: Record<ProposalAlias, MilestoneId | FeatureId | TaskId>,
+  counters: AliasCounters,
+): FeatureId {
+  if (!isAlias(id)) {
+    return id as FeatureId;
+  }
+  counters.f += 1;
+  const concrete: FeatureId = `f-${counters.f}`;
+  resolved[id] = concrete;
+  return concrete;
+}
+
+function allocateTaskAlias(
+  id: TaskId | string,
+  resolved: Record<ProposalAlias, MilestoneId | FeatureId | TaskId>,
+  counters: AliasCounters,
+): TaskId {
+  if (!isAlias(id)) {
+    return id as TaskId;
+  }
+  counters.t += 1;
+  const concrete: TaskId = `t-${counters.t}`;
+  resolved[id] = concrete;
+  return concrete;
+}
+
+function resolveMilestoneRef(
+  id: MilestoneId | string,
+  resolved: Record<ProposalAlias, MilestoneId | FeatureId | TaskId>,
+): MilestoneId {
+  if (isAlias(id)) {
+    const hit = resolved[id];
+    return hit === undefined ? (id as MilestoneId) : (hit as MilestoneId);
+  }
+  return id as MilestoneId;
+}
+
+function resolveFeatureRef(
+  id: FeatureId | string,
+  resolved: Record<ProposalAlias, MilestoneId | FeatureId | TaskId>,
+): FeatureId {
+  if (isAlias(id)) {
+    const hit = resolved[id];
+    return hit === undefined ? (id as FeatureId) : (hit as FeatureId);
+  }
+  return id as FeatureId;
+}
+
+function resolveTaskRef(
+  id: TaskId | string,
+  resolved: Record<ProposalAlias, MilestoneId | FeatureId | TaskId>,
+): TaskId {
+  if (isAlias(id)) {
+    const hit = resolved[id];
+    return hit === undefined ? (id as TaskId) : (hit as TaskId);
+  }
+  return id as TaskId;
+}
+
+function resolveEndpointRef(
+  id: FeatureId | TaskId | string,
+  resolved: Record<ProposalAlias, MilestoneId | FeatureId | TaskId>,
+): FeatureId | TaskId {
+  if (isAlias(id)) {
+    const hit = resolved[id];
+    return hit === undefined
+      ? (id as FeatureId | TaskId)
+      : (hit as FeatureId | TaskId);
+  }
+  return id as FeatureId | TaskId;
+}
+
+function isAlias(value: string): value is ProposalAlias {
+  return value.startsWith('#');
+}
+
+function maxNumericSuffix(keys: Iterable<string>): number {
+  let max = 0;
+  for (const key of keys) {
+    const idx = key.indexOf('-');
+    if (idx < 0) {
+      continue;
+    }
+    const numeric = Number.parseInt(key.slice(idx + 1), 10);
+    if (!Number.isNaN(numeric) && numeric > max) {
+      max = numeric;
+    }
+  }
+  return max;
 }
 
 function applyProposalOp(graph: FeatureGraph, op: GraphProposalOp): void {

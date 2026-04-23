@@ -154,7 +154,11 @@ export class DefaultFeaturePhaseToolHost {
       throw new Error('verify phase already submitted');
     }
     const hasIssues = this.verifyIssues.length > 0;
-    const ok = args.outcome === 'pass' && !hasIssues;
+    const blockingIssues = this.verifyIssues.filter(
+      (issue) => issue.severity !== 'nit',
+    );
+    const hasBlocking = blockingIssues.length > 0;
+    const ok = args.outcome === 'pass' && !hasBlocking;
     const outcome: 'pass' | 'repair_needed' = ok ? 'pass' : 'repair_needed';
     const fallbackFailedChecks =
       outcome === 'repair_needed'
@@ -162,8 +166,8 @@ export class DefaultFeaturePhaseToolHost {
           ? args.failedChecks
           : args.repairFocus && args.repairFocus.length > 0
             ? args.repairFocus
-            : hasIssues
-              ? this.verifyIssues.map((issue) => issue.description)
+            : hasBlocking
+              ? blockingIssues.map((issue) => issue.description)
               : [args.summary]
         : undefined;
     const verification: VerificationSummary = {
