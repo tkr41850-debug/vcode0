@@ -1,5 +1,9 @@
 # Documentation
 
+## Foundations (start here)
+
+- [Foundations](./foundations/README.md) — Canonical state, flow, and coordination docs — the layer newcomers should read first.
+
 Use these entry points depending on what you need:
 
 - [Architecture Overview](../ARCHITECTURE.md) — system thesis, lifecycle split, and component map.

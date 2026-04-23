@@ -82,6 +82,7 @@ gvc0/
 
 ## Documentation Entry Points
 
+- [docs/foundations/README.md](./docs/foundations/README.md) — Canonical state / flow / coordination layer (start here).
 - [docs/README.md](./docs/README.md) — main documentation landing page.
 - [docs/architecture/README.md](./docs/architecture/README.md) — canonical model and architecture topics.
 - [docs/operations/README.md](./docs/operations/README.md) — verification, recovery, conflict coordination, and warnings.
