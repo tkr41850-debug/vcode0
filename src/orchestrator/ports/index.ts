@@ -1,5 +1,10 @@
 import type { PiFeatureAgentRuntime } from '@agents';
-import type { AgentRun, EventRecord, GvcConfig } from '@core/types/index';
+import type {
+  AgentRun,
+  EventRecord,
+  GvcConfig,
+  IntegrationState,
+} from '@core/types/index';
 import type { VerificationService } from '@orchestrator/services/verification-service';
 import type { RuntimePort } from '@runtime';
 import type { SessionStore } from '@runtime/sessions/index';
@@ -36,6 +41,11 @@ export interface Store {
   // Events
   listEvents(query?: EventQuery): EventRecord[];
   appendEvent(event: EventRecord): void;
+
+  // Integration marker (two-phase-commit for merge train).
+  getIntegrationState(): IntegrationState | undefined;
+  writeIntegrationState(state: IntegrationState): void;
+  clearIntegrationState(): void;
 }
 
 export interface UiPort {

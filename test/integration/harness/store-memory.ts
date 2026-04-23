@@ -1,4 +1,8 @@
-import type { AgentRun, EventRecord } from '@core/types/index';
+import type {
+  AgentRun,
+  EventRecord,
+  IntegrationState,
+} from '@core/types/index';
 import type {
   AgentRunPatch,
   AgentRunQuery,
@@ -19,6 +23,7 @@ import type {
 export class InMemoryStore implements Store {
   private readonly runs = new Map<string, AgentRun>();
   private readonly events: EventRecord[] = [];
+  private integration: IntegrationState | undefined;
 
   getAgentRun(id: string): AgentRun | undefined {
     return this.runs.get(id);
@@ -85,6 +90,18 @@ export class InMemoryStore implements Store {
 
   appendEvent(event: EventRecord): void {
     this.events.push(event);
+  }
+
+  getIntegrationState(): IntegrationState | undefined {
+    return this.integration;
+  }
+
+  writeIntegrationState(state: IntegrationState): void {
+    this.integration = state;
+  }
+
+  clearIntegrationState(): void {
+    this.integration = undefined;
   }
 }
 

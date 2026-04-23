@@ -150,6 +150,9 @@ function createStoreMock(): Store {
     appendEvent: (event: EventRecord) => {
       events.push(event);
     },
+    getIntegrationState: () => undefined,
+    writeIntegrationState: () => {},
+    clearIntegrationState: () => {},
   };
 }
 

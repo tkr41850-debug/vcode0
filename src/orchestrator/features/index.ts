@@ -51,8 +51,14 @@ export class FeatureLifecycleCoordinator {
   rerouteToReplan(featureId: FeatureId, issues: VerifyIssue[]): void {
     const feature = this.requireFeature(featureId);
 
+    let ejectFromIntegrating = false;
     if (feature.collabControl === 'merge_queued') {
       this.mergeTrain.ejectFromQueue(featureId, this.graph);
+    } else if (feature.collabControl === 'integrating') {
+      // Route through conflict so we can exit integrating; clear after
+      // advancePhase puts us in replanning.
+      this.graph.transitionFeature(featureId, { collabControl: 'conflict' });
+      ejectFromIntegrating = true;
     }
 
     const merged = mergeVerifyIssues(feature.verifyIssues, issues);
@@ -62,6 +68,16 @@ export class FeatureLifecycleCoordinator {
 
     this.markPhaseFailed(featureId);
     this.advancePhase(featureId, 'replanning');
+
+    if (ejectFromIntegrating) {
+      this.graph.transitionFeature(featureId, { collabControl: 'branch_open' });
+      this.graph.updateMergeTrainState(featureId, {
+        mergeTrainManualPosition: undefined,
+        mergeTrainEnteredAt: undefined,
+        mergeTrainEntrySeq: undefined,
+        mergeTrainReentryCount: (feature.mergeTrainReentryCount ?? 0) + 1,
+      });
+    }
   }
 
   completePhase(

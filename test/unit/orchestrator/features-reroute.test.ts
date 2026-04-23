@@ -16,6 +16,7 @@ function makeGraph(opts: {
     | 'executing_repair';
   collabControl?: 'branch_open' | 'merge_queued' | 'integrating';
   verifyIssues?: VerifyIssue[];
+  mergeTrainReentryCount?: number;
 }): InMemoryFeatureGraph {
   return new InMemoryFeatureGraph({
     milestones: [createMilestoneFixture()],
@@ -27,6 +28,9 @@ function makeGraph(opts: {
         collabControl: opts.collabControl ?? 'branch_open',
         ...(opts.verifyIssues !== undefined
           ? { verifyIssues: opts.verifyIssues }
+          : {}),
+        ...(opts.mergeTrainReentryCount !== undefined
+          ? { mergeTrainReentryCount: opts.mergeTrainReentryCount }
           : {}),
       }),
     ],
@@ -90,6 +94,37 @@ describe('FeatureLifecycleCoordinator.rerouteToReplan', () => {
       expect.objectContaining({ source: 'verify', id: 'vi-0' }),
       expect.objectContaining({ source: 'ci_check', id: 'ci-1' }),
     ]);
+  });
+
+  it('ejects integrating features back to branch_open before replanning', () => {
+    const graph = makeGraph({
+      workControl: 'awaiting_merge',
+      collabControl: 'integrating',
+      mergeTrainReentryCount: 2,
+    });
+    graph.updateMergeTrainState('f-1', {
+      mergeTrainEnteredAt: 10,
+      mergeTrainEntrySeq: 1,
+      mergeTrainReentryCount: 2,
+    });
+    const features = new FeatureLifecycleCoordinator(graph);
+
+    features.rerouteToReplan('f-1', [
+      {
+        source: 'rebase',
+        id: 'rb-1',
+        severity: 'blocking',
+        description: 'rebase onto main conflicted',
+        conflictedFiles: ['src/x.ts'],
+      },
+    ]);
+
+    const feature = graph.features.get('f-1');
+    expect(feature?.collabControl).toBe('branch_open');
+    expect(feature?.workControl).toBe('replanning');
+    expect(feature?.mergeTrainEnteredAt).toBeUndefined();
+    expect(feature?.mergeTrainEntrySeq).toBeUndefined();
+    expect(feature?.mergeTrainReentryCount).toBe(3);
   });
 
   it('ejects merge_queued features from the queue before replanning', () => {

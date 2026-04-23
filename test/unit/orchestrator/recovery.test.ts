@@ -58,6 +58,9 @@ function createStoreMock(runs: TaskAgentRun[]): Store {
     }),
     listEvents: vi.fn(() => []),
     appendEvent: vi.fn(),
+    getIntegrationState: vi.fn(() => undefined),
+    writeIntegrationState: vi.fn(),
+    clearIntegrationState: vi.fn(),
   };
 }
 

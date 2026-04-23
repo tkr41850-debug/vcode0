@@ -280,4 +280,84 @@ describe('SqliteStore', () => {
       expect(store.listEvents({ since: 150, until: 250 })).toHaveLength(1);
     });
   });
+
+  describe('integration marker', () => {
+    beforeEach(() => {
+      // Marker row references features(id); seed one row so the FK satisfies.
+      db.prepare(
+        `INSERT INTO milestones (id, name, display_order, status, created_at, updated_at)
+         VALUES ('m-1', 'M1', 0, 'pending', 0, 0)`,
+      ).run();
+      db.prepare(
+        `INSERT INTO features
+           (id, milestone_id, order_in_milestone, name, status, work_phase,
+            collab_status, feature_branch, merge_train_reentry_count,
+            created_at, updated_at)
+         VALUES ('f-1', 'm-1', 0, 'Feat', 'pending', 'awaiting_merge',
+                 'integrating', 'feat-f-1', 0, 0, 0)`,
+      ).run();
+    });
+
+    it('returns undefined when no marker exists', () => {
+      expect(store.getIntegrationState()).toBeUndefined();
+    });
+
+    it('writes and reads the marker row', () => {
+      store.writeIntegrationState({
+        featureId: 'f-1',
+        expectedParentSha: 'sha-main',
+        featureBranchPreIntegrationSha: 'sha-feat',
+        configSnapshot: '{"verification":{}}',
+        intent: 'integrate',
+        startedAt: 12345,
+      });
+
+      expect(store.getIntegrationState()).toEqual({
+        featureId: 'f-1',
+        expectedParentSha: 'sha-main',
+        featureBranchPreIntegrationSha: 'sha-feat',
+        configSnapshot: '{"verification":{}}',
+        intent: 'integrate',
+        startedAt: 12345,
+      });
+    });
+
+    it('upserts existing marker in place (singleton invariant)', () => {
+      store.writeIntegrationState({
+        featureId: 'f-1',
+        expectedParentSha: 'sha-main',
+        featureBranchPreIntegrationSha: 'sha-feat',
+        configSnapshot: '{}',
+        intent: 'integrate',
+        startedAt: 1,
+      });
+      store.writeIntegrationState({
+        featureId: 'f-1',
+        expectedParentSha: 'sha-main-2',
+        featureBranchPreIntegrationSha: 'sha-feat-2',
+        configSnapshot: '{"v":1}',
+        intent: 'cancel',
+        startedAt: 2,
+      });
+
+      expect(store.getIntegrationState()).toMatchObject({
+        expectedParentSha: 'sha-main-2',
+        intent: 'cancel',
+        startedAt: 2,
+      });
+    });
+
+    it('clears the marker', () => {
+      store.writeIntegrationState({
+        featureId: 'f-1',
+        expectedParentSha: 'sha-main',
+        featureBranchPreIntegrationSha: 'sha-feat',
+        configSnapshot: '{}',
+        intent: 'integrate',
+        startedAt: 1,
+      });
+      store.clearIntegrationState();
+      expect(store.getIntegrationState()).toBeUndefined();
+    });
+  });
 });

@@ -1,4 +1,8 @@
-import type { AgentRun, EventRecord } from '@core/types/index';
+import type {
+  AgentRun,
+  EventRecord,
+  IntegrationState,
+} from '@core/types/index';
 import type {
   AgentRunPatch,
   AgentRunQuery,
@@ -11,13 +15,20 @@ import {
   rowToAgentRun,
   rowToEvent,
 } from '@persistence/codecs';
-import type { AgentRunRow, EventRow } from '@persistence/queries/index';
+import type {
+  AgentRunRow,
+  EventRow,
+  IntegrationStateRow,
+} from '@persistence/queries/index';
 import type Database from 'better-sqlite3';
 
 const AGENT_RUN_COLUMNS =
   'id, scope_type, scope_id, phase, run_status, owner, attention, session_id, payload_json, token_usage, max_retries, restart_count, retry_at, created_at, updated_at';
 
 const EVENT_COLUMNS = 'id, timestamp, event_type, entity_id, payload';
+
+const INTEGRATION_STATE_COLUMNS =
+  'id, feature_id, expected_parent_sha, feature_branch_pre_integration_sha, config_snapshot, intent, started_at';
 
 interface AgentRunInsertParams {
   id: string;
@@ -69,6 +80,9 @@ export class SqliteStore implements Store {
   private readonly insertAgentRunStmt;
   private readonly updateAgentRunStmt;
   private readonly appendEventStmt;
+  private readonly getIntegrationStateStmt;
+  private readonly upsertIntegrationStateStmt;
+  private readonly clearIntegrationStateStmt;
   private readonly updateAgentRunTxn: (
     runId: string,
     patch: AgentRunPatch,
@@ -108,6 +122,37 @@ export class SqliteStore implements Store {
 
     this.appendEventStmt = db.prepare<EventInsertParams>(
       'INSERT INTO events (timestamp, event_type, entity_id, payload) VALUES (:timestamp, :event_type, :entity_id, :payload)',
+    );
+
+    this.getIntegrationStateStmt = db.prepare<[], IntegrationStateRow>(
+      `SELECT ${INTEGRATION_STATE_COLUMNS} FROM integration_state WHERE id = 1`,
+    );
+
+    this.upsertIntegrationStateStmt = db.prepare<{
+      feature_id: string;
+      expected_parent_sha: string;
+      feature_branch_pre_integration_sha: string;
+      config_snapshot: string;
+      intent: string;
+      started_at: number;
+    }>(
+      `INSERT INTO integration_state
+        (id, feature_id, expected_parent_sha, feature_branch_pre_integration_sha,
+         config_snapshot, intent, started_at)
+       VALUES
+        (1, :feature_id, :expected_parent_sha, :feature_branch_pre_integration_sha,
+         :config_snapshot, :intent, :started_at)
+       ON CONFLICT(id) DO UPDATE SET
+        feature_id = excluded.feature_id,
+        expected_parent_sha = excluded.expected_parent_sha,
+        feature_branch_pre_integration_sha = excluded.feature_branch_pre_integration_sha,
+        config_snapshot = excluded.config_snapshot,
+        intent = excluded.intent,
+        started_at = excluded.started_at`,
+    );
+
+    this.clearIntegrationStateStmt = db.prepare(
+      'DELETE FROM integration_state WHERE id = 1',
     );
 
     // Read-modify-write is wrapped in a single transaction so concurrent
@@ -215,5 +260,37 @@ export class SqliteStore implements Store {
 
   appendEvent(event: EventRecord): void {
     this.appendEventStmt.run(eventToRow(event));
+  }
+
+  // ---------- Integration marker ----------
+
+  getIntegrationState(): IntegrationState | undefined {
+    const row = this.getIntegrationStateStmt.get();
+    if (row === undefined) {
+      return undefined;
+    }
+    return {
+      featureId: row.feature_id,
+      expectedParentSha: row.expected_parent_sha,
+      featureBranchPreIntegrationSha: row.feature_branch_pre_integration_sha,
+      configSnapshot: row.config_snapshot,
+      intent: row.intent,
+      startedAt: row.started_at,
+    };
+  }
+
+  writeIntegrationState(state: IntegrationState): void {
+    this.upsertIntegrationStateStmt.run({
+      feature_id: state.featureId,
+      expected_parent_sha: state.expectedParentSha,
+      feature_branch_pre_integration_sha: state.featureBranchPreIntegrationSha,
+      config_snapshot: state.configSnapshot,
+      intent: state.intent,
+      started_at: state.startedAt,
+    });
+  }
+
+  clearIntegrationState(): void {
+    this.clearIntegrationStateStmt.run();
   }
 }
