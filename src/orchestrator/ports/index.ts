@@ -1,4 +1,5 @@
 import type { PiFeatureAgentRuntime } from '@agents';
+import type { FeatureGraph, GraphSnapshot } from '@core/graph/index';
 import type { AgentRun, EventRecord, GvcConfig } from '@core/types/index';
 import type { VerificationService } from '@orchestrator/services/verification-service';
 import type { RuntimePort } from '@runtime';
@@ -26,6 +27,12 @@ export type AgentRunPatch = {
     | undefined;
 };
 
+export interface RehydrateSnapshot {
+  graph: GraphSnapshot;
+  openRuns: AgentRun[];
+  pendingEvents: EventRecord[];
+}
+
 export interface Store {
   // Agent runs
   getAgentRun(id: string): AgentRun | undefined;
@@ -36,6 +43,19 @@ export interface Store {
   // Events
   listEvents(query?: EventQuery): EventRecord[];
   appendEvent(event: EventRecord): void;
+
+  // Graph (owned by the Store so callers never instantiate a
+  // PersistentFeatureGraph directly — the Store is the single
+  // persistence boundary).
+  graph(): FeatureGraph;
+  snapshotGraph(): GraphSnapshot;
+
+  // Boot-path rehydration — drives crash-recovery equality invariant
+  // exercised by Plan 02-02.
+  rehydrate(): RehydrateSnapshot;
+
+  // Lifecycle
+  close(): void;
 }
 
 export interface UiPort {

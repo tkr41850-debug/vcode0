@@ -1,31 +1,36 @@
-import { Migration001Init } from '@persistence/migrations/001_init';
-import { Migration002FeatureRuntimeBlock } from '@persistence/migrations/002_feature_runtime_block';
-import { Migration003AgentRunTokenUsage } from '@persistence/migrations/003_agent_run_token_usage';
-import { Migration004FeaturePhaseOutputs } from '@persistence/migrations/004_feature_phase_outputs';
-import { Migration005TaskPlannerPayload } from '@persistence/migrations/005_task_planner_payload';
-import { Migration006RenameFeatureCiToCiCheck } from '@persistence/migrations/006_rename_feature_ci_to_ci_check';
-import { MigrationRunner } from '@persistence/migrations/index';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { MigrationRunner } from '@persistence/migrations/runner';
 import Database from 'better-sqlite3';
 
+function resolveMigrationsDir(): string {
+  // NodeNext ESM: resolve `./migrations/` relative to this module's file URL.
+  const here = dirname(fileURLToPath(import.meta.url));
+  return resolve(here, 'migrations');
+}
+
 /**
- * Opens (or creates) the gvc0 SQLite database at `path`, applies baseline
- * pragmas, and runs all migrations. Tests pass `:memory:` for an isolated
- * per-test database.
+ * Opens (or creates) the gvc0 SQLite database at `path`, applies the
+ * Phase-2 CONTEXT-locked pragma set on every connection open, and runs
+ * all numbered `.sql` migrations via MigrationRunner. Tests pass `:memory:`
+ * for an isolated per-test database.
  */
 export function openDatabase(path: string): Database.Database {
   const db = new Database(path);
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
-  db.pragma('synchronous = NORMAL');
 
-  new MigrationRunner(db, [
-    Migration001Init,
-    Migration002FeatureRuntimeBlock,
-    Migration003AgentRunTokenUsage,
-    Migration004FeaturePhaseOutputs,
-    Migration005TaskPlannerPayload,
-    Migration006RenameFeatureCiToCiCheck,
-  ]).run();
+  // CONTEXT-locked pragmas (Phase 2, CONTEXT § B). Applied on every open
+  // because SQLite scope is per-connection, not per-file.
+  db.pragma('journal_mode = WAL');
+  db.pragma('synchronous = NORMAL');
+  db.pragma('busy_timeout = 5000');
+  // cache_size negative = KiB (per SQLite PRAGMA docs) → 64 MB cache.
+  db.pragma('cache_size = -64000');
+  // 256 MB mmap window.
+  db.pragma('mmap_size = 268435456');
+  db.pragma('foreign_keys = ON');
+  db.pragma('temp_store = MEMORY');
+
+  new MigrationRunner(db, resolveMigrationsDir()).run();
 
   return db;
 }

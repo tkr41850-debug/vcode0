@@ -59,6 +59,16 @@ function createStoreMock(runs: TaskAgentRun[]): Store {
     }),
     listEvents: vi.fn(() => []),
     appendEvent: vi.fn(),
+    graph: vi.fn(() => {
+      throw new Error('graph() not implemented in recovery-test store mock');
+    }),
+    snapshotGraph: vi.fn(() => ({ milestones: [], features: [], tasks: [] })),
+    rehydrate: vi.fn(() => ({
+      graph: { milestones: [], features: [], tasks: [] },
+      openRuns: [...byId.values()],
+      pendingEvents: [],
+    })),
+    close: vi.fn(),
   };
 }
 
