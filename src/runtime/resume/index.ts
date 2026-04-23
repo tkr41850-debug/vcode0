@@ -15,10 +15,7 @@
  */
 
 import type { Agent, AgentMessage } from '@mariozechner/pi-agent-core';
-import type {
-  AssistantMessage,
-  ToolResultMessage,
-} from '@mariozechner/pi-ai';
+import type { AssistantMessage, ToolResultMessage } from '@mariozechner/pi-ai';
 
 import type { ToolOutputStore } from './tool-output-store.js';
 

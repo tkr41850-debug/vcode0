@@ -156,9 +156,17 @@ no resume needed" — the transcript is the final output.
 
 ## Verification
 
-Task 7 adds a final test (`resume() facade works on a saved-and-rehydrated Agent`)
-to `test/integration/spike/pi-sdk-resume.test.ts` that exercises the
-persist-tool-outputs path end-to-end through the `@runtime/resume` facade.
-`npm run test:integration -- test/integration/spike/pi-sdk-resume` must stay
-green; if it fails after a pi-sdk upgrade, the decision on this page must
-be re-validated before merging the upgrade.
+Task 7 appends a facade smoke-test (`Facade — resume() via @runtime/resume
+handles saved-and-rehydrated Agent without throwing`) to
+`test/integration/spike/pi-sdk-resume.test.ts`. It asserts:
+
+1. `RESUME_STRATEGY === 'persist-tool-outputs'` (the decision constant
+   matches this document).
+2. The facade does not throw on a cold-start transcript whose last
+   message is a plain-text assistant wrap-up.
+3. The outcome discriminates `resumed` vs `already-terminated` so Phase 7
+   can branch on it.
+
+`npm run test:integration -- test/integration/spike/pi-sdk-resume` must
+stay green. If it fails after a pi-sdk upgrade, the decision on this page
+must be re-validated before merging the upgrade.

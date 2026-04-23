@@ -10,9 +10,9 @@
  */
 
 import {
+  type FauxResponseStep,
   fauxAssistantMessage,
   fauxText,
-  type FauxResponseStep,
   fauxToolCall,
 } from '../harness/faux-stream.js';
 

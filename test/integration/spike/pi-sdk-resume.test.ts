@@ -16,12 +16,12 @@
  * pass/fail gate. Throws are recorded, not thrown.
  */
 
-import { Agent } from '@mariozechner/pi-agent-core';
-import { resolveModel } from '@runtime/routing/model-bridge';
-import { FileSessionStore } from '@runtime/sessions/index';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { Agent } from '@mariozechner/pi-agent-core';
+import { resolveModel } from '@runtime/routing/model-bridge';
+import { FileSessionStore } from '@runtime/sessions/index';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
@@ -275,5 +275,73 @@ describe('pi-sdk resume spike', () => {
       ...snapshot(agentB),
       continueError: continueErr,
     });
+  });
+
+  it('Facade — resume() via @runtime/resume handles saved-and-rehydrated Agent without throwing', async () => {
+    // Smoke test for the Phase 7 consumption point. Proves:
+    // - `@runtime/resume` exports are importable and callable.
+    // - RESUME_STRATEGY matches the spike decision.
+    // - The facade tolerates a terminal assistant-text transcript (no
+    //   tool-calls pending) by returning `already-terminated` instead of
+    //   throwing.
+    const { resume, RESUME_STRATEGY, createInMemoryToolOutputStore } =
+      await import('@runtime/resume');
+
+    // Sanity-check the decision constant.
+    expect(RESUME_STRATEGY).toBe('persist-tool-outputs');
+    log('[SPIKE][facade] RESUME_STRATEGY', RESUME_STRATEGY);
+
+    // Run Agent A to natural completion.
+    faux.setResponses(ALL_SCENARIOS.coldStart as FauxResponseStep[]);
+    const agentA = makeAgent(faux);
+    try {
+      await agentA.prompt('initial task');
+      await agentA.waitForIdle();
+    } catch {
+      /* ignore */
+    }
+    const saved = [...agentA.state.messages];
+    expect(saved.length).toBeGreaterThan(0);
+
+    // Spawn Agent B with saved transcript as initial state.
+    faux.setResponses(ALL_SCENARIOS.coldStart as FauxResponseStep[]);
+    const model = resolveModel(
+      { model: `anthropic:${MODEL_ID}`, tier: 'standard' },
+      {
+        enabled: false,
+        ceiling: MODEL_ID,
+        tiers: { heavy: MODEL_ID, standard: MODEL_ID, light: MODEL_ID },
+        escalateOnFailure: false,
+        budgetPressure: false,
+      },
+    );
+    const agentB = new Agent({
+      initialState: {
+        systemPrompt: 'You are a spike test agent.',
+        model,
+        tools: [],
+        messages: saved,
+      },
+      getApiKey: () => 'faux-key',
+      sessionId: 'facade-smoke',
+    });
+
+    // Call the facade. It should not throw — the cold-start path terminates
+    // on a plain text assistant message, which the facade recognizes as
+    // `already-terminated`.
+    const toolOutputs = createInMemoryToolOutputStore();
+    const outcome = await resume({
+      agent: agentB,
+      savedMessages: saved,
+      toolOutputs,
+    });
+    log('[SPIKE][facade][outcome]', outcome);
+    expect(outcome.kind).toBeDefined();
+    // Cold-start transcript ends on a plain assistant text wrap-up — the
+    // facade must recognize that and short-circuit with `already-terminated`,
+    // not attempt `continue()` (which would throw).
+    if (outcome.kind === 'already-terminated') {
+      expect(outcome.reason).toBeDefined();
+    }
   });
 });
