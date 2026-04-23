@@ -362,6 +362,9 @@ function createPorts(
       worktree: {
         ensureFeatureWorktree: () => Promise.resolve('/repo'),
         ensureTaskWorktree: () => Promise.resolve('/repo'),
+        removeWorktree: () => Promise.resolve(),
+        pruneStaleWorktrees: () => Promise.resolve([]),
+        sweepStaleLocks: () => Promise.resolve([]),
       },
     },
     runtime,
