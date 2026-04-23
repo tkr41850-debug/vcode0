@@ -57,6 +57,7 @@ function createStoreMock(runs: TaskAgentRun[]): Store {
       if (existing === undefined) throw new Error(`missing run ${id}`);
       byId.set(id, { ...existing, ...patch });
     }),
+    appendQuarantinedFrame: vi.fn(),
     listEvents: vi.fn(() => []),
     appendEvent: vi.fn(),
     graph: vi.fn(() => {

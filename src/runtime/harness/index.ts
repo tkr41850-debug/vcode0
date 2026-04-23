@@ -66,6 +66,13 @@ const WORKER_ENTRY = path.resolve(
 
 const ABORT_GRACE_MS = 5_000;
 
+const DEFAULT_WORKER_HEALTH_TIMEOUT_MS = 10_000;
+
+export interface HarnessHealthConfig {
+  /** REQ-EXEC-03: no health_pong within this window → SIGKILL worker. */
+  workerHealthTimeoutMs?: number;
+}
+
 interface ChildLike {
   stdin: Writable | null;
   stdout: Readable | null;
@@ -88,8 +95,15 @@ export class PiSdkHarness implements SessionHarness {
     private readonly sessionStore: SessionStore,
     private readonly projectRoot: string,
     private readonly entryPath: string = WORKER_ENTRY,
+    private readonly health: HarnessHealthConfig = {},
     private readonly pidRegistry?: WorkerPidRegistry,
   ) {}
+
+  private resolveHealthTimeoutMs(): number {
+    return (
+      this.health.workerHealthTimeoutMs ?? DEFAULT_WORKER_HEALTH_TIMEOUT_MS
+    );
+  }
 
   start(
     task: Task,
@@ -114,6 +128,7 @@ export class PiSdkHarness implements SessionHarness {
       sessionId,
       child,
       transport,
+      { workerHealthTimeoutMs: this.resolveHealthTimeoutMs() },
       () => this.clearPid(agentRunId),
     );
 
@@ -157,6 +172,7 @@ export class PiSdkHarness implements SessionHarness {
       run.sessionId,
       child,
       transport,
+      { workerHealthTimeoutMs: this.resolveHealthTimeoutMs() },
       () => this.clearPid(run.agentRunId),
     );
 
@@ -224,6 +240,7 @@ function createSessionHandle(
   sessionId: string,
   child: ChildLike,
   transport: NdjsonStdioTransport,
+  opts: { workerHealthTimeoutMs: number },
   // Plan 03-01: `onBeforeExitDispatch` runs BEFORE user exit handlers fire so
   // the PID registry is cleared before any retry-dispatch reacting to the
   // error frame can observe a stale entry.
@@ -231,6 +248,9 @@ function createSessionHandle(
 ): SessionHandle {
   let exitInfo: SessionExitInfo | undefined;
   const exitHandlers: Array<(info: SessionExitInfo) => void> = [];
+  const workerMessageHandlers: Array<
+    (message: WorkerToOrchestratorMessage) => void
+  > = [];
 
   const fireExit = (info: SessionExitInfo): void => {
     if (exitInfo !== undefined) return;
@@ -238,8 +258,57 @@ function createSessionHandle(
     // Clear the PID registry entry FIRST so a same-tick retry dispatch (added
     // in plan 03-03's retry policy) never sees a stale PID.
     onBeforeExitDispatch?.();
+    clearInterval(pingInterval);
     for (const handler of exitHandlers) handler(info);
   };
+
+  // REQ-EXEC-03 heartbeat loop. Parent sends `health_ping` every
+  // `workerHealthTimeoutMs / 2` ms. Two consecutive missed pongs (one full
+  // timeout window) synthesize a terminal `error` frame and SIGKILL the
+  // worker. See RESEARCH §NDJSON IPC Framing.
+  const healthTimeoutMs = opts.workerHealthTimeoutMs;
+  const pingIntervalMs = Math.max(1, Math.floor(healthTimeoutMs / 2));
+  let lastPongTs = Date.now();
+  let healthTimedOut = false;
+
+  const dispatchWorkerMessage = (
+    message: WorkerToOrchestratorMessage,
+  ): void => {
+    for (const handler of workerMessageHandlers) handler(message);
+  };
+
+  const pingInterval: NodeJS.Timeout = setInterval(() => {
+    transport.send({ type: 'health_ping', ts: Date.now() });
+    if (healthTimedOut) return;
+    if (Date.now() - lastPongTs > healthTimeoutMs) {
+      healthTimedOut = true;
+      clearInterval(pingInterval);
+      dispatchWorkerMessage({
+        type: 'error',
+        taskId,
+        agentRunId,
+        error: `no health_pong within ${healthTimeoutMs}ms (2 consecutive missed pings)`,
+        kind: 'health_timeout',
+        message: `no health_pong within ${healthTimeoutMs}ms (2 consecutive missed pings)`,
+      });
+      if (!child.killed) {
+        child.kill('SIGKILL');
+      }
+    }
+  }, pingIntervalMs);
+  // Keep the parent event loop alive only while workers are alive — don't
+  // block graceful shutdown on the heartbeat ticker.
+  if (typeof pingInterval.unref === 'function') {
+    pingInterval.unref();
+  }
+
+  transport.onMessage((message: WorkerToOrchestratorMessage) => {
+    if (message.type === 'health_pong') {
+      lastPongTs = message.ts;
+      return;
+    }
+    dispatchWorkerMessage(message);
+  });
 
   child.on('exit', (code, signal) => {
     fireExit({ code, signal });
@@ -282,7 +351,7 @@ function createSessionHandle(
     onWorkerMessage(
       handler: (message: WorkerToOrchestratorMessage) => void,
     ): void {
-      transport.onMessage(handler);
+      workerMessageHandlers.push(handler);
     },
 
     onExit(handler: (info: SessionExitInfo) => void): void {

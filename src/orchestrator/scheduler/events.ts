@@ -56,6 +56,11 @@ export async function handleSchedulerEvent(params: {
   if (event.type === 'worker_message') {
     const message = event.message;
 
+    // Health heartbeat frames are handled by the harness layer and never
+    // reach the scheduler through compose.ts, but narrow defensively so
+    // the type system confirms task-scoped fields are present below.
+    if (message.type === 'health_pong') return;
+
     if (message.type === 'claim_lock') {
       await handleClaimLock(
         {

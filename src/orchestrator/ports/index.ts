@@ -33,7 +33,21 @@ export interface RehydrateSnapshot {
   pendingEvents: EventRecord[];
 }
 
+export interface QuarantinedFrameEntry {
+  ts: number;
+  direction: 'parent_from_child' | 'child_from_parent';
+  agentRunId?: string;
+  raw: string;
+  errorMessage: string;
+}
+
 export interface Store {
+  // IPC quarantine (REQ-EXEC-03) — persistent tail for malformed NDJSON
+  // frames. Callers MUST NOT await this in the hot line-parse path; the
+  // in-memory ring (src/runtime/ipc/quarantine.ts) is authoritative for
+  // debugging and the Store write is fire-and-forget.
+  appendQuarantinedFrame(entry: QuarantinedFrameEntry): void;
+
   // Agent runs
   getAgentRun(id: string): AgentRun | undefined;
   listAgentRuns(query?: AgentRunQuery): AgentRun[];

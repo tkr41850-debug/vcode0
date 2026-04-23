@@ -106,6 +106,7 @@ describe('WorkerPidRegistry ↔ PiSdkHarness lifecycle', () => {
       createSessionStoreMock(),
       '/tmp/project-root',
       '/tmp/entry.ts',
+      {},
       registry,
     );
     const child = createFakeChild(123456);
@@ -147,6 +148,7 @@ describe('WorkerPidRegistry ↔ PiSdkHarness lifecycle', () => {
       createSessionStoreMock(),
       '/tmp/project-root',
       '/tmp/entry.ts',
+      {},
       registry,
     );
     const child = createFakeChild(787878);
@@ -183,6 +185,7 @@ describe('WorkerPidRegistry ↔ PiSdkHarness lifecycle', () => {
       createSessionStoreMock([{ role: 'user', content: 'saved' }]),
       '/tmp/project-root',
       '/tmp/entry.ts',
+      {},
       registry,
     );
     const child = createFakeChild(999001);

@@ -204,9 +204,12 @@ export async function composeApplication(): Promise<GvcApplication> {
 
   const pidRegistry = createWorkerPidRegistry(store);
   const runtime = new LocalWorkerPool(
-    new PiSdkHarness(sessionStore, projectRoot, undefined, pidRegistry),
+    new PiSdkHarness(sessionStore, projectRoot, undefined, {}, pidRegistry),
     maxWorkers,
     (message) => {
+      // Health heartbeat frames are handled by the harness layer — drop
+      // them here so consumers can assume task-scoped fields are present.
+      if (message.type === 'health_pong') return;
       const workerOutput = formatWorkerOutput(message);
       if (workerOutput !== undefined) {
         ui.onWorkerOutput(message.agentRunId, message.taskId, workerOutput);

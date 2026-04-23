@@ -4,6 +4,7 @@ import type {
   AgentRunPatch,
   AgentRunQuery,
   EventQuery,
+  QuarantinedFrameEntry,
   RehydrateSnapshot,
   Store,
 } from '@orchestrator/ports/index';
@@ -45,6 +46,14 @@ interface EventInsertParams {
   event_type: string;
   entity_id: string;
   payload: string | null;
+}
+
+interface QuarantineInsertParams {
+  ts: number;
+  direction: string;
+  agent_run_id: string | null;
+  raw: string;
+  error_message: string;
 }
 
 interface AgentRunUpdateParams {
@@ -96,6 +105,7 @@ export class SqliteStore implements Store {
   private readonly insertAgentRunStmt;
   private readonly updateAgentRunStmt;
   private readonly appendEventStmt;
+  private readonly appendQuarantineStmt;
   private readonly setWorkerPidStmt;
   private readonly clearWorkerPidStmt;
   private readonly listLiveWorkerPidsStmt;
@@ -141,6 +151,10 @@ export class SqliteStore implements Store {
 
     this.appendEventStmt = db.prepare<EventInsertParams>(
       'INSERT INTO events (timestamp, event_type, entity_id, payload) VALUES (:timestamp, :event_type, :entity_id, :payload)',
+    );
+
+    this.appendQuarantineStmt = db.prepare<QuarantineInsertParams>(
+      'INSERT INTO ipc_quarantine (ts, direction, agent_run_id, raw, error_message) VALUES (:ts, :direction, :agent_run_id, :raw, :error_message)',
     );
 
     // === PID registry (Phase 3, plan 03-01) ===
@@ -261,6 +275,18 @@ export class SqliteStore implements Store {
 
   appendEvent(event: EventRecord): void {
     this.appendEventStmt.run(eventToRow(event));
+  }
+
+  // ---------- IPC Quarantine ----------
+
+  appendQuarantinedFrame(entry: QuarantinedFrameEntry): void {
+    this.appendQuarantineStmt.run({
+      ts: entry.ts,
+      direction: entry.direction,
+      agent_run_id: entry.agentRunId ?? null,
+      raw: entry.raw,
+      error_message: entry.errorMessage,
+    });
   }
 
   // ---------- Graph ----------

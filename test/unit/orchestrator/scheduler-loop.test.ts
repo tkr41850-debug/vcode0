@@ -151,6 +151,9 @@ function createStoreMock(): Store {
     appendEvent: (event: EventRecord) => {
       events.push(event);
     },
+    appendQuarantinedFrame: () => {
+      /* no-op — quarantine is a debug sink, scheduler-loop tests don't assert on it */
+    },
     graph: () => {
       throw new Error('graph() not implemented in scheduler-loop store mock');
     },

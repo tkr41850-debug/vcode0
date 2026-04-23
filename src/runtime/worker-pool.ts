@@ -289,6 +289,10 @@ export class LocalWorkerPool implements RuntimePort {
 
   private registerWorkerHandler(taskId: string, session: LiveSession): void {
     session.handle.onWorkerMessage((message: WorkerToOrchestratorMessage) => {
+      // health_pong frames are consumed by the harness heartbeat loop
+      // and never need to surface to the orchestrator listener chain.
+      if (message.type === 'health_pong') return;
+
       const normalizedMessage =
         message.agentRunId === session.ref.agentRunId
           ? message

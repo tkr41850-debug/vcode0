@@ -18,6 +18,7 @@ export function testGvcConfigDefaults(): Pick<
   | 'retryCap'
   | 'reentryCap'
   | 'pauseTimeouts'
+  | 'workerHealthTimeoutMs'
 > {
   return {
     dbPath: '.gvc0/state.db',
@@ -31,5 +32,6 @@ export function testGvcConfigDefaults(): Pick<
     retryCap: 5,
     reentryCap: 10,
     pauseTimeouts: { hotWindowMs: 10 * 60 * 1000 },
+    workerHealthTimeoutMs: 10_000,
   };
 }

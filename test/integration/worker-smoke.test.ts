@@ -1,9 +1,22 @@
+import type { ChildProcess } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import * as os from 'node:os';
+import { performance } from 'node:perf_hooks';
+import { PassThrough, type Writable } from 'node:stream';
 
 import type { Task } from '@core/types/index';
-import type { WorkerToOrchestratorMessage } from '@runtime/contracts';
+import type {
+  OrchestratorToWorkerMessage,
+  WorkerToOrchestratorMessage,
+} from '@runtime/contracts';
+import { PiSdkHarness } from '@runtime/harness/index';
+import {
+  ChildNdjsonStdioTransport,
+  NdjsonStdioTransport,
+} from '@runtime/ipc/index';
+import type { SessionStore } from '@runtime/sessions/index';
 import { LocalWorkerPool } from '@runtime/worker-pool';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   createFauxProvider,
@@ -243,5 +256,269 @@ describe('worker smoke (faux provider + in-process harness)', () => {
         filesChanged: ['src/approval.ts'],
       },
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// REQ-EXEC-03 (Plan 03-02 Task 7): NDJSON hardening coverage — malformed-line
+// survival, health-pong timeout detection, and claim-lock round-trip latency.
+//
+// These scenarios bypass `InProcessHarness` because it swaps the NDJSON
+// transport for an in-memory loopback — the hardening surface we need to
+// exercise (Value.Check + quarantine + heartbeat) lives exclusively on
+// `NdjsonStdioTransport` / `ChildNdjsonStdioTransport` / `PiSdkHarness`.
+// ---------------------------------------------------------------------------
+
+/**
+ * Minimal `ChildProcess` stand-in that matches the subset of surface the
+ * harness actually uses (stdin, stdout, on('exit'|'error'), kill, killed).
+ * Pairs parent-facing PassThroughs with a `ChildNdjsonStdioTransport` so we
+ * can drive the NDJSON bridge end-to-end without forking.
+ */
+type FakeChild = ChildProcess & {
+  childTransport: ChildNdjsonStdioTransport;
+  emitExit: (code: number | null, signal: NodeJS.Signals | null) => void;
+  killCount: number;
+};
+
+function createFakeChild(): FakeChild {
+  // Parent writes into childStdinParent → ChildNdjson reads from childStdinChild.
+  const childStdin = new PassThrough(); // parent-side .stdin writable
+  const childStdout = new PassThrough(); // parent-side .stdout readable
+  const emitter = new EventEmitter();
+  let killed = false;
+  let killCount = 0;
+
+  const childTransport = new ChildNdjsonStdioTransport(
+    childStdin, // child reads from parent's stdin pipe
+    childStdout, // child writes to parent's stdout pipe
+  );
+
+  const fake = {
+    stdin: childStdin as unknown as Writable,
+    stdout: childStdout,
+    kill: (_signal?: NodeJS.Signals): boolean => {
+      killed = true;
+      killCount += 1;
+      return true;
+    },
+    get killed() {
+      return killed;
+    },
+    get killCount() {
+      return killCount;
+    },
+    on(event: string, handler: (...args: unknown[]) => void) {
+      emitter.on(event, handler);
+      return fake;
+    },
+    emitExit(code: number | null, signal: NodeJS.Signals | null) {
+      killed = true;
+      emitter.emit('exit', code, signal);
+    },
+    childTransport,
+  } as unknown as FakeChild;
+
+  return fake;
+}
+
+function createSessionStoreMock(): SessionStore {
+  return {
+    save: vi.fn().mockResolvedValue(undefined),
+    load: vi.fn().mockResolvedValue(null),
+    delete: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
+function makeTask(id: `t-${string}` = 't-smoke'): Task {
+  return {
+    id,
+    featureId: 'f-smoke',
+    orderInFeature: 0,
+    description: 'smoke',
+    dependsOn: [],
+    status: 'ready',
+    collabControl: 'none',
+  };
+}
+
+describe('worker NDJSON hardening — malformed-line survival', () => {
+  it('quarantines a malformed stdout line and continues processing subsequent valid frames', async () => {
+    // Build a transport pair with PassThroughs — no child process needed,
+    // the parent NdjsonStdioTransport just reads lines off its "stdout".
+    const childStdin = new PassThrough();
+    const childStdout = new PassThrough();
+    const transport = new NdjsonStdioTransport({
+      stdin: childStdin,
+      stdout: childStdout,
+    });
+
+    const received: WorkerToOrchestratorMessage[] = [];
+    transport.onMessage((msg) => received.push(msg));
+
+    // Inject a malformed line followed by a valid result frame.
+    childStdout.write('this is not json at all\n');
+    childStdout.write(
+      `${JSON.stringify({
+        type: 'progress',
+        taskId: 't-1',
+        agentRunId: 'r-1',
+        message: 'still alive',
+      })}\n`,
+    );
+
+    // Drain event-loop so readline 'line' events fire.
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setImmediate(r));
+
+    // Malformed line is quarantined, NOT delivered to the handler.
+    const quarantined = transport.quarantineHandle().recent();
+    expect(quarantined).toHaveLength(1);
+    expect(quarantined[0]?.direction).toBe('parent_from_child');
+    expect(quarantined[0]?.raw).toBe('this is not json at all');
+    expect(quarantined[0]?.errorMessage).toMatch(/json_parse|schema/);
+
+    // Valid frame went through.
+    expect(received).toHaveLength(1);
+    expect(received[0]).toMatchObject({
+      type: 'progress',
+      taskId: 't-1',
+      message: 'still alive',
+    });
+
+    transport.close();
+  });
+
+  it('quarantines a schema-mismatched frame (valid JSON, wrong shape)', async () => {
+    const childStdin = new PassThrough();
+    const childStdout = new PassThrough();
+    const transport = new NdjsonStdioTransport({
+      stdin: childStdin,
+      stdout: childStdout,
+    });
+
+    const received: WorkerToOrchestratorMessage[] = [];
+    transport.onMessage((msg) => received.push(msg));
+
+    // Valid JSON, but unknown `type` literal — must quarantine.
+    childStdout.write(
+      `${JSON.stringify({ type: 'totally_unknown', taskId: 't-1' })}\n`,
+    );
+
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setImmediate(r));
+
+    const quarantined = transport.quarantineHandle().recent();
+    expect(quarantined).toHaveLength(1);
+    expect(quarantined[0]?.errorMessage).toMatch(/schema/);
+    expect(received).toHaveLength(0);
+
+    transport.close();
+  });
+});
+
+describe('worker NDJSON hardening — health-pong timeout detection', () => {
+  it('synthesizes error/health_timeout and SIGKILLs the child after the configured window elapses', async () => {
+    // Low timeout so the test finishes fast.
+    const HEALTH_TIMEOUT_MS = 200;
+
+    const child = createFakeChild();
+    const forkWorker = vi.fn(() => child as unknown as ChildProcess);
+
+    const harness = new PiSdkHarness(
+      createSessionStoreMock(),
+      '/tmp/project-root',
+      '/tmp/custom-entry.ts',
+      { workerHealthTimeoutMs: HEALTH_TIMEOUT_MS },
+    );
+    Object.assign(harness as object, { forkWorker });
+
+    const handle = await harness.start(makeTask('t-health'), {}, 'run-health');
+
+    const messages: WorkerToOrchestratorMessage[] = [];
+    handle.onWorkerMessage((m) => messages.push(m));
+
+    // Worker-side transport: receives health_ping but NEVER replies (simulates
+    // GVC0_TEST_SKIP_HEALTH_PONG=1 worker entry).
+    const pingsReceived: OrchestratorToWorkerMessage[] = [];
+    child.childTransport.onMessage((m) => {
+      pingsReceived.push(m);
+      // Intentionally do NOT send health_pong.
+    });
+
+    // Wait just over one full timeout window (parent pings every timeout/2,
+    // so two missed pongs land at t=timeout). Add slack for CI scheduling.
+    await new Promise((r) => setTimeout(r, HEALTH_TIMEOUT_MS * 2 + 200));
+
+    // At least one health_ping should have made it to the child.
+    const pings = pingsReceived.filter((m) => m.type === 'health_ping');
+    expect(pings.length).toBeGreaterThanOrEqual(1);
+
+    // Parent synthesized error/health_timeout and SIGKILLed the child.
+    const healthErrors = messages.filter(
+      (m) => m.type === 'error' && m.kind === 'health_timeout',
+    );
+    expect(healthErrors.length).toBeGreaterThanOrEqual(1);
+    expect(child.killCount).toBeGreaterThanOrEqual(1);
+
+    // Let the harness tear down cleanly.
+    child.emitExit(null, 'SIGKILL');
+    child.childTransport.close();
+  }, 10_000);
+});
+
+describe('worker NDJSON hardening — claim_lock round-trip RTT', () => {
+  it('measures parent respondClaim latency against child-side claim_lock emission', async () => {
+    // Construct a direct NdjsonStdioTransport pair wired through PassThroughs
+    // so we measure the real line-parse + schema-validate hot path.
+    const parentToChild = new PassThrough();
+    const childToParent = new PassThrough();
+
+    const parent = new NdjsonStdioTransport({
+      stdin: parentToChild,
+      stdout: childToParent,
+    });
+    const child = new ChildNdjsonStdioTransport(parentToChild, childToParent);
+
+    // Parent responds to every claim_lock with a granted decision.
+    parent.onMessage((msg) => {
+      if (msg.type === 'claim_lock') {
+        parent.send({
+          type: 'claim_decision',
+          taskId: msg.taskId,
+          agentRunId: msg.agentRunId,
+          claimId: msg.claimId,
+          kind: 'granted',
+        });
+      }
+    });
+
+    // Child records the respond and resolves the RTT promise.
+    const rttPromise = new Promise<number>((resolve) => {
+      const t0 = performance.now();
+      child.onMessage((msg) => {
+        if (msg.type === 'claim_decision') {
+          resolve(performance.now() - t0);
+        }
+      });
+      // Fire the claim_lock immediately after handler registration.
+      child.send({
+        type: 'claim_lock',
+        taskId: 't-rtt',
+        agentRunId: 'r-rtt',
+        claimId: 'c-rtt',
+        paths: ['src/foo.ts'],
+      });
+    });
+
+    const rttMs = await rttPromise;
+    // Plan budget: <50ms ceiling (target <5ms per ASSUMPTION A2; 10x headroom
+    // for CI jitter). Log the measurement so the budget can be tracked.
+    // eslint-disable-next-line no-console
+    console.log(`[smoke] claim_lock RTT: ${rttMs.toFixed(3)}ms`);
+    expect(rttMs).toBeLessThan(50);
+
+    parent.close();
+    child.close();
   });
 });

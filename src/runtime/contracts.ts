@@ -157,110 +157,11 @@ export interface RuntimePort {
   stopAll(this: void): Promise<void>;
 }
 
-export type OrchestratorToWorkerMessage =
-  | {
-      type: 'run';
-      taskId: string;
-      agentRunId: string;
-      dispatch: TaskRuntimeDispatch;
-      task: Task;
-      payload: TaskPayload;
-    }
-  | {
-      type: 'steer';
-      taskId: string;
-      agentRunId: string;
-      directive: RuntimeSteeringDirective;
-    }
-  | {
-      type: 'suspend';
-      taskId: string;
-      agentRunId: string;
-      reason: TaskSuspendReason;
-      files: string[];
-    }
-  | {
-      type: 'resume';
-      taskId: string;
-      agentRunId: string;
-      reason: TaskResumeReason;
-    }
-  | {
-      type: 'abort';
-      taskId: string;
-      agentRunId: string;
-    }
-  | {
-      type: 'help_response';
-      taskId: string;
-      agentRunId: string;
-      response: HelpResponse;
-    }
-  | {
-      type: 'approval_decision';
-      taskId: string;
-      agentRunId: string;
-      decision: ApprovalDecision;
-    }
-  | {
-      type: 'manual_input';
-      taskId: string;
-      agentRunId: string;
-      text: string;
-    }
-  | {
-      type: 'claim_decision';
-      taskId: string;
-      agentRunId: string;
-      claimId: string;
-      kind: 'granted' | 'denied';
-      deniedPaths?: readonly string[];
-    };
-
-export type WorkerToOrchestratorMessage =
-  | {
-      type: 'progress';
-      taskId: string;
-      agentRunId: string;
-      message: string;
-    }
-  | {
-      type: 'result';
-      taskId: string;
-      agentRunId: string;
-      result: TaskResult;
-      usage: RuntimeUsageDelta;
-      completionKind?: 'submitted' | 'implicit';
-    }
-  | {
-      type: 'error';
-      taskId: string;
-      agentRunId: string;
-      error: string;
-      usage?: RuntimeUsageDelta;
-    }
-  | {
-      type: 'request_help';
-      taskId: string;
-      agentRunId: string;
-      query: string;
-    }
-  | {
-      type: 'request_approval';
-      taskId: string;
-      agentRunId: string;
-      payload: ApprovalPayload;
-    }
-  | {
-      type: 'assistant_output';
-      taskId: string;
-      agentRunId: string;
-      text: string;
-    }
-  | {
-      type: 'claim_lock';
-      taskId: string;
-      agentRunId: string;
-      claimId: string;
-      paths: readonly string[];
-    };
+// REQ-EXEC-03: IPC frame types are derived from the typebox schema in
+// `@runtime/ipc/frame-schema` so runtime `Value.Check()` validation and
+// compile-time TS shapes can never drift. All non-IPC runtime types above
+// stay as native TS.
+export type {
+  OrchestratorToWorkerMessage,
+  WorkerToOrchestratorMessage,
+} from '@runtime/ipc/frame-schema';

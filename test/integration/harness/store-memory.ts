@@ -5,6 +5,7 @@ import type {
   AgentRunPatch,
   AgentRunQuery,
   EventQuery,
+  QuarantinedFrameEntry,
   RehydrateSnapshot,
   Store,
 } from '@orchestrator/ports/index';
@@ -29,9 +30,19 @@ const OPEN_RUN_STATUSES = new Set([
 export class InMemoryStore implements Store {
   private readonly runs = new Map<string, AgentRun>();
   private readonly events: EventRecord[] = [];
+  private readonly quarantinedFrames: QuarantinedFrameEntry[] = [];
   private readonly graphImpl = new InMemoryFeatureGraph();
   private readonly workerPids = new Map<string, number>();
   private closed = false;
+
+  appendQuarantinedFrame(entry: QuarantinedFrameEntry): void {
+    this.quarantinedFrames.push({ ...entry });
+  }
+
+  /** Test-only accessor for assertions over captured quarantine rows. */
+  listQuarantinedFrames(): QuarantinedFrameEntry[] {
+    return [...this.quarantinedFrames];
+  }
 
   getAgentRun(id: string): AgentRun | undefined {
     return this.runs.get(id);
