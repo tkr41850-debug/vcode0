@@ -229,6 +229,22 @@ describe('composeApplication', () => {
     originalCwd = process.cwd();
     tmpDir = await fs.mkdtemp(path.join('/tmp', 'compose-app-'));
     process.chdir(tmpDir);
+
+    // The loader no longer auto-creates gvc0.config.json — boot-time
+    // validation is strict (REQ-CONFIG-01). Seed a minimal valid config so
+    // compose() can proceed.
+    await fs.writeFile(
+      path.join(tmpDir, 'gvc0.config.json'),
+      JSON.stringify({
+        models: {
+          topPlanner: { provider: 'anthropic', model: 'claude-sonnet-4-6' },
+          featurePlanner: { provider: 'anthropic', model: 'claude-sonnet-4-6' },
+          taskWorker: { provider: 'anthropic', model: 'claude-haiku-4-5' },
+          verifier: { provider: 'anthropic', model: 'claude-haiku-4-5' },
+        },
+      }),
+      'utf-8',
+    );
   });
 
   afterEach(async () => {
@@ -246,15 +262,8 @@ describe('composeApplication', () => {
       fs.stat(path.join(tmpDir, '.gvc0', 'worktrees')),
     ).resolves.toBeTruthy();
     await expect(
-      fs.stat(path.join(tmpDir, '.gvc0', 'config.json')),
-    ).resolves.toBeTruthy();
-    await expect(
       fs.stat(path.join(tmpDir, '.gvc0', 'state.db')),
     ).resolves.toBeTruthy();
-
-    await expect(
-      fs.readFile(path.join(tmpDir, '.gvc0', 'config.json'), 'utf-8'),
-    ).resolves.toContain('"tokenProfile": "balanced"');
   });
 
   it('initializes starter milestone and planning feature through TUI command path', async () => {
