@@ -80,6 +80,7 @@ export async function handleSchedulerEvent(params: {
     }
 
     if (message.type === 'result') {
+      activeLocks.releaseByRun(message.agentRunId);
       const taskLanded = message.completionKind === 'submitted';
       graph.transitionTask(run.scopeId, {
         status: 'done',
@@ -115,6 +116,7 @@ export async function handleSchedulerEvent(params: {
     }
 
     if (message.type === 'error') {
+      activeLocks.releaseByRun(message.agentRunId);
       graph.transitionTask(run.scopeId, {
         status: 'ready',
       });
