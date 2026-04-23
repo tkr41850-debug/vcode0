@@ -41,6 +41,66 @@ export type CompositeGuardResult =
 
 // ── Constants ───────────────────────────────────────────────────────────
 
+// ── Run-state axis (AgentRunStatus transitions) ──────────────────────────
+
+/**
+ * Valid outbound transitions for each AgentRunStatus.
+ *
+ * Semantics:
+ * - ready: an agent run is queued but not yet dispatched
+ * - running: agent process is active
+ * - retry_await: transient failure — waiting for retry window to expire
+ * - await_response: waiting for human input (help request)
+ * - await_approval: waiting for user approval of a proposed action
+ * - completed: terminal — run finished successfully
+ * - failed: terminal — run finished with an unrecoverable failure
+ * - cancelled: terminal — run was cancelled
+ *
+ * Note: `manual` is not a RunStatus value — manual ownership is tracked
+ * separately via RunOwner on the agent_runs row.
+ */
+const RUN_STATE_TRANSITIONS = new Map<AgentRunStatus, ReadonlySet<AgentRunStatus>>([
+  ['ready', new Set(['running', 'cancelled'])],
+  ['running', new Set(['retry_await', 'await_response', 'await_approval', 'completed', 'failed', 'cancelled'])],
+  ['retry_await', new Set(['ready', 'running', 'cancelled'])],
+  ['await_response', new Set(['ready', 'running', 'cancelled'])],
+  ['await_approval', new Set(['ready', 'running', 'cancelled'])],
+  // Terminal states: no outbound transitions
+]);
+
+/**
+ * Validates a run-state (AgentRunStatus) transition.
+ * Returns { valid: true } for legal transitions, { valid: false, reason } for illegal ones.
+ */
+export function validateRunStateTransition(
+  current: RunState,
+  proposed: RunState,
+): TransitionResult {
+  if (current === proposed) {
+    return { valid: false, reason: `no-op run-state transition: ${current}` };
+  }
+
+  const terminal: RunState[] = ['completed', 'failed', 'cancelled'];
+  if (terminal.includes(current)) {
+    return {
+      valid: false,
+      reason: `run-state ${current} is terminal — no outbound transitions allowed`,
+    };
+  }
+
+  const allowed = RUN_STATE_TRANSITIONS.get(current);
+  if (!allowed?.has(proposed)) {
+    return {
+      valid: false,
+      reason: `illegal run-state transition: ${current} → ${proposed}`,
+    };
+  }
+
+  return { valid: true };
+}
+
+// ── Constants ───────────────────────────────────────────────────────────
+
 /**
  * Maximum repair attempts before escalating to replan.
  * See feature candidate: extended-repair-profiles.md for profile-aware tuning.
