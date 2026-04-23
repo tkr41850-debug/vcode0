@@ -1,4 +1,4 @@
-import type { TaskId } from './workflow.js';
+import type { FeatureId, TaskId } from './workflow.js';
 
 export interface DependencyOutputSummary {
   taskId: TaskId;
@@ -81,7 +81,7 @@ export type VerifyIssue =
   | RebaseVerifyIssue;
 
 export interface IntegrationState {
-  featureId: string;
+  featureId: FeatureId;
   expectedParentSha: string;
   featureBranchPreIntegrationSha: string;
   configSnapshot: string;

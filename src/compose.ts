@@ -11,6 +11,8 @@ import type {
   FeatureId,
   MilestoneId,
 } from '@core/types/index';
+import { FeatureLifecycleCoordinator } from '@orchestrator/features/index';
+import { IntegrationReconciler } from '@orchestrator/integration/reconciler';
 import type { OrchestratorPorts } from '@orchestrator/ports/index';
 import { SchedulerLoop } from '@orchestrator/scheduler/index';
 import {
@@ -236,6 +238,12 @@ export async function composeApplication(): Promise<GvcApplication> {
 
   const scheduler = new SchedulerLoop(graph, ports);
   const recovery = new RecoveryService(ports, graph, projectRoot);
+  const reconciler = new IntegrationReconciler({
+    ports,
+    graph,
+    features: new FeatureLifecycleCoordinator(graph),
+    cwd: projectRoot,
+  });
   schedulerRef.current = scheduler;
 
   const app = new GvcApplication(ports, {
@@ -244,6 +252,7 @@ export async function composeApplication(): Promise<GvcApplication> {
     },
     start: async () => {
       await recovery.recoverOrphanedRuns();
+      await reconciler.reconcile();
       await scheduler.run();
       ui.refresh();
     },
