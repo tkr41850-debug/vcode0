@@ -99,6 +99,10 @@ describe('codecs — round-trip', () => {
 
   describe('Feature', () => {
     it('round-trips a minimal feature with no optional fields', () => {
+      // Note: mergeTrainReentryCount defaults to 0 in SQL (NOT NULL) but the
+      // codec omits the field on read when it equals the default. This keeps
+      // the reload shape identical to the in-memory shape produced by
+      // createFeature() — required by the Plan 02-02 rehydration invariant.
       const f: Feature = {
         id: 'f-1',
         milestoneId: 'm-1',
@@ -110,9 +114,9 @@ describe('codecs — round-trip', () => {
         workControl: 'discussing',
         collabControl: 'none',
         featureBranch: 'feat-f1',
-        mergeTrainReentryCount: 0,
       };
       const row = fullRow<FeatureRow>(featureToRow(f));
+      expect(row.merge_train_reentry_count).toBe(0);
       expect(rowToFeature(row, [])).toEqual(f);
     });
 
@@ -148,6 +152,9 @@ describe('codecs — round-trip', () => {
 
   describe('Task', () => {
     it('round-trips a minimal task with no optional fields', () => {
+      // Note: consecutiveFailures defaults to 0 in SQL (NOT NULL) but the
+      // codec omits the field on read when it equals the default so reload
+      // matches the in-memory shape produced by createTask().
       const t: Task = {
         id: 't-1',
         featureId: 'f-1',
@@ -156,9 +163,9 @@ describe('codecs — round-trip', () => {
         dependsOn: [],
         status: 'pending',
         collabControl: 'none',
-        consecutiveFailures: 0,
       };
       const row = fullRow<TaskRow>(taskToRow(t));
+      expect(row.consecutive_failures).toBe(0);
       expect(rowToTask(row, [])).toEqual(t);
     });
 
@@ -202,7 +209,9 @@ describe('codecs — round-trip', () => {
         dependsOn: [],
         status: 'done',
         collabControl: 'none',
-        consecutiveFailures: 0,
+        // consecutiveFailures omitted — codec omits 0 on read (see minimal
+        // task test above) so the round-trip equality only holds when the
+        // input also omits the default.
         result: {
           summary: 'did the thing',
           filesChanged: ['src/one.ts', 'src/two.ts'],
