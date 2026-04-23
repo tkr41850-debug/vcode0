@@ -22,5 +22,55 @@
       "semicolons": "always",
       "trailingCommas": "all"
     }
-  }
+  },
+  "overrides": [
+    {
+      "includes": ["src/core/**/*.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "@runtime": "src/core/* must not import from @runtime/* — violates architectural boundary. Use a port/type in @core/* and let @runtime/* implement.",
+                  "@persistence": "src/core/* must not import from @persistence/* — violates architectural boundary. Use a port/type in @core/* and let @persistence/* implement.",
+                  "@tui": "src/core/* must not import from @tui/* — violates architectural boundary. Use a port/type in @core/* and let @tui/* implement.",
+                  "@orchestrator": "src/core/* must not import from @orchestrator/* — violates architectural boundary. Use a port/type in @core/* and let @orchestrator/* implement.",
+                  "@agents": "src/core/* must not import from @agents/* — violates architectural boundary. Use a port/type in @core/* and let @agents/* implement.",
+                  "@app": "src/core/* must not import from @app/* — violates architectural boundary. Use a port/type in @core/* and let @app/* implement."
+                },
+                "patterns": [
+                  {
+                    "group": ["@runtime/*"],
+                    "message": "src/core/* must not import from @runtime/* — violates architectural boundary. Use a port/type in @core/* and let @runtime/* implement."
+                  },
+                  {
+                    "group": ["@persistence/*"],
+                    "message": "src/core/* must not import from @persistence/* — violates architectural boundary. Use a port/type in @core/* and let @persistence/* implement."
+                  },
+                  {
+                    "group": ["@tui/*"],
+                    "message": "src/core/* must not import from @tui/* — violates architectural boundary. Use a port/type in @core/* and let @tui/* implement."
+                  },
+                  {
+                    "group": ["@orchestrator/*"],
+                    "message": "src/core/* must not import from @orchestrator/* — violates architectural boundary. Use a port/type in @core/* and let @orchestrator/* implement."
+                  },
+                  {
+                    "group": ["@agents/*"],
+                    "message": "src/core/* must not import from @agents/* — violates architectural boundary. Use a port/type in @core/* and let @agents/* implement."
+                  },
+                  {
+                    "group": ["@app/*"],
+                    "message": "src/core/* must not import from @app/* — violates architectural boundary. Use a port/type in @core/* and let @app/* implement."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
 }
