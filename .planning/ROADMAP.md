@@ -12,7 +12,7 @@ gvc0's v1 journey is **completing and clarifying** an existing design rather tha
 
 - [x] **Phase 1: Foundations & Clarity** — Consolidate core contracts (FSM guards, graph invariants, scheduling rules) and publish the canonical state / flow / coordination docs that end the opacity pain. ✓ 2026-04-23 (3/3 plans, 934 core tests, VERIFICATION PASS)
 - [x] **Phase 2: Persistence & Port Contracts** — Lock the Store port + SQLite schema + WAL tuning + typed config schema so nothing downstream rests on shifting ground. ✓ 2026-04-23 (3/3 plans, 106 persistence+config tests, VERIFICATION PASS; 10-min load gate deferred to runbook)
-- [ ] **Phase 3: Worker Execution Loop (+ Pi-SDK Spike)** — Process-per-task worker, NDJSON IPC with `claim_lock`, write pre-hook, worktree manager, retry policy; decide pi-sdk Agent resume/replay strategy.
+- [x] **Phase 3: Worker Execution Loop (+ Pi-SDK Spike)** — Process-per-task worker, NDJSON IPC with `claim_lock`, write pre-hook, worktree manager, retry policy; decide pi-sdk Agent resume/replay strategy. ✓ 2026-04-23 (5/5 plans, VERIFICATION 6/6 structural PASS, 1520 unit + 26 phase-3 integration tests green. Spike decision: persist-tool-outputs — Agent.continue() throws on assistant-terminated transcripts across all 5 scenarios. Live-provider re-validation deferred to Phase 7/9.)
 - [ ] **Phase 4: Scheduler Tick + Event Queue** — Serial event queue, combined-graph metrics, priority-sort, reservation-overlap penalty, dispatch to worker pool.
 - [ ] **Phase 5: Feature Lifecycle & Feature-Level Planner** — Vertical slice: a feature plans, executes, verifies (agent review), and reaches merge-ready end-to-end.
 - [ ] **Phase 6: Merge Train** — Strict-main merge train with rebase + agent-review verify, re-entry cap, inbox parking on cap.
@@ -244,7 +244,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 |-------|----------------|--------|-----------|
 | 1. Foundations & Clarity | 0/TBD (~3) | Not started | - |
 | 2. Persistence & Port Contracts | 0/TBD (~3) | Not started | - |
-| 3. Worker Execution Loop (+ Spike) | 0/TBD (~5) | Not started | - |
+| 3. Worker Execution Loop (+ Spike) | 5/5 | ✓ Complete | 2026-04-23 |
 | 4. Scheduler Tick + Event Queue | 0/TBD (~3) | Not started | - |
 | 5. Feature Lifecycle & Feature-Level Planner | 0/TBD (~4) | Not started | - |
 | 6. Merge Train | 0/TBD (~3) | Not started | - |
