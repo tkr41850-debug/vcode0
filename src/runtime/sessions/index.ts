@@ -3,6 +3,17 @@ import * as path from 'node:path';
 
 import type { AgentMessage } from '@mariozechner/pi-agent-core';
 
+// === Resume / replay (plan 03-05) ===
+// The transcript persisted here is consumed by the `@runtime/resume` facade
+// on worker respawn. Per `docs/spikes/pi-sdk-resume.md`, pi-sdk's
+// `Agent.continue()` rejects transcripts whose last message is an assistant;
+// the facade splices matching `toolResult` messages from the per-run
+// `ToolOutputStore` before calling `continue()`. This means sessions can
+// safely be saved at either `message_end` OR `turn_end` — the fallback
+// handles both shapes. If a future pi-sdk upgrade changes that behavior,
+// re-run `test/integration/spike/pi-sdk-resume.test.ts` and re-validate the
+// decision in the spike doc.
+
 interface SessionEnvelope {
   version: 1;
   messages: AgentMessage[];
