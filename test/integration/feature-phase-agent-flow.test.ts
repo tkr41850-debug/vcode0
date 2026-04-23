@@ -101,7 +101,7 @@ async function createFeatureWorktree(
   return dir;
 }
 
-function createFeatureVerificationPort(
+function createFeatureVerificationService(
   projectRoot: string,
   config: GvcConfig,
 ): VerificationService {
@@ -710,7 +710,7 @@ describe('feature-phase agent flow', () => {
         },
       };
       const config = createConfig(configOverrides);
-      const verification = createFeatureVerificationPort(projectRoot, config);
+      const verification = createFeatureVerificationService(projectRoot, config);
       const { graph, store, loop } = createFixture({
         featureOverrides: {
           status: 'in_progress',
@@ -778,7 +778,7 @@ describe('feature-phase agent flow', () => {
         },
       };
       const config = createConfig(configOverrides);
-      const verification = createFeatureVerificationPort(projectRoot, config);
+      const verification = createFeatureVerificationService(projectRoot, config);
       const { graph, store, loop } = createFixture({
         featureOverrides: {
           status: 'in_progress',
