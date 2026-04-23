@@ -110,6 +110,42 @@ export const WarningConfigSchema = z.object({
 export type WarningConfig = z.output<typeof WarningConfigSchema>;
 
 // ---------------------------------------------------------------------------
+// Plan 03-03: retry-policy knobs consumed by `src/runtime/retry-policy.ts` via
+// `buildRetryPolicyConfig(config)`. Patterns are authored as strings so the
+// Zod schema stays JSON-serializable; the retry policy rebuilds `RegExp`s at
+// the call site. `retryCap` stays at the top level (existing callers in
+// `src/orchestrator/scheduler/*` already reference `config.retryCap`) and
+// maps to `RetryPolicyConfig.maxAttempts`.
+// ---------------------------------------------------------------------------
+
+const DEFAULT_TRANSIENT_ERROR_PATTERNS: readonly string[] = [
+  'ECONNRESET',
+  'ETIMEDOUT',
+  'ENOTFOUND',
+  'EAI_AGAIN',
+  '\\b5\\d\\d\\b',
+  'rate limit',
+  'too many requests',
+  'provider error',
+  'health_timeout',
+];
+
+export const RetryConfigSchema = z
+  .object({
+    baseDelayMs: z.number().int().nonnegative().default(250),
+    maxDelayMs: z.number().int().positive().default(30_000),
+    transientErrorPatterns: z
+      .array(z.string())
+      .default([...DEFAULT_TRANSIENT_ERROR_PATTERNS]),
+  })
+  .default({
+    baseDelayMs: 250,
+    maxDelayMs: 30_000,
+    transientErrorPatterns: [...DEFAULT_TRANSIENT_ERROR_PATTERNS],
+  });
+export type RetryConfig = z.output<typeof RetryConfigSchema>;
+
+// ---------------------------------------------------------------------------
 // Root schema
 // ---------------------------------------------------------------------------
 
@@ -122,6 +158,17 @@ export const GvcConfigSchema = z
     reentryCap: z.number().int().positive().default(10),
     pauseTimeouts: PauseTimeoutsSchema,
     budget: BudgetConfigSchema.optional(),
+
+    // Plan 03-03: retry-policy knobs (see RetryConfigSchema above). The
+    // `retryCap` top-level field is the `maxAttempts` counter that maps into
+    // `RetryPolicyConfig.maxAttempts` at the call site.
+    retry: RetryConfigSchema,
+
+    // Plan 03-03: worktree-root override. Defaults to `.gvc0/worktrees` so
+    // `GitWorktreeProvisioner` + `PiSdkHarness.resolveWorktreePath` share a
+    // single knob. Callers currently hard-code the path; the schema field is
+    // authoritative for future wiring without breaking existing defaults.
+    worktreeRoot: z.string().default('.gvc0/worktrees'),
 
     // REQ-EXEC-03: how long the parent waits for health_pong before SIGKILL.
     // `health_ping` is sent every `workerHealthTimeoutMs / 2` ms; missing
