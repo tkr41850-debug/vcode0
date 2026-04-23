@@ -10,3 +10,4 @@ Current entries:
 - [Testing Cost Reduction](./testing.md)
 - [Verification Reuse](./verification-and-recovery.md)
 - [Abort In-Flight Scheduler Tick](./abort-in-flight-scheduler-tick.md)
+- [Explicit Lock Release](./explicit-lock-release.md)

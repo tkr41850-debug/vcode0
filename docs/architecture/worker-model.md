@@ -38,9 +38,12 @@ main
   dispatch by the orchestrator's scheduler — task worktrees when
   the task is dispatched, the feature worktree when a task or
   feature-phase agent first needs it. The feature *branch* is
-  created eagerly when the feature enters `in_progress`; only the
-  checkout directory is lazy. Task worktrees branch from feature
-  branch HEAD using the same basename as the task branch
+  created eagerly when the feature advances to
+  `workControl = 'executing'` with `collabControl = 'branch_open'`
+  (the canonical branch-creation trigger in
+  [data-model.md](./data-model.md) and the FSM); only the checkout
+  directory is lazy. Task worktrees branch from feature branch HEAD
+  using the same basename as the task branch
   (`feat-<slugified-name>-<feature-id>-<task-id>`), squash-merged
   back into the feature branch on success, and retained until the
   owning feature lands on `main` or garbage collection snapshots
@@ -191,6 +194,13 @@ type WorkerToOrchestratorMessage =
       taskId: string;
       agentRunId: string;
       text: string;
+    }
+  | {
+      type: "claim_lock";
+      taskId: string;
+      agentRunId: string;
+      claimId: string;
+      paths: readonly string[];
     };
 
 // Orchestrator → Worker
@@ -235,7 +245,15 @@ type OrchestratorToWorkerMessage =
       agentRunId: string;
       decision: ApprovalDecision;
     }
-  | { type: "manual_input"; taskId: string; agentRunId: string; text: string };
+  | { type: "manual_input"; taskId: string; agentRunId: string; text: string }
+  | {
+      type: "claim_decision";
+      taskId: string;
+      agentRunId: string;
+      claimId: string;
+      kind: "granted" | "denied";
+      deniedPaths?: readonly string[];
+    };
 ```
 
 The `suspend` / `resume` messages are a general
@@ -260,6 +278,25 @@ those remain execution-run concerns on `agent_runs`, while task status
 stays coarse and `blocked` remains derived in the UI.
 See [Conflict Coordination](./operations/conflict-coordination.md)
 for the recommendation/required-sync/escalation ladder.
+
+The `claim_lock` / `claim_decision` pair implements the write-prehook
+lock flow described above. Each `claim_lock` carries a
+worker-generated `claimId` so a single run can have multiple claims
+in flight and route replies by id. The orchestrator answers with a
+matching `claim_decision`; on `denied` the worker's write tool throws
+a tool-level error, the run aborts, and the same
+`ConflictCoordinator` entry points used by the preventive scheduler
+scan (`handleSameFeatureOverlap`, `handleCrossFeatureOverlap`) fire —
+so whether overlap is caught preventively at dispatch time or
+reactively at first-write time, downstream suspend-and-rebase
+behavior is identical. Locks release exit-driven: when a terminal
+`result` or `error` message arrives, every lock held by that
+`agentRunId` is dropped. Mid-run explicit release is tracked as an
+[optimization candidate](./optimization-candidates/explicit-lock-release.md).
+The active-lock registry lives beside `ConflictCoordinator` in the
+scheduler loop (`src/orchestrator/scheduler/active-locks.ts`); the
+runtime overlap detector it complements lives in
+`src/orchestrator/scheduler/overlaps.ts`.
 
 ### Transport Abstraction
 
