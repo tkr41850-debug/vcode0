@@ -1,7 +1,7 @@
-import { describe, expect, it, vi } from 'vitest';
+import type { Store } from '@orchestrator/ports/index';
 
 import { createQuarantine } from '@runtime/ipc/quarantine';
-import type { Store } from '@orchestrator/ports/index';
+import { describe, expect, it, vi } from 'vitest';
 
 /**
  * REQ-EXEC-03 (Plan 03-02 Task 6): unit suite locks the quarantine module's
@@ -10,7 +10,9 @@ import type { Store } from '@orchestrator/ports/index';
  * changes the debug surface the TUI and the Phase 9 recovery reader see.
  */
 
-function entry(overrides: Partial<{ ts: number; raw: string; errorMessage: string }> = {}) {
+function entry(
+  overrides: Partial<{ ts: number; raw: string; errorMessage: string }> = {},
+) {
   return {
     ts: overrides.ts ?? 1,
     direction: 'parent_from_child' as const,

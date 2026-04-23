@@ -31,47 +31,15 @@ import { Type } from '@sinclair/typebox';
 // Primitive unions mirroring @core/types/workflow.ts
 // ---------------------------------------------------------------------------
 
-const TaskSuspendReason = Type.Union([
+const TaskSuspendReasonSchema = Type.Union([
   Type.Literal('same_feature_overlap'),
   Type.Literal('cross_feature_overlap'),
 ]);
 
-const TaskResumeReason = Type.Union([
+const TaskResumeReasonSchema = Type.Union([
   Type.Literal('same_feature_rebase'),
   Type.Literal('cross_feature_rebase'),
   Type.Literal('manual'),
-]);
-
-const UnitStatus = Type.Union([
-  Type.Literal('pending'),
-  Type.Literal('in_progress'),
-  Type.Literal('done'),
-  Type.Literal('failed'),
-  Type.Literal('cancelled'),
-]);
-
-const FeatureWorkControl = Type.Union([
-  Type.Literal('discussing'),
-  Type.Literal('researching'),
-  Type.Literal('planning'),
-  Type.Literal('executing'),
-  Type.Literal('ci_check'),
-  Type.Literal('verifying'),
-  Type.Literal('awaiting_merge'),
-  Type.Literal('summarizing'),
-  Type.Literal('executing_repair'),
-  Type.Literal('replanning'),
-  Type.Literal('work_complete'),
-]);
-
-const FeatureCollabControl = Type.Union([
-  Type.Literal('none'),
-  Type.Literal('branch_open'),
-  Type.Literal('merge_queued'),
-  Type.Literal('integrating'),
-  Type.Literal('merged'),
-  Type.Literal('conflict'),
-  Type.Literal('cancelled'),
 ]);
 
 const TaskStatus = Type.Union([
@@ -112,7 +80,7 @@ const RepairSource = Type.Union([
 // ---------------------------------------------------------------------------
 
 // TaskResult mirror — see @core/types/phases.ts.
-const TaskResult = Type.Object({
+const TaskResultSchema = Type.Object({
   summary: Type.String(),
   filesChanged: Type.Array(Type.String()),
 });
@@ -122,7 +90,7 @@ const TaskResult = Type.Object({
 // them to be absent. We do NOT use `exactOptionalPropertyTypes`-style
 // additional-property restriction here because frames might carry extra
 // forward-compat fields we want to tolerate.
-const Task = Type.Object({
+const TaskSchema = Type.Object({
   id: Type.String(),
   featureId: Type.String(),
   orderInFeature: Type.Number(),
@@ -134,7 +102,7 @@ const Task = Type.Object({
   workerId: Type.Optional(Type.String()),
   worktreeBranch: Type.Optional(Type.String()),
   taskTestPolicy: Type.Optional(TestPolicy),
-  result: Type.Optional(TaskResult),
+  result: Type.Optional(TaskResultSchema),
   weight: Type.Optional(TaskWeight),
   tokenUsage: Type.Optional(Type.Any()),
   reservedWritePaths: Type.Optional(Type.Array(Type.String())),
@@ -142,7 +110,7 @@ const Task = Type.Object({
   sessionId: Type.Optional(Type.String()),
   consecutiveFailures: Type.Optional(Type.Number()),
   suspendedAt: Type.Optional(Type.Number()),
-  suspendReason: Type.Optional(TaskSuspendReason),
+  suspendReason: Type.Optional(TaskSuspendReasonSchema),
   suspendedFiles: Type.Optional(Type.Array(Type.String())),
   objective: Type.Optional(Type.String()),
   scope: Type.Optional(Type.String()),
@@ -152,7 +120,7 @@ const Task = Type.Object({
 });
 
 // TaskPayload mirror — see @runtime/context.
-const TaskPayload = Type.Object({
+const TaskPayloadSchema = Type.Object({
   objective: Type.Optional(Type.String()),
   scope: Type.Optional(Type.String()),
   expectedFiles: Type.Optional(Type.Array(Type.String())),
@@ -178,7 +146,7 @@ const TaskRuntimeDispatch = Type.Union([
 ]);
 
 // GitConflictContext mirror — see @core/types/conflicts.ts.
-const GitConflictContext = Type.Union([
+const GitConflictContextSchema = Type.Union([
   Type.Object({
     kind: Type.Literal('same_feature_task_rebase'),
     featureId: Type.String(),
@@ -244,7 +212,7 @@ const RuntimeSteeringDirective = Type.Union([
       Type.Literal('next_checkpoint'),
       Type.Literal('immediate'),
     ]),
-    gitConflictContext: GitConflictContext,
+    gitConflictContext: GitConflictContextSchema,
   }),
 ]);
 
@@ -308,8 +276,8 @@ export const RunFrame = Type.Object({
   taskId: Type.String(),
   agentRunId: Type.String(),
   dispatch: TaskRuntimeDispatch,
-  task: Task,
-  payload: TaskPayload,
+  task: TaskSchema,
+  payload: TaskPayloadSchema,
 });
 
 export const SteerFrame = Type.Object({
@@ -323,7 +291,7 @@ export const SuspendFrame = Type.Object({
   type: Type.Literal('suspend'),
   taskId: Type.String(),
   agentRunId: Type.String(),
-  reason: TaskSuspendReason,
+  reason: TaskSuspendReasonSchema,
   files: Type.Array(Type.String()),
 });
 
@@ -331,7 +299,7 @@ export const ResumeFrame = Type.Object({
   type: Type.Literal('resume'),
   taskId: Type.String(),
   agentRunId: Type.String(),
-  reason: TaskResumeReason,
+  reason: TaskResumeReasonSchema,
 });
 
 export const AbortFrame = Type.Object({
@@ -403,7 +371,7 @@ export const ResultFrame = Type.Object({
   type: Type.Literal('result'),
   taskId: Type.String(),
   agentRunId: Type.String(),
-  result: TaskResult,
+  result: TaskResultSchema,
   usage: RuntimeUsageDelta,
   completionKind: Type.Optional(
     Type.Union([Type.Literal('submitted'), Type.Literal('implicit')]),

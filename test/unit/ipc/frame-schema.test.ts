@@ -1,6 +1,3 @@
-import { describe, expect, it } from 'vitest';
-import { Value } from '@sinclair/typebox/value';
-
 import {
   AbortFrame,
   ApprovalDecisionFrame,
@@ -24,6 +21,9 @@ import {
   SuspendFrame,
   WorkerToOrchestratorFrame,
 } from '@runtime/ipc/frame-schema';
+import type { TSchema } from '@sinclair/typebox';
+import { Value } from '@sinclair/typebox/value';
+import { describe, expect, it } from 'vitest';
 
 /**
  * REQ-EXEC-03 (Plan 03-02 Task 6): every NDJSON wire-format variant MUST be
@@ -185,7 +185,7 @@ const validCommitDone = {
 // ---------------------------------------------------------------------------
 
 describe('OrchestratorToWorkerFrame — per-variant validation', () => {
-  const cases: { name: string; schema: typeof RunFrame; value: unknown }[] = [
+  const cases: { name: string; schema: TSchema; value: unknown }[] = [
     { name: 'run', schema: RunFrame, value: validRun },
     { name: 'steer', schema: SteerFrame, value: validSteer },
     { name: 'suspend', schema: SuspendFrame, value: validSuspend },
@@ -260,7 +260,11 @@ describe('OrchestratorToWorkerFrame — per-variant validation', () => {
 });
 
 describe('WorkerToOrchestratorFrame — per-variant validation', () => {
-  const cases: { name: string; schema: typeof ProgressFrame; value: unknown }[] = [
+  const cases: {
+    name: string;
+    schema: TSchema;
+    value: unknown;
+  }[] = [
     { name: 'progress', schema: ProgressFrame, value: validProgress },
     { name: 'result', schema: ResultFrame, value: validResult },
     { name: 'error', schema: ErrorFrame, value: validError },

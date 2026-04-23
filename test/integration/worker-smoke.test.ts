@@ -2,7 +2,7 @@ import type { ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import * as os from 'node:os';
 import { performance } from 'node:perf_hooks';
-import { PassThrough, Writable } from 'node:stream';
+import { PassThrough, type Writable } from 'node:stream';
 
 import type { Task } from '@core/types/index';
 import type {
@@ -330,7 +330,7 @@ function createSessionStoreMock(): SessionStore {
   };
 }
 
-function makeTask(id = 't-smoke'): Task {
+function makeTask(id: `t-${string}` = 't-smoke'): Task {
   return {
     id,
     featureId: 'f-smoke',

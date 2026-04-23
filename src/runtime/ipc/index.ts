@@ -9,10 +9,7 @@ import {
   OrchestratorToWorkerFrame,
   WorkerToOrchestratorFrame,
 } from '@runtime/ipc/frame-schema';
-import {
-  createQuarantine,
-  type Quarantine,
-} from '@runtime/ipc/quarantine';
+import { createQuarantine, type Quarantine } from '@runtime/ipc/quarantine';
 import type { TSchema } from '@sinclair/typebox';
 import { Value } from '@sinclair/typebox/value';
 

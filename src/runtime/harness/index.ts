@@ -93,7 +93,9 @@ export class PiSdkHarness implements SessionHarness {
   ) {}
 
   private resolveHealthTimeoutMs(): number {
-    return this.health.workerHealthTimeoutMs ?? DEFAULT_WORKER_HEALTH_TIMEOUT_MS;
+    return (
+      this.health.workerHealthTimeoutMs ?? DEFAULT_WORKER_HEALTH_TIMEOUT_MS
+    );
   }
 
   start(
@@ -234,7 +236,9 @@ function createSessionHandle(
   let lastPongTs = Date.now();
   let healthTimedOut = false;
 
-  const dispatchWorkerMessage = (message: WorkerToOrchestratorMessage): void => {
+  const dispatchWorkerMessage = (
+    message: WorkerToOrchestratorMessage,
+  ): void => {
     for (const handler of workerMessageHandlers) handler(message);
   };
 
