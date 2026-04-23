@@ -11,7 +11,7 @@ gvc0's v1 journey is **completing and clarifying** an existing design rather tha
 - Decimal phases (e.g., 2.1): Urgent insertions (marked with INSERTED)
 
 - [x] **Phase 1: Foundations & Clarity** — Consolidate core contracts (FSM guards, graph invariants, scheduling rules) and publish the canonical state / flow / coordination docs that end the opacity pain. ✓ 2026-04-23 (3/3 plans, 934 core tests, VERIFICATION PASS)
-- [ ] **Phase 2: Persistence & Port Contracts** — Lock the Store port + SQLite schema + WAL tuning + typed config schema so nothing downstream rests on shifting ground.
+- [x] **Phase 2: Persistence & Port Contracts** — Lock the Store port + SQLite schema + WAL tuning + typed config schema so nothing downstream rests on shifting ground. ✓ 2026-04-23 (3/3 plans, 106 persistence+config tests, VERIFICATION PASS; 10-min load gate deferred to runbook)
 - [ ] **Phase 3: Worker Execution Loop (+ Pi-SDK Spike)** — Process-per-task worker, NDJSON IPC with `claim_lock`, write pre-hook, worktree manager, retry policy; decide pi-sdk Agent resume/replay strategy.
 - [ ] **Phase 4: Scheduler Tick + Event Queue** — Serial event queue, combined-graph metrics, priority-sort, reservation-overlap penalty, dispatch to worker pool.
 - [ ] **Phase 5: Feature Lifecycle & Feature-Level Planner** — Vertical slice: a feature plans, executes, verifies (agent review), and reaches merge-ready end-to-end.

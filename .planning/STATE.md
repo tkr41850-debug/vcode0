@@ -5,31 +5,32 @@
 See: .planning/PROJECT.md (updated 2026-04-23)
 
 **Core value:** From one prompt, orchestrate parallel autonomous coding that lands on `main` without breaking it — live-steerable from a single TUI.
-**Current focus:** Phase 2 (Persistence & Port Contracts) — pending discuss.
+**Current focus:** Phase 3 (Worker Execution Loop + Pi-SDK Spike) — pending discuss.
 
 ## Current Position
 
-Phase: 2 of 12 (Persistence & Port Contracts)
+Phase: 3 of 12 (Worker Execution Loop + Pi-SDK Spike)
 Plan: 0 of TBD in current phase
 Status: Pending discuss
-Last activity: 2026-04-23 — Phase 1 complete (3/3 plans, VERIFICATION.md PASS on all 5 criteria, 934 core tests green).
+Last activity: 2026-04-23 — Phase 2 complete (3/3 plans, VERIFICATION.md PASS on all 4 criteria, 106 persistence+config tests green, 10-min load gate deferred to runbook).
 
-Progress: [█░░░░░░░░░] 8%
+Progress: [██░░░░░░░░] 17%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 3
-- Average duration: ~15 min/plan (parallel waves, background agents)
-- Total execution time: ~45 min for phase 1
+- Total plans completed: 6
+- Average duration: ~20 min/plan
+- Total execution time: ~2h across phase 1 + phase 2
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 1 (Foundations & Clarity) | 3 | ~45m | ~15m |
+| 2 (Persistence & Port Contracts) | 3 | ~75m | ~25m |
 
-**Recent Trend:** Phase 1 executed with 2 parallel Wave 1 worktrees (01-01, 01-02) + Wave 2 (01-03). All 5 success criteria PASS.
+**Recent Trend:** Phase 2 Wave 1 (02-01 + 02-03 parallel) + Wave 2 (02-02). Switched to manual worktree creation after Agent `isolation: worktree` based on stale ref.
 
 *Updated after each plan completion.*
 
