@@ -204,7 +204,7 @@ export async function handleSchedulerEvent(params: {
           run.payloadJson,
           event.phase,
         );
-        const result = approveFeatureProposal(
+        const outcome = approveFeatureProposal(
           graph,
           event.featureId,
           event.phase,
@@ -222,10 +222,21 @@ export async function handleSchedulerEvent(params: {
           timestamp: Date.now(),
           payload: {
             phase: event.phase,
-            summary: result.summary,
-            ...summarizeProposalApply(result),
+            summary: outcome.result.summary,
+            ...summarizeProposalApply(outcome.result),
           },
         });
+        if (outcome.cancelled) {
+          ports.store.appendEvent({
+            eventType: 'feature_cancelled_empty_proposal',
+            entityId: event.featureId,
+            timestamp: Date.now(),
+            payload: {
+              phase: event.phase,
+              reason: outcome.cancelReason ?? 'empty_proposal',
+            },
+          });
+        }
       } catch (error) {
         completeTaskRun(
           ports,

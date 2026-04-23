@@ -34,30 +34,35 @@ export function parseGraphProposalPayload(
   return parsed;
 }
 
+export interface ProposalApprovalOutcome {
+  result: ProposalApplyResult;
+  cancelled: boolean;
+  cancelReason?: 'empty_proposal';
+}
+
 export function approveFeatureProposal(
   graph: FeatureGraph,
   featureId: FeatureId,
   phase: ProposalPhase,
   proposal: GraphProposal,
-): ProposalApplyResult {
+): ProposalApprovalOutcome {
   const result = applyGraphProposal(graph, proposal);
   let featureTasks = tasksForFeature(graph, featureId);
   if (phase === 'replan') {
     restoreReplannedStuckTasks(graph, featureTasks, result);
     featureTasks = tasksForFeature(graph, featureId);
   }
-  if (featureTasks.length > 0) {
-    promoteReadyTasks(graph, featureTasks);
-    featureTasks = tasksForFeature(graph, featureId);
+  if (featureTasks.length === 0) {
+    graph.cancelFeature(featureId);
+    return { result, cancelled: true, cancelReason: 'empty_proposal' };
   }
+  promoteReadyTasks(graph, featureTasks);
+  featureTasks = tasksForFeature(graph, featureId);
   if (!shouldAdvanceAfterApproval(phase, result, featureTasks)) {
-    return result;
+    return { result, cancelled: false };
   }
   advanceFeatureAfterApproval(graph, featureId);
-  if (featureTasks.length === 0) {
-    advanceTasklessFeatureAfterApproval(graph, featureId);
-  }
-  return result;
+  return { result, cancelled: false };
 }
 
 function tasksForFeature(graph: FeatureGraph, featureId: FeatureId): Task[] {
@@ -119,9 +124,6 @@ function shouldAdvanceAfterApproval(
   result: ProposalApplyResult,
   featureTasks: readonly Task[],
 ): boolean {
-  if (featureTasks.length === 0) {
-    return result.applied.length > 0;
-  }
   if (phase === 'replan') {
     return featureTasks.some((task) => task.status === 'ready');
   }
@@ -148,22 +150,6 @@ function advanceFeatureAfterApproval(
     workControl: 'executing',
     status: 'pending',
     collabControl: 'branch_open',
-  });
-}
-
-function advanceTasklessFeatureAfterApproval(
-  graph: FeatureGraph,
-  featureId: FeatureId,
-): void {
-  if (graph.features.get(featureId)?.status === 'pending') {
-    graph.transitionFeature(featureId, { status: 'in_progress' });
-  }
-  if (graph.features.get(featureId)?.status !== 'done') {
-    graph.transitionFeature(featureId, { status: 'done' });
-  }
-  graph.transitionFeature(featureId, {
-    workControl: 'ci_check',
-    status: 'pending',
   });
 }
 
