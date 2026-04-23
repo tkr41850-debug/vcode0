@@ -790,16 +790,19 @@ export function findLatestPlanEvent(
       }
       continue;
     }
+    if (pending === undefined) continue;
+    const pendingPhase = readPayloadPhase(pending.payload);
+    const decisionPhase = readPayloadPhase(event.payload);
+    if (decisionPhase !== pendingPhase) continue;
     if (event.eventType === 'proposal_applied') {
-      if (pending !== undefined) {
-        accepted = pending;
-        pending = undefined;
-      }
+      accepted = pending;
+      pending = undefined;
       continue;
     }
     if (
       event.eventType === 'proposal_rejected' ||
-      event.eventType === 'proposal_apply_failed'
+      event.eventType === 'proposal_apply_failed' ||
+      event.eventType === 'proposal_rerun_requested'
     ) {
       pending = undefined;
     }

@@ -16,7 +16,11 @@ function planCompleted(
 }
 
 function decision(
-  eventType: 'proposal_applied' | 'proposal_rejected' | 'proposal_apply_failed',
+  eventType:
+    | 'proposal_applied'
+    | 'proposal_rejected'
+    | 'proposal_apply_failed'
+    | 'proposal_rerun_requested',
   phase: 'plan' | 'replan',
   timestamp: number,
 ): EventRecord {
@@ -83,6 +87,40 @@ describe('findLatestPlanEvent', () => {
       decision('proposal_applied', 'plan', 2),
       planCompleted('p2', 'replan', 3),
       decision('proposal_rejected', 'replan', 4),
+    ];
+    expect(tag(findLatestPlanEvent(events))).toBe('p1');
+  });
+
+  it('does not accept pending plan when later proposal_applied targets a different phase', () => {
+    const events = [
+      planCompleted('p1', 'plan', 1),
+      decision('proposal_applied', 'replan', 2),
+    ];
+    expect(findLatestPlanEvent(events)).toBeUndefined();
+  });
+
+  it('discards pending plan on proposal_rerun_requested', () => {
+    const events = [
+      planCompleted('p1', 'plan', 1),
+      decision('proposal_rerun_requested', 'plan', 2),
+    ];
+    expect(findLatestPlanEvent(events)).toBeUndefined();
+  });
+
+  it('does not let stray proposal_applied accept a rerun-discarded plan', () => {
+    const events = [
+      planCompleted('p1', 'plan', 1),
+      decision('proposal_rerun_requested', 'plan', 2),
+      decision('proposal_applied', 'replan', 3),
+    ];
+    expect(findLatestPlanEvent(events)).toBeUndefined();
+  });
+
+  it('ignores phase-mismatched discard decisions', () => {
+    const events = [
+      planCompleted('p1', 'plan', 1),
+      decision('proposal_rejected', 'replan', 2),
+      decision('proposal_applied', 'plan', 3),
     ];
     expect(tag(findLatestPlanEvent(events))).toBe('p1');
   });
