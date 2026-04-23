@@ -170,6 +170,12 @@ function createStoreMock(): Store {
       /* no-op */
     },
     getLiveWorkerPids: () => [],
+    appendInboxItem: () => {
+      /* no-op */
+    },
+    setLastCommitSha: () => {
+      /* no-op */
+    },
     close: () => {
       /* no-op */
     },

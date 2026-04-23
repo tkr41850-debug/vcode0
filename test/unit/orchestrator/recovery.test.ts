@@ -72,6 +72,8 @@ function createStoreMock(runs: TaskAgentRun[]): Store {
     setWorkerPid: vi.fn(),
     clearWorkerPid: vi.fn(),
     getLiveWorkerPids: vi.fn(() => []),
+    appendInboxItem: vi.fn(),
+    setLastCommitSha: vi.fn(),
     close: vi.fn(),
   };
 }
