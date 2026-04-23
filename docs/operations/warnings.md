@@ -42,12 +42,27 @@ Verification warnings focus on **how long checks take**, not just whether they p
 Stage 1 examples:
 - a task-level related-test run exceeds its time budget
 - a feature-level full test suite exceeds its time budget
-- a merge-train verification category repeatedly runs longer than its configured absolute threshold
+- a post-rebase `ci_check` category repeatedly runs longer than its configured absolute threshold
 - a verification layer runs with an empty effective `checks[]` list because config was omitted or intentionally left empty
 
 Stage 2 examples:
 - task lint gets slower week over week
-- merge-train test duration drifts upward across recent integrations
+- post-rebase `ci_check` duration drifts upward across recent integrations
+
+### Replan Loop Warnings
+
+Repeated replan cycles without progress emit warnings. Per-source and aggregate counters both apply:
+
+- `verify_replan_loop` — consecutive `verify` failures since the last successful `plan`/`replan` completion. Threshold `warnings.verifyReplanLoopThreshold` (default `3`).
+- `ci_check_replan_loop` — consecutive `ci_check` failures (either `phase: 'feature'` or `phase: 'post_rebase'`) routed to replanning. Threshold `warnings.ciCheckReplanLoopThreshold` (default `3`).
+- `rebase_replan_loop` — consecutive integration-time rebase failures routed to replanning. Threshold `warnings.rebaseReplanLoopThreshold` (default `3`).
+- `total_replan_loop` — aggregate count across all three sources since last successful replan. Threshold `warnings.totalReplanLoopThreshold` (default `6`).
+
+Each evaluator walks the feature's `feature_phase_completed` events backwards and counts matching-source failures since the last `plan`/`replan` completion. A `warning_emitted` event fires with `{ category, failedCount }` when the threshold is reached. Counters reset naturally when the next replan completes.
+
+### Integration Config Warnings
+
+Empty-`verification.feature` warnings dedupe per integration cycle (keyed by the integration marker row), not per invocation. One `warning_emitted` event is written when the executor runs post-rebase `ci_check` with an empty effective `checks[]` list for that integration cycle.
 
 ### Feature Churn Warnings
 
@@ -55,8 +70,8 @@ Feature churn warnings capture repeated recovery loops that indicate poor decomp
 
 Stage 1 examples:
 - multiple `verifying` failures on the same feature
-- multiple merge-train verification failures / queue ejections
-- repeated integration repair tasks on the same feature
+- multiple post-rebase `ci_check` failures / queue ejections
+- repeated integration-driven replans on the same feature
 - a feature blocked behind another feature for more than 8 hours
 - repeated stuck-task incidents or replanning on the same feature
 
@@ -94,7 +109,7 @@ Stage 2 examples:
 ### Per Verification Check Run
 
 For each verification run, track at least:
-- verification layer (`task`, `feature`, `mergeTrain`)
+- verification layer (`task`, `feature`) plus `phase` discriminator (`feature` or `post_rebase`) when the layer is `feature`
 - check category / description
 - command
 - duration
@@ -108,10 +123,10 @@ This supports both immediate slow-check warnings and later trend analysis.
 
 For each feature, track at least:
 - pre-queue verification failure count (`ci_check` or agent-level `verifying`)
-- merge-train verification failure count
+- post-rebase `ci_check` failure count
 - merge-train ejection count
-- integration repair task count
-- replanning count
+- integration-driven replan count
+- replanning count (aggregate across sources)
 - stuck-task incident count
 - overlap-block incident count
 - total time blocked behind another feature
