@@ -4,14 +4,25 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { InMemoryFeatureGraph } from '@core/graph/index';
-import type { TaskAgentRun } from '@core/types/index';
 import type {
+  AgentRun,
+  FeaturePhaseAgentRun,
+  TaskAgentRun,
+} from '@core/types/index';
+import type {
+  AgentRunPatch,
   OrchestratorPorts,
   Store,
   UiPort,
 } from '@orchestrator/ports/index';
 import { RecoveryService } from '@orchestrator/services/index';
-import type { RuntimePort } from '@runtime/contracts';
+import type {
+  DispatchRunResult,
+  RunPayload,
+  RunScope,
+  RuntimeDispatch,
+  RuntimePort,
+} from '@runtime/contracts';
 import { describe, expect, it, vi } from 'vitest';
 import { InMemorySessionStore } from '../../integration/harness/in-memory-session-store.js';
 
@@ -30,8 +41,25 @@ function makeTaskRun(overrides: Partial<TaskAgentRun> = {}): TaskAgentRun {
   };
 }
 
-function createStoreMock(runs: TaskAgentRun[]): Store {
-  const byId = new Map<string, TaskAgentRun>(runs.map((run) => [run.id, run]));
+function makeFeaturePhaseRun(
+  overrides: Partial<FeaturePhaseAgentRun> = {},
+): FeaturePhaseAgentRun {
+  return {
+    id: 'run-feature-1',
+    scopeType: 'feature_phase',
+    scopeId: 'f-1',
+    phase: 'discuss',
+    runStatus: 'ready',
+    owner: 'system',
+    attention: 'none',
+    restartCount: 0,
+    maxRetries: 3,
+    ...overrides,
+  };
+}
+
+function createStoreMock(runs: AgentRun[]): Store {
+  const byId = new Map<string, AgentRun>(runs.map((run) => [run.id, run]));
   return {
     getAgentRun: (id: string) => byId.get(id),
     listAgentRuns: (query) =>
@@ -51,10 +79,15 @@ function createStoreMock(runs: TaskAgentRun[]): Store {
         return true;
       }),
     createAgentRun: vi.fn(),
-    updateAgentRun: vi.fn((id: string, patch: Partial<TaskAgentRun>) => {
+    updateAgentRun: vi.fn((id: string, patch: AgentRunPatch) => {
       const existing = byId.get(id);
       if (existing === undefined) throw new Error(`missing run ${id}`);
-      byId.set(id, { ...existing, ...patch });
+      const next = { ...existing, ...patch };
+      if (next.scopeType === 'task') {
+        byId.set(id, next as TaskAgentRun);
+      } else {
+        byId.set(id, next as FeaturePhaseAgentRun);
+      }
     }),
     listEvents: vi.fn(() => []),
     appendEvent: vi.fn(),
@@ -67,15 +100,139 @@ function createStoreMock(runs: TaskAgentRun[]): Store {
 function createRuntimeMock(): RuntimePort & {
   dispatchTask: ReturnType<typeof vi.fn>;
   resumeTask: ReturnType<typeof vi.fn>;
+  dispatchRun: ReturnType<typeof vi.fn>;
 } {
+  const dispatchRunImpl = (
+    scope: RunScope,
+    dispatch: RuntimeDispatch,
+    _payload: RunPayload,
+  ): Promise<DispatchRunResult> => {
+    if (scope.kind === 'feature_phase') {
+      if (
+        scope.phase !== 'discuss' &&
+        scope.phase !== 'research' &&
+        scope.phase !== 'plan' &&
+        scope.phase !== 'replan' &&
+        scope.phase !== 'verify' &&
+        scope.phase !== 'ci_check' &&
+        scope.phase !== 'summarize'
+      ) {
+        throw new Error(`unexpected feature phase ${scope.phase}`);
+      }
+      if (
+        dispatch.mode === 'resume' &&
+        (scope.phase === 'verify' || scope.phase === 'ci_check')
+      ) {
+        return Promise.resolve({
+          kind: 'not_resumable',
+          agentRunId: dispatch.agentRunId,
+          sessionId: dispatch.sessionId,
+          reason: 'unsupported_by_harness',
+        });
+      }
+
+      if (scope.phase === 'plan' || scope.phase === 'replan') {
+        return Promise.resolve({
+          kind: 'awaiting_approval',
+          agentRunId: dispatch.agentRunId,
+          sessionId:
+            dispatch.mode === 'resume'
+              ? (dispatch.sessionId ?? 'sess-feature-resumed')
+              : 'sess-feature-started',
+          output: {
+            kind: 'proposal',
+            phase: scope.phase,
+            result: {
+              summary: `${scope.phase} summary`,
+              proposal: {
+                version: 1,
+                mode: scope.phase,
+                aliases: {},
+                ops: [],
+              },
+              details: {
+                summary: `${scope.phase} summary`,
+                chosenApproach: 'use recovery path',
+                keyConstraints: [],
+                decompositionRationale: [],
+                orderingRationale: [],
+                verificationExpectations: [],
+                risksTradeoffs: [],
+                assumptions: [],
+              },
+            },
+          },
+        } satisfies DispatchRunResult);
+      }
+
+      const sessionId =
+        dispatch.mode === 'resume'
+          ? (dispatch.sessionId ?? 'sess-feature-resumed')
+          : 'sess-feature-started';
+
+      if (scope.phase === 'verify') {
+        return Promise.resolve({
+          kind: 'completed_inline',
+          agentRunId: dispatch.agentRunId,
+          sessionId,
+          output: {
+            kind: 'verification',
+            verification: {
+              ok: true,
+              outcome: 'pass',
+              summary: 'verify ok',
+            },
+          },
+        } satisfies DispatchRunResult);
+      }
+
+      if (scope.phase === 'ci_check') {
+        return Promise.resolve({
+          kind: 'completed_inline',
+          agentRunId: dispatch.agentRunId,
+          sessionId,
+          output: {
+            kind: 'ci_check',
+            verification: {
+              ok: true,
+              outcome: 'pass',
+              summary: 'ci_check ok',
+            },
+          },
+        } satisfies DispatchRunResult);
+      }
+
+      return Promise.resolve({
+        kind: 'completed_inline',
+        agentRunId: dispatch.agentRunId,
+        sessionId,
+        output: {
+          kind: 'text_phase',
+          phase: scope.phase,
+          result: {
+            summary: `${scope.phase} summary`,
+          },
+        },
+      } satisfies DispatchRunResult);
+    }
+
+    if (dispatch.mode === 'resume') {
+      return Promise.resolve({
+        kind: 'resumed',
+        agentRunId: dispatch.agentRunId,
+        sessionId: dispatch.sessionId ?? 'sess-resumed',
+      });
+    }
+
+    return Promise.resolve({
+      kind: 'started',
+      agentRunId: dispatch.agentRunId,
+      sessionId: 'sess-started',
+    });
+  };
+
   return {
-    dispatchRun: vi.fn(() =>
-      Promise.resolve({
-        kind: 'started' as const,
-        agentRunId: 'run-stub',
-        sessionId: 'sess-stub',
-      }),
-    ),
+    dispatchRun: vi.fn(dispatchRunImpl),
     dispatchTask: vi.fn(
       (
         _task,
@@ -152,12 +309,13 @@ function createRuntimeMock(): RuntimePort & {
   };
 }
 
-function createPorts(runs: TaskAgentRun[]): {
+function createPorts(runs: AgentRun[]): {
   ports: OrchestratorPorts;
   store: Store & { updateAgentRun: ReturnType<typeof vi.fn> };
   runtime: RuntimePort & {
     dispatchTask: ReturnType<typeof vi.fn>;
     resumeTask: ReturnType<typeof vi.fn>;
+    dispatchRun: ReturnType<typeof vi.fn>;
   };
   graph: InMemoryFeatureGraph;
 } {
@@ -220,15 +378,24 @@ describe('RecoveryService', () => {
 
     await service.recoverOrphanedRuns();
 
-    expect(runtime.dispatchTask).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 't-1' }),
+    expect(runtime.dispatchRun).toHaveBeenCalledWith(
+      {
+        kind: 'task',
+        taskId: 't-1',
+        featureId: 'f-1',
+      },
       {
         mode: 'resume',
         agentRunId: run.id,
         sessionId: 'sess-1',
       },
-      expect.any(Object),
+      {
+        kind: 'task',
+        task: expect.objectContaining({ id: 't-1' }),
+        payload: expect.any(Object),
+      },
     );
+    expect(runtime.dispatchTask).not.toHaveBeenCalled();
     expect(runtime.resumeTask).not.toHaveBeenCalled();
     expect(store.updateAgentRun).toHaveBeenCalledWith(run.id, {
       sessionId: 'sess-1',
@@ -246,6 +413,7 @@ describe('RecoveryService', () => {
 
     await service.recoverOrphanedRuns();
 
+    expect(runtime.dispatchRun).not.toHaveBeenCalled();
     expect(runtime.resumeTask).not.toHaveBeenCalled();
     expect(store.updateAgentRun).toHaveBeenCalledWith(run.id, {
       runStatus: 'ready',
@@ -283,26 +451,43 @@ describe('RecoveryService', () => {
 
     await service.recoverOrphanedRuns();
 
-    expect(runtime.dispatchTask).toHaveBeenNthCalledWith(
+    expect(runtime.dispatchRun).toHaveBeenNthCalledWith(
       1,
-      expect.objectContaining({ id: 't-1' }),
+      {
+        kind: 'task',
+        taskId: 't-1',
+        featureId: 'f-1',
+      },
       {
         mode: 'resume',
         agentRunId: 'run-help',
         sessionId: 'sess-help',
       },
-      expect.any(Object),
+      {
+        kind: 'task',
+        task: expect.objectContaining({ id: 't-1' }),
+        payload: expect.any(Object),
+      },
     );
-    expect(runtime.dispatchTask).toHaveBeenNthCalledWith(
+    expect(runtime.dispatchRun).toHaveBeenNthCalledWith(
       2,
-      expect.objectContaining({ id: 't-1' }),
+      {
+        kind: 'task',
+        taskId: 't-1',
+        featureId: 'f-1',
+      },
       {
         mode: 'resume',
         agentRunId: 'run-approval',
         sessionId: 'sess-approval',
       },
-      expect.any(Object),
+      {
+        kind: 'task',
+        task: expect.objectContaining({ id: 't-1' }),
+        payload: expect.any(Object),
+      },
     );
+    expect(runtime.dispatchTask).not.toHaveBeenCalled();
     expect(runtime.resumeTask).not.toHaveBeenCalled();
     expect(store.updateAgentRun).toHaveBeenCalledWith('run-help', {
       sessionId: 'sess-help',
@@ -338,6 +523,7 @@ describe('RecoveryService', () => {
 
     await service.recoverOrphanedRuns();
 
+    expect(runtime.dispatchRun).not.toHaveBeenCalled();
     expect(runtime.resumeTask).not.toHaveBeenCalled();
     expect(store.updateAgentRun).toHaveBeenCalledWith(run.id, {
       runStatus: 'ready',
@@ -366,6 +552,7 @@ describe('RecoveryService', () => {
 
     await service.recoverOrphanedRuns();
 
+    expect(runtime.dispatchRun).not.toHaveBeenCalled();
     expect(runtime.dispatchTask).not.toHaveBeenCalled();
     expect(runtime.resumeTask).not.toHaveBeenCalled();
     expect(store.updateAgentRun).toHaveBeenCalledWith(run.id, {
@@ -391,5 +578,110 @@ describe('RecoveryService', () => {
     await expect(
       fs.readFile(path.join(taskDir, 'RECOVERY_REBASE'), 'utf-8'),
     ).resolves.toBe('feat-feature-1-1');
+  });
+
+  it('recovers running feature-phase runs through dispatchRun and completes the phase', async () => {
+    const run = makeFeaturePhaseRun({
+      id: 'run-feature:f-1:discuss',
+      phase: 'discuss',
+      runStatus: 'running',
+      sessionId: 'sess-feature-1',
+    });
+    const { ports, runtime, store, graph } = createPorts([run]);
+    const service = new RecoveryService(ports, graph);
+
+    await service.recoverOrphanedRuns();
+
+    expect(runtime.dispatchRun).toHaveBeenCalledWith(
+      {
+        kind: 'feature_phase',
+        featureId: 'f-1',
+        phase: 'discuss',
+      },
+      {
+        mode: 'resume',
+        agentRunId: run.id,
+        sessionId: 'sess-feature-1',
+      },
+      { kind: 'feature_phase' },
+    );
+    expect(store.updateAgentRun).toHaveBeenCalledWith(run.id, {
+      sessionId: 'sess-feature-1',
+      restartCount: 1,
+    });
+    expect(store.updateAgentRun).toHaveBeenCalledWith(run.id, {
+      runStatus: 'completed',
+      owner: 'system',
+    });
+    expect(graph.features.get('f-1')).toEqual(
+      expect.objectContaining({
+        workControl: 'researching',
+        status: 'pending',
+      }),
+    );
+  });
+
+  it('falls back to start for non-resumable feature-phase runs and still completes the phase', async () => {
+    const run = makeFeaturePhaseRun({
+      id: 'run-feature:f-1:verify',
+      phase: 'verify',
+      runStatus: 'running',
+      sessionId: 'sess-feature-verify',
+    });
+    const { ports, runtime, store, graph } = createPorts([run]);
+    const feature = graph.features.get('f-1');
+    assert(feature !== undefined, 'missing feature fixture');
+    graph.features.set('f-1', {
+      ...feature,
+      status: 'pending',
+      workControl: 'verifying',
+      collabControl: 'branch_open',
+    });
+    const service = new RecoveryService(ports, graph);
+
+    await service.recoverOrphanedRuns();
+
+    expect(runtime.dispatchRun).toHaveBeenNthCalledWith(
+      1,
+      {
+        kind: 'feature_phase',
+        featureId: 'f-1',
+        phase: 'verify',
+      },
+      {
+        mode: 'resume',
+        agentRunId: run.id,
+        sessionId: 'sess-feature-verify',
+      },
+      { kind: 'feature_phase' },
+    );
+    expect(runtime.dispatchRun).toHaveBeenNthCalledWith(
+      2,
+      {
+        kind: 'feature_phase',
+        featureId: 'f-1',
+        phase: 'verify',
+      },
+      {
+        mode: 'start',
+        agentRunId: run.id,
+      },
+      { kind: 'feature_phase' },
+    );
+    expect(store.updateAgentRun).toHaveBeenCalledWith(run.id, {
+      sessionId: 'sess-feature-started',
+      restartCount: 1,
+    });
+    expect(store.updateAgentRun).toHaveBeenCalledWith(run.id, {
+      runStatus: 'completed',
+      owner: 'system',
+    });
+    expect(graph.features.get('f-1')).toEqual(
+      expect.objectContaining({
+        workControl: 'awaiting_merge',
+        status: 'pending',
+        collabControl: 'merge_queued',
+      }),
+    );
   });
 });
