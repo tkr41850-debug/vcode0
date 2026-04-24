@@ -4,6 +4,7 @@ import type { ReplannerAgent } from '@agents/replanner';
 import type { FeatureGraph } from '@core/graph/index';
 import type {
   Feature,
+  FeaturePhaseResult,
   FeaturePhaseRunContext,
   VerificationSummary,
 } from '@core/types/index';
@@ -62,7 +63,11 @@ export class DiscussFeaturePhaseBackend implements FeaturePhaseBackend {
     private readonly graph: Pick<FeatureGraph, 'features'>,
     private readonly agent: Pick<
       PlannerAgent,
-      'discussFeature' | 'planFeature' | 'verifyFeature'
+      | 'discussFeature'
+      | 'researchFeature'
+      | 'planFeature'
+      | 'verifyFeature'
+      | 'summarizeFeature'
     > &
       Pick<ReplannerAgent, 'replanFeature'>,
     private readonly verification: Pick<
@@ -127,14 +132,14 @@ export class DiscussFeaturePhaseBackend implements FeaturePhaseBackend {
           sessionId,
           outcome: this.agent
             .discussFeature(feature, runContext)
-            .then((result) => ({
-              kind: 'completed_inline',
-              output: {
-                kind: 'text_phase',
-                phase: 'discuss',
-                result,
-              },
-            })),
+            .then((result) => textPhaseOutcome('discuss', result)),
+        });
+      case 'research':
+        return createFeaturePhaseHandle({
+          sessionId,
+          outcome: this.agent
+            .researchFeature(feature, runContext)
+            .then((result) => textPhaseOutcome('research', result)),
         });
       case 'plan':
         return createFeaturePhaseHandle({
@@ -168,6 +173,13 @@ export class DiscussFeaturePhaseBackend implements FeaturePhaseBackend {
             .verifyFeature(feature)
             .then((verification) => ciCheckOutcome(verification)),
         });
+      case 'summarize':
+        return createFeaturePhaseHandle({
+          sessionId,
+          outcome: this.agent
+            .summarizeFeature(feature, runContext)
+            .then((result) => textPhaseOutcome('summarize', result)),
+        });
       default:
         throw new Error(
           `feature phase '${scope.phase}' not configured by DiscussFeaturePhaseBackend`,
@@ -188,6 +200,20 @@ export class DiscussFeaturePhaseBackend implements FeaturePhaseBackend {
       sessionId: run.sessionId,
     };
   }
+}
+
+function textPhaseOutcome(
+  phase: 'discuss' | 'research' | 'summarize',
+  result: FeaturePhaseResult,
+): FeaturePhaseDispatchOutcome {
+  return {
+    kind: 'completed_inline',
+    output: {
+      kind: 'text_phase',
+      phase,
+      result,
+    },
+  };
 }
 
 function proposalOutcome(
@@ -230,8 +256,14 @@ function ciCheckOutcome(
 
 function supportsSessionResume(
   phase: FeaturePhaseScope['phase'],
-): phase is 'discuss' | 'plan' | 'replan' {
-  return phase === 'discuss' || phase === 'plan' || phase === 'replan';
+): phase is 'discuss' | 'research' | 'plan' | 'replan' | 'summarize' {
+  return (
+    phase === 'discuss' ||
+    phase === 'research' ||
+    phase === 'plan' ||
+    phase === 'replan' ||
+    phase === 'summarize'
+  );
 }
 
 export function createFeaturePhaseHandle(params: {

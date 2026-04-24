@@ -175,6 +175,18 @@ function createRuntimeMock(order: string[]): RuntimePort & {
           },
         });
       }
+      if (scope.phase === 'research') {
+        return Promise.resolve({
+          kind: 'completed_inline' as const,
+          agentRunId: dispatch.agentRunId,
+          sessionId,
+          output: {
+            kind: 'text_phase' as const,
+            phase: 'research' as const,
+            result: { summary: 'researched' },
+          },
+        });
+      }
       if (scope.phase === 'plan' || scope.phase === 'replan') {
         return Promise.resolve({
           kind: 'awaiting_approval' as const,
@@ -219,6 +231,18 @@ function createRuntimeMock(order: string[]): RuntimePort & {
               outcome: 'pass' as const,
               summary: 'ci green',
             },
+          },
+        });
+      }
+      if (scope.phase === 'summarize') {
+        return Promise.resolve({
+          kind: 'completed_inline' as const,
+          agentRunId: dispatch.agentRunId,
+          sessionId,
+          output: {
+            kind: 'text_phase' as const,
+            phase: 'summarize' as const,
+            result: { summary: 'summarized' },
           },
         });
       }
@@ -1888,6 +1912,77 @@ describe('SchedulerLoop', () => {
     expect(planFeature).not.toHaveBeenCalled();
   });
 
+  it('falls back to a fresh planning start when a stored feature-phase session is not resumable', async () => {
+    const order: string[] = [];
+    const { ports, runtime } = createPorts(order);
+    ports.store.createAgentRun(
+      makeFeaturePhaseRun('plan', {
+        runStatus: 'ready',
+        sessionId: 'sess-existing',
+        restartCount: 2,
+      }),
+    );
+    const dispatchRun = vi
+      .spyOn(runtime, 'dispatchRun')
+      .mockResolvedValueOnce({
+        kind: 'not_resumable',
+        agentRunId: 'run-feature:f-1:plan',
+        sessionId: 'sess-existing',
+        reason: 'session_not_found',
+      })
+      .mockResolvedValueOnce({
+        kind: 'awaiting_approval',
+        agentRunId: 'run-feature:f-1:plan',
+        sessionId: 'sess-fresh',
+        output: {
+          kind: 'proposal',
+          phase: 'plan',
+          result: {
+            summary: 'ok',
+            proposal: makeProposal('plan'),
+            details: proposalDetails,
+          },
+        },
+      });
+    const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
+    const graph = createProposalApprovalGraph({
+      status: 'pending',
+      workControl: 'planning',
+      collabControl: 'none',
+    });
+
+    const loop = new SchedulerLoop(graph, ports);
+
+    await loop.step(100);
+
+    expect(dispatchRun).toHaveBeenNthCalledWith(
+      1,
+      { kind: 'feature_phase', featureId: 'f-1', phase: 'plan' },
+      {
+        mode: 'resume',
+        agentRunId: 'run-feature:f-1:plan',
+        sessionId: 'sess-existing',
+      },
+      { kind: 'feature_phase' },
+    );
+    expect(dispatchRun).toHaveBeenNthCalledWith(
+      2,
+      { kind: 'feature_phase', featureId: 'f-1', phase: 'plan' },
+      {
+        mode: 'start',
+        agentRunId: 'run-feature:f-1:plan',
+      },
+      { kind: 'feature_phase' },
+    );
+    expect(updateAgentRun).toHaveBeenCalledWith('run-feature:f-1:plan', {
+      runStatus: 'await_approval',
+      owner: 'manual',
+      sessionId: 'sess-fresh',
+      payloadJson: JSON.stringify(makeProposal('plan')),
+      restartCount: 2,
+    });
+  });
+
   it('dispatches ci_check through runtime.dispatchRun using the verification backend', async () => {
     const order: string[] = [];
     const { ports, runtime } = createPorts(order);
@@ -2015,6 +2110,40 @@ describe('SchedulerLoop', () => {
     });
   });
 
+  it('dispatches research feature phases through runtime dispatchRun', async () => {
+    const order: string[] = [];
+    const { ports, runtime } = createPorts(order);
+    const researchFeature = vi.spyOn(ports.agents, 'researchFeature');
+    const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
+    const graph = createSingleFeatureGraph({
+      status: 'pending',
+      workControl: 'researching',
+      collabControl: 'none',
+    });
+
+    const loop = new SchedulerLoop(graph, ports);
+
+    await loop.step(100);
+
+    expect(runtime.dispatchRun).toHaveBeenCalledWith(
+      { kind: 'feature_phase', featureId: 'f-1', phase: 'research' },
+      { mode: 'start', agentRunId: 'run-feature:f-1:research' },
+      { kind: 'feature_phase' },
+    );
+    expect(researchFeature).not.toHaveBeenCalled();
+    expect(updateAgentRun).toHaveBeenCalledWith('run-feature:f-1:research', {
+      runStatus: 'running',
+      owner: 'system',
+      sessionId: 'run-feature:f-1:research',
+      restartCount: 0,
+    });
+    expect(graph.features.get('f-1')).toMatchObject({
+      workControl: 'planning',
+      status: 'pending',
+      collabControl: 'none',
+    });
+  });
+
   it('dispatches verify feature phases through runtime dispatchRun', async () => {
     const order: string[] = [];
     const { ports, runtime } = createPorts(order);
@@ -2049,10 +2178,11 @@ describe('SchedulerLoop', () => {
     });
   });
 
-  it('dispatches summarize feature phases after merge in non-budget mode', async () => {
+  it('dispatches summarize feature phases through runtime dispatchRun after merge', async () => {
     const order: string[] = [];
-    const { ports } = createPorts(order, { tokenProfile: 'balanced' });
+    const { ports, runtime } = createPorts(order, { tokenProfile: 'balanced' });
     const summarizeFeature = vi.spyOn(ports.agents, 'summarizeFeature');
+    const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
     const graph = createSingleFeatureGraph({
       status: 'done',
       workControl: 'awaiting_merge',
@@ -2063,10 +2193,18 @@ describe('SchedulerLoop', () => {
 
     await loop.step(100);
 
-    expect(summarizeFeature).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'f-1' }),
-      { agentRunId: 'run-feature:f-1:summarize' },
+    expect(runtime.dispatchRun).toHaveBeenCalledWith(
+      { kind: 'feature_phase', featureId: 'f-1', phase: 'summarize' },
+      { mode: 'start', agentRunId: 'run-feature:f-1:summarize' },
+      { kind: 'feature_phase' },
     );
+    expect(summarizeFeature).not.toHaveBeenCalled();
+    expect(updateAgentRun).toHaveBeenCalledWith('run-feature:f-1:summarize', {
+      runStatus: 'running',
+      owner: 'system',
+      sessionId: 'run-feature:f-1:summarize',
+      restartCount: 0,
+    });
   });
 
   it('does not emit feature_phase_complete when plan submits proposal for approval', async () => {

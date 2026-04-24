@@ -312,8 +312,10 @@ describe('LocalWorkerPool', () => {
         discussFeature: vi
           .fn()
           .mockResolvedValue(makeDiscussResult('discussed')),
+        researchFeature: vi.fn(),
         planFeature: vi.fn(),
         verifyFeature: vi.fn(),
+        summarizeFeature: vi.fn(),
         replanFeature: vi.fn(),
       };
       const backend = new DiscussFeaturePhaseBackend(
@@ -365,8 +367,10 @@ describe('LocalWorkerPool', () => {
       await sessionStore.save('sess-existing', []);
       const agent = {
         discussFeature: vi.fn().mockResolvedValue(makeDiscussResult('resumed')),
+        researchFeature: vi.fn(),
         planFeature: vi.fn(),
         verifyFeature: vi.fn(),
+        summarizeFeature: vi.fn(),
         replanFeature: vi.fn(),
       };
       const backend = new DiscussFeaturePhaseBackend(
@@ -424,8 +428,10 @@ describe('LocalWorkerPool', () => {
       const sessionStore = new InMemorySessionStore();
       const agent = {
         discussFeature: vi.fn().mockResolvedValue(makeDiscussResult()),
+        researchFeature: vi.fn(),
         planFeature: vi.fn(),
         verifyFeature: vi.fn(),
+        summarizeFeature: vi.fn(),
         replanFeature: vi.fn(),
       };
       const backend = new DiscussFeaturePhaseBackend(
@@ -455,6 +461,124 @@ describe('LocalWorkerPool', () => {
       });
     });
 
+    it('runs research through the feature-phase backend on start', async () => {
+      const { harness } = setupPool();
+      const graph = new InMemoryFeatureGraph({
+        milestones: [
+          {
+            id: 'm-1',
+            name: 'M',
+            description: 'd',
+            status: 'pending',
+            order: 0,
+          },
+        ],
+        features: [makeFeature()],
+        tasks: [],
+      });
+      const sessionStore = new InMemorySessionStore();
+      const agent = {
+        discussFeature: vi.fn(),
+        researchFeature: vi.fn().mockResolvedValue({ summary: 'researched' }),
+        planFeature: vi.fn(),
+        verifyFeature: vi.fn(),
+        summarizeFeature: vi.fn(),
+        replanFeature: vi.fn(),
+      };
+      const backend = new DiscussFeaturePhaseBackend(
+        graph,
+        agent,
+        createVerificationStub(),
+        sessionStore,
+      );
+      const pool = new LocalWorkerPool(harness, 4, undefined, backend);
+
+      const result = await pool.dispatchRun(
+        { kind: 'feature_phase', featureId: 'f-feature-1', phase: 'research' },
+        { mode: 'start', agentRunId: 'run-feature:f-feature-1:research' },
+        { kind: 'feature_phase' },
+      );
+
+      expect(agent.researchFeature).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'f-feature-1' }),
+        { agentRunId: 'run-feature:f-feature-1:research' },
+      );
+      expect(result).toEqual({
+        kind: 'completed_inline',
+        agentRunId: 'run-feature:f-feature-1:research',
+        sessionId: 'run-feature:f-feature-1:research',
+        output: {
+          kind: 'text_phase',
+          phase: 'research',
+          result: { summary: 'researched' },
+        },
+      });
+    });
+
+    it('resumes research through the feature-phase backend when session state exists', async () => {
+      const { harness } = setupPool();
+      const graph = new InMemoryFeatureGraph({
+        milestones: [
+          {
+            id: 'm-1',
+            name: 'M',
+            description: 'd',
+            status: 'pending',
+            order: 0,
+          },
+        ],
+        features: [makeFeature()],
+        tasks: [],
+      });
+      const sessionStore = new InMemorySessionStore();
+      await sessionStore.save('sess-existing', []);
+      const agent = {
+        discussFeature: vi.fn(),
+        researchFeature: vi
+          .fn()
+          .mockResolvedValue({ summary: 're-researched' }),
+        planFeature: vi.fn(),
+        verifyFeature: vi.fn(),
+        summarizeFeature: vi.fn(),
+        replanFeature: vi.fn(),
+      };
+      const backend = new DiscussFeaturePhaseBackend(
+        graph,
+        agent,
+        createVerificationStub(),
+        sessionStore,
+      );
+      const pool = new LocalWorkerPool(harness, 4, undefined, backend);
+
+      const result = await pool.dispatchRun(
+        { kind: 'feature_phase', featureId: 'f-feature-1', phase: 'research' },
+        {
+          mode: 'resume',
+          agentRunId: 'run-feature:f-feature-1:research',
+          sessionId: 'sess-existing',
+        },
+        { kind: 'feature_phase' },
+      );
+
+      expect(agent.researchFeature).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'f-feature-1' }),
+        {
+          agentRunId: 'run-feature:f-feature-1:research',
+          sessionId: 'sess-existing',
+        },
+      );
+      expect(result).toEqual({
+        kind: 'completed_inline',
+        agentRunId: 'run-feature:f-feature-1:research',
+        sessionId: 'sess-existing',
+        output: {
+          kind: 'text_phase',
+          phase: 'research',
+          result: { summary: 're-researched' },
+        },
+      });
+    });
+
     it('runs planning through the feature-phase backend and returns awaiting approval', async () => {
       const { harness } = setupPool();
       const graph = new InMemoryFeatureGraph({
@@ -479,12 +603,14 @@ describe('LocalWorkerPool', () => {
       };
       const agent = {
         discussFeature: vi.fn(),
+        researchFeature: vi.fn(),
         planFeature: vi.fn().mockResolvedValue({
           summary: 'planned',
           proposal,
           details: proposalDetails,
         }),
         verifyFeature: vi.fn(),
+        summarizeFeature: vi.fn(),
         replanFeature: vi.fn(),
       };
       const backend = new DiscussFeaturePhaseBackend(
@@ -545,8 +671,10 @@ describe('LocalWorkerPool', () => {
       };
       const agent = {
         discussFeature: vi.fn(),
+        researchFeature: vi.fn(),
         planFeature: vi.fn(),
         verifyFeature: vi.fn(),
+        summarizeFeature: vi.fn(),
         replanFeature: vi.fn().mockResolvedValue({
           summary: 'replanned',
           proposal,
@@ -615,8 +743,10 @@ describe('LocalWorkerPool', () => {
       };
       const agent = {
         discussFeature: vi.fn(),
+        researchFeature: vi.fn(),
         planFeature: vi.fn(),
         verifyFeature: vi.fn().mockResolvedValue(verification),
+        summarizeFeature: vi.fn(),
         replanFeature: vi.fn(),
       };
       const backend = new DiscussFeaturePhaseBackend(
@@ -666,8 +796,10 @@ describe('LocalWorkerPool', () => {
       const sessionStore = new InMemorySessionStore();
       const agent = {
         discussFeature: vi.fn(),
+        researchFeature: vi.fn(),
         planFeature: vi.fn(),
         verifyFeature: vi.fn(),
+        summarizeFeature: vi.fn(),
         replanFeature: vi.fn(),
       };
       const backend = new DiscussFeaturePhaseBackend(
@@ -697,6 +829,124 @@ describe('LocalWorkerPool', () => {
       });
     });
 
+    it('runs summarize through the feature-phase backend on start', async () => {
+      const { harness } = setupPool();
+      const graph = new InMemoryFeatureGraph({
+        milestones: [
+          {
+            id: 'm-1',
+            name: 'M',
+            description: 'd',
+            status: 'pending',
+            order: 0,
+          },
+        ],
+        features: [makeFeature()],
+        tasks: [],
+      });
+      const sessionStore = new InMemorySessionStore();
+      const agent = {
+        discussFeature: vi.fn(),
+        researchFeature: vi.fn(),
+        planFeature: vi.fn(),
+        verifyFeature: vi.fn(),
+        summarizeFeature: vi.fn().mockResolvedValue({ summary: 'summarized' }),
+        replanFeature: vi.fn(),
+      };
+      const backend = new DiscussFeaturePhaseBackend(
+        graph,
+        agent,
+        createVerificationStub(),
+        sessionStore,
+      );
+      const pool = new LocalWorkerPool(harness, 4, undefined, backend);
+
+      const result = await pool.dispatchRun(
+        { kind: 'feature_phase', featureId: 'f-feature-1', phase: 'summarize' },
+        { mode: 'start', agentRunId: 'run-feature:f-feature-1:summarize' },
+        { kind: 'feature_phase' },
+      );
+
+      expect(agent.summarizeFeature).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'f-feature-1' }),
+        { agentRunId: 'run-feature:f-feature-1:summarize' },
+      );
+      expect(result).toEqual({
+        kind: 'completed_inline',
+        agentRunId: 'run-feature:f-feature-1:summarize',
+        sessionId: 'run-feature:f-feature-1:summarize',
+        output: {
+          kind: 'text_phase',
+          phase: 'summarize',
+          result: { summary: 'summarized' },
+        },
+      });
+    });
+
+    it('resumes summarize through the feature-phase backend when session state exists', async () => {
+      const { harness } = setupPool();
+      const graph = new InMemoryFeatureGraph({
+        milestones: [
+          {
+            id: 'm-1',
+            name: 'M',
+            description: 'd',
+            status: 'pending',
+            order: 0,
+          },
+        ],
+        features: [makeFeature()],
+        tasks: [],
+      });
+      const sessionStore = new InMemorySessionStore();
+      await sessionStore.save('sess-existing', []);
+      const agent = {
+        discussFeature: vi.fn(),
+        researchFeature: vi.fn(),
+        planFeature: vi.fn(),
+        verifyFeature: vi.fn(),
+        summarizeFeature: vi
+          .fn()
+          .mockResolvedValue({ summary: 're-summarized' }),
+        replanFeature: vi.fn(),
+      };
+      const backend = new DiscussFeaturePhaseBackend(
+        graph,
+        agent,
+        createVerificationStub(),
+        sessionStore,
+      );
+      const pool = new LocalWorkerPool(harness, 4, undefined, backend);
+
+      const result = await pool.dispatchRun(
+        { kind: 'feature_phase', featureId: 'f-feature-1', phase: 'summarize' },
+        {
+          mode: 'resume',
+          agentRunId: 'run-feature:f-feature-1:summarize',
+          sessionId: 'sess-existing',
+        },
+        { kind: 'feature_phase' },
+      );
+
+      expect(agent.summarizeFeature).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'f-feature-1' }),
+        {
+          agentRunId: 'run-feature:f-feature-1:summarize',
+          sessionId: 'sess-existing',
+        },
+      );
+      expect(result).toEqual({
+        kind: 'completed_inline',
+        agentRunId: 'run-feature:f-feature-1:summarize',
+        sessionId: 'sess-existing',
+        output: {
+          kind: 'text_phase',
+          phase: 'summarize',
+          result: { summary: 're-summarized' },
+        },
+      });
+    });
+
     it('runs ci_check through the verification backend and returns ci_check output', async () => {
       const { harness } = setupPool();
       const graph = new InMemoryFeatureGraph({
@@ -720,8 +970,10 @@ describe('LocalWorkerPool', () => {
       };
       const agent = {
         discussFeature: vi.fn(),
+        researchFeature: vi.fn(),
         planFeature: vi.fn(),
         verifyFeature: vi.fn(),
+        summarizeFeature: vi.fn(),
         replanFeature: vi.fn(),
       };
       const verificationBackend = createVerificationStub(verification);
@@ -772,8 +1024,10 @@ describe('LocalWorkerPool', () => {
       const sessionStore = new InMemorySessionStore();
       const agent = {
         discussFeature: vi.fn(),
+        researchFeature: vi.fn(),
         planFeature: vi.fn(),
         verifyFeature: vi.fn(),
+        summarizeFeature: vi.fn(),
         replanFeature: vi.fn(),
       };
       const verificationBackend = createVerificationStub();

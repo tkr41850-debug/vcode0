@@ -21,6 +21,9 @@ import { isProposalPhase } from '@orchestrator/proposals/index';
 import { buildTaskPayload } from '@runtime/context/index';
 import type {
   DispatchRunResult,
+  FeaturePhaseRunPayload,
+  PhaseOutput,
+  RuntimeDispatch,
   TaskRuntimeDispatch,
 } from '@runtime/contracts';
 
@@ -161,6 +164,24 @@ function runningRunPatch(
   };
 }
 
+function proposalAwaitingApprovalPatch(
+  run: Pick<AgentRun, 'runStatus' | 'restartCount'>,
+  result: Pick<DispatchRunResult, 'sessionId'>,
+  payloadJson: string,
+): Pick<
+  AgentRun,
+  'runStatus' | 'owner' | 'sessionId' | 'payloadJson' | 'restartCount'
+> {
+  return {
+    runStatus: 'await_approval',
+    owner: 'manual',
+    sessionId: result.sessionId,
+    payloadJson,
+    restartCount:
+      run.runStatus === 'retry_await' ? run.restartCount + 1 : run.restartCount,
+  };
+}
+
 export function persistRunningTaskRun(
   ports: OrchestratorPorts,
   run: TaskAgentRun,
@@ -175,6 +196,18 @@ export function persistRunningFeaturePhaseRun(
   result: Pick<DispatchRunResult, 'sessionId'>,
 ): void {
   ports.store.updateAgentRun(run.id, runningRunPatch(run, result));
+}
+
+export function persistAwaitingApprovalFeaturePhaseRun(
+  ports: OrchestratorPorts,
+  run: FeaturePhaseAgentRun,
+  result: Pick<DispatchRunResult, 'sessionId'>,
+  payloadJson: string,
+): void {
+  ports.store.updateAgentRun(
+    run.id,
+    proposalAwaitingApprovalPatch(run, result, payloadJson),
+  );
 }
 
 export function markTaskRunning(
@@ -242,6 +275,101 @@ async function dispatchTaskRun(params: {
   return result;
 }
 
+function featurePhaseDispatchForRun(
+  run: FeaturePhaseAgentRun,
+): RuntimeDispatch {
+  if (run.sessionId === undefined) {
+    return {
+      mode: 'start',
+      agentRunId: run.id,
+    };
+  }
+
+  return {
+    mode: 'resume',
+    agentRunId: run.id,
+    sessionId: run.sessionId,
+  };
+}
+
+function featurePhasePayload(
+  ports: Pick<OrchestratorPorts, 'store'>,
+  feature: Feature,
+  phase: AgentRunPhase,
+): FeaturePhaseRunPayload {
+  return {
+    kind: 'feature_phase',
+    ...(phase === 'replan'
+      ? { replanReason: deriveReplanReason(ports, feature) }
+      : {}),
+  };
+}
+
+function isRuntimeDispatchedFeaturePhase(
+  phase: AgentRunPhase,
+): phase is
+  | 'discuss'
+  | 'research'
+  | 'plan'
+  | 'replan'
+  | 'verify'
+  | 'ci_check'
+  | 'summarize' {
+  return (
+    phase === 'discuss' ||
+    phase === 'research' ||
+    phase === 'plan' ||
+    phase === 'replan' ||
+    phase === 'verify' ||
+    phase === 'ci_check' ||
+    phase === 'summarize'
+  );
+}
+
+async function dispatchFeaturePhaseRun(params: {
+  feature: Feature;
+  phase:
+    | 'discuss'
+    | 'research'
+    | 'plan'
+    | 'replan'
+    | 'verify'
+    | 'ci_check'
+    | 'summarize';
+  run: FeaturePhaseAgentRun;
+  ports: OrchestratorPorts;
+}): Promise<DispatchRunResult> {
+  const scope = {
+    kind: 'feature_phase' as const,
+    featureId: params.feature.id,
+    phase: params.phase,
+  };
+  const dispatch = featurePhaseDispatchForRun(params.run);
+  const payload = featurePhasePayload(
+    params.ports,
+    params.feature,
+    params.phase,
+  );
+  const result = await params.ports.runtime.dispatchRun(
+    scope,
+    dispatch,
+    payload,
+  );
+
+  if (result.kind === 'not_resumable' && dispatch.mode === 'resume') {
+    return await params.ports.runtime.dispatchRun(
+      scope,
+      {
+        mode: 'start',
+        agentRunId: params.run.id,
+      },
+      payload,
+    );
+  }
+
+  return result;
+}
+
 export async function dispatchTaskUnit(params: {
   task: Task;
   graph: FeatureGraph;
@@ -292,180 +420,31 @@ export async function dispatchFeaturePhaseUnit(params: {
   try {
     await params.ports.worktree.ensureFeatureWorktree(params.feature);
 
-    if (
-      params.phase === 'discuss' ||
-      params.phase === 'verify' ||
-      params.phase === 'ci_check' ||
-      isProposalPhase(params.phase)
-    ) {
-      const dispatch =
-        run.sessionId === undefined
-          ? { mode: 'start' as const, agentRunId: run.id }
-          : {
-              mode: 'resume' as const,
-              agentRunId: run.id,
-              sessionId: run.sessionId,
-            };
-      const scope = {
-        kind: 'feature_phase' as const,
-        featureId: params.feature.id,
-        phase: params.phase,
-      };
-      const payload = {
-        kind: 'feature_phase' as const,
-        ...(params.phase === 'replan'
-          ? { replanReason: deriveReplanReason(params.ports, params.feature) }
-          : {}),
-      };
-      let result = await params.ports.runtime.dispatchRun(
-        scope,
-        dispatch,
-        payload,
-      );
-
-      if (result.kind === 'not_resumable' && dispatch.mode === 'resume') {
-        result = await params.ports.runtime.dispatchRun(
-          scope,
-          {
-            mode: 'start',
-            agentRunId: run.id,
-          },
-          payload,
-        );
-      }
-
-      if (
-        params.phase === 'discuss' ||
-        params.phase === 'verify' ||
-        params.phase === 'ci_check'
-      ) {
-        if (result.kind !== 'completed_inline') {
-          throw new Error(
-            `dispatchFeaturePhaseUnit: ${params.phase} expected completed_inline result, got '${result.kind}'`,
-          );
-        }
-
-        if (params.phase === 'discuss') {
-          if (
-            result.output.kind !== 'text_phase' ||
-            result.output.phase !== 'discuss'
-          ) {
-            throw new Error(
-              `dispatchFeaturePhaseUnit: discuss expected text_phase/discuss output, got '${result.output.kind}'`,
-            );
-          }
-
-          persistRunningFeaturePhaseRun(params.ports, run, result);
-          await params.handleEvent({
-            type: 'feature_phase_complete',
-            featureId: params.feature.id,
-            phase: params.phase,
-            summary: result.output.result.summary,
-          });
-          return true;
-        }
-
-        if (params.phase === 'verify') {
-          if (result.output.kind !== 'verification') {
-            throw new Error(
-              `dispatchFeaturePhaseUnit: verify expected verification output, got '${result.output.kind}'`,
-            );
-          }
-
-          persistRunningFeaturePhaseRun(params.ports, run, result);
-          await params.handleEvent({
-            type: 'feature_phase_complete',
-            featureId: params.feature.id,
-            phase: params.phase,
-            summary: result.output.verification.summary ?? '',
-            verification: result.output.verification,
-          });
-          return true;
-        }
-
-        if (result.output.kind !== 'ci_check') {
-          throw new Error(
-            `dispatchFeaturePhaseUnit: ci_check expected ci_check output, got '${result.output.kind}'`,
-          );
-        }
-
-        persistRunningFeaturePhaseRun(params.ports, run, result);
-        await params.handleEvent({
-          type: 'feature_phase_complete',
-          featureId: params.feature.id,
-          phase: params.phase,
-          summary: result.output.verification.summary ?? '',
-          verification: result.output.verification,
-        });
-        return true;
-      }
-
-      if (result.kind !== 'awaiting_approval') {
-        throw new Error(
-          `dispatchFeaturePhaseUnit: ${params.phase} expected awaiting_approval result, got '${result.kind}'`,
-        );
-      }
-      if (
-        result.output.kind !== 'proposal' ||
-        result.output.phase !== params.phase
-      ) {
-        throw new Error(
-          `dispatchFeaturePhaseUnit: ${params.phase} expected proposal/${params.phase} output, got '${result.output.kind}'`,
-        );
-      }
-
-      params.ports.store.updateAgentRun(run.id, {
-        runStatus: 'await_approval',
-        owner: 'manual',
-        sessionId: result.sessionId,
-        payloadJson: JSON.stringify(result.output.result.proposal),
-        restartCount:
-          run.runStatus === 'retry_await'
-            ? run.restartCount + 1
-            : run.restartCount,
-      });
+    if (params.phase === 'execute') {
       return true;
     }
+    if (!isRuntimeDispatchedFeaturePhase(params.phase)) {
+      throw new Error(
+        `dispatchFeaturePhaseUnit: phase '${params.phase}' is not runtime-dispatched`,
+      );
+    }
 
-    params.ports.store.updateAgentRun(run.id, {
-      runStatus: 'running',
-      owner: 'system',
+    const result = await dispatchFeaturePhaseRun({
+      feature: params.feature,
+      phase: params.phase,
+      run,
+      ports: params.ports,
     });
 
-    const runContext = {
-      agentRunId: run.id,
-      ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
-    };
-    switch (params.phase) {
-      case 'research': {
-        const result = await params.ports.agents.researchFeature(
-          params.feature,
-          runContext,
-        );
-        await params.handleEvent({
-          type: 'feature_phase_complete',
-          featureId: params.feature.id,
-          phase: params.phase,
-          summary: result.summary,
-        });
-        return true;
-      }
-      case 'summarize': {
-        const result = await params.ports.agents.summarizeFeature(
-          params.feature,
-          runContext,
-        );
-        await params.handleEvent({
-          type: 'feature_phase_complete',
-          featureId: params.feature.id,
-          phase: params.phase,
-          summary: result.summary,
-        });
-        return true;
-      }
-      case 'execute':
-        return true;
-    }
+    await synthesizeFeaturePhaseDispatchResult({
+      feature: params.feature,
+      phase: params.phase,
+      run,
+      result,
+      ports: params.ports,
+      handleEvent: params.handleEvent,
+    });
+    return true;
   } catch (error) {
     await params.handleEvent({
       type: 'feature_phase_error',
@@ -475,6 +454,109 @@ export async function dispatchFeaturePhaseUnit(params: {
     });
     return true;
   }
+}
+
+async function synthesizeFeaturePhaseDispatchResult(params: {
+  feature: Feature;
+  phase:
+    | 'discuss'
+    | 'research'
+    | 'plan'
+    | 'replan'
+    | 'verify'
+    | 'ci_check'
+    | 'summarize';
+  run: FeaturePhaseAgentRun;
+  result: DispatchRunResult;
+  ports: OrchestratorPorts;
+  handleEvent: (event: SchedulerEvent) => Promise<void>;
+}): Promise<void> {
+  if (isProposalPhase(params.phase)) {
+    if (params.result.kind !== 'awaiting_approval') {
+      throw new Error(
+        `dispatchFeaturePhaseUnit: ${params.phase} expected awaiting_approval result, got '${params.result.kind}'`,
+      );
+    }
+    if (
+      params.result.output.kind !== 'proposal' ||
+      params.result.output.phase !== params.phase
+    ) {
+      throw new Error(
+        `dispatchFeaturePhaseUnit: ${params.phase} expected proposal/${params.phase} output, got '${params.result.output.kind}'`,
+      );
+    }
+
+    persistAwaitingApprovalFeaturePhaseRun(
+      params.ports,
+      params.run,
+      params.result,
+      JSON.stringify(params.result.output.result.proposal),
+    );
+    return;
+  }
+
+  if (params.result.kind !== 'completed_inline') {
+    throw new Error(
+      `dispatchFeaturePhaseUnit: ${params.phase} expected completed_inline result, got '${params.result.kind}'`,
+    );
+  }
+
+  const completion = featurePhaseCompletionEvent(
+    params.feature.id,
+    params.phase,
+    params.result.output,
+  );
+  persistRunningFeaturePhaseRun(params.ports, params.run, params.result);
+  await params.handleEvent(completion);
+}
+
+function featurePhaseCompletionEvent(
+  featureId: Feature['id'],
+  phase: Exclude<AgentRunPhase, 'execute' | 'plan' | 'replan'>,
+  output: PhaseOutput,
+): SchedulerEvent {
+  if (phase === 'verify') {
+    if (output.kind !== 'verification') {
+      throw new Error(
+        `dispatchFeaturePhaseUnit: verify expected verification output, got '${output.kind}'`,
+      );
+    }
+    return {
+      type: 'feature_phase_complete',
+      featureId,
+      phase,
+      summary: output.verification.summary ?? '',
+      verification: output.verification,
+    };
+  }
+
+  if (phase === 'ci_check') {
+    if (output.kind !== 'ci_check') {
+      throw new Error(
+        `dispatchFeaturePhaseUnit: ci_check expected ci_check output, got '${output.kind}'`,
+      );
+    }
+    return {
+      type: 'feature_phase_complete',
+      featureId,
+      phase,
+      summary: output.verification.summary ?? '',
+      verification: output.verification,
+    };
+  }
+
+  if (output.kind !== 'text_phase' || output.phase !== phase) {
+    throw new Error(
+      `dispatchFeaturePhaseUnit: ${phase} expected text_phase/${phase} output, got '${output.kind}'`,
+    );
+  }
+
+  return {
+    type: 'feature_phase_complete',
+    featureId,
+    phase,
+    summary: output.result.summary,
+  };
 }
 
 export function deriveReplanReason(

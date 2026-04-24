@@ -436,12 +436,13 @@ describe('feature-phase agent flow', () => {
       fauxAssistantMessage([fauxText('Research structured.')]),
     ]);
 
-    const { graph, store, sessionStore, loop } = createFixture({
+    const { graph, store, sessionStore, runtime, loop } = createFixture({
       featureOverrides: {
         workControl: 'researching',
         collabControl: 'none',
       },
     });
+    const dispatchRun = vi.spyOn(runtime, 'dispatchRun');
     appendFeaturePhaseEvent(store, 'f-1', 'discuss', 'Discussion summary.', {
       summary: 'Discussion summary.',
       intent: 'Clarify feature intent',
@@ -455,6 +456,11 @@ describe('feature-phase agent flow', () => {
 
     await loop.step(100);
 
+    expect(dispatchRun).toHaveBeenCalledWith(
+      { kind: 'feature_phase', featureId: 'f-1', phase: 'research' },
+      { mode: 'start', agentRunId: 'run-feature:f-1:research' },
+      { kind: 'feature_phase' },
+    );
     expect(graph.features.get('f-1')).toEqual(
       expect.objectContaining({
         workControl: 'planning',
@@ -588,7 +594,7 @@ describe('feature-phase agent flow', () => {
       fauxAssistantMessage([fauxText('Summary complete.')]),
     ]);
 
-    const { graph, store, sessionStore, loop } = createFixture({
+    const { graph, store, sessionStore, runtime, loop } = createFixture({
       featureOverrides: {
         status: 'done',
         workControl: 'awaiting_merge',
@@ -609,9 +615,15 @@ describe('feature-phase agent flow', () => {
       ok: true,
       summary: 'feature ci green',
     });
+    const dispatchRun = vi.spyOn(runtime, 'dispatchRun');
 
     await loop.step(100);
 
+    expect(dispatchRun).toHaveBeenCalledWith(
+      { kind: 'feature_phase', featureId: 'f-1', phase: 'summarize' },
+      { mode: 'start', agentRunId: 'run-feature:f-1:summarize' },
+      { kind: 'feature_phase' },
+    );
     expect(graph.features.get('f-1')).toEqual(
       expect.objectContaining({
         workControl: 'work_complete',
