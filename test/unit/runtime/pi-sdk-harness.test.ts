@@ -103,6 +103,31 @@ describe('PiSdkHarness', () => {
     });
   });
 
+  // Regression: fresh-start session id must equal the agentRunId so that
+  // `agent_runs.session_id` (persisted from `handle.sessionId`) points at the
+  // same key the worker saves messages under. Prior to this fix, the harness
+  // generated a random UUID while the worker saved under `agentRunId`, so
+  // resume silently failed because it tried to load a sessionId that had
+  // never been written to.
+  it('pins handle sessionId to agentRunId on fresh start', async () => {
+    const child = createForkedChild();
+    const forkWorker = vi.fn(() => child);
+    const harness = new PiSdkHarness(
+      createSessionStoreMock(),
+      '/tmp/project-root',
+      '/tmp/custom-entry.ts',
+    );
+    Object.assign(harness as object, { forkWorker });
+
+    const handle = await harness.start(
+      createTaskFixture({ id: 't-1' }),
+      {},
+      'run-pinned-id',
+    );
+
+    expect(handle.sessionId).toBe('run-pinned-id');
+  });
+
   it('uses legacy fallback naming when task branch is absent', async () => {
     const child = createForkedChild();
     const forkWorker = vi.fn(() => child);

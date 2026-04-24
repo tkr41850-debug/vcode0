@@ -1,5 +1,4 @@
 import * as child_process from 'node:child_process';
-import * as crypto from 'node:crypto';
 import * as path from 'node:path';
 import type { Readable, Writable } from 'node:stream';
 
@@ -89,7 +88,12 @@ export class PiSdkHarness implements SessionHarness {
     payload: TaskPayload,
     agentRunId: string,
   ): Promise<SessionHandle> {
-    const sessionId = crypto.randomUUID();
+    // Pin session id to agentRunId so the harness-reported sessionId (which
+    // gets persisted to `agent_runs.session_id`) matches the key the worker
+    // actually writes session messages under in `WorkerRuntime.run`. A prior
+    // randomUUID here silently broke resume: the stored session_id pointed
+    // at a file that was never written.
+    const sessionId = agentRunId;
     const worktreeDir = this.resolveWorktreePath(task);
 
     const child = this.forkWorker(worktreeDir);
