@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-
+import { InMemoryFeatureGraph } from '@core/graph/index';
 import type { AgentRun, Task } from '@core/types/index';
 import type { ConflictCoordinator } from '@orchestrator/conflicts/index';
 import type { FeatureLifecycleCoordinator } from '@orchestrator/features/index';
@@ -13,8 +13,6 @@ import type { SummaryCoordinator } from '@orchestrator/summaries/index';
 import type { WorkerToOrchestratorMessage } from '@runtime/contracts';
 import { LocalWorkerPool } from '@runtime/worker-pool';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
-import { InMemoryFeatureGraph } from '@core/graph/index';
 import {
   createFeatureFixture,
   createMilestoneFixture,
@@ -68,7 +66,9 @@ describe('destructive-op approval round-trip (REQ-EXEC-04)', () => {
     // Bare repo that the worktree treats as its `origin`. If the
     // destructive-op guard ever lets a `git push --force` through, the
     // bare repo's HEAD will move — which this test explicitly detects.
-    bareRepoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gvc0-destructive-bare-'));
+    bareRepoDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gvc0-destructive-bare-'),
+    );
     spawnSync('git', ['init', '-q', '--bare'], { cwd: bareRepoDir });
 
     workdir = fs.mkdtempSync(path.join(os.tmpdir(), 'gvc0-destructive-wt-'));
@@ -115,11 +115,10 @@ describe('destructive-op approval round-trip (REQ-EXEC-04)', () => {
     // Capture bare repo `main` ref BEFORE the destructive attempt.
     // (A freshly-initialized bare repo's symbolic HEAD is unset, so we
     // compare against the branch ref we pushed to during setup.)
-    const beforeHeadRes = spawnSync(
-      'git',
-      ['rev-parse', 'refs/heads/main'],
-      { cwd: bareRepoDir, encoding: 'utf-8' },
-    );
+    const beforeHeadRes = spawnSync('git', ['rev-parse', 'refs/heads/main'], {
+      cwd: bareRepoDir,
+      encoding: 'utf-8',
+    });
     const beforeHead = beforeHeadRes.stdout.trim();
     expect(beforeHead).toMatch(/^[0-9a-f]{7,}$/);
 
@@ -155,9 +154,7 @@ describe('destructive-op approval round-trip (REQ-EXEC-04)', () => {
     // `request_approval` as a fire-and-forget microtask. Wait for it.
     const approvalFrame = await waitForMessage(
       completions,
-      (
-        m,
-      ): m is WorkerToOrchestratorMessage & { type: 'request_approval' } =>
+      (m): m is WorkerToOrchestratorMessage & { type: 'request_approval' } =>
         m.type === 'request_approval' && m.taskId === task.id,
     );
     expect(approvalFrame.payload.kind).toBe('destructive_action');
@@ -171,11 +168,10 @@ describe('destructive-op approval round-trip (REQ-EXEC-04)', () => {
     await harness.drain();
 
     // === Assert the bare repo was NOT touched ===
-    const afterHeadRes = spawnSync(
-      'git',
-      ['rev-parse', 'refs/heads/main'],
-      { cwd: bareRepoDir, encoding: 'utf-8' },
-    );
+    const afterHeadRes = spawnSync('git', ['rev-parse', 'refs/heads/main'], {
+      cwd: bareRepoDir,
+      encoding: 'utf-8',
+    });
     const afterHead = afterHeadRes.stdout.trim();
     expect(afterHead).toBe(beforeHead);
 
@@ -263,6 +259,8 @@ describe('destructive-op approval round-trip (REQ-EXEC-04)', () => {
       summaries,
       activeLocks: new ActiveLocks(),
       emitEmptyVerificationChecksWarning: () => {},
+      cancelFeatureRunWork: () => Promise.resolve(),
+      onShutdown: () => {},
     });
 
     const items = store.listInboxItems();

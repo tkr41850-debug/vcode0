@@ -135,6 +135,8 @@ describe('handleSchedulerEvent — lock release on terminal worker messages', ()
       summaries,
       activeLocks: locks,
       emitEmptyVerificationChecksWarning: () => {},
+      cancelFeatureRunWork: () => Promise.resolve(),
+      onShutdown: () => {},
     });
 
     const reclaim = locks.tryClaim(
@@ -188,6 +190,8 @@ describe('handleSchedulerEvent — lock release on terminal worker messages', ()
       summaries,
       activeLocks: locks,
       emitEmptyVerificationChecksWarning: () => {},
+      cancelFeatureRunWork: () => Promise.resolve(),
+      onShutdown: () => {},
     });
 
     const reclaim = locks.tryClaim(

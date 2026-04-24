@@ -1,11 +1,5 @@
 import type { FeatureGraph } from '@core/graph/index';
-import type {
-  AgentRunPhase,
-  Feature,
-  FeatureId,
-  Task,
-  VerificationSummary,
-} from '@core/types/index';
+import type { Feature, FeatureId, Task } from '@core/types/index';
 import {
   DEFAULT_LONG_FEATURE_BLOCKING_MS,
   DEFAULT_VERIFY_REPLAN_LOOP_THRESHOLD,
@@ -14,9 +8,7 @@ import {
 import { ConflictCoordinator } from '@orchestrator/conflicts/index';
 import { FeatureLifecycleCoordinator } from '@orchestrator/features/index';
 import type { OrchestratorPorts } from '@orchestrator/ports/index';
-import type { ProposalPhase } from '@orchestrator/proposals/index';
 import { SummaryCoordinator } from '@orchestrator/summaries/index';
-import type { WorkerToOrchestratorMessage } from '@runtime/contracts';
 
 import { ActiveLocks } from './active-locks.js';
 import {
@@ -24,7 +16,7 @@ import {
   markFeaturePhaseRunning as markRunningFeaturePhase,
   markTaskRunning as markRunningTask,
 } from './dispatch.js';
-import { handleSchedulerEvent } from './events.js';
+import { handleSchedulerEvent, type SchedulerEvent } from './events.js';
 import {
   coordinateCrossFeatureRuntimeOverlaps as coordinateCrossFeatureRuntimeOverlapGroups,
   coordinateSameFeatureRuntimeOverlaps as coordinateSameFeatureRuntimeOverlapGroups,
@@ -36,49 +28,16 @@ import {
   didRetryWindowExpire as retryWindowExpired,
 } from './warnings.js';
 
-export type SchedulerEvent =
-  | {
-      type: 'worker_message';
-      message: WorkerToOrchestratorMessage;
-    }
-  | {
-      type: 'feature_phase_complete';
-      featureId: FeatureId;
-      phase: AgentRunPhase;
-      summary: string;
-      verification?: VerificationSummary;
-    }
-  | {
-      type: 'feature_phase_approval_decision';
-      featureId: FeatureId;
-      phase: ProposalPhase;
-      decision: 'approved' | 'rejected';
-      comment?: string;
-    }
-  | {
-      type: 'feature_phase_rerun_requested';
-      featureId: FeatureId;
-      phase: ProposalPhase;
-      reason?: string;
-    }
-  | {
-      type: 'feature_phase_error';
-      featureId: FeatureId;
-      phase: AgentRunPhase;
-      error: string;
-    }
-  | {
-      type: 'feature_integration_complete';
-      featureId: FeatureId;
-    }
-  | {
-      type: 'feature_integration_failed';
-      featureId: FeatureId;
-      error: string;
-    }
-  | {
-      type: 'shutdown';
-    };
+export type { SchedulerEvent } from './events.js';
+
+// Plan 04-01: the `ui_cancel_feature_run_work` event handler needs to
+// abort running tasks + update agent-run rows. compose.ts constructs the
+// scheduler and wires a closure bound to its `{ graph, store, runtime }`
+// context; unit tests that don't exercise cancellation can omit this
+// dep and a no-op is used.
+export interface SchedulerLoopOptions {
+  cancelFeatureRunWork?: (featureId: FeatureId) => Promise<void>;
+}
 
 export class SchedulerLoop {
   private readonly events: SchedulerEvent[] = [];
@@ -88,6 +47,9 @@ export class SchedulerLoop {
   private readonly summaries: SummaryCoordinator;
   private readonly warnings: WarningEvaluator;
   private readonly activeLocks = new ActiveLocks();
+  private readonly cancelFeatureRunWork: (
+    featureId: FeatureId,
+  ) => Promise<void>;
   private emittedWarnings = new Set<string>();
   private running = false;
   private loopPromise: Promise<void> | undefined;
@@ -97,6 +59,7 @@ export class SchedulerLoop {
   constructor(
     private readonly graph: FeatureGraph,
     private readonly ports: OrchestratorPorts,
+    options: SchedulerLoopOptions = {},
   ) {
     this.features = new FeatureLifecycleCoordinator(graph);
     this.conflicts = new ConflictCoordinator(ports, graph);
@@ -113,10 +76,15 @@ export class SchedulerLoop {
         ports.config.warnings?.verifyReplanLoopThreshold ??
         DEFAULT_VERIFY_REPLAN_LOOP_THRESHOLD,
     });
+    this.cancelFeatureRunWork =
+      options.cancelFeatureRunWork ?? (() => Promise.resolve());
   }
 
   enqueue(event: SchedulerEvent): void {
     this.events.push(event);
+    // Plan 04-01: wake the sleeping poll timer so enqueued events drain
+    // within a microtask turn instead of waiting up to 1s for the poll.
+    this.wakeSleep?.();
   }
 
   isAutoExecutionEnabled(): boolean {
@@ -126,6 +94,10 @@ export class SchedulerLoop {
   setAutoExecutionEnabled(enabled: boolean): boolean {
     this.autoExecutionEnabled = enabled;
     return this.autoExecutionEnabled;
+  }
+
+  isRunning(): boolean {
+    return this.running;
   }
 
   run(): Promise<void> {
@@ -183,28 +155,37 @@ export class SchedulerLoop {
   }
 
   protected async tick(now: number): Promise<void> {
-    const beforeFingerprint = this.uiStateFingerprint();
+    // Plan 04-01: guard all graph mutations happen inside a tick. When
+    // `GVC_ASSERT_TICK_BOUNDARY=1`, any mutation called outside of this
+    // enter/leave pair throws; in production the counter is cheap (two
+    // integer ops) and the assert short-circuits.
+    this.graph.__enterTick();
+    try {
+      const beforeFingerprint = this.uiStateFingerprint();
 
-    while (this.events.length > 0) {
-      const event = this.events.shift();
-      if (event !== undefined) {
-        await this.handleEvent(event);
+      while (this.events.length > 0) {
+        const event = this.events.shift();
+        if (event !== undefined) {
+          await this.handleEvent(event);
+        }
       }
-    }
 
-    this.summaries.reconcilePostMerge();
-    this.features.beginNextIntegration();
-    await this.coordinateSameFeatureRuntimeOverlaps();
-    await this.coordinateCrossFeatureRuntimeOverlaps();
-    const warningsChanged = this.emitWarningSignals(now);
-    await this.dispatchReadyWork(now);
+      this.summaries.reconcilePostMerge();
+      this.features.beginNextIntegration();
+      await this.coordinateSameFeatureRuntimeOverlaps();
+      await this.coordinateCrossFeatureRuntimeOverlaps();
+      const warningsChanged = this.emitWarningSignals(now);
+      await this.dispatchReadyWork(now);
 
-    if (
-      beforeFingerprint !== this.uiStateFingerprint() ||
-      this.didRetryWindowExpire(now) ||
-      warningsChanged
-    ) {
-      this.ports.ui.refresh();
+      if (
+        beforeFingerprint !== this.uiStateFingerprint() ||
+        this.didRetryWindowExpire(now) ||
+        warningsChanged
+      ) {
+        this.ports.ui.refresh();
+      }
+    } finally {
+      this.graph.__leaveTick();
     }
   }
 
@@ -219,7 +200,17 @@ export class SchedulerLoop {
       activeLocks: this.activeLocks,
       emitEmptyVerificationChecksWarning: (entityId, layer, now) =>
         this.emitEmptyVerificationChecksWarning(entityId, layer, now),
+      cancelFeatureRunWork: (featureId) => this.cancelFeatureRunWork(featureId),
+      onShutdown: () => this.requestShutdown(),
     });
+  }
+
+  private requestShutdown(): void {
+    // Graceful drain: flip `running` to false so the loop exits after the
+    // current tick; wake the sleep so we don't wait up to 1s for the
+    // existing timer to expire. Idempotent on repeated shutdowns.
+    this.running = false;
+    this.wakeSleep?.();
   }
 
   protected async dispatchReadyWork(now: number): Promise<void> {

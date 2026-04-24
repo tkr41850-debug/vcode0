@@ -40,12 +40,12 @@ import { VerificationService } from '@orchestrator/services/index';
 import type { RuntimePort, RuntimeUsageDelta } from '@runtime/contracts';
 import { runtimeUsageToTokenUsageAggregate } from '@runtime/usage';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { testGvcConfigDefaults } from '../../helpers/config-fixture.js';
 import {
   createFeatureFixture,
   createMilestoneFixture,
   createTaskFixture,
 } from '../../helpers/graph-builders.js';
-import { testGvcConfigDefaults } from '../../helpers/config-fixture.js';
 import { useTmpDir } from '../../helpers/tmp-dir.js';
 import { InMemorySessionStore } from '../../integration/harness/in-memory-session-store.js';
 
@@ -5199,5 +5199,70 @@ describe('SchedulerLoop', () => {
       }),
     );
     expect(retryPlanPatch?.retryAt).toEqual(expect.any(Number));
+  });
+});
+
+describe('SchedulerLoop — enqueue wake semantics', () => {
+  it('enqueue during sleep wakes the loop before the 1s poll elapses', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const graph = new InMemoryFeatureGraph();
+    const loop = new SchedulerLoop(graph, ports);
+
+    // Start the loop; it immediately enters sleep(1000).
+    await loop.run();
+    // Yield a microtask so the loop body actually installs its wakeSleep hook.
+    await Promise.resolve();
+    expect(loop.isRunning()).toBe(true);
+
+    const start = Date.now();
+    // Enqueue an event — should wake the sleeping poll immediately.
+    loop.enqueue({
+      type: 'feature_phase_error',
+      featureId: 'f-1',
+      phase: 'plan',
+      error: 'boom',
+    });
+    // Give the loop a couple of microtasks to wake and drain.
+    await Promise.resolve();
+    await Promise.resolve();
+    await loop.stop();
+    const elapsed = Date.now() - start;
+    // Without wake-on-enqueue this would be ~1000ms; with wake it should be
+    // sub-second. Use a generous margin to stay immune to CI jitter.
+    expect(elapsed).toBeLessThan(900);
+  });
+
+  it('shutdown flips running=false and exits the loop', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const graph = new InMemoryFeatureGraph();
+    const loop = new SchedulerLoop(graph, ports);
+
+    await loop.run();
+    await Promise.resolve();
+    expect(loop.isRunning()).toBe(true);
+
+    loop.enqueue({ type: 'shutdown' });
+    // Allow the tick drain to observe and dispatch shutdown.
+    await loop.step(Date.now());
+    await loop.stop();
+    expect(loop.isRunning()).toBe(false);
+  });
+
+  it('shutdown is idempotent — repeated shutdowns do not throw', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const graph = new InMemoryFeatureGraph();
+    const loop = new SchedulerLoop(graph, ports);
+
+    await loop.run();
+    await Promise.resolve();
+    loop.enqueue({ type: 'shutdown' });
+    await loop.step(Date.now());
+    loop.enqueue({ type: 'shutdown' });
+    await loop.step(Date.now());
+    await loop.stop();
+    expect(loop.isRunning()).toBe(false);
   });
 });

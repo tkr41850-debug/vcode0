@@ -1,19 +1,101 @@
 import type { FeatureGraph } from '@core/graph/index';
-import type { AgentRun, FeatureId } from '@core/types/index';
+import type {
+  AgentRun,
+  AgentRunPhase,
+  Feature,
+  FeatureId,
+  MilestoneId,
+  VerificationSummary,
+  VerifyIssue,
+} from '@core/types/index';
 import type { ConflictCoordinator } from '@orchestrator/conflicts/index';
 import type { FeatureLifecycleCoordinator } from '@orchestrator/features/index';
 import type { OrchestratorPorts } from '@orchestrator/ports/index';
 import {
   approveFeatureProposal,
+  type ProposalPhase,
   parseGraphProposalPayload,
   summarizeProposalApply,
 } from '@orchestrator/proposals/index';
 import type { SummaryCoordinator } from '@orchestrator/summaries/index';
+import type { WorkerToOrchestratorMessage } from '@runtime/contracts';
 import { runtimeUsageToTokenUsageAggregate } from '@runtime/usage';
 
 import type { ActiveLocks } from './active-locks.js';
 import { handleClaimLock } from './claim-lock-handler.js';
-import type { SchedulerEvent } from './index.js';
+
+// === Phase-agent graph-mutation payload ===
+// Plan 04-01 routes `PiFeatureAgentRuntime` mutations through the serial
+// event queue. The `edit_feature` kind carries the subset of
+// `FeatureEditPatch` fields the phase agent persists today: discussOutput
+// (discuss phase), researchOutput (research phase), verifyIssues (verify
+// phase). Future plans extend this union as new mutation surfaces
+// route through the queue.
+export type FeaturePhaseGraphMutation = {
+  kind: 'edit_feature';
+  patch: {
+    discussOutput?: string;
+    researchOutput?: string;
+    verifyIssues?: VerifyIssue[];
+  };
+};
+
+export type SchedulerEvent =
+  | {
+      type: 'worker_message';
+      message: WorkerToOrchestratorMessage;
+    }
+  | {
+      type: 'feature_phase_complete';
+      featureId: FeatureId;
+      phase: AgentRunPhase;
+      summary: string;
+      verification?: VerificationSummary;
+    }
+  | {
+      type: 'feature_phase_approval_decision';
+      featureId: FeatureId;
+      phase: ProposalPhase;
+      decision: 'approved' | 'rejected';
+      comment?: string;
+    }
+  | {
+      type: 'feature_phase_rerun_requested';
+      featureId: FeatureId;
+      phase: ProposalPhase;
+      reason?: string;
+    }
+  | {
+      type: 'feature_phase_error';
+      featureId: FeatureId;
+      phase: AgentRunPhase;
+      error: string;
+    }
+  | {
+      type: 'feature_integration_complete';
+      featureId: FeatureId;
+    }
+  | {
+      type: 'feature_integration_failed';
+      featureId: FeatureId;
+      error: string;
+    }
+  | {
+      type: 'ui_toggle_milestone_queue';
+      milestoneId: MilestoneId;
+    }
+  | {
+      type: 'ui_cancel_feature_run_work';
+      featureId: FeatureId;
+    }
+  | {
+      type: 'feature_phase_graph_mutation';
+      featureId: FeatureId;
+      mutation: FeaturePhaseGraphMutation;
+    }
+  | {
+      type: 'shutdown';
+    };
 
 function completeTaskRun(
   ports: OrchestratorPorts,
@@ -49,6 +131,8 @@ export async function handleSchedulerEvent(params: {
     layer: 'feature' | 'task' | 'mergeTrain',
     now: number,
   ) => void;
+  cancelFeatureRunWork: (featureId: FeatureId) => Promise<void>;
+  onShutdown: () => void;
 }): Promise<void> {
   const { event, graph, ports, features, conflicts, summaries, activeLocks } =
     params;
@@ -412,5 +496,48 @@ export async function handleSchedulerEvent(params: {
 
   if (event.type === 'feature_integration_failed') {
     features.failIntegration(event.featureId, event.error);
+    return;
   }
+
+  if (event.type === 'ui_toggle_milestone_queue') {
+    const milestone = graph
+      .snapshot()
+      .milestones.find((entry) => entry.id === event.milestoneId);
+    if (milestone?.steeringQueuePosition !== undefined) {
+      graph.dequeueMilestone(event.milestoneId);
+    } else {
+      graph.queueMilestone(event.milestoneId);
+    }
+    return;
+  }
+
+  if (event.type === 'ui_cancel_feature_run_work') {
+    await params.cancelFeatureRunWork(event.featureId);
+    return;
+  }
+
+  if (event.type === 'feature_phase_graph_mutation') {
+    if (isFeatureCancelled(graph, event.featureId)) {
+      return;
+    }
+    if (event.mutation.kind === 'edit_feature') {
+      const feature: Feature | undefined = graph.features.get(event.featureId);
+      if (feature === undefined) {
+        return;
+      }
+      graph.editFeature(event.featureId, event.mutation.patch);
+    }
+    return;
+  }
+
+  if (event.type === 'shutdown') {
+    // Graceful drain: stop the loop after the current tick completes.
+    // Multiple shutdown events are idempotent.
+    params.onShutdown();
+    return;
+  }
+
+  // Exhaustiveness gate — tsc fails if a new variant lacks a handler.
+  const _exhaustive: never = event;
+  void _exhaustive;
 }
