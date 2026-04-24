@@ -411,7 +411,9 @@ describe('feature-phase agent flow', () => {
         (task) => task.featureId === 'f-1',
       );
       expect(featureTasks).toHaveLength(2);
-      const buildX = featureTasks.find((task) => task.description === 'build X');
+      const buildX = featureTasks.find(
+        (task) => task.description === 'build X',
+      );
       const wireY = featureTasks.find((task) => task.description === 'wire Y');
       expect(buildX).toBeDefined();
       expect(wireY).toBeDefined();
@@ -455,10 +457,9 @@ describe('feature-phase agent flow', () => {
     // the current truth: empty plan cancels the feature rather than silently succeeding.
     it('submit-before-addTask cancels the feature (empty-proposal semantics)', async () => {
       faux.setResponses([
-        fauxAssistantMessage(
-          [fauxToolCall('submit', proposalDetails)],
-          { stopReason: 'toolUse' },
-        ),
+        fauxAssistantMessage([fauxToolCall('submit', proposalDetails)], {
+          stopReason: 'toolUse',
+        }),
         fauxAssistantMessage([fauxText('Planning complete.')]),
       ]);
 
