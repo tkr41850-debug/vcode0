@@ -22,3 +22,18 @@ Suggested follow-up: a dedicated lint-sweep commit on a separate branch, keeping
 Running `npm run check:fix` reformats 10–20 unrelated files under `src/` and `test/` to bring them to the canonical biome style. These changes are safe but noisy; they were stashed during this plan to keep commits focused and are not part of the plan's deliverables.
 
 Suggested follow-up: a dedicated `chore(format):` commit.
+
+## Plan 04-02
+
+### Environmental flakiness: `test/unit/runtime/worktree.test.ts`
+
+Running `npm run test:unit` under this plan surfaced 4 failures in `test/unit/runtime/worktree.test.ts` (`ensureFeatureWorktree creates worktree on first call` and three sibling idempotency/branching tests). Errors:
+
+- `ENOTEMPTY: directory not empty, rmdir '/tmp/worktree-test-aoDaCC/.git'`
+- `Test timed out in 5000ms` on 3 follow-up tests.
+
+**Root cause:** stale `/tmp/worktree-test-*` directories left over by concurrent zombie vitest runs (from earlier agent sessions) collide with the per-test `useTmpDir` helper's cleanup step. Running `test/unit/core/scheduling.test.ts` in isolation (`npx vitest run ...`) yields 48/48 passing with no /tmp pollution.
+
+**Scope boundary decision:** out of plan 04-02's scope (unrelated subsystem, environmental not code defect). The scheduler and fixtures this plan delivered did not regress the worktree suite. A fix would involve hardening `test/helpers/tmp-dir.ts` against pre-polluted tmp roots.
+
+Suggested follow-up: a dedicated `test(runtime):` commit that either namespaces tmp dirs by PID or tolerates pre-populated `.git` subdirs.
