@@ -5266,3 +5266,306 @@ describe('SchedulerLoop — enqueue wake semantics', () => {
     expect(loop.isRunning()).toBe(false);
   });
 });
+
+// ─── Plan 04-03: feature-dep dispatch-time guard + feature-phase cap ──
+
+describe('feature-dep dispatch-time guard', () => {
+  // Directly test the exported `hasUnmergedFeatureDep` helper — it is
+  // the primitive the dispatcher consults before calling submit().
+  it('returns false when the feature has no upstream deps', async () => {
+    const { hasUnmergedFeatureDep } = await import(
+      '@orchestrator/scheduler/dispatch'
+    );
+    const graph = new InMemoryFeatureGraph();
+    graph.createMilestone({ id: 'm-1', name: 'M', description: '' });
+    graph.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'F',
+      description: 'd',
+    });
+    expect(hasUnmergedFeatureDep(graph, 'f-1')).toBe(false);
+  });
+
+  it('returns true when an upstream dep is still branch_open', async () => {
+    const { hasUnmergedFeatureDep } = await import(
+      '@orchestrator/scheduler/dispatch'
+    );
+    const graph = new InMemoryFeatureGraph();
+    graph.createMilestone({ id: 'm-1', name: 'M', description: '' });
+    graph.createFeature({
+      id: 'f-up',
+      milestoneId: 'm-1',
+      name: 'Up',
+      description: '',
+    });
+    graph.createFeature({
+      id: 'f-down',
+      milestoneId: 'm-1',
+      name: 'Down',
+      description: '',
+      dependsOn: ['f-up'],
+    });
+    // Upstream not yet merged (default workControl='discussing',
+    // collabControl='none').
+    expect(hasUnmergedFeatureDep(graph, 'f-down')).toBe(true);
+  });
+
+  it('returns false when all upstream deps are work_complete + merged', async () => {
+    const { hasUnmergedFeatureDep } = await import(
+      '@orchestrator/scheduler/dispatch'
+    );
+    const graph = new InMemoryFeatureGraph();
+    graph.createMilestone({ id: 'm-1', name: 'M', description: '' });
+    graph.createFeature({
+      id: 'f-up',
+      milestoneId: 'm-1',
+      name: 'Up',
+      description: '',
+    });
+    graph.createFeature({
+      id: 'f-down',
+      milestoneId: 'm-1',
+      name: 'Down',
+      description: '',
+      dependsOn: ['f-up'],
+    });
+    graph.features.set('f-up', {
+      ...(graph.features.get('f-up') as Feature),
+      workControl: 'work_complete',
+      collabControl: 'merged',
+    });
+    expect(hasUnmergedFeatureDep(graph, 'f-down')).toBe(false);
+  });
+
+  it('requires ALL upstream deps (not just one) to be merged', async () => {
+    const { hasUnmergedFeatureDep } = await import(
+      '@orchestrator/scheduler/dispatch'
+    );
+    const graph = new InMemoryFeatureGraph();
+    graph.createMilestone({ id: 'm-1', name: 'M', description: '' });
+    graph.createFeature({
+      id: 'f-a',
+      milestoneId: 'm-1',
+      name: 'A',
+      description: '',
+    });
+    graph.createFeature({
+      id: 'f-b',
+      milestoneId: 'm-1',
+      name: 'B',
+      description: '',
+    });
+    graph.createFeature({
+      id: 'f-down',
+      milestoneId: 'm-1',
+      name: 'Down',
+      description: '',
+      dependsOn: ['f-a', 'f-b'],
+    });
+    graph.features.set('f-a', {
+      ...(graph.features.get('f-a') as Feature),
+      workControl: 'work_complete',
+      collabControl: 'merged',
+    });
+    // f-b still default (unmerged)
+    expect(hasUnmergedFeatureDep(graph, 'f-down')).toBe(true);
+
+    graph.features.set('f-b', {
+      ...(graph.features.get('f-b') as Feature),
+      workControl: 'work_complete',
+      collabControl: 'merged',
+    });
+    expect(hasUnmergedFeatureDep(graph, 'f-down')).toBe(false);
+  });
+
+  it('logs and skips when a unit slips through with unmerged upstream', async () => {
+    // Simulate a filter slip-through by calling dispatchReadyWork
+    // directly with a manually-constructed graph where readyTasks()
+    // (post-Task-1) would filter the task, but we bypass the filter
+    // by reaching into the dispatcher through a synthetic unit list.
+    //
+    // The simplest synthetic path: set up a graph where the
+    // downstream feature has no feature-level upstream dep in the
+    // graph's metadata, queue the task as ready, dispatch once, then
+    // mutate feature.dependsOn in-place to add the upstream. That
+    // mimics "filter passed, but state changed before dispatch" — not
+    // a path the real code exercises (events run serially), but it
+    // proves the guard fires when needed.
+    const order: string[] = [];
+    const { ports, runtime } = createPorts(order);
+    const dispatchTask = vi.spyOn(runtime, 'dispatchTask');
+    const graph = new InMemoryFeatureGraph();
+    graph.createMilestone({ id: 'm-1', name: 'M', description: '' });
+    graph.createFeature({
+      id: 'f-up',
+      milestoneId: 'm-1',
+      name: 'Up',
+      description: '',
+    });
+    graph.createFeature({
+      id: 'f-down',
+      milestoneId: 'm-1',
+      name: 'Down',
+      description: '',
+      // No upstream dep yet — so readyTasks() returns t-down-1.
+    });
+    graph.createTask({
+      id: 't-down-1',
+      featureId: 'f-down',
+      description: 'task',
+    });
+    graph.features.set('f-down', {
+      ...(graph.features.get('f-down') as Feature),
+      workControl: 'executing',
+      collabControl: 'branch_open',
+    });
+    graph.tasks.set('t-down-1', {
+      ...(graph.tasks.get('t-down-1') as Task),
+      status: 'ready',
+    });
+    // Inject the upstream dep AFTER the filter would have passed. In
+    // reality the tick drains events before dispatch, so this state
+    // cannot occur — this is exactly the kind of "filter bypass" the
+    // defensive guard exists to catch.
+    graph.features.set('f-down', {
+      ...(graph.features.get('f-down') as Feature),
+      dependsOn: ['f-up'],
+    });
+    // Confirm the precondition: readyTasks() correctly excludes
+    // t-down-1 now that the upstream exists.
+    expect(graph.readyTasks()).toHaveLength(0);
+
+    // To exercise the guard, we feed the dispatcher a synthetic
+    // unit directly via module mocking. Easiest: spy on
+    // `prioritizeReadyWork` and force it to return the blocked unit.
+    const scheduling = await import('@core/scheduling/index');
+    const dispatch = await import('@orchestrator/scheduler/dispatch');
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const prioritizeSpy = vi
+      .spyOn(scheduling, 'prioritizeReadyWork')
+      .mockReturnValue([
+        {
+          kind: 'task',
+          task: graph.tasks.get('t-down-1') as Task,
+          featureId: 'f-down',
+          readyAt: 0,
+        },
+      ]);
+
+    graph.__enterTick();
+    try {
+      await dispatch.dispatchReadyWork({
+        graph,
+        ports,
+        now: 100,
+        autoExecutionEnabled: true,
+        readySince: new Map(),
+        handleEvent: () => Promise.resolve(),
+        markTaskRunning: () => {},
+        markFeaturePhaseRunning: () => {},
+      });
+    } finally {
+      graph.__leaveTick();
+    }
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('upstream feature-dep not merged'),
+    );
+    expect(dispatchTask).not.toHaveBeenCalled();
+    prioritizeSpy.mockRestore();
+    warnSpy.mockRestore();
+  });
+});
+
+describe('worker cap enforced for feature-phase units (REQ-EXEC-05)', () => {
+  it('dispatches at most idleWorkerCount feature-phase units per tick', async () => {
+    const order: string[] = [];
+    const { ports, runtime } = createPorts(order);
+    vi.spyOn(runtime, 'idleWorkerCount').mockReturnValue(2);
+    const verifyFeature = vi.spyOn(ports.agents, 'verifyFeature');
+    // Build 5 features all in 'verifying' state → 5 feature-phase units.
+    const features: Feature[] = [];
+    for (let i = 1; i <= 5; i++) {
+      features.push(
+        createFeatureFixture({
+          id: `f-${i}`,
+          name: `F${i}`,
+          workControl: 'verifying',
+          collabControl: 'branch_open',
+          featureBranch: `feat-f-${i}`,
+        }),
+      );
+    }
+    const graph = new InMemoryFeatureGraph({
+      milestones: [createMilestoneFixture()],
+      features,
+      tasks: [],
+    });
+
+    const loop = new SchedulerLoop(graph, ports);
+    await loop.step(100);
+
+    // Cap is 2; only 2 verifyFeature invocations even though 5 are ready.
+    expect(verifyFeature).toHaveBeenCalledTimes(2);
+  });
+
+  it('mixed queue: tasks and feature-phases share the same idleWorkerCount budget', async () => {
+    const order: string[] = [];
+    const { ports, runtime } = createPorts(order);
+    vi.spyOn(runtime, 'idleWorkerCount').mockReturnValue(4);
+    const dispatchTask = vi.spyOn(runtime, 'dispatchTask');
+    const verifyFeature = vi.spyOn(ports.agents, 'verifyFeature');
+
+    // 3 features in 'verifying' (feature-phase units) + 3 tasks on a
+    // separate executing feature. idleWorkers=4 → 4 total dispatches
+    // across both channels.
+    const featureFixtures: Feature[] = [];
+    for (let i = 1; i <= 3; i++) {
+      featureFixtures.push(
+        createFeatureFixture({
+          id: `f-verify-${i}`,
+          name: `V${i}`,
+          workControl: 'verifying',
+          collabControl: 'branch_open',
+          featureBranch: `feat-f-verify-${i}`,
+        }),
+      );
+    }
+    featureFixtures.push(
+      createFeatureFixture({
+        id: 'f-exec',
+        name: 'Exec',
+        workControl: 'executing',
+        collabControl: 'branch_open',
+        featureBranch: 'feat-f-exec',
+      }),
+    );
+    const taskFixtures: Task[] = [];
+    for (let i = 1; i <= 3; i++) {
+      taskFixtures.push(
+        createTaskFixture({
+          id: `t-exec-${i}`,
+          featureId: 'f-exec',
+          description: `exec task ${i}`,
+          status: 'ready',
+          collabControl: 'none',
+          orderInFeature: i - 1,
+        }),
+      );
+    }
+
+    const graph = new InMemoryFeatureGraph({
+      milestones: [createMilestoneFixture()],
+      features: featureFixtures,
+      tasks: taskFixtures,
+    });
+
+    const loop = new SchedulerLoop(graph, ports);
+    await loop.step(100);
+
+    const taskCalls = dispatchTask.mock.calls.length;
+    const verifyCalls = verifyFeature.mock.calls.length;
+    expect(taskCalls + verifyCalls).toBe(4);
+  });
+});

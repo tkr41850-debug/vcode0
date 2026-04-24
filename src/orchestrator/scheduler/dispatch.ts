@@ -12,6 +12,7 @@ import type {
   AgentRunPhase,
   EventRecord,
   Feature,
+  FeatureId,
   Task,
   TaskAgentRun,
 } from '@core/types/index';
@@ -445,6 +446,36 @@ function readFailedVerificationSummary(
   return undefined;
 }
 
+/**
+ * Plan 04-03 — defensive guard that re-asserts the "wait for merge to
+ * main" invariant at dispatch time. The primary enforcement lives in
+ * `readyTasks()` / `prioritizeReadyWork` filter; this is a
+ * belt-and-suspenders check so a filter slip-through is logged and
+ * skipped instead of crashing the tick. Returns true when the feature
+ * has any upstream dep whose workControl/collabControl pair is not
+ * `work_complete + merged`.
+ */
+export function hasUnmergedFeatureDep(
+  graph: FeatureGraph,
+  featureId: FeatureId,
+): boolean {
+  const feature = graph.features.get(featureId);
+  if (feature === undefined) {
+    return false;
+  }
+  for (const depId of feature.dependsOn) {
+    const dep = graph.features.get(depId);
+    if (
+      dep === undefined ||
+      dep.workControl !== 'work_complete' ||
+      dep.collabControl !== 'merged'
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export async function dispatchReadyWork(params: {
   graph: FeatureGraph;
   ports: OrchestratorPorts;
@@ -480,6 +511,19 @@ export async function dispatchReadyWork(params: {
   for (const unit of ready) {
     if (dispatched >= idleWorkers) {
       break;
+    }
+
+    // Plan 04-03 defensive guard: the readiness filter (readyTasks /
+    // prioritizeReadyWork) should already exclude units whose feature
+    // has unmerged upstream deps. If one slips through, log + skip
+    // rather than crashing the tick.
+    const featureId =
+      unit.kind === 'task' ? unit.task.featureId : unit.feature.id;
+    if (hasUnmergedFeatureDep(params.graph, featureId)) {
+      console.warn(
+        `[scheduler] refusing to dispatch ${schedulableUnitKey(unit)} — upstream feature-dep not merged`,
+      );
+      continue;
     }
 
     if (unit.kind === 'task') {
