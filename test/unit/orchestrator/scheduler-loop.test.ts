@@ -721,7 +721,7 @@ describe('SchedulerLoop', () => {
     const graph = createSingleTaskDispatchGraph();
     const createAgentRun = vi.spyOn(ports.store, 'createAgentRun');
     const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
-    const dispatchTask = vi.spyOn(runtime, 'dispatchTask');
+    const dispatchRun = vi.spyOn(runtime, 'dispatchRun');
 
     const loop = new SchedulerLoop(graph, ports);
 
@@ -741,10 +741,17 @@ describe('SchedulerLoop', () => {
         maxRetries: 3,
       }),
     );
-    expect(dispatchTask).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 't-1' }),
+    expect(dispatchRun).toHaveBeenCalledWith(
+      {
+        kind: 'task',
+        taskId: 't-1',
+        featureId: 'f-1',
+      },
       { mode: 'start', agentRunId: 'run-task:t-1' },
-      expect.any(Object),
+      expect.objectContaining({
+        kind: 'task',
+        task: expect.objectContaining({ id: 't-1' }),
+      }),
     );
     expect(updateAgentRun).toHaveBeenCalledWith('run-task:t-1', {
       runStatus: 'running',
@@ -758,13 +765,13 @@ describe('SchedulerLoop', () => {
     const order: string[] = [];
     const { ports, runtime } = createPorts(order);
     const graph = createSingleTaskDispatchGraph();
-    const dispatchTask = vi.spyOn(runtime, 'dispatchTask');
+    const dispatchRun = vi.spyOn(runtime, 'dispatchRun');
     const loop = new SchedulerLoop(graph, ports);
 
     loop.setAutoExecutionEnabled(false);
     await loop.step(100);
 
-    expect(dispatchTask).not.toHaveBeenCalled();
+    expect(dispatchRun).not.toHaveBeenCalled();
   });
 
   it('resumes an existing task run when session state is present', async () => {
@@ -780,21 +787,28 @@ describe('SchedulerLoop', () => {
     );
     const createAgentRun = vi.spyOn(ports.store, 'createAgentRun');
     const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
-    const dispatchTask = vi.spyOn(runtime, 'dispatchTask');
+    const dispatchRun = vi.spyOn(runtime, 'dispatchRun');
 
     const loop = new SchedulerLoop(graph, ports);
 
     await loop.step(100);
 
     expect(createAgentRun).not.toHaveBeenCalled();
-    expect(dispatchTask).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 't-1' }),
+    expect(dispatchRun).toHaveBeenCalledWith(
+      {
+        kind: 'task',
+        taskId: 't-1',
+        featureId: 'f-1',
+      },
       {
         mode: 'resume',
         agentRunId: 'run-task:t-1',
         sessionId: 'sess-existing',
       },
-      expect.any(Object),
+      expect.objectContaining({
+        kind: 'task',
+        task: expect.objectContaining({ id: 't-1' }),
+      }),
     );
     expect(updateAgentRun).toHaveBeenCalledWith('run-task:t-1', {
       runStatus: 'running',
@@ -816,18 +830,16 @@ describe('SchedulerLoop', () => {
         restartCount: 2,
       }),
     );
-    const dispatchTask = vi
-      .spyOn(runtime, 'dispatchTask')
+    const dispatchRun = vi
+      .spyOn(runtime, 'dispatchRun')
       .mockResolvedValueOnce({
         kind: 'not_resumable',
-        taskId: 't-1',
         agentRunId: 'run-task:t-1',
         sessionId: 'sess-existing',
         reason: 'session_not_found',
       })
       .mockResolvedValueOnce({
         kind: 'started',
-        taskId: 't-1',
         agentRunId: 'run-task:t-1',
         sessionId: 'sess-fresh',
       });
@@ -837,24 +849,38 @@ describe('SchedulerLoop', () => {
 
     await loop.step(100);
 
-    expect(dispatchTask).toHaveBeenNthCalledWith(
+    expect(dispatchRun).toHaveBeenNthCalledWith(
       1,
-      expect.anything(),
+      {
+        kind: 'task',
+        taskId: 't-1',
+        featureId: 'f-1',
+      },
       {
         mode: 'resume',
         agentRunId: 'run-task:t-1',
         sessionId: 'sess-existing',
       },
-      expect.any(Object),
+      expect.objectContaining({
+        kind: 'task',
+        task: expect.objectContaining({ id: 't-1' }),
+      }),
     );
-    expect(dispatchTask).toHaveBeenNthCalledWith(
+    expect(dispatchRun).toHaveBeenNthCalledWith(
       2,
-      expect.anything(),
+      {
+        kind: 'task',
+        taskId: 't-1',
+        featureId: 'f-1',
+      },
       {
         mode: 'start',
         agentRunId: 'run-task:t-1',
       },
-      expect.any(Object),
+      expect.objectContaining({
+        kind: 'task',
+        task: expect.objectContaining({ id: 't-1' }),
+      }),
     );
     expect(updateAgentRun).toHaveBeenCalledWith('run-task:t-1', {
       runStatus: 'running',
@@ -876,17 +902,24 @@ describe('SchedulerLoop', () => {
         restartCount: 2,
       }),
     );
-    const dispatchTask = vi.spyOn(runtime, 'dispatchTask');
+    const dispatchRun = vi.spyOn(runtime, 'dispatchRun');
     const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
 
     const loop = new SchedulerLoop(graph, ports);
 
     await loop.step(100);
 
-    expect(dispatchTask).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 't-1' }),
+    expect(dispatchRun).toHaveBeenCalledWith(
+      {
+        kind: 'task',
+        taskId: 't-1',
+        featureId: 'f-1',
+      },
       { mode: 'start', agentRunId: 'run-task:t-1' },
-      expect.any(Object),
+      expect.objectContaining({
+        kind: 'task',
+        task: expect.objectContaining({ id: 't-1' }),
+      }),
     );
     expect(updateAgentRun).toHaveBeenCalledWith('run-task:t-1', {
       runStatus: 'running',
@@ -902,7 +935,7 @@ describe('SchedulerLoop', () => {
     const idleWorkerCount = vi
       .spyOn(runtime, 'idleWorkerCount')
       .mockReturnValue(1);
-    const dispatchTask = vi.spyOn(runtime, 'dispatchTask');
+    const dispatchRun = vi.spyOn(runtime, 'dispatchRun');
     const graph = createSingleFeatureGraph(
       {
         status: 'pending',
@@ -931,11 +964,18 @@ describe('SchedulerLoop', () => {
     await loop.step(100);
 
     expect(idleWorkerCount).toHaveBeenCalled();
-    expect(dispatchTask).toHaveBeenCalledTimes(1);
-    expect(dispatchTask).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 't-1' }),
+    expect(dispatchRun).toHaveBeenCalledTimes(1);
+    expect(dispatchRun).toHaveBeenCalledWith(
+      {
+        kind: 'task',
+        taskId: 't-1',
+        featureId: 'f-1',
+      },
       { mode: 'start', agentRunId: 'run-task:t-1' },
-      expect.any(Object),
+      expect.objectContaining({
+        kind: 'task',
+        task: expect.objectContaining({ id: 't-1' }),
+      }),
     );
   });
 
@@ -2257,7 +2297,7 @@ describe('SchedulerLoop', () => {
     const order: string[] = [];
     const { ports } = createPorts(order);
     const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
-    const dispatchTask = vi.spyOn(ports.runtime, 'dispatchTask');
+    const dispatchRun = vi.spyOn(ports.runtime, 'dispatchRun');
     const graph = createProposalApprovalGraph(
       {
         workControl: 'replanning',
@@ -2316,7 +2356,9 @@ describe('SchedulerLoop', () => {
     loop.setAutoExecutionEnabled(true);
     await loop.step(101);
 
-    const dispatchedIds = dispatchTask.mock.calls.map(([task]) => task.id);
+    const dispatchedIds = dispatchRun.mock.calls.flatMap(([scope]) =>
+      scope.kind === 'task' ? [scope.taskId] : [],
+    );
     expect(dispatchedIds).toEqual(expect.arrayContaining(['t-stuck', 't-1']));
     expect(dispatchedIds).not.toContain('t-2');
   });
@@ -4079,7 +4121,7 @@ describe('SchedulerLoop', () => {
   it('falls back to runtime resume dispatch after restart when blocked task becomes ready again', async () => {
     const order: string[] = [];
     const { ports, runtime } = createPorts(order, { tokenProfile: 'balanced' });
-    const dispatchTask = vi.spyOn(runtime, 'dispatchTask');
+    const dispatchRun = vi.spyOn(runtime, 'dispatchRun');
     const graph = createSingleTaskDispatchGraph({
       task: {
         collabControl: 'branch_open',
@@ -4098,14 +4140,21 @@ describe('SchedulerLoop', () => {
     const loop = new SchedulerLoop(graph, ports);
     await loop.step(100);
 
-    expect(dispatchTask).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 't-1' }),
+    expect(dispatchRun).toHaveBeenCalledWith(
+      {
+        kind: 'task',
+        taskId: 't-1',
+        featureId: 'f-1',
+      },
       {
         mode: 'resume',
         agentRunId: 'run-task:t-1',
         sessionId: 'sess-1',
       },
-      expect.any(Object),
+      expect.objectContaining({
+        kind: 'task',
+        task: expect.objectContaining({ id: 't-1' }),
+      }),
     );
   });
 

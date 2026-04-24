@@ -19,7 +19,7 @@ import type { OrchestratorPorts } from '@orchestrator/ports/index';
 import { isProposalPhase } from '@orchestrator/proposals/index';
 import { buildTaskPayload } from '@runtime/context/index';
 import type {
-  DispatchTaskResult,
+  DispatchRunResult,
   TaskRuntimeDispatch,
 } from '@runtime/contracts';
 
@@ -150,7 +150,7 @@ export function taskDispatchForRun(run: TaskAgentRun): TaskRuntimeDispatch {
 export function persistRunningTaskRun(
   ports: OrchestratorPorts,
   run: TaskAgentRun,
-  result: DispatchTaskResult,
+  result: Pick<DispatchRunResult, 'sessionId'>,
 ): void {
   ports.store.updateAgentRun(run.id, {
     runStatus: 'running',
@@ -190,6 +190,42 @@ export function markFeaturePhaseRunning(
   }
 }
 
+async function dispatchTaskRun(params: {
+  task: Task;
+  run: TaskAgentRun;
+  payload: ReturnType<typeof buildTaskPayload>;
+  ports: OrchestratorPorts;
+}): Promise<DispatchRunResult> {
+  const scope = {
+    kind: 'task' as const,
+    taskId: params.task.id,
+    featureId: params.task.featureId,
+  };
+  const dispatch = taskDispatchForRun(params.run);
+  const result = await params.ports.runtime.dispatchRun(scope, dispatch, {
+    kind: 'task',
+    task: params.task,
+    payload: params.payload,
+  });
+
+  if (result.kind === 'not_resumable' && dispatch.mode === 'resume') {
+    return await params.ports.runtime.dispatchRun(
+      scope,
+      {
+        mode: 'start',
+        agentRunId: params.run.id,
+      },
+      {
+        kind: 'task',
+        task: params.task,
+        payload: params.payload,
+      },
+    );
+  }
+
+  return result;
+}
+
 export async function dispatchTaskUnit(params: {
   task: Task;
   graph: FeatureGraph;
@@ -197,7 +233,6 @@ export async function dispatchTaskUnit(params: {
   markTaskRunning: (task: Task) => void;
 }): Promise<void> {
   const run = ensureTaskRun(params.ports, params.task);
-  const dispatch = taskDispatchForRun(run);
 
   const feature = params.graph.features.get(params.task.featureId);
   if (feature === undefined) {
@@ -209,25 +244,12 @@ export async function dispatchTaskUnit(params: {
   await params.ports.worktree.ensureTaskWorktree(params.task, feature);
 
   const payload = buildTaskPayload(params.task, feature);
-  const result = await params.ports.runtime.dispatchTask(
-    params.task,
-    dispatch,
+  const result = await dispatchTaskRun({
+    task: params.task,
+    run,
     payload,
-  );
-
-  if (result.kind === 'not_resumable' && dispatch.mode === 'resume') {
-    const fallback = await params.ports.runtime.dispatchTask(
-      params.task,
-      {
-        mode: 'start',
-        agentRunId: run.id,
-      },
-      payload,
-    );
-    params.markTaskRunning(params.task);
-    persistRunningTaskRun(params.ports, run, fallback);
-    return;
-  }
+    ports: params.ports,
+  });
 
   params.markTaskRunning(params.task);
   persistRunningTaskRun(params.ports, run, result);
