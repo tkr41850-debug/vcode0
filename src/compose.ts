@@ -232,7 +232,6 @@ export async function composeApplication(): Promise<GvcApplication> {
     store,
     runtime,
     sessionStore,
-    agents,
     verification,
     worktree,
     ui,

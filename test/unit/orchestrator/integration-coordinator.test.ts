@@ -112,7 +112,6 @@ function makePorts(opts: { cwd: string; verification?: VerificationSummary }): {
         markers.clears += 1;
       },
     } as unknown as OrchestratorPorts['store'],
-    agents: {} as OrchestratorPorts['agents'],
     verification: {
       verifyFeature: vi.fn(() => Promise.resolve(verifyResult)),
     } as unknown as OrchestratorPorts['verification'],

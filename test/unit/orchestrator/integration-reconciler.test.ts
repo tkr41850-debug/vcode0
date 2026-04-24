@@ -98,7 +98,6 @@ function makePorts(initialMarker: IntegrationState | undefined): {
         state.clears += 1;
       },
     } as unknown as OrchestratorPorts['store'],
-    agents: {} as OrchestratorPorts['agents'],
     verification: {} as OrchestratorPorts['verification'],
     worktree: {
       ensureFeatureWorktree: () => Promise.resolve(''),

@@ -355,7 +355,6 @@ function createPorts(runs: AgentRun[]): {
       store,
       runtime,
       sessionStore: new InMemorySessionStore(),
-      agents: {} as OrchestratorPorts['agents'],
       verification,
       worktree: {
         ensureFeatureWorktree: () => Promise.resolve('/repo'),

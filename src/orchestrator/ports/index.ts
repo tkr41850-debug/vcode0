@@ -1,4 +1,3 @@
-import type { FeaturePhaseOrchestrator } from '@agents';
 import type {
   AgentRun,
   EventRecord,
@@ -58,7 +57,6 @@ export interface OrchestratorPorts {
   store: Store;
   runtime: RuntimePort;
   sessionStore: SessionStore;
-  agents: FeaturePhaseOrchestrator;
   verification: VerificationService;
   worktree: WorktreeProvisioner;
   ui: UiPort;

@@ -30,7 +30,6 @@ function createConfig(overrides: Partial<GvcConfig> = {}): GvcConfig {
 function createPorts(root: string): OrchestratorPorts {
   return {
     store: {} as OrchestratorPorts['store'],
-    agents: {} as OrchestratorPorts['agents'],
     verification: {} as OrchestratorPorts['verification'],
     worktree: {
       ensureFeatureWorktree: () => Promise.resolve(root),
