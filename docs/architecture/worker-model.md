@@ -400,15 +400,14 @@ them for task workers.
 
 ## Crash Recovery
 
-On startup, gvc0 currently scans persisted task execution runs
-for orphaned work (`scopeType = "task"` with `run_status = "running"`)
-and resets or resumes them.
-Feature branches remain authoritative across restarts;
-resumed task worktrees rebase onto the current HEAD of the
+On startup, gvc0 scans persisted `agent_runs` for orphaned work
+and recovers both task execution runs and feature-phase runs.
+Task runs resume from `sessionId` when possible or reset to `ready`;
+feature-phase runs redispatch through the same
+`RuntimePort.dispatchRun(...)` path and apply recovered results inline.
+Feature branches remain authoritative across restarts,
+and resumed task worktrees rebase onto the current HEAD of the
 owning feature branch before continuing.
-Feature-phase runs share the same run/session model and session-store backing,
-but the current startup recovery pass is task-run focused rather than a full
-feature-phase orphan recovery sweep.
 The baseline uses `PiSdkHarness` only;
 `session_id` is an orchestrator-owned opaque reference passed
 back to the harness, and a future external session service may
@@ -496,37 +495,57 @@ researching, planning, verifying, summarizing, and
 replanning phases use the same run/session plane as task execution:
 they share `agent_runs`, retry/backoff,
 and help/approval/manual-ownership waits.
-In current baseline wiring, feature-phase message history also persists
-through the same session-store backing used for task sessions
-(currently `FileSessionStore` under `.gvc0/sessions/`).
-The current startup recovery pass, however, only resumes or resets task
-execution runs.
+In current baseline wiring, both task sessions and feature-phase
+sessions persist through the same session-store backing used for
+local runs (currently `FileSessionStore` under `.gvc0/sessions/`),
+and startup recovery handles both scopes.
 A future centralized or remote conversation/session persistence layer is a
 separate feature candidate rather than baseline architecture.
-The current `RuntimePort` surface is task-oriented because the
-concrete worker-pool implementation is still task-only, but that is
-an implementation detail rather than the architectural boundary.
+The current `RuntimePort` surface is scope-aware:
+`dispatchRun(...)` covers both task and feature-phase runs,
+while `dispatchTask(...)` remains a legacy task-shaped wrapper.
 On startup:
 
 ```typescript
-async function recoverOrphanedTasks(store: Store, pool: WorkerPool) {
-  const orphaned = await store.listAgentRuns({
-    scopeType: "task",
-    runStatus: "running",
-  });
+async function recoverOrphanedRuns(store: Store, runtime: RuntimePort) {
+  const runs = await store.listAgentRuns({ runStatus: "running" });
 
-  for (const run of orphaned) {
-    if (run.sessionId) {
-      // Resume from saved session, rebasing onto current feature branch HEAD first
-      await pool.dispatchTask(task, {
-        mode: "resume",
-        agentRunId: run.id,
-        sessionId: run.sessionId,
+  for (const run of runs) {
+    if (run.scopeType === "task") {
+      if (run.sessionId) {
+        await runtime.dispatchRun(
+          { kind: "task", taskId: run.scopeId, featureId: task.featureId },
+          {
+            mode: "resume",
+            agentRunId: run.id,
+            sessionId: run.sessionId,
+          },
+          { kind: "task", task, payload },
+        );
+        continue;
+      }
+
+      await store.updateAgentRun(run.id, {
+        runStatus: "ready",
+        owner: "system",
       });
-    } else {
-      // No resumable session — reset to ready for a fresh run
-      await store.updateAgentRun(run.id, { runStatus: "ready", owner: "system" });
+      continue;
     }
+
+    await runtime.dispatchRun(
+      { kind: "feature_phase", featureId: run.scopeId, phase: run.phase },
+      run.sessionId === undefined
+        ? { mode: "start", agentRunId: run.id }
+        : {
+            mode: "resume",
+            agentRunId: run.id,
+            sessionId: run.sessionId,
+          },
+      {
+        kind: "feature_phase",
+        ...(run.phase === "replan" ? { replanReason } : {}),
+      },
+    );
   }
 }
 ```

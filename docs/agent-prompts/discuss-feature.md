@@ -76,5 +76,5 @@ Primary influences:
 
 Local gvc0 alignment:
 - `src/agents/planner.ts` — `discussFeature(...)` phase exists
-- `src/agents/index.ts` — feature phases route through `PiFeatureAgentRuntime`
+- `src/agents/index.ts` — feature phases route through `FeaturePhaseOrchestrator`
 - `src/agents/runtime.ts` — discuss runs on same persisted run/session plane as other feature phases

@@ -6,7 +6,7 @@ Future feature candidate. Do not treat this as part of the baseline architecture
 
 ## Baseline
 
-The baseline runtime is local-machine and process-per-task. The orchestrator launches task workers locally, uses NDJSON over stdio for worker/orchestrator messaging, and treats `agent_runs.session_id` as the authoritative persisted session pointer for recovery. Feature-level discussing, researching, planning, verifying, summarizing, and replanning phases share the same run/session plane as task execution at the architecture level, even though the current concrete `RuntimePort` / worker-pool implementation is still task-oriented.
+The baseline runtime is local-machine. Task execution still uses process-per-task workers with NDJSON over stdio, and `agent_runs.session_id` remains the authoritative persisted session pointer for recovery. Feature-level discussing, researching, planning, verifying, summarizing, and replanning phases share the same run/session plane and the same scope-aware `RuntimePort.dispatchRun(...)` path as task execution.
 
 ## Candidate
 
