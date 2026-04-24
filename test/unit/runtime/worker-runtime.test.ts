@@ -154,6 +154,40 @@ interface IpcBridgeLike {
 }
 
 describe('LocalWorkerPool', () => {
+  describe('dispatchTask wrapper', () => {
+    it('delegates to dispatchRun with task scope', async () => {
+      const { pool } = setupPool();
+      const task = makeTask();
+      const dispatch = {
+        mode: 'start' as const,
+        agentRunId: 'run-wrapper',
+      };
+      const payload = {
+        objective: 'build stuff',
+        planSummary: 'build stuff',
+      } satisfies TaskPayload;
+      const dispatchRun = vi.spyOn(pool, 'dispatchRun').mockResolvedValue({
+        kind: 'started',
+        agentRunId: 'run-wrapper',
+        sessionId: 'sess-wrapper',
+      });
+
+      const result = await pool.dispatchTask(task, dispatch, payload);
+
+      expect(dispatchRun).toHaveBeenCalledWith(
+        { kind: 'task', taskId: task.id, featureId: task.featureId },
+        dispatch,
+        { kind: 'task', task, payload },
+      );
+      expect(result).toEqual({
+        kind: 'started',
+        taskId: task.id,
+        agentRunId: 'run-wrapper',
+        sessionId: 'sess-wrapper',
+      });
+    });
+  });
+
   describe('dispatchTask (start mode)', () => {
     it('starts a task and returns started result with sessionId', async () => {
       const { pool } = setupPool('sess-new');

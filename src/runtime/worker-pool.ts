@@ -53,40 +53,7 @@ export class LocalWorkerPool implements RuntimePort {
       );
     }
 
-    const taskResult = await this.dispatchTask(
-      payload.task,
-      dispatch,
-      payload.payload,
-    );
-
-    switch (taskResult.kind) {
-      case 'started':
-        return {
-          kind: 'started',
-          agentRunId: taskResult.agentRunId,
-          sessionId: taskResult.sessionId,
-        };
-      case 'resumed':
-        return {
-          kind: 'resumed',
-          agentRunId: taskResult.agentRunId,
-          sessionId: taskResult.sessionId,
-        };
-      case 'not_resumable':
-        return {
-          kind: 'not_resumable',
-          agentRunId: taskResult.agentRunId,
-          sessionId: taskResult.sessionId,
-          reason: taskResult.reason,
-        };
-    }
-  }
-
-  async dispatchTask(
-    task: Task,
-    dispatch: TaskRuntimeDispatch,
-    payload: TaskPayload = {},
-  ): Promise<DispatchTaskResult> {
+    const { task, payload: taskPayload } = payload;
     if (dispatch.mode === 'resume') {
       const resumeResult = await this.harness.resume(
         task,
@@ -95,13 +62,12 @@ export class LocalWorkerPool implements RuntimePort {
           agentRunId: dispatch.agentRunId,
           sessionId: dispatch.sessionId,
         },
-        payload,
+        taskPayload,
       );
 
       if (resumeResult.kind === 'not_resumable') {
         return {
           kind: 'not_resumable',
-          taskId: task.id,
           agentRunId: dispatch.agentRunId,
           sessionId: dispatch.sessionId,
           reason: resumeResult.reason,
@@ -117,13 +83,16 @@ export class LocalWorkerPool implements RuntimePort {
 
       return {
         kind: 'resumed',
-        taskId: task.id,
         agentRunId: dispatch.agentRunId,
         sessionId: resumeResult.handle.sessionId,
       };
     }
 
-    const handle = await this.harness.start(task, payload, dispatch.agentRunId);
+    const handle = await this.harness.start(
+      task,
+      taskPayload,
+      dispatch.agentRunId,
+    );
 
     const session: LiveSession = {
       ref: { taskId: task.id, agentRunId: dispatch.agentRunId },
@@ -134,10 +103,57 @@ export class LocalWorkerPool implements RuntimePort {
 
     return {
       kind: 'started',
-      taskId: task.id,
       agentRunId: dispatch.agentRunId,
       sessionId: handle.sessionId,
     };
+  }
+
+  /**
+   * Legacy task-dispatch entry. Wrapper around `dispatchRun` kept for
+   * back-compat with existing schedulers/tests; maps the scope-aware
+   * result back to the task-shaped `DispatchTaskResult`. Prefer
+   * `dispatchRun` in new code.
+   */
+  async dispatchTask(
+    task: Task,
+    dispatch: TaskRuntimeDispatch,
+    payload: TaskPayload = {},
+  ): Promise<DispatchTaskResult> {
+    const runResult = await this.dispatchRun(
+      { kind: 'task', taskId: task.id, featureId: task.featureId },
+      dispatch,
+      { kind: 'task', task, payload },
+    );
+
+    switch (runResult.kind) {
+      case 'started':
+        return {
+          kind: 'started',
+          taskId: task.id,
+          agentRunId: runResult.agentRunId,
+          sessionId: runResult.sessionId,
+        };
+      case 'resumed':
+        return {
+          kind: 'resumed',
+          taskId: task.id,
+          agentRunId: runResult.agentRunId,
+          sessionId: runResult.sessionId,
+        };
+      case 'not_resumable':
+        return {
+          kind: 'not_resumable',
+          taskId: task.id,
+          agentRunId: runResult.agentRunId,
+          sessionId: runResult.sessionId,
+          reason: runResult.reason,
+        };
+      case 'completed_inline':
+      case 'awaiting_approval':
+        throw new Error(
+          `dispatchTask: unexpected dispatchRun result kind '${runResult.kind}' for task scope`,
+        );
+    }
   }
 
   steerTask(
