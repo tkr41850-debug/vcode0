@@ -233,6 +233,19 @@ export class PersistentFeatureGraph implements FeatureGraph {
     this.mutate(() => this.inner.replaceUsageRollups(patch));
   }
 
+  // Plan 04-01: delegate tick-boundary counter to the inner in-memory
+  // graph. The runtime guard fires at that layer; the `this.mutate`
+  // path below wraps each mutation in a SQLite transaction but does not
+  // itself bypass the guard because the guard runs on the inner graph's
+  // own mutation entrypoints.
+  __enterTick(): void {
+    this.inner.__enterTick();
+  }
+
+  __leaveTick(): void {
+    this.inner.__leaveTick();
+  }
+
   // ---------- Mutation helper ----------
 
   private mutate<T>(fn: () => T): T {

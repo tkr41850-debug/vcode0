@@ -190,4 +190,11 @@ export interface FeatureGraph {
 
   updateMergeTrainState(featureId: FeatureId, fields: MergeTrainUpdate): void;
   replaceUsageRollups(patch: UsageRollupPatch): void;
+
+  // Plan 04-01: tick-boundary guard. SchedulerLoop.tick() wraps its body
+  // in `__enterTick()/__leaveTick()`; when `GVC_ASSERT_TICK_BOUNDARY=1`,
+  // every mutation asserts the counter is non-zero. In production the
+  // env var is unset and the guard short-circuits (zero cost).
+  __enterTick(): void;
+  __leaveTick(): void;
 }
