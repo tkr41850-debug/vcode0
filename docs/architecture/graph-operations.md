@@ -212,7 +212,10 @@ When workers are scarce, ready work is sorted by:
 | 4. Partially-failed deprioritization | Feature derived status | Non-failed first |
 | 5. Reservation overlap penalty | Write-path intersection | Non-overlapping first |
 | 6. Retry-eligible before fresh | `run.runStatus === 'retry_await' && retryAt <= now` | Retry first |
-| 7. Stable fallback | age (when the unit became ready, tracked by scheduler) | Older first |
+| 7. Age fallback | `readySince` (when the unit became ready, tracked by scheduler) | Older first |
+| 8. Entity ID tiebreaker | Task ID or `feature:phase` string | Lexicographic ascending |
+
+The final Entity ID key guarantees a **fully deterministic total order** — no two ready units can ever tie. This makes the priority comparator stable across runs, process boundaries, and platforms without relying on `Array.sort` insertion order or map iteration order. Tests lock this via the canonical 7+1 fixture in `test/helpers/scheduler-fixtures.ts`.
 
 When workers are plentiful, everything ready runs.
 

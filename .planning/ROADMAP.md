@@ -84,7 +84,7 @@ Plans:
 **Success Criteria**:
   1. All graph mutations flow through the single serial event queue — boundary test fails if any mutation bypasses it
   2. Combined-graph critical-path metrics (maxDepth, distance) match expected values on canonical test DAGs
-  3. Priority sort obeys the 6-key order (milestone → work-type tier → critical-path → partial-failed → overlap → retry → age)
+  3. Priority sort obeys 7 keys + 1 stable ID tiebreaker (milestone → work-type tier → critical-path → partial-failed → overlap → retry → age → entity ID)
   4. Reservation overlap applies scheduling penalty but does not block; runtime overlap (write pre-hook) routes to coordination
   5. Feature deps enforce "wait for merge to main" — downstream feature dispatches only after upstream's `collab=merged`
 **Plans**: 3 plans
