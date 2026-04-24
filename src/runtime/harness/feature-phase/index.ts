@@ -2,7 +2,10 @@ import type { PlannerAgent } from '@agents/planner';
 import type { ProposalPhaseResult } from '@agents/proposal';
 import type { ReplannerAgent } from '@agents/replanner';
 import type { FeatureGraph } from '@core/graph/index';
-import type { FeaturePhaseRunContext } from '@core/types/index';
+import type {
+  FeaturePhaseRunContext,
+  VerificationSummary,
+} from '@core/types/index';
 import type {
   FeaturePhaseRunPayload,
   OrchestratorToWorkerMessage,
@@ -58,7 +61,7 @@ export class DiscussFeaturePhaseBackend implements FeaturePhaseBackend {
     private readonly graph: Pick<FeatureGraph, 'features'>,
     private readonly agent: Pick<
       PlannerAgent,
-      'discussFeature' | 'planFeature'
+      'discussFeature' | 'planFeature' | 'verifyFeature'
     > &
       Pick<ReplannerAgent, 'replanFeature'>,
     private readonly sessionStore: SessionStore,
@@ -146,6 +149,13 @@ export class DiscussFeaturePhaseBackend implements FeaturePhaseBackend {
             )
             .then((result) => proposalOutcome('replan', result)),
         });
+      case 'verify':
+        return createFeaturePhaseHandle({
+          sessionId,
+          outcome: this.agent
+            .verifyFeature(feature, runContext)
+            .then((verification) => verificationOutcome(verification)),
+        });
       default:
         throw new Error(
           `feature phase '${scope.phase}' not configured by DiscussFeaturePhaseBackend`,
@@ -178,6 +188,18 @@ function proposalOutcome(
       kind: 'proposal',
       phase,
       result,
+    },
+  };
+}
+
+function verificationOutcome(
+  verification: VerificationSummary,
+): FeaturePhaseDispatchOutcome {
+  return {
+    kind: 'completed_inline',
+    output: {
+      kind: 'verification',
+      verification,
     },
   };
 }

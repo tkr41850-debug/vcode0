@@ -191,6 +191,22 @@ function createRuntimeMock(order: string[]): RuntimePort & {
           },
         });
       }
+      if (scope.phase === 'verify') {
+        return Promise.resolve({
+          kind: 'completed_inline' as const,
+          agentRunId: dispatch.agentRunId,
+          sessionId,
+          output: {
+            kind: 'verification' as const,
+            verification: {
+              ok: false,
+              outcome: 'repair_needed' as const,
+              summary: 'verify failed',
+              failedChecks: ['proof missing'],
+            },
+          },
+        });
+      }
     }
     return Promise.resolve({
       kind: 'started' as const,
@@ -1976,10 +1992,11 @@ describe('SchedulerLoop', () => {
     });
   });
 
-  it('dispatches verify feature phases through the agent port', async () => {
+  it('dispatches verify feature phases through runtime dispatchRun', async () => {
     const order: string[] = [];
-    const { ports } = createPorts(order);
+    const { ports, runtime } = createPorts(order);
     const verifyFeature = vi.spyOn(ports.agents, 'verifyFeature');
+    const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
     const graph = createSingleFeatureGraph({
       status: 'pending',
       workControl: 'verifying',
@@ -1990,10 +2007,23 @@ describe('SchedulerLoop', () => {
 
     await loop.step(100);
 
-    expect(verifyFeature).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'f-1' }),
-      { agentRunId: 'run-feature:f-1:verify' },
+    expect(runtime.dispatchRun).toHaveBeenCalledWith(
+      { kind: 'feature_phase', featureId: 'f-1', phase: 'verify' },
+      { mode: 'start', agentRunId: 'run-feature:f-1:verify' },
+      { kind: 'feature_phase' },
     );
+    expect(verifyFeature).not.toHaveBeenCalled();
+    expect(updateAgentRun).toHaveBeenCalledWith('run-feature:f-1:verify', {
+      runStatus: 'running',
+      owner: 'system',
+      sessionId: 'run-feature:f-1:verify',
+      restartCount: 0,
+    });
+    expect(graph.features.get('f-1')).toMatchObject({
+      workControl: 'replanning',
+      status: 'pending',
+      collabControl: 'branch_open',
+    });
   });
 
   it('dispatches summarize feature phases after merge in non-budget mode', async () => {

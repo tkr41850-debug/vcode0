@@ -292,7 +292,11 @@ export async function dispatchFeaturePhaseUnit(params: {
   try {
     await params.ports.worktree.ensureFeatureWorktree(params.feature);
 
-    if (params.phase === 'discuss' || isProposalPhase(params.phase)) {
+    if (
+      params.phase === 'discuss' ||
+      params.phase === 'verify' ||
+      isProposalPhase(params.phase)
+    ) {
       const dispatch =
         run.sessionId === undefined
           ? { mode: 'start' as const, agentRunId: run.id }
@@ -329,18 +333,36 @@ export async function dispatchFeaturePhaseUnit(params: {
         );
       }
 
-      if (params.phase === 'discuss') {
+      if (params.phase === 'discuss' || params.phase === 'verify') {
         if (result.kind !== 'completed_inline') {
           throw new Error(
-            `dispatchFeaturePhaseUnit: discuss expected completed_inline result, got '${result.kind}'`,
+            `dispatchFeaturePhaseUnit: ${params.phase} expected completed_inline result, got '${result.kind}'`,
           );
         }
-        if (
-          result.output.kind !== 'text_phase' ||
-          result.output.phase !== 'discuss'
-        ) {
+
+        if (params.phase === 'discuss') {
+          if (
+            result.output.kind !== 'text_phase' ||
+            result.output.phase !== 'discuss'
+          ) {
+            throw new Error(
+              `dispatchFeaturePhaseUnit: discuss expected text_phase/discuss output, got '${result.output.kind}'`,
+            );
+          }
+
+          persistRunningFeaturePhaseRun(params.ports, run, result);
+          await params.handleEvent({
+            type: 'feature_phase_complete',
+            featureId: params.feature.id,
+            phase: params.phase,
+            summary: result.output.result.summary,
+          });
+          return true;
+        }
+
+        if (result.output.kind !== 'verification') {
           throw new Error(
-            `dispatchFeaturePhaseUnit: discuss expected text_phase/discuss output, got '${result.output.kind}'`,
+            `dispatchFeaturePhaseUnit: verify expected verification output, got '${result.output.kind}'`,
           );
         }
 
@@ -349,7 +371,8 @@ export async function dispatchFeaturePhaseUnit(params: {
           type: 'feature_phase_complete',
           featureId: params.feature.id,
           phase: params.phase,
-          summary: result.output.result.summary,
+          summary: result.output.verification.summary ?? '',
+          verification: result.output.verification,
         });
         return true;
       }
@@ -407,20 +430,6 @@ export async function dispatchFeaturePhaseUnit(params: {
       case 'ci_check': {
         const verification = await params.ports.verification.verifyFeature(
           params.feature,
-        );
-        await params.handleEvent({
-          type: 'feature_phase_complete',
-          featureId: params.feature.id,
-          phase: params.phase,
-          summary: verification.summary ?? '',
-          verification,
-        });
-        return true;
-      }
-      case 'verify': {
-        const verification = await params.ports.agents.verifyFeature(
-          params.feature,
-          runContext,
         );
         await params.handleEvent({
           type: 'feature_phase_complete',

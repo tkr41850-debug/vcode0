@@ -8,6 +8,7 @@ import type {
   TaskId,
   TaskResumeReason,
   TaskSuspendReason,
+  VerificationSummary,
 } from '@core/types';
 import type { TaskPayload } from '@runtime/context';
 import type {
@@ -301,6 +302,7 @@ describe('LocalWorkerPool', () => {
           .fn()
           .mockResolvedValue(makeDiscussResult('discussed')),
         planFeature: vi.fn(),
+        verifyFeature: vi.fn(),
         replanFeature: vi.fn(),
       };
       const backend = new DiscussFeaturePhaseBackend(
@@ -352,6 +354,7 @@ describe('LocalWorkerPool', () => {
       const agent = {
         discussFeature: vi.fn().mockResolvedValue(makeDiscussResult('resumed')),
         planFeature: vi.fn(),
+        verifyFeature: vi.fn(),
         replanFeature: vi.fn(),
       };
       const backend = new DiscussFeaturePhaseBackend(
@@ -409,6 +412,7 @@ describe('LocalWorkerPool', () => {
       const agent = {
         discussFeature: vi.fn().mockResolvedValue(makeDiscussResult()),
         planFeature: vi.fn(),
+        verifyFeature: vi.fn(),
         replanFeature: vi.fn(),
       };
       const backend = new DiscussFeaturePhaseBackend(
@@ -466,6 +470,7 @@ describe('LocalWorkerPool', () => {
           proposal,
           details: proposalDetails,
         }),
+        verifyFeature: vi.fn(),
         replanFeature: vi.fn(),
       };
       const backend = new DiscussFeaturePhaseBackend(
@@ -526,6 +531,7 @@ describe('LocalWorkerPool', () => {
       const agent = {
         discussFeature: vi.fn(),
         planFeature: vi.fn(),
+        verifyFeature: vi.fn(),
         replanFeature: vi.fn().mockResolvedValue({
           summary: 'replanned',
           proposal,
@@ -566,6 +572,110 @@ describe('LocalWorkerPool', () => {
             details: proposalDetails,
           },
         },
+      });
+    });
+
+    it('runs verify through the feature-phase backend and returns verification output', async () => {
+      const { harness } = setupPool();
+      const graph = new InMemoryFeatureGraph({
+        milestones: [
+          {
+            id: 'm-1',
+            name: 'M',
+            description: 'd',
+            status: 'pending',
+            order: 0,
+          },
+        ],
+        features: [makeFeature()],
+        tasks: [],
+      });
+      const sessionStore = new InMemorySessionStore();
+      const verification: VerificationSummary = {
+        ok: false,
+        outcome: 'repair_needed',
+        summary: 'repair needed',
+        failedChecks: ['proof missing'],
+      };
+      const agent = {
+        discussFeature: vi.fn(),
+        planFeature: vi.fn(),
+        verifyFeature: vi.fn().mockResolvedValue(verification),
+        replanFeature: vi.fn(),
+      };
+      const backend = new DiscussFeaturePhaseBackend(
+        graph,
+        agent,
+        sessionStore,
+      );
+      const pool = new LocalWorkerPool(harness, 4, undefined, backend);
+
+      const result = await pool.dispatchRun(
+        { kind: 'feature_phase', featureId: 'f-feature-1', phase: 'verify' },
+        { mode: 'start', agentRunId: 'run-feature:f-feature-1:verify' },
+        { kind: 'feature_phase' },
+      );
+
+      expect(agent.verifyFeature).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'f-feature-1' }),
+        { agentRunId: 'run-feature:f-feature-1:verify' },
+      );
+      expect(result).toEqual({
+        kind: 'completed_inline',
+        agentRunId: 'run-feature:f-feature-1:verify',
+        sessionId: 'run-feature:f-feature-1:verify',
+        output: {
+          kind: 'verification',
+          verification,
+        },
+      });
+    });
+
+    it('returns not_resumable for verify resume attempts', async () => {
+      const { harness } = setupPool();
+      const graph = new InMemoryFeatureGraph({
+        milestones: [
+          {
+            id: 'm-1',
+            name: 'M',
+            description: 'd',
+            status: 'pending',
+            order: 0,
+          },
+        ],
+        features: [makeFeature()],
+        tasks: [],
+      });
+      const sessionStore = new InMemorySessionStore();
+      const agent = {
+        discussFeature: vi.fn(),
+        planFeature: vi.fn(),
+        verifyFeature: vi.fn(),
+        replanFeature: vi.fn(),
+      };
+      const backend = new DiscussFeaturePhaseBackend(
+        graph,
+        agent,
+        sessionStore,
+      );
+      const pool = new LocalWorkerPool(harness, 4, undefined, backend);
+
+      const result = await pool.dispatchRun(
+        { kind: 'feature_phase', featureId: 'f-feature-1', phase: 'verify' },
+        {
+          mode: 'resume',
+          agentRunId: 'run-feature:f-feature-1:verify',
+          sessionId: 'sess-verify',
+        },
+        { kind: 'feature_phase' },
+      );
+
+      expect(agent.verifyFeature).not.toHaveBeenCalled();
+      expect(result).toEqual({
+        kind: 'not_resumable',
+        agentRunId: 'run-feature:f-feature-1:verify',
+        sessionId: 'sess-verify',
+        reason: 'unsupported_by_harness',
       });
     });
 

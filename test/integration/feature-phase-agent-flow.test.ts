@@ -17,10 +17,8 @@ import type {
 import type { OrchestratorPorts, UiPort } from '@orchestrator/ports/index';
 import { SchedulerLoop } from '@orchestrator/scheduler/index';
 import { VerificationService } from '@orchestrator/services/index';
-import type { RuntimePort } from '@runtime/contracts';
 import {
   DiscussFeaturePhaseBackend,
-  type FeaturePhaseRunPayload,
   type SessionHarness,
 } from '@runtime/index';
 import { LocalWorkerPool } from '@runtime/worker-pool';
@@ -40,102 +38,6 @@ function createConfig(overrides: Partial<GvcConfig> = {}): GvcConfig {
   return {
     tokenProfile: 'balanced',
     ...overrides,
-  };
-}
-
-function createRuntimeStub(): RuntimePort {
-  return {
-    dispatchRun: (scope, dispatch, payload) => {
-      if (scope.kind === 'feature_phase') {
-        const sessionId =
-          dispatch.mode === 'resume' ? dispatch.sessionId : dispatch.agentRunId;
-        if (scope.phase === 'discuss') {
-          return Promise.resolve({
-            kind: 'completed_inline' as const,
-            agentRunId: dispatch.agentRunId,
-            sessionId,
-            output: {
-              kind: 'text_phase' as const,
-              phase: 'discuss' as const,
-              result: { summary: 'ok' },
-            },
-          });
-        }
-        if (scope.phase === 'plan' || scope.phase === 'replan') {
-          const proposalPayload = payload as FeaturePhaseRunPayload;
-          return Promise.resolve({
-            kind: 'awaiting_approval' as const,
-            agentRunId: dispatch.agentRunId,
-            sessionId,
-            output: {
-              kind: 'proposal' as const,
-              phase: scope.phase,
-              result: {
-                summary:
-                  scope.phase === 'plan'
-                    ? 'Planning complete.'
-                    : 'Replanning complete.',
-                proposal: makeProposal(scope.phase),
-                details:
-                  scope.phase === 'plan'
-                    ? proposalDetails
-                    : {
-                        ...replanDetails,
-                        ...(proposalPayload.replanReason !== undefined
-                          ? { assumptions: [proposalPayload.replanReason] }
-                          : {}),
-                      },
-              },
-            },
-          });
-        }
-      }
-      return Promise.reject(
-        new Error(
-          'run dispatch not expected in feature-phase integration test',
-        ),
-      );
-    },
-    dispatchTask: () =>
-      Promise.reject(
-        new Error(
-          'task dispatch not expected in feature-phase integration test',
-        ),
-      ),
-    steerRun: (agentRunId: string) =>
-      Promise.resolve({ kind: 'not_running', taskId: agentRunId }),
-    suspendRun: (agentRunId: string) =>
-      Promise.resolve({ kind: 'not_running', taskId: agentRunId }),
-    resumeRun: (agentRunId: string) =>
-      Promise.resolve({ kind: 'not_running', taskId: agentRunId }),
-    respondToRunHelp: (agentRunId: string) =>
-      Promise.resolve({ kind: 'not_running', taskId: agentRunId }),
-    decideRunApproval: (agentRunId: string) =>
-      Promise.resolve({ kind: 'not_running', taskId: agentRunId }),
-    sendRunManualInput: (agentRunId: string) =>
-      Promise.resolve({ kind: 'not_running', taskId: agentRunId }),
-    abortRun: (agentRunId: string) =>
-      Promise.resolve({ kind: 'not_running', taskId: agentRunId }),
-    respondToRunClaim: (agentRunId: string) =>
-      Promise.resolve({ kind: 'not_running', taskId: agentRunId }),
-    steerTask: (taskId: string) =>
-      Promise.resolve({ kind: 'not_running', taskId }),
-    suspendTask: (taskId: string) =>
-      Promise.resolve({ kind: 'not_running', taskId }),
-    resumeTask: (taskId: string) =>
-      Promise.resolve({ kind: 'not_running', taskId }),
-    respondToHelp: (taskId: string) =>
-      Promise.resolve({ kind: 'not_running', taskId }),
-    decideApproval: (taskId: string) =>
-      Promise.resolve({ kind: 'not_running', taskId }),
-    sendManualInput: (taskId: string) =>
-      Promise.resolve({ kind: 'not_running', taskId }),
-    abortTask: (taskId: string) =>
-      Promise.resolve({ kind: 'not_running', taskId }),
-    respondClaim: (taskId: string) =>
-      Promise.resolve({ kind: 'not_running', taskId }),
-    idleWorkerCount: () => 1,
-    stopAll: () => Promise.resolve(),
   };
 }
 
@@ -440,13 +342,10 @@ describe('feature-phase agent flow', () => {
       undefined,
       new DiscussFeaturePhaseBackend(graph, agents, sessionStore),
     );
-    const dispatchRun = vi.fn(pool.dispatchRun.bind(pool));
+    const dispatchRun = vi.spyOn(pool, 'dispatchRun');
     const ports: OrchestratorPorts = {
       store,
-      runtime: {
-        ...createRuntimeStub(),
-        dispatchRun,
-      },
+      runtime: pool,
       sessionStore,
       agents,
       verification: {
