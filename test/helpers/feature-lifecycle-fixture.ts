@@ -17,9 +17,9 @@ import type {
 import type { OrchestratorPorts, UiPort } from '@orchestrator/ports/index';
 import { SchedulerLoop } from '@orchestrator/scheduler/index';
 import { VerificationService } from '@orchestrator/services/index';
-import { LocalWorkerPool } from '@runtime/worker-pool';
-import { DEFAULT_TRANSIENT_PATTERNS } from '@runtime/retry-policy';
 import type { WorkerToOrchestratorMessage } from '@runtime/contracts';
+import { DEFAULT_TRANSIENT_PATTERNS } from '@runtime/retry-policy';
+import { LocalWorkerPool } from '@runtime/worker-pool';
 
 import {
   createFauxProvider,
@@ -120,8 +120,10 @@ export interface CreateFeatureLifecycleFixtureOptions {
    */
   verification?: OrchestratorPorts['verification'];
   /**
-   * Concurrency cap for the LocalWorkerPool. Defaults to 2 so a two-task
-   * feature can run in parallel without queueing for idle workers.
+   * Concurrency cap for the LocalWorkerPool. Defaults to 1: tasks dispatch
+   * sequentially so a single shared faux queue can feed each executor
+   * turn deterministically. Increase only for scenarios that don't rely
+   * on linear faux consumption.
    */
   maxConcurrency?: number;
 }
@@ -154,9 +156,13 @@ function createWorktreeStub(tmpDir: string): OrchestratorPorts['worktree'] {
   // port can return a deterministic path without shelling out.
   return {
     ensureFeatureWorktree: (feature) =>
-      Promise.resolve(path.resolve(tmpDir, worktreePath(feature.featureBranch))),
+      Promise.resolve(
+        path.resolve(tmpDir, worktreePath(feature.featureBranch)),
+      ),
     ensureTaskWorktree: (_task, feature) =>
-      Promise.resolve(path.resolve(tmpDir, worktreePath(feature.featureBranch))),
+      Promise.resolve(
+        path.resolve(tmpDir, worktreePath(feature.featureBranch)),
+      ),
     removeWorktree: () => Promise.resolve(),
     pruneStaleWorktrees: () => Promise.resolve([]),
     sweepStaleLocks: () => Promise.resolve([]),
@@ -226,7 +232,7 @@ export function createFeatureLifecycleFixture(
 
   const pool = new LocalWorkerPool(
     harness,
-    options.maxConcurrency ?? 2,
+    options.maxConcurrency ?? 1,
     (message) => {
       if (message.type === 'health_pong') return;
       workerMessages.push(message);
