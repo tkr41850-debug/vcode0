@@ -76,13 +76,13 @@ describe('applyGraphProposal edge cases', () => {
     const proposal = buildProposal('plan', [
       {
         kind: 'add_task',
-        taskId: '#1',
+        taskId: 't-1',
         featureId: 'f-1',
         description: 'Same description',
       },
       {
         kind: 'add_task',
-        taskId: '#2',
+        taskId: 't-2',
         featureId: 'f-1',
         description: 'Same description',
       },
@@ -98,7 +98,9 @@ describe('applyGraphProposal edge cases', () => {
     );
     expect(featureTasks).toHaveLength(2);
     expect(new Set(featureTasks.map((task) => task.id)).size).toBe(2);
-    expect(featureTasks.every((task) => task.description === 'Same description')).toBe(true);
+    expect(
+      featureTasks.every((task) => task.description === 'Same description'),
+    ).toBe(true);
   });
 
   it('rejects add_task with an already-existing concrete id into skipped[] (uniqueness-at-id convention)', () => {
