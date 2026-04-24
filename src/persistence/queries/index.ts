@@ -93,6 +93,7 @@ export interface IntegrationStateRow {
   feature_id: FeatureId;
   expected_parent_sha: string;
   feature_branch_pre_integration_sha: string;
+  feature_branch_post_rebase_sha: string | null;
   config_snapshot: string;
   intent: 'integrate' | 'cancel';
   started_at: number;

@@ -81,14 +81,18 @@ export class IntegrationCoordinator {
     const preIntegrationSha = (
       await featureGit.revparse([feature.featureBranch])
     ).trim();
+    const configSnapshot = JSON.stringify(
+      this.deps.ports.config.verification ?? {},
+    );
+    const startedAt = this.now();
 
     this.deps.ports.store.writeIntegrationState({
       featureId,
       expectedParentSha,
       featureBranchPreIntegrationSha: preIntegrationSha,
-      configSnapshot: JSON.stringify(this.deps.ports.config.verification ?? {}),
+      configSnapshot,
       intent: 'integrate',
-      startedAt: this.now(),
+      startedAt,
     });
 
     const rebaseConflicts = await this.runRebase(featureGit);
@@ -105,6 +109,21 @@ export class IntegrationCoordinator {
       ]);
       return { kind: 'rebase_conflict', conflictedFiles: rebaseConflicts };
     }
+
+    // Record the post-rebase tip so the reconciler can match it against
+    // `parents[1]` of the merge commit if we crash between merge and DB clear.
+    const postRebaseSha = (
+      await featureGit.revparse([feature.featureBranch])
+    ).trim();
+    this.deps.ports.store.writeIntegrationState({
+      featureId,
+      expectedParentSha,
+      featureBranchPreIntegrationSha: preIntegrationSha,
+      featureBranchPostRebaseSha: postRebaseSha,
+      configSnapshot,
+      intent: 'integrate',
+      startedAt,
+    });
 
     const verification =
       await this.deps.ports.verification.verifyFeature(feature);

@@ -56,8 +56,14 @@ export class IntegrationReconciler {
       return { kind: 'idle' };
     }
 
-    const { featureId, expectedParentSha, featureBranchPreIntegrationSha } =
-      marker;
+    const {
+      featureId,
+      expectedParentSha,
+      featureBranchPreIntegrationSha,
+      featureBranchPostRebaseSha,
+    } = marker;
+    const expectedMergeParent2 =
+      featureBranchPostRebaseSha ?? featureBranchPreIntegrationSha;
 
     const feature = this.deps.graph.features.get(featureId);
     if (feature === undefined) {
@@ -81,12 +87,12 @@ export class IntegrationReconciler {
     if (
       parents.length === 2 &&
       parents[0] === expectedParentSha &&
-      parents[1] === featureBranchPreIntegrationSha
+      parents[1] === expectedMergeParent2
     ) {
       const branchHeadSha = await this.featureBranchSha(feature.featureBranch);
       this.deps.graph.editFeature(featureId, {
         mainMergeSha: currentMainSha,
-        branchHeadSha: branchHeadSha ?? featureBranchPreIntegrationSha,
+        branchHeadSha: branchHeadSha ?? expectedMergeParent2,
       });
       this.deps.features.completeIntegration(featureId);
       this.deps.ports.store.clearIntegrationState();
@@ -94,7 +100,7 @@ export class IntegrationReconciler {
         kind: 'completed',
         featureId,
         mainMergeSha: currentMainSha,
-        branchHeadSha: branchHeadSha ?? featureBranchPreIntegrationSha,
+        branchHeadSha: branchHeadSha ?? expectedMergeParent2,
       };
     }
 

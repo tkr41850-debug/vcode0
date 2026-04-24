@@ -232,6 +232,73 @@ describe('IntegrationReconciler', () => {
     expect(feature?.branchHeadSha).toBe(preIntegrationSha);
   });
 
+  it('completes the merge transaction when the feature was rebased before merge', async () => {
+    const root = getTmpDir();
+    await initMainRepo(root);
+    const featureDir = await addFeatureWorktree(root);
+    await fs.writeFile(path.join(featureDir, 'feature.txt'), 'work\n');
+    await git(featureDir, 'add', 'feature.txt');
+    await git(featureDir, 'commit', '-m', 'feature change');
+
+    const preIntegrationSha = await gitOutput(
+      featureDir,
+      'rev-parse',
+      FEATURE_BRANCH,
+    );
+
+    // Main advances while the feature is queued for integration — the
+    // executor will need to rebase the feature branch before merging.
+    await fs.writeFile(path.join(root, 'main-advance.txt'), 'advance\n');
+    await git(root, 'add', 'main-advance.txt');
+    await git(root, 'commit', '-m', 'main advance');
+    const expectedParentSha = await gitOutput(root, 'rev-parse', 'main');
+
+    // Simulate the executor's rebase + merge, crashing before DB clear:
+    // - Rebase feature onto the advanced main (rewrites the feature tip).
+    // - `git merge --no-ff` brings that rebased tip into main.
+    await git(featureDir, 'rebase', 'main');
+    const postRebaseSha = await gitOutput(
+      featureDir,
+      'rev-parse',
+      FEATURE_BRANCH,
+    );
+    expect(postRebaseSha).not.toBe(preIntegrationSha);
+    await git(root, 'merge', '--no-ff', FEATURE_BRANCH);
+    const mergeSha = await gitOutput(root, 'rev-parse', 'main');
+
+    const graph = makeGraph();
+    const features = new FeatureLifecycleCoordinator(graph);
+    const { ports, state } = makePorts({
+      featureId: 'f-1',
+      expectedParentSha,
+      featureBranchPreIntegrationSha: preIntegrationSha,
+      featureBranchPostRebaseSha: postRebaseSha,
+      configSnapshot: '{}',
+      intent: 'integrate',
+      startedAt: 1,
+    });
+    const reconciler = new IntegrationReconciler({
+      ports,
+      graph,
+      features,
+      cwd: root,
+    });
+
+    const outcome = await reconciler.reconcile();
+    expect(outcome).toEqual({
+      kind: 'completed',
+      featureId: 'f-1',
+      mainMergeSha: mergeSha,
+      branchHeadSha: postRebaseSha,
+    });
+    expect(state.marker).toBeUndefined();
+
+    const feature = graph.features.get('f-1');
+    expect(feature?.collabControl).toBe('merged');
+    expect(feature?.mainMergeSha).toBe(mergeSha);
+    expect(feature?.branchHeadSha).toBe(postRebaseSha);
+  });
+
   it('halts when main is at an unrecognized SHA', async () => {
     const root = getTmpDir();
     await initMainRepo(root);

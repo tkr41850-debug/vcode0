@@ -6,6 +6,7 @@ import { Migration004FeaturePhaseOutputs } from '@persistence/migrations/004_fea
 import { Migration005TaskPlannerPayload } from '@persistence/migrations/005_task_planner_payload';
 import { Migration006RenameFeatureCiToCiCheck } from '@persistence/migrations/006_rename_feature_ci_to_ci_check';
 import { Migration007MergeTrainExecutorState } from '@persistence/migrations/007_merge_train_executor_state';
+import { Migration008IntegrationPostRebaseSha } from '@persistence/migrations/008_integration_post_rebase_sha';
 import { MigrationRunner } from '@persistence/migrations/index';
 import type Database from 'better-sqlite3';
 import BetterSqlite3 from 'better-sqlite3';
@@ -217,6 +218,43 @@ describe('persistence migrations', () => {
     expect(colMap.has('config_snapshot')).toBe(true);
     expect(colMap.has('intent')).toBe(true);
     expect(colMap.has('started_at')).toBe(true);
+  });
+
+  it('migration 008 adds feature_branch_post_rebase_sha as a nullable column', () => {
+    const integrationCols = db
+      .prepare<[], { name: string; notnull: number }>(
+        "PRAGMA table_info('integration_state')",
+      )
+      .all();
+    const postRebase = integrationCols.find(
+      (c) => c.name === 'feature_branch_post_rebase_sha',
+    );
+    expect(postRebase).toBeDefined();
+    expect(postRebase?.notnull).toBe(0);
+  });
+
+  it('migration 008 runs cleanly against a pre-008 database', () => {
+    const legacy = new BetterSqlite3(':memory:');
+    legacy.pragma('foreign_keys = ON');
+    new MigrationRunner(legacy, [
+      Migration001Init,
+      Migration002FeatureRuntimeBlock,
+      Migration003AgentRunTokenUsage,
+      Migration004FeaturePhaseOutputs,
+      Migration005TaskPlannerPayload,
+      Migration006RenameFeatureCiToCiCheck,
+      Migration007MergeTrainExecutorState,
+    ]).run();
+
+    new MigrationRunner(legacy, [Migration008IntegrationPostRebaseSha]).run();
+
+    const cols = legacy
+      .prepare<[], { name: string }>("PRAGMA table_info('integration_state')")
+      .all()
+      .map((r) => r.name);
+    expect(cols).toContain('feature_branch_post_rebase_sha');
+
+    legacy.close();
   });
 
   it('integration_state enforces singleton invariant', () => {

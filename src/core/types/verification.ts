@@ -84,6 +84,7 @@ export interface IntegrationState {
   featureId: FeatureId;
   expectedParentSha: string;
   featureBranchPreIntegrationSha: string;
+  featureBranchPostRebaseSha?: string;
   configSnapshot: string;
   intent: 'integrate' | 'cancel';
   startedAt: number;

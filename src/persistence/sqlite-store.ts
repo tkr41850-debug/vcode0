@@ -28,7 +28,7 @@ const AGENT_RUN_COLUMNS =
 const EVENT_COLUMNS = 'id, timestamp, event_type, entity_id, payload';
 
 const INTEGRATION_STATE_COLUMNS =
-  'id, feature_id, expected_parent_sha, feature_branch_pre_integration_sha, config_snapshot, intent, started_at';
+  'id, feature_id, expected_parent_sha, feature_branch_pre_integration_sha, feature_branch_post_rebase_sha, config_snapshot, intent, started_at';
 
 interface AgentRunInsertParams {
   id: string;
@@ -132,20 +132,22 @@ export class SqliteStore implements Store {
       feature_id: string;
       expected_parent_sha: string;
       feature_branch_pre_integration_sha: string;
+      feature_branch_post_rebase_sha: string | null;
       config_snapshot: string;
       intent: string;
       started_at: number;
     }>(
       `INSERT INTO integration_state
         (id, feature_id, expected_parent_sha, feature_branch_pre_integration_sha,
-         config_snapshot, intent, started_at)
+         feature_branch_post_rebase_sha, config_snapshot, intent, started_at)
        VALUES
         (1, :feature_id, :expected_parent_sha, :feature_branch_pre_integration_sha,
-         :config_snapshot, :intent, :started_at)
+         :feature_branch_post_rebase_sha, :config_snapshot, :intent, :started_at)
        ON CONFLICT(id) DO UPDATE SET
         feature_id = excluded.feature_id,
         expected_parent_sha = excluded.expected_parent_sha,
         feature_branch_pre_integration_sha = excluded.feature_branch_pre_integration_sha,
+        feature_branch_post_rebase_sha = excluded.feature_branch_post_rebase_sha,
         config_snapshot = excluded.config_snapshot,
         intent = excluded.intent,
         started_at = excluded.started_at`,
@@ -269,7 +271,7 @@ export class SqliteStore implements Store {
     if (row === undefined) {
       return undefined;
     }
-    return {
+    const state: IntegrationState = {
       featureId: row.feature_id,
       expectedParentSha: row.expected_parent_sha,
       featureBranchPreIntegrationSha: row.feature_branch_pre_integration_sha,
@@ -277,6 +279,10 @@ export class SqliteStore implements Store {
       intent: row.intent,
       startedAt: row.started_at,
     };
+    if (row.feature_branch_post_rebase_sha !== null) {
+      state.featureBranchPostRebaseSha = row.feature_branch_post_rebase_sha;
+    }
+    return state;
   }
 
   writeIntegrationState(state: IntegrationState): void {
@@ -284,6 +290,7 @@ export class SqliteStore implements Store {
       feature_id: state.featureId,
       expected_parent_sha: state.expectedParentSha,
       feature_branch_pre_integration_sha: state.featureBranchPreIntegrationSha,
+      feature_branch_post_rebase_sha: state.featureBranchPostRebaseSha ?? null,
       config_snapshot: state.configSnapshot,
       intent: state.intent,
       started_at: state.startedAt,

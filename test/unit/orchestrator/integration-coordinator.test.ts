@@ -182,7 +182,13 @@ describe('IntegrationCoordinator', () => {
       expect(outcome.mainMergeSha).toMatch(/^[0-9a-f]{40}$/);
       expect(outcome.branchHeadSha).toMatch(/^[0-9a-f]{40}$/);
     }
-    expect(markers.writes).toHaveLength(1);
+    // Marker is written twice: once before rebase (pre-rebase SHA only)
+    // and once after rebase succeeds (with post-rebase SHA).
+    expect(markers.writes).toHaveLength(2);
+    expect(markers.writes[0]?.featureBranchPostRebaseSha).toBeUndefined();
+    expect(markers.writes[1]?.featureBranchPostRebaseSha).toMatch(
+      /^[0-9a-f]{40}$/,
+    );
     expect(markers.clears).toBe(1);
 
     const headOnMain = await gitOutput(root, 'rev-parse', 'main');

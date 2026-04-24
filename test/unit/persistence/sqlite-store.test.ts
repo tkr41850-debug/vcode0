@@ -359,5 +359,48 @@ describe('SqliteStore', () => {
       store.clearIntegrationState();
       expect(store.getIntegrationState()).toBeUndefined();
     });
+
+    it('round-trips the post-rebase SHA when set', () => {
+      store.writeIntegrationState({
+        featureId: 'f-1',
+        expectedParentSha: 'sha-main',
+        featureBranchPreIntegrationSha: 'sha-feat',
+        featureBranchPostRebaseSha: 'sha-feat-rebased',
+        configSnapshot: '{}',
+        intent: 'integrate',
+        startedAt: 1,
+      });
+      expect(store.getIntegrationState()).toEqual({
+        featureId: 'f-1',
+        expectedParentSha: 'sha-main',
+        featureBranchPreIntegrationSha: 'sha-feat',
+        featureBranchPostRebaseSha: 'sha-feat-rebased',
+        configSnapshot: '{}',
+        intent: 'integrate',
+        startedAt: 1,
+      });
+    });
+
+    it('clears post-rebase SHA on upsert when subsequent write omits it', () => {
+      store.writeIntegrationState({
+        featureId: 'f-1',
+        expectedParentSha: 'sha-main',
+        featureBranchPreIntegrationSha: 'sha-feat',
+        featureBranchPostRebaseSha: 'sha-feat-rebased',
+        configSnapshot: '{}',
+        intent: 'integrate',
+        startedAt: 1,
+      });
+      store.writeIntegrationState({
+        featureId: 'f-1',
+        expectedParentSha: 'sha-main',
+        featureBranchPreIntegrationSha: 'sha-feat',
+        configSnapshot: '{}',
+        intent: 'integrate',
+        startedAt: 1,
+      });
+      const reread = store.getIntegrationState();
+      expect(reread?.featureBranchPostRebaseSha).toBeUndefined();
+    });
   });
 });
