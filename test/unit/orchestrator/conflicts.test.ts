@@ -9,6 +9,7 @@ import type { Feature, GvcConfig, Task } from '@core/types/index';
 import { defaultTaskBranch } from '@orchestrator/conflicts/helpers';
 import { ConflictCoordinator } from '@orchestrator/conflicts/index';
 import type { OrchestratorPorts } from '@orchestrator/ports/index';
+import { coordinateSameFeatureRuntimeOverlaps } from '@orchestrator/scheduler/overlaps';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -999,6 +1000,18 @@ describe('ConflictCoordinator', () => {
       status: 'ready',
     });
     expect(ports.runtime.steerTask).toHaveBeenCalled();
+
+    vi.mocked(ports.runtime.suspendTask).mockClear();
+    await coordinateSameFeatureRuntimeOverlaps({
+      graph,
+      conflicts: coordinator,
+    });
+
+    expect(graph.tasks.get('t-suspended')).toMatchObject({
+      collabControl: 'branch_open',
+      status: 'ready',
+    });
+    expect(ports.runtime.suspendTask).not.toHaveBeenCalled();
   }, 20000);
 
   it('matches dominant changed files after normalizing path variants', async () => {

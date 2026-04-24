@@ -120,6 +120,23 @@ describe('deriveReplanReason', () => {
     expect(reason).not.toContain('style suggestion');
   });
 
+  it('includes all actionable issues without truncation', () => {
+    const store = makeStore();
+    const verifyIssues = Array.from({ length: 20 }, (_value, index) => ({
+      source: 'verify' as const,
+      id: `vi-${index + 1}`,
+      severity: 'blocking' as const,
+      description: `issue ${index + 1}`,
+    }));
+    const feature = makeFeature({ verifyIssues });
+    const reason = deriveReplanReason({ store } as never, feature);
+
+    expect(reason).toContain('Outstanding verify issues (20):');
+    for (const issue of verifyIssues) {
+      expect(reason).toContain(issue.description);
+    }
+  });
+
   it('uses event summary when verifyIssues empty', () => {
     const store = makeStore([
       {

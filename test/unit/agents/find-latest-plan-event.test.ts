@@ -124,4 +124,26 @@ describe('findLatestPlanEvent', () => {
     ];
     expect(tag(findLatestPlanEvent(events))).toBe('p1');
   });
+
+  it('does not accept pending plan on a decision missing payload.phase', () => {
+    const events: EventRecord[] = [
+      planCompleted('p1', 'plan', 1),
+      {
+        eventType: 'proposal_applied',
+        entityId: 'f-1',
+        timestamp: 2,
+        payload: {},
+      },
+    ];
+    expect(findLatestPlanEvent(events)).toBeUndefined();
+  });
+
+  it('returns the later pending completion when two plan events arrive before any decision', () => {
+    const events = [
+      planCompleted('p1', 'plan', 1),
+      planCompleted('p2', 'replan', 2),
+      decision('proposal_applied', 'replan', 3),
+    ];
+    expect(tag(findLatestPlanEvent(events))).toBe('p2');
+  });
 });
