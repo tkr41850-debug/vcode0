@@ -87,6 +87,28 @@ export function readyTasks(graph: MutableGraphInternals): Task[] {
     ) {
       continue;
     }
+    // Enforce "wait for merge to main" at the task layer (REQ-EXEC-06):
+    // downstream tasks are only ready when every upstream feature-dep has
+    // both workControl='work_complete' AND collabControl='merged'. This
+    // mirrors the readyFeatures() gate at lines 46–57 exactly. Without
+    // this, a feature in workControl='executing' could dispatch its
+    // tasks while an upstream feature-dep is still branch_open /
+    // merge_queued / integrating / rebased / conflict / cancelled.
+    let upstreamFeaturesMerged = true;
+    for (const depFeatureId of feature.dependsOn) {
+      const depFeature = graph.features.get(depFeatureId);
+      if (
+        depFeature === undefined ||
+        depFeature.workControl !== 'work_complete' ||
+        depFeature.collabControl !== 'merged'
+      ) {
+        upstreamFeaturesMerged = false;
+        break;
+      }
+    }
+    if (!upstreamFeaturesMerged) {
+      continue;
+    }
     let allDepsDone = true;
     for (const depId of task.dependsOn) {
       const dep = graph.tasks.get(depId);
