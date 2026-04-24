@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-04-23)
 
 **Core value:** From one prompt, orchestrate parallel autonomous coding that lands on `main` without breaking it — live-steerable from a single TUI.
-**Current focus:** Phase 4 (Scheduler Tick) — plans ready; about to execute.
+**Current focus:** Phase 5 (Feature Lifecycle) — about to discuss.
 
 ## Current Position
 
-Phase: 4 of 12 (Scheduler Tick)
-Plan: 0 of 3 in current phase
-Status: Ready to execute
-Last activity: 2026-04-24 — Phase 4 discuss + research + plan + plan-check complete (3 plans in 3 serial waves, checker VERIFICATION PASSED on iteration 1, all 5 success criteria mapped).
+Phase: 5 of 12 (Feature Lifecycle)
+Plan: 0 of TBD in current phase
+Status: Pending discuss
+Last activity: 2026-04-24 — Phase 4 complete. VERIFICATION 4/5 PASS + 1 PARTIAL (perf smoke gated behind LOAD_TEST=1; both tiers pass when run). Contract surface stable for Phase 5 to build on.
 
-Progress: [███░░░░░░░] 25%
+Progress: [████░░░░░░] 33%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 11
-- Average duration: ~60 min/plan (Phase 3 skewed heavier due to spike + 2 resume cycles)
-- Total execution time: ~8h across phases 1-3
+- Total plans completed: 14
+- Average duration: ~60 min/plan
+- Total execution time: ~10h across phases 1-4
 
 **By Phase:**
 
@@ -30,8 +30,9 @@ Progress: [███░░░░░░░] 25%
 | 1 (Foundations & Clarity) | 3 | ~45m | ~15m |
 | 2 (Persistence & Port Contracts) | 3 | ~75m | ~25m |
 | 3 (Worker Execution Loop + Spike) | 5 | ~6h | ~70m |
+| 4 (Scheduler Tick + Event Queue) | 3 | ~3h | ~60m |
 
-**Recent Trend:** Phase 3 Wave 1 (03-01 + 03-02 parallel — both executors truncated mid-work, resumed via SendMessage), Wave 2 (03-03 solo), Wave 3 (03-04 + 03-05 parallel). Parallel-worktree merges required manual conflict resolution on PiSdkHarness constructor signature and Store interface additions.
+**Recent Trend:** Phase 4 three serial waves (each wave one plan, no parallelism benefit). Wave 1 (event-queue hygiene + tick-boundary guard), Wave 2 (7-key priority sort + canonical DAG fixtures + retry backoff), Wave 3 (feature-dep merge gate + dispatch guard + perf smoke + E2E). Plan-checker PASS first iteration; verifier 4/5 PASS + 1 PARTIAL.
 
 *Updated after each plan completion.*
 
@@ -60,15 +61,19 @@ None yet.
 - **Merge-train serial throughput** (acknowledged): strict-main merge train is a known v1 bottleneck under many parallel features. Optimization deferred (see `docs/feature-candidates/` and REQ-MERGE-V2-01/02).
 - **`@microsoft/tui-test` pre-1.0**: treat TUI e2e coverage as smoke-only in Phase 12; full e2e deferred.
 - **Parallel-vitest flakes** (Phase 3): 5 pre-existing unit tests flake under parallel-load (worktree.test.ts x4, tui/view-model.test.ts x1); logged as follow-up in 03-02-SUMMARY.md.
+- **Phase 4 perf smoke gated** (2026-04-24): Both tiers of scheduler-perf-smoke run only under `LOAD_TEST=1`. Default CI doesn't exercise the <100ms p95 budget. Follow-up in `.planning/phases/04-scheduler-tick-event-queue/deferred-items.md`.
+- **Biome format-only churn in ~17 unrelated files** (2026-04-24): `npm run check:fix` normalizes formatting in runtime/agents/config/warnings files; plans 04-01/02/03 left them out of scope. Tree is clean after each plan commit.
 
 ## Deferred Items
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| *(none)* | | | |
+| Phase 4 | Perf smoke default tier gated behind LOAD_TEST=1 | Open follow-up | 2026-04-24 |
+| Phase 4 | AST boundary walker narrowed to compose.ts + agents/runtime.ts (CONTEXT said orchestrator/**) | Open follow-up | 2026-04-24 |
+| Phase 4 | `GVC_ASSERT_TICK_BOUNDARY` off by default in CI | Open follow-up | 2026-04-24 |
 
 ## Session Continuity
 
-Last session: 2026-04-24 — Phase 4 planning completed (discuss → research → plan → plan-check). Plans verified first iteration.
-Stopped at: Phase 4 plans ready. Auto-chain advancing to execute.
-Resume file: `.planning/phases/04-scheduler-tick-event-queue/04-01-PLAN.md` → start with Wave 1.
+Last session: 2026-04-24 — Phase 4 complete end-to-end (discuss → research → plan → execute → verify). HEAD at `1a6328d`.
+Stopped at: Phase 4 done. Auto-chain advancing to Phase 5 (Feature Lifecycle).
+Resume file: discuss Phase 5 next.

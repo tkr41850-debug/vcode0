@@ -13,7 +13,7 @@ gvc0's v1 journey is **completing and clarifying** an existing design rather tha
 - [x] **Phase 1: Foundations & Clarity** — Consolidate core contracts (FSM guards, graph invariants, scheduling rules) and publish the canonical state / flow / coordination docs that end the opacity pain. ✓ 2026-04-23 (3/3 plans, 934 core tests, VERIFICATION PASS)
 - [x] **Phase 2: Persistence & Port Contracts** — Lock the Store port + SQLite schema + WAL tuning + typed config schema so nothing downstream rests on shifting ground. ✓ 2026-04-23 (3/3 plans, 106 persistence+config tests, VERIFICATION PASS; 10-min load gate deferred to runbook)
 - [x] **Phase 3: Worker Execution Loop (+ Pi-SDK Spike)** — Process-per-task worker, NDJSON IPC with `claim_lock`, write pre-hook, worktree manager, retry policy; decide pi-sdk Agent resume/replay strategy. ✓ 2026-04-23 (5/5 plans, VERIFICATION 6/6 structural PASS, 1520 unit + 26 phase-3 integration tests green. Spike decision: persist-tool-outputs — Agent.continue() throws on assistant-terminated transcripts across all 5 scenarios. Live-provider re-validation deferred to Phase 7/9.)
-- [ ] **Phase 4: Scheduler Tick + Event Queue** — Serial event queue, combined-graph metrics, priority-sort, reservation-overlap penalty, dispatch to worker pool.
+- [x] **Phase 4: Scheduler Tick + Event Queue** — Serial event queue, combined-graph metrics, priority-sort, reservation-overlap penalty, dispatch to worker pool. ✓ 2026-04-24 (3/3 plans, VERIFICATION 4/5 PASS + 1 PARTIAL. SchedulerEvent union with tick-boundary guard, 7-key priority sort with canonical DAG fixtures, feature-dep merge gate, perf smoke both tiers gated behind LOAD_TEST=1.)
 - [ ] **Phase 5: Feature Lifecycle & Feature-Level Planner** — Vertical slice: a feature plans, executes, verifies (agent review), and reaches merge-ready end-to-end.
 - [ ] **Phase 6: Merge Train** — Strict-main merge train with rebase + agent-review verify, re-entry cap, inbox parking on cap.
 - [ ] **Phase 7: Top-Level Planner + Inbox + Pause/Resume** — Prompt-to-feature-DAG; unified inbox; two-tier pause; additive re-plan; two-planner collision handling.
@@ -90,9 +90,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 04-01-PLAN.md — Serial event queue hardening + boundary-test infrastructure (AST walker + runtime `__enterTick` guard); enqueue-wake wiring; shutdown handler + exhaustiveness assertion; route-through refactors for compose.ts TUI callbacks and agents/runtime.ts phase-agent mutations. Closes SC1.
-- [ ] 04-02-PLAN.md — Canonical DAG fixture library (diamond/linear/parallel/deepNested/mixed); 7-key + ID-tiebreaker full-order sort test; reservation-overlap-is-penalty-not-block test; retry-eligibility backoff formula alignment with CONTEXT § H; ROADMAP + graph-operations.md doc reconciliation. Closes SC2, SC3, SC4.
-- [ ] 04-03-PLAN.md — readyTasks() upstream feature-dep merged gate + dispatch-time defensive guard; comprehensive collab-state test matrix; feature-phase worker-cap verification (REQ-EXEC-05); perf smoke (default 50×20 p95<100ms, LOAD_TEST 100×20 p95<250ms); two-feature E2E with WorkerPool. Closes SC5 + REQ-EXEC-05/06.
+- [x] 04-01-PLAN.md — Serial event queue hardening + boundary-test infrastructure (AST walker + runtime `__enterTick` guard); enqueue-wake wiring; shutdown handler + exhaustiveness assertion; route-through refactors for compose.ts TUI callbacks and agents/runtime.ts phase-agent mutations. Closes SC1.
+- [x] 04-02-PLAN.md — Canonical DAG fixture library (diamond/linear/parallel/deepNested/mixed); 7-key + ID-tiebreaker full-order sort test; reservation-overlap-is-penalty-not-block test; retry-eligibility backoff formula alignment with CONTEXT § H; ROADMAP + graph-operations.md doc reconciliation. Closes SC2, SC3, SC4.
+- [x] 04-03-PLAN.md — readyTasks() upstream feature-dep merged gate + dispatch-time defensive guard; comprehensive collab-state test matrix; feature-phase worker-cap verification (REQ-EXEC-05); perf smoke (default 50×20 p95<100ms, LOAD_TEST 100×20 p95<250ms); two-feature E2E with WorkerPool. Closes SC5 + REQ-EXEC-05/06.
 
 ### Phase 5: Feature Lifecycle & Feature-Level Planner
 **Goal**: A single feature goes plan → execute → verify → merge-ready end-to-end: feature-level planner produces a task DAG, tasks execute, verify phase runs a real agent review, repair loop handles failures.
@@ -245,7 +245,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 1. Foundations & Clarity | 0/TBD (~3) | Not started | - |
 | 2. Persistence & Port Contracts | 0/TBD (~3) | Not started | - |
 | 3. Worker Execution Loop (+ Spike) | 5/5 | ✓ Complete | 2026-04-23 |
-| 4. Scheduler Tick + Event Queue | 0/3 | Planned | - |
+| 4. Scheduler Tick + Event Queue | 3/3 | ✓ Complete | 2026-04-24 |
 | 5. Feature Lifecycle & Feature-Level Planner | 0/TBD (~4) | Not started | - |
 | 6. Merge Train | 0/TBD (~3) | Not started | - |
 | 7. Top-Level Planner + Inbox + Pause/Resume | 0/TBD (~5) | Not started | - |
@@ -257,4 +257,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 
 ---
 *Roadmap created: 2026-04-23*
-*Last updated: 2026-04-24 — Phase 4 plans finalized (3 plans, waves 1-3 serial)*
+*Last updated: 2026-04-24 — Phase 4 complete (3/3 plans, VERIFICATION 4/5 PASS + 1 PARTIAL). Advancing to Phase 5.*
