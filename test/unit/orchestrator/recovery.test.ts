@@ -101,6 +101,30 @@ function createRuntimeMock(): RuntimePort & {
               },
         ),
     ),
+    steerRun: vi.fn((agentRunId: string) =>
+      Promise.resolve({ kind: 'not_running' as const, taskId: agentRunId }),
+    ),
+    suspendRun: vi.fn((agentRunId: string) =>
+      Promise.resolve({ kind: 'not_running' as const, taskId: agentRunId }),
+    ),
+    resumeRun: vi.fn((agentRunId: string) =>
+      Promise.resolve({ kind: 'not_running' as const, taskId: agentRunId }),
+    ),
+    respondToRunHelp: vi.fn((agentRunId: string) =>
+      Promise.resolve({ kind: 'not_running' as const, taskId: agentRunId }),
+    ),
+    decideRunApproval: vi.fn((agentRunId: string) =>
+      Promise.resolve({ kind: 'not_running' as const, taskId: agentRunId }),
+    ),
+    sendRunManualInput: vi.fn((agentRunId: string) =>
+      Promise.resolve({ kind: 'not_running' as const, taskId: agentRunId }),
+    ),
+    abortRun: vi.fn((agentRunId: string) =>
+      Promise.resolve({ kind: 'not_running' as const, taskId: agentRunId }),
+    ),
+    respondToRunClaim: vi.fn((agentRunId: string) =>
+      Promise.resolve({ kind: 'not_running' as const, taskId: agentRunId }),
+    ),
     steerTask: vi.fn(),
     suspendTask: vi.fn(),
     resumeTask: vi.fn((taskId: string) =>

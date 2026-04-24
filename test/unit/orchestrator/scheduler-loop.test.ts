@@ -173,6 +173,22 @@ function createRuntimeMock(order: string[]): RuntimePort & {
         agentRunId: 'run-1',
         sessionId: 'sess-1',
       }),
+    steerRun: (agentRunId: string) =>
+      Promise.resolve({ kind: 'not_running', taskId: agentRunId }),
+    suspendRun: (agentRunId: string) =>
+      Promise.resolve({ kind: 'not_running', taskId: agentRunId }),
+    resumeRun: (agentRunId: string) =>
+      Promise.resolve({ kind: 'not_running', taskId: agentRunId }),
+    respondToRunHelp: (agentRunId: string) =>
+      Promise.resolve({ kind: 'not_running', taskId: agentRunId }),
+    decideRunApproval: (agentRunId: string) =>
+      Promise.resolve({ kind: 'not_running', taskId: agentRunId }),
+    sendRunManualInput: (agentRunId: string) =>
+      Promise.resolve({ kind: 'not_running', taskId: agentRunId }),
+    abortRun: (agentRunId: string) =>
+      Promise.resolve({ kind: 'not_running', taskId: agentRunId }),
+    respondToRunClaim: (agentRunId: string) =>
+      Promise.resolve({ kind: 'not_running', taskId: agentRunId }),
     steerTask: (taskId: string) =>
       Promise.resolve({ kind: 'not_running', taskId }),
     suspendTask: (taskId: string) =>

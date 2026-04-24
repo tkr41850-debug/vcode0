@@ -143,7 +143,7 @@ export async function composeApplication(): Promise<GvcApplication> {
         throw new Error(`task "${taskId}" is not waiting for help`);
       }
 
-      const result = await runtime.respondToHelp(taskId, response);
+      const result = await runtime.respondToRunHelp(run.id, response);
       if (result.kind !== 'delivered') {
         throw new Error(`task "${taskId}" is not running`);
       }
@@ -163,7 +163,7 @@ export async function composeApplication(): Promise<GvcApplication> {
         throw new Error(`task "${taskId}" is not waiting for approval`);
       }
 
-      const result = await runtime.decideApproval(taskId, decision);
+      const result = await runtime.decideRunApproval(run.id, decision);
       if (result.kind !== 'delivered') {
         throw new Error(`task "${taskId}" is not running`);
       }
@@ -185,7 +185,7 @@ export async function composeApplication(): Promise<GvcApplication> {
         throw new Error(`task "${taskId}" is not open for manual input`);
       }
 
-      const result = await runtime.sendManualInput(taskId, text);
+      const result = await runtime.sendRunManualInput(run.id, text);
       if (result.kind !== 'delivered') {
         throw new Error(`task "${taskId}" is not running`);
       }
@@ -352,7 +352,7 @@ interface CancelFeatureRunDeps {
     listAgentRuns: () => readonly AgentRun[];
     updateAgentRun: (runId: string, patch: Partial<AgentRun>) => void;
   };
-  runtime: Pick<RuntimePort, 'abortTask'>;
+  runtime: Pick<RuntimePort, 'abortRun'>;
 }
 
 export async function cancelFeatureRunWork(
@@ -379,7 +379,7 @@ export async function cancelFeatureRunWork(
 
   for (const run of affectedRuns) {
     if (run.scopeType === 'task' && run.runStatus === 'running') {
-      await runtime.abortTask(run.scopeId);
+      await runtime.abortRun(run.id);
     }
     store.updateAgentRun(run.id, {
       runStatus: 'cancelled',

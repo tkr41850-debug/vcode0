@@ -6,6 +6,7 @@ export type {
   HelpResponse,
   OrchestratorToWorkerMessage,
   ResumableTaskExecutionRunRef,
+  RunExecutionRef,
   RuntimePort,
   RuntimeSteeringDirective,
   RuntimeUsageDelta,

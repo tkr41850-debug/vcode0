@@ -184,14 +184,14 @@ describe('compose helpers', () => {
       }),
     };
     const runtime = {
-      abortTask: vi.fn((taskId: string) =>
+      abortRun: vi.fn((agentRunId: string) =>
         Promise.resolve({
           kind: 'delivered' as const,
-          taskId,
-          agentRunId: `run-task:${taskId}`,
+          taskId: agentRunId,
+          agentRunId,
         }),
       ),
-    } as Pick<RuntimePort, 'abortTask'>;
+    } as Pick<RuntimePort, 'abortRun'>;
 
     await cancelFeatureRunWork({ graph, store, runtime }, 'f-1');
 
@@ -204,8 +204,8 @@ describe('compose helpers', () => {
       collabControl: 'suspended',
       suspendReason: 'cross_feature_overlap',
     });
-    expect(runtime.abortTask).toHaveBeenCalledTimes(1);
-    expect(runtime.abortTask).toHaveBeenCalledWith('t-1');
+    expect(runtime.abortRun).toHaveBeenCalledTimes(1);
+    expect(runtime.abortRun).toHaveBeenCalledWith('run-task:t-1');
     expect(store.updateAgentRun).toHaveBeenCalledWith('run-task:t-1', {
       runStatus: 'cancelled',
       owner: 'system',

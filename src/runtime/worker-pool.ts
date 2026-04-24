@@ -7,20 +7,20 @@ import type { TaskPayload } from '@runtime/context/index';
 import type {
   DispatchRunResult,
   DispatchTaskResult,
+  RunExecutionRef,
   RunPayload,
   RunScope,
   RuntimeDispatch,
   RuntimePort,
   RuntimeSteeringDirective,
   TaskControlResult,
-  TaskExecutionRunRef,
   TaskRuntimeDispatch,
   WorkerToOrchestratorMessage,
 } from '@runtime/contracts';
 import type { SessionHandle, SessionHarness } from '@runtime/harness/index';
 
 interface LiveSession {
-  ref: TaskExecutionRunRef;
+  ref: RunExecutionRef;
   handle: SessionHandle;
 }
 
@@ -78,8 +78,8 @@ export class LocalWorkerPool implements RuntimePort {
         ref: { taskId: task.id, agentRunId: dispatch.agentRunId },
         handle: resumeResult.handle,
       };
-      this.liveRuns.set(task.id, session);
-      this.registerWorkerHandler(task.id, session);
+      this.liveRuns.set(dispatch.agentRunId, session);
+      this.registerWorkerHandler(dispatch.agentRunId, session);
 
       return {
         kind: 'resumed',
@@ -98,8 +98,8 @@ export class LocalWorkerPool implements RuntimePort {
       ref: { taskId: task.id, agentRunId: dispatch.agentRunId },
       handle,
     };
-    this.liveRuns.set(task.id, session);
-    this.registerWorkerHandler(task.id, session);
+    this.liveRuns.set(dispatch.agentRunId, session);
+    this.registerWorkerHandler(dispatch.agentRunId, session);
 
     return {
       kind: 'started',
@@ -156,27 +156,156 @@ export class LocalWorkerPool implements RuntimePort {
     }
   }
 
+  steerRun(
+    agentRunId: string,
+    directive: RuntimeSteeringDirective,
+  ): Promise<TaskControlResult> {
+    return Promise.resolve(
+      this.controlRun(agentRunId, (session) => {
+        session.handle.send({
+          type: 'steer',
+          taskId: session.ref.taskId ?? '',
+          agentRunId,
+          directive,
+        });
+      }),
+    );
+  }
+
+  suspendRun(
+    agentRunId: string,
+    reason: TaskSuspendReason,
+    files: string[] = [],
+  ): Promise<TaskControlResult> {
+    return Promise.resolve(
+      this.controlRun(agentRunId, (session) => {
+        session.handle.send({
+          type: 'suspend',
+          taskId: session.ref.taskId ?? '',
+          agentRunId,
+          reason,
+          files,
+        });
+      }),
+    );
+  }
+
+  resumeRun(
+    agentRunId: string,
+    reason: TaskResumeReason,
+  ): Promise<TaskControlResult> {
+    return Promise.resolve(
+      this.controlRun(agentRunId, (session) => {
+        session.handle.send({
+          type: 'resume',
+          taskId: session.ref.taskId ?? '',
+          agentRunId,
+          reason,
+        });
+      }),
+    );
+  }
+
+  respondToRunHelp(
+    agentRunId: string,
+    response: { kind: 'answer'; text: string } | { kind: 'discuss' },
+  ): Promise<TaskControlResult> {
+    return Promise.resolve(
+      this.controlRun(agentRunId, (session) => {
+        session.handle.send({
+          type: 'help_response',
+          taskId: session.ref.taskId ?? '',
+          agentRunId,
+          response,
+        });
+      }),
+    );
+  }
+
+  decideRunApproval(
+    agentRunId: string,
+    decision:
+      | { kind: 'approved' }
+      | { kind: 'approve_always' }
+      | { kind: 'reject'; comment?: string }
+      | { kind: 'discuss' },
+  ): Promise<TaskControlResult> {
+    return Promise.resolve(
+      this.controlRun(agentRunId, (session) => {
+        session.handle.send({
+          type: 'approval_decision',
+          taskId: session.ref.taskId ?? '',
+          agentRunId,
+          decision,
+        });
+      }),
+    );
+  }
+
+  sendRunManualInput(
+    agentRunId: string,
+    text: string,
+  ): Promise<TaskControlResult> {
+    return Promise.resolve(
+      this.controlRun(agentRunId, (session) => {
+        session.handle.send({
+          type: 'manual_input',
+          taskId: session.ref.taskId ?? '',
+          agentRunId,
+          text,
+        });
+      }),
+    );
+  }
+
+  respondToRunClaim(
+    agentRunId: string,
+    decision: {
+      claimId: string;
+      kind: 'granted' | 'denied';
+      deniedPaths?: readonly string[];
+    },
+  ): Promise<TaskControlResult> {
+    return Promise.resolve(
+      this.controlRun(agentRunId, (session) => {
+        session.handle.send({
+          type: 'claim_decision',
+          taskId: session.ref.taskId ?? '',
+          agentRunId,
+          ...decision,
+        });
+      }),
+    );
+  }
+
+  abortRun(agentRunId: string): Promise<TaskControlResult> {
+    const session = this.liveRuns.get(agentRunId);
+    if (session === undefined) {
+      return Promise.resolve({
+        kind: 'not_running',
+        taskId: this.findTaskIdForRun(agentRunId) ?? agentRunId,
+      });
+    }
+
+    session.handle.abort();
+    this.liveRuns.delete(agentRunId);
+
+    return Promise.resolve({
+      kind: 'delivered',
+      taskId: session.ref.taskId ?? agentRunId,
+      agentRunId,
+    });
+  }
+
   steerTask(
     taskId: string,
     directive: RuntimeSteeringDirective,
   ): Promise<TaskControlResult> {
-    const session = this.liveRuns.get(taskId);
+    const session = this.findSessionByTaskId(taskId);
     if (session === undefined) {
       return Promise.resolve({ kind: 'not_running', taskId });
     }
-
-    session.handle.send({
-      type: 'steer',
-      taskId,
-      agentRunId: session.ref.agentRunId,
-      directive,
-    });
-
-    return Promise.resolve({
-      kind: 'delivered',
-      taskId,
-      agentRunId: session.ref.agentRunId,
-    });
+    return this.steerRun(session.ref.agentRunId, directive);
   }
 
   suspendTask(
@@ -184,70 +313,33 @@ export class LocalWorkerPool implements RuntimePort {
     reason: TaskSuspendReason,
     files: string[] = [],
   ): Promise<TaskControlResult> {
-    const session = this.liveRuns.get(taskId);
+    const session = this.findSessionByTaskId(taskId);
     if (session === undefined) {
       return Promise.resolve({ kind: 'not_running', taskId });
     }
-
-    session.handle.send({
-      type: 'suspend',
-      taskId,
-      agentRunId: session.ref.agentRunId,
-      reason,
-      files,
-    });
-
-    return Promise.resolve({
-      kind: 'delivered',
-      taskId,
-      agentRunId: session.ref.agentRunId,
-    });
+    return this.suspendRun(session.ref.agentRunId, reason, files);
   }
 
   resumeTask(
     taskId: string,
     reason: TaskResumeReason,
   ): Promise<TaskControlResult> {
-    const session = this.liveRuns.get(taskId);
+    const session = this.findSessionByTaskId(taskId);
     if (session === undefined) {
       return Promise.resolve({ kind: 'not_running', taskId });
     }
-
-    session.handle.send({
-      type: 'resume',
-      taskId,
-      agentRunId: session.ref.agentRunId,
-      reason,
-    });
-
-    return Promise.resolve({
-      kind: 'delivered',
-      taskId,
-      agentRunId: session.ref.agentRunId,
-    });
+    return this.resumeRun(session.ref.agentRunId, reason);
   }
 
   respondToHelp(
     taskId: string,
     response: { kind: 'answer'; text: string } | { kind: 'discuss' },
   ): Promise<TaskControlResult> {
-    const session = this.liveRuns.get(taskId);
+    const session = this.findSessionByTaskId(taskId);
     if (session === undefined) {
       return Promise.resolve({ kind: 'not_running', taskId });
     }
-
-    session.handle.send({
-      type: 'help_response',
-      taskId,
-      agentRunId: session.ref.agentRunId,
-      response,
-    });
-
-    return Promise.resolve({
-      kind: 'delivered',
-      taskId,
-      agentRunId: session.ref.agentRunId,
-    });
+    return this.respondToRunHelp(session.ref.agentRunId, response);
   }
 
   decideApproval(
@@ -258,43 +350,19 @@ export class LocalWorkerPool implements RuntimePort {
       | { kind: 'reject'; comment?: string }
       | { kind: 'discuss' },
   ): Promise<TaskControlResult> {
-    const session = this.liveRuns.get(taskId);
+    const session = this.findSessionByTaskId(taskId);
     if (session === undefined) {
       return Promise.resolve({ kind: 'not_running', taskId });
     }
-
-    session.handle.send({
-      type: 'approval_decision',
-      taskId,
-      agentRunId: session.ref.agentRunId,
-      decision,
-    });
-
-    return Promise.resolve({
-      kind: 'delivered',
-      taskId,
-      agentRunId: session.ref.agentRunId,
-    });
+    return this.decideRunApproval(session.ref.agentRunId, decision);
   }
 
   sendManualInput(taskId: string, text: string): Promise<TaskControlResult> {
-    const session = this.liveRuns.get(taskId);
+    const session = this.findSessionByTaskId(taskId);
     if (session === undefined) {
       return Promise.resolve({ kind: 'not_running', taskId });
     }
-
-    session.handle.send({
-      type: 'manual_input',
-      taskId,
-      agentRunId: session.ref.agentRunId,
-      text,
-    });
-
-    return Promise.resolve({
-      kind: 'delivered',
-      taskId,
-      agentRunId: session.ref.agentRunId,
-    });
+    return this.sendRunManualInput(session.ref.agentRunId, text);
   }
 
   respondClaim(
@@ -305,39 +373,19 @@ export class LocalWorkerPool implements RuntimePort {
       deniedPaths?: readonly string[];
     },
   ): Promise<TaskControlResult> {
-    const session = this.liveRuns.get(taskId);
+    const session = this.findSessionByTaskId(taskId);
     if (session === undefined) {
       return Promise.resolve({ kind: 'not_running', taskId });
     }
-
-    session.handle.send({
-      type: 'claim_decision',
-      taskId,
-      agentRunId: session.ref.agentRunId,
-      ...decision,
-    });
-
-    return Promise.resolve({
-      kind: 'delivered',
-      taskId,
-      agentRunId: session.ref.agentRunId,
-    });
+    return this.respondToRunClaim(session.ref.agentRunId, decision);
   }
 
   abortTask(taskId: string): Promise<TaskControlResult> {
-    const session = this.liveRuns.get(taskId);
+    const session = this.findSessionByTaskId(taskId);
     if (session === undefined) {
       return Promise.resolve({ kind: 'not_running', taskId });
     }
-
-    session.handle.abort();
-    this.liveRuns.delete(taskId);
-
-    return Promise.resolve({
-      kind: 'delivered',
-      taskId,
-      agentRunId: session.ref.agentRunId,
-    });
+    return this.abortRun(session.ref.agentRunId);
   }
 
   idleWorkerCount(): number {
@@ -345,14 +393,50 @@ export class LocalWorkerPool implements RuntimePort {
   }
 
   stopAll(): Promise<void> {
-    for (const [taskId, session] of this.liveRuns) {
+    for (const [agentRunId, session] of this.liveRuns) {
       session.handle.abort();
-      this.liveRuns.delete(taskId);
+      this.liveRuns.delete(agentRunId);
     }
     return Promise.resolve();
   }
 
-  private registerWorkerHandler(taskId: string, session: LiveSession): void {
+  private controlRun(
+    agentRunId: string,
+    send: (session: LiveSession) => void,
+  ): TaskControlResult {
+    const session = this.liveRuns.get(agentRunId);
+    if (session === undefined) {
+      return {
+        kind: 'not_running',
+        taskId: this.findTaskIdForRun(agentRunId) ?? agentRunId,
+      };
+    }
+
+    send(session);
+    return {
+      kind: 'delivered',
+      taskId: session.ref.taskId ?? agentRunId,
+      agentRunId,
+    };
+  }
+
+  private findSessionByTaskId(taskId: string): LiveSession | undefined {
+    for (const session of this.liveRuns.values()) {
+      if (session.ref.taskId === taskId) {
+        return session;
+      }
+    }
+    return undefined;
+  }
+
+  private findTaskIdForRun(agentRunId: string): string | undefined {
+    return this.liveRuns.get(agentRunId)?.ref.taskId;
+  }
+
+  private registerWorkerHandler(
+    agentRunId: string,
+    session: LiveSession,
+  ): void {
     session.handle.onWorkerMessage((message: WorkerToOrchestratorMessage) => {
       const normalizedMessage =
         message.agentRunId === session.ref.agentRunId
@@ -366,7 +450,7 @@ export class LocalWorkerPool implements RuntimePort {
         normalizedMessage.type === 'result' ||
         normalizedMessage.type === 'error'
       ) {
-        this.liveRuns.delete(taskId);
+        this.liveRuns.delete(agentRunId);
         this.onTaskComplete?.(normalizedMessage);
       } else {
         this.onTaskComplete?.(normalizedMessage);
@@ -374,15 +458,15 @@ export class LocalWorkerPool implements RuntimePort {
     });
 
     session.handle.onExit((info) => {
-      if (!this.liveRuns.has(taskId)) return;
-      this.liveRuns.delete(taskId);
+      if (!this.liveRuns.has(agentRunId)) return;
+      this.liveRuns.delete(agentRunId);
       const reason =
         info.error !== undefined
           ? `worker_exited: ${info.error.message}`
           : `worker_exited: code=${info.code ?? 'null'} signal=${info.signal ?? 'null'}`;
       this.onTaskComplete?.({
         type: 'error',
-        taskId,
+        taskId: session.ref.taskId ?? agentRunId,
         agentRunId: session.ref.agentRunId,
         error: reason,
       });

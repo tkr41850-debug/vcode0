@@ -302,6 +302,193 @@ describe('LocalWorkerPool', () => {
     });
   });
 
+  describe('run-keyed control methods', () => {
+    it('delivers steering directive by agentRunId', async () => {
+      const { handle, pool } = setupPool('sess-steer');
+
+      await pool.dispatchTask(makeTask(), {
+        mode: 'start',
+        agentRunId: 'run-1',
+      });
+
+      const directive: RuntimeSteeringDirective = {
+        kind: 'sync_recommended',
+        timing: 'next_checkpoint',
+      };
+
+      const result = await pool.steerRun('run-1', directive);
+      expect(result).toEqual({
+        kind: 'delivered',
+        taskId: 't-task-1',
+        agentRunId: 'run-1',
+      });
+      expect(handle._sentMessages).toContainEqual(
+        expect.objectContaining({ type: 'steer', directive }),
+      );
+    });
+
+    it('delivers suspend by agentRunId', async () => {
+      const { handle, pool } = setupPool('sess-susp');
+
+      await pool.dispatchTask(makeTask(), {
+        mode: 'start',
+        agentRunId: 'run-1',
+      });
+
+      const result = await pool.suspendRun('run-1', 'same_feature_overlap', [
+        'src/index.ts',
+      ]);
+      expect(result).toEqual({
+        kind: 'delivered',
+        taskId: 't-task-1',
+        agentRunId: 'run-1',
+      });
+      expect(handle._sentMessages).toContainEqual(
+        expect.objectContaining({
+          type: 'suspend',
+          reason: 'same_feature_overlap',
+          files: ['src/index.ts'],
+        }),
+      );
+    });
+
+    it('delivers resume by agentRunId', async () => {
+      const { handle, pool } = setupPool('sess-res');
+
+      await pool.dispatchTask(makeTask(), {
+        mode: 'start',
+        agentRunId: 'run-1',
+      });
+
+      const result = await pool.resumeRun('run-1', 'manual');
+      expect(result).toEqual({
+        kind: 'delivered',
+        taskId: 't-task-1',
+        agentRunId: 'run-1',
+      });
+      expect(handle._sentMessages).toContainEqual(
+        expect.objectContaining({ type: 'resume', reason: 'manual' }),
+      );
+    });
+
+    it('delivers help response by agentRunId', async () => {
+      const { handle, pool } = setupPool('sess-help');
+
+      await pool.dispatchTask(makeTask(), {
+        mode: 'start',
+        agentRunId: 'run-1',
+      });
+
+      const result = await pool.respondToRunHelp('run-1', {
+        kind: 'answer',
+        text: 'use option b',
+      });
+      expect(result).toEqual({
+        kind: 'delivered',
+        taskId: 't-task-1',
+        agentRunId: 'run-1',
+      });
+      expect(handle._sentMessages).toContainEqual(
+        expect.objectContaining({
+          type: 'help_response',
+          response: { kind: 'answer', text: 'use option b' },
+        }),
+      );
+    });
+
+    it('delivers approval decision by agentRunId', async () => {
+      const { handle, pool } = setupPool('sess-approval');
+
+      await pool.dispatchTask(makeTask(), {
+        mode: 'start',
+        agentRunId: 'run-1',
+      });
+
+      const result = await pool.decideRunApproval('run-1', {
+        kind: 'reject',
+        comment: 'needs changes',
+      });
+      expect(result).toEqual({
+        kind: 'delivered',
+        taskId: 't-task-1',
+        agentRunId: 'run-1',
+      });
+      expect(handle._sentMessages).toContainEqual(
+        expect.objectContaining({
+          type: 'approval_decision',
+          decision: { kind: 'reject', comment: 'needs changes' },
+        }),
+      );
+    });
+
+    it('delivers manual input by agentRunId', async () => {
+      const { handle, pool } = setupPool('sess-input');
+
+      await pool.dispatchTask(makeTask(), {
+        mode: 'start',
+        agentRunId: 'run-1',
+      });
+
+      const result = await pool.sendRunManualInput('run-1', 'continue now');
+      expect(result).toEqual({
+        kind: 'delivered',
+        taskId: 't-task-1',
+        agentRunId: 'run-1',
+      });
+      expect(handle._sentMessages).toContainEqual(
+        expect.objectContaining({
+          type: 'manual_input',
+          text: 'continue now',
+        }),
+      );
+    });
+
+    it('delivers claim response by agentRunId', async () => {
+      const { handle, pool } = setupPool('sess-claim');
+
+      await pool.dispatchTask(makeTask(), {
+        mode: 'start',
+        agentRunId: 'run-1',
+      });
+
+      const result = await pool.respondToRunClaim('run-1', {
+        claimId: 'claim-1',
+        kind: 'granted',
+      });
+      expect(result).toEqual({
+        kind: 'delivered',
+        taskId: 't-task-1',
+        agentRunId: 'run-1',
+      });
+      expect(handle._sentMessages).toContainEqual(
+        expect.objectContaining({
+          type: 'claim_decision',
+          claimId: 'claim-1',
+          kind: 'granted',
+        }),
+      );
+    });
+
+    it('aborts by agentRunId and removes live run', async () => {
+      const { handle, pool } = setupPool('sess-abort');
+      const abort = vi.mocked(handle.abort);
+
+      await pool.dispatchTask(makeTask(), {
+        mode: 'start',
+        agentRunId: 'run-1',
+      });
+
+      const result = await pool.abortRun('run-1');
+      expect(result).toEqual({
+        kind: 'delivered',
+        taskId: 't-task-1',
+        agentRunId: 'run-1',
+      });
+      expect(abort).toHaveBeenCalled();
+      expect(pool.idleWorkerCount()).toBe(4);
+    });
+  });
+
   describe('steerTask', () => {
     it('delivers a steering directive to a running task', async () => {
       const { handle, pool } = setupPool('sess-steer');

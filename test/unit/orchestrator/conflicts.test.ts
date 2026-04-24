@@ -41,6 +41,40 @@ function createPorts(root: string): OrchestratorPorts {
     runtime: {
       dispatchRun: vi.fn(),
       dispatchTask: vi.fn(),
+      steerRun: vi.fn((agentRunId: string) =>
+        Promise.resolve({
+          kind: 'delivered' as const,
+          taskId: agentRunId,
+          agentRunId,
+        }),
+      ),
+      suspendRun: vi.fn((agentRunId: string) =>
+        Promise.resolve({
+          kind: 'delivered' as const,
+          taskId: agentRunId,
+          agentRunId,
+        }),
+      ),
+      resumeRun: vi.fn((agentRunId: string) =>
+        Promise.resolve({
+          kind: 'delivered' as const,
+          taskId: agentRunId,
+          agentRunId,
+        }),
+      ),
+      respondToRunHelp: vi.fn((agentRunId: string) =>
+        Promise.resolve({ kind: 'not_running' as const, taskId: agentRunId }),
+      ),
+      decideRunApproval: vi.fn((agentRunId: string) =>
+        Promise.resolve({ kind: 'not_running' as const, taskId: agentRunId }),
+      ),
+      sendRunManualInput: vi.fn((agentRunId: string) =>
+        Promise.resolve({ kind: 'not_running' as const, taskId: agentRunId }),
+      ),
+      abortRun: vi.fn(),
+      respondToRunClaim: vi.fn((agentRunId: string) =>
+        Promise.resolve({ kind: 'not_running' as const, taskId: agentRunId }),
+      ),
       steerTask: vi.fn((taskId: string) =>
         Promise.resolve({
           kind: 'delivered' as const,

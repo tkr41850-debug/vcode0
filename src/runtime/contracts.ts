@@ -105,6 +105,11 @@ export interface TaskExecutionRunRef {
   agentRunId: string;
 }
 
+export interface RunExecutionRef {
+  agentRunId: string;
+  taskId?: string;
+}
+
 export interface ResumableTaskExecutionRunRef extends TaskExecutionRunRef {
   sessionId: string;
 }
@@ -217,6 +222,47 @@ export interface RuntimePort {
     dispatch: TaskRuntimeDispatch,
     payload?: TaskPayload,
   ): Promise<DispatchTaskResult>;
+  steerRun(
+    this: void,
+    agentRunId: string,
+    directive: RuntimeSteeringDirective,
+  ): Promise<TaskControlResult>;
+  suspendRun(
+    this: void,
+    agentRunId: string,
+    reason: TaskSuspendReason,
+    files?: string[],
+  ): Promise<TaskControlResult>;
+  resumeRun(
+    this: void,
+    agentRunId: string,
+    reason: TaskResumeReason,
+  ): Promise<TaskControlResult>;
+  respondToRunHelp(
+    this: void,
+    agentRunId: string,
+    response: HelpResponse,
+  ): Promise<TaskControlResult>;
+  decideRunApproval(
+    this: void,
+    agentRunId: string,
+    decision: ApprovalDecision,
+  ): Promise<TaskControlResult>;
+  sendRunManualInput(
+    this: void,
+    agentRunId: string,
+    text: string,
+  ): Promise<TaskControlResult>;
+  abortRun(this: void, agentRunId: string): Promise<TaskControlResult>;
+  respondToRunClaim(
+    this: void,
+    agentRunId: string,
+    decision: {
+      claimId: string;
+      kind: 'granted' | 'denied';
+      deniedPaths?: readonly string[];
+    },
+  ): Promise<TaskControlResult>;
   steerTask(
     this: void,
     taskId: string,
