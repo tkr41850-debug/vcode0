@@ -1,11 +1,90 @@
+import type { ProposalPhaseResult } from '@agents/proposal';
 import type {
+  AgentRunPhase,
+  FeatureId,
+  FeaturePhaseResult,
   GitConflictContext,
   Task,
+  TaskId,
   TaskResult,
   TaskResumeReason,
   TaskSuspendReason,
+  VerificationSummary,
 } from '@core/types/index';
 import type { TaskPayload } from '@runtime/context/index';
+
+/**
+ * Scope-aware run identity for `RuntimePort.dispatchRun`.
+ *
+ * Unifies task, feature-phase, and planner/replanner dispatch behind one
+ * seam. Planner/replanner are feature-phase runs with `phase: 'plan' |
+ * 'replan'`; `ci_check` is a feature-phase run routed to the shell
+ * verification service rather than an agent backend. Scope selection drives
+ * backend selection inside `LocalWorkerPool.dispatchRun` — it does not
+ * change the persisted `agent_runs.scope_type` discriminator.
+ */
+export type RunScope =
+  | { kind: 'task'; taskId: TaskId; featureId: FeatureId }
+  | { kind: 'feature_phase'; featureId: FeatureId; phase: AgentRunPhase };
+
+/**
+ * Harness-level dispatch intent: start a fresh run or resume an existing
+ * session. Matches the shape of `TaskRuntimeDispatch` but scope-neutral.
+ */
+export type RuntimeDispatch =
+  | { mode: 'start'; agentRunId: string }
+  | { mode: 'resume'; agentRunId: string; sessionId: string };
+
+/**
+ * Per-scope completion payload. Emitted by feature-phase backends that
+ * finish their work synchronously (today: every feature-phase agent plus
+ * `ci_check`), or threaded through `SessionHandle` for subprocess-backed
+ * runs (Claude Code, future remote backends) as the terminal stream-json
+ * result.
+ */
+export type PhaseOutput =
+  | { kind: 'task'; result: TaskResult }
+  | {
+      kind: 'text_phase';
+      phase: 'discuss' | 'research' | 'summarize';
+      result: FeaturePhaseResult;
+    }
+  | {
+      kind: 'proposal';
+      phase: 'plan' | 'replan';
+      result: ProposalPhaseResult;
+    }
+  | { kind: 'verification'; verification: VerificationSummary }
+  | { kind: 'ci_check'; verification: VerificationSummary };
+
+/**
+ * Scope-aware dispatch outcome. Covers both async subprocess dispatches
+ * (`started` / `resumed`) and synchronous in-process completions
+ * (`completed_inline` for text/verification phases, `awaiting_approval` for
+ * plan/replan). `not_resumable` mirrors `ResumeSessionResult` but without
+ * a taskId field, so feature-phase recovery can surface the same reason.
+ */
+export type DispatchRunResult =
+  | { kind: 'started'; agentRunId: string; sessionId: string }
+  | { kind: 'resumed'; agentRunId: string; sessionId: string }
+  | {
+      kind: 'completed_inline';
+      agentRunId: string;
+      sessionId: string;
+      output: PhaseOutput;
+    }
+  | {
+      kind: 'awaiting_approval';
+      agentRunId: string;
+      sessionId: string;
+      output: PhaseOutput;
+    }
+  | {
+      kind: 'not_resumable';
+      agentRunId: string;
+      sessionId: string;
+      reason: 'session_not_found' | 'path_mismatch' | 'unsupported_by_harness';
+    };
 
 export interface TaskExecutionRunRef {
   taskId: string;
