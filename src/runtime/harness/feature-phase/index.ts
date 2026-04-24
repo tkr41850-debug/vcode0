@@ -1,4 +1,6 @@
 import type { PlannerAgent } from '@agents/planner';
+import type { ProposalPhaseResult } from '@agents/proposal';
+import type { ReplannerAgent } from '@agents/replanner';
 import type { FeatureGraph } from '@core/graph/index';
 import type { FeaturePhaseRunContext } from '@core/types/index';
 import type {
@@ -54,24 +56,28 @@ export interface FeaturePhaseBackend {
 export class DiscussFeaturePhaseBackend implements FeaturePhaseBackend {
   constructor(
     private readonly graph: Pick<FeatureGraph, 'features'>,
-    private readonly agent: Pick<PlannerAgent, 'discussFeature'>,
+    private readonly agent: Pick<
+      PlannerAgent,
+      'discussFeature' | 'planFeature'
+    > &
+      Pick<ReplannerAgent, 'replanFeature'>,
     private readonly sessionStore: SessionStore,
   ) {}
 
   start(
     scope: FeaturePhaseScope,
-    _payload: FeaturePhaseRunPayload,
+    payload: FeaturePhaseRunPayload,
     agentRunId: string,
   ): Promise<FeaturePhaseSessionHandle> {
-    return Promise.resolve(this.createHandle(scope, { agentRunId }));
+    return Promise.resolve(this.createHandle(scope, { agentRunId }, payload));
   }
 
   async resume(
     scope: FeaturePhaseScope,
     run: { agentRunId: string; sessionId: string },
-    _payload: FeaturePhaseRunPayload,
+    payload: FeaturePhaseRunPayload,
   ): Promise<ResumeFeaturePhaseResult> {
-    if (scope.phase !== 'discuss') {
+    if (!supportsSessionResume(scope.phase)) {
       return {
         kind: 'not_resumable',
         sessionId: run.sessionId,
@@ -90,39 +96,61 @@ export class DiscussFeaturePhaseBackend implements FeaturePhaseBackend {
 
     return {
       kind: 'resumed',
-      handle: this.createHandle(scope, run),
+      handle: this.createHandle(scope, run, payload),
     };
   }
 
   private createHandle(
     scope: FeaturePhaseScope,
     run: { agentRunId: string; sessionId?: string },
+    payload: FeaturePhaseRunPayload,
   ): FeaturePhaseSessionHandle {
-    if (scope.phase !== 'discuss') {
-      throw new Error(
-        `feature phase '${scope.phase}' not configured by DiscussFeaturePhaseBackend`,
-      );
-    }
-
     const feature = this.graph.features.get(scope.featureId);
     if (feature === undefined) {
       throw new Error(`feature "${scope.featureId}" not found`);
     }
 
     const runContext = this.createRunContext(run);
-    return createFeaturePhaseHandle({
-      sessionId: runContext.sessionId ?? runContext.agentRunId,
-      outcome: this.agent
-        .discussFeature(feature, runContext)
-        .then((result) => ({
-          kind: 'completed_inline',
-          output: {
-            kind: 'text_phase',
-            phase: 'discuss',
-            result,
-          },
-        })),
-    });
+    const sessionId = runContext.sessionId ?? runContext.agentRunId;
+
+    switch (scope.phase) {
+      case 'discuss':
+        return createFeaturePhaseHandle({
+          sessionId,
+          outcome: this.agent
+            .discussFeature(feature, runContext)
+            .then((result) => ({
+              kind: 'completed_inline',
+              output: {
+                kind: 'text_phase',
+                phase: 'discuss',
+                result,
+              },
+            })),
+        });
+      case 'plan':
+        return createFeaturePhaseHandle({
+          sessionId,
+          outcome: this.agent
+            .planFeature(feature, runContext)
+            .then((result) => proposalOutcome('plan', result)),
+        });
+      case 'replan':
+        return createFeaturePhaseHandle({
+          sessionId,
+          outcome: this.agent
+            .replanFeature(
+              feature,
+              payload.replanReason ?? 'Scheduler requested replanning.',
+              runContext,
+            )
+            .then((result) => proposalOutcome('replan', result)),
+        });
+      default:
+        throw new Error(
+          `feature phase '${scope.phase}' not configured by DiscussFeaturePhaseBackend`,
+        );
+    }
   }
 
   private createRunContext(run: {
@@ -138,6 +166,26 @@ export class DiscussFeaturePhaseBackend implements FeaturePhaseBackend {
       sessionId: run.sessionId,
     };
   }
+}
+
+function proposalOutcome(
+  phase: 'plan' | 'replan',
+  result: ProposalPhaseResult,
+): FeaturePhaseDispatchOutcome {
+  return {
+    kind: 'awaiting_approval',
+    output: {
+      kind: 'proposal',
+      phase,
+      result,
+    },
+  };
+}
+
+function supportsSessionResume(
+  phase: FeaturePhaseScope['phase'],
+): phase is 'discuss' | 'plan' | 'replan' {
+  return phase === 'discuss' || phase === 'plan' || phase === 'replan';
 }
 
 export function createFeaturePhaseHandle(params: {

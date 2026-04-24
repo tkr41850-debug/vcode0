@@ -20,6 +20,7 @@ import { VerificationService } from '@orchestrator/services/index';
 import type { RuntimePort } from '@runtime/contracts';
 import {
   DiscussFeaturePhaseBackend,
+  type FeaturePhaseRunPayload,
   type SessionHarness,
 } from '@runtime/index';
 import { LocalWorkerPool } from '@runtime/worker-pool';
@@ -44,12 +45,57 @@ function createConfig(overrides: Partial<GvcConfig> = {}): GvcConfig {
 
 function createRuntimeStub(): RuntimePort {
   return {
-    dispatchRun: () =>
-      Promise.reject(
+    dispatchRun: (scope, dispatch, payload) => {
+      if (scope.kind === 'feature_phase') {
+        const sessionId =
+          dispatch.mode === 'resume' ? dispatch.sessionId : dispatch.agentRunId;
+        if (scope.phase === 'discuss') {
+          return Promise.resolve({
+            kind: 'completed_inline' as const,
+            agentRunId: dispatch.agentRunId,
+            sessionId,
+            output: {
+              kind: 'text_phase' as const,
+              phase: 'discuss' as const,
+              result: { summary: 'ok' },
+            },
+          });
+        }
+        if (scope.phase === 'plan' || scope.phase === 'replan') {
+          const proposalPayload = payload as FeaturePhaseRunPayload;
+          return Promise.resolve({
+            kind: 'awaiting_approval' as const,
+            agentRunId: dispatch.agentRunId,
+            sessionId,
+            output: {
+              kind: 'proposal' as const,
+              phase: scope.phase,
+              result: {
+                summary:
+                  scope.phase === 'plan'
+                    ? 'Planning complete.'
+                    : 'Replanning complete.',
+                proposal: makeProposal(scope.phase),
+                details:
+                  scope.phase === 'plan'
+                    ? proposalDetails
+                    : {
+                        ...replanDetails,
+                        ...(proposalPayload.replanReason !== undefined
+                          ? { assumptions: [proposalPayload.replanReason] }
+                          : {}),
+                      },
+              },
+            },
+          });
+        }
+      }
+      return Promise.reject(
         new Error(
           'run dispatch not expected in feature-phase integration test',
         ),
-      ),
+      );
+    },
     dispatchTask: () =>
       Promise.reject(
         new Error(
@@ -305,6 +351,12 @@ function createFixture({
     sessionStore,
     projectRoot: '/repo',
   });
+  const runtime = new LocalWorkerPool(
+    createUnusedTaskHarness(),
+    1,
+    undefined,
+    new DiscussFeaturePhaseBackend(graph, agents, sessionStore),
+  );
   const resolvedVerification: OrchestratorPorts['verification'] =
     verification ??
     ({
@@ -312,7 +364,7 @@ function createFixture({
     } as unknown as OrchestratorPorts['verification']);
   const ports: OrchestratorPorts = {
     store,
-    runtime: createRuntimeStub(),
+    runtime,
     sessionStore,
     agents,
     verification: resolvedVerification,

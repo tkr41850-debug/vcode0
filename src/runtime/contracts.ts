@@ -15,6 +15,7 @@ import type { TaskPayload } from '@runtime/context/index';
 
 export type FeaturePhaseRunPayload = {
   kind: 'feature_phase';
+  replanReason?: string;
 };
 
 /**

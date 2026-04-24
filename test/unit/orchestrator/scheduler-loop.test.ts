@@ -159,13 +159,48 @@ function createStoreMock(): Store {
 function createRuntimeMock(order: string[]): RuntimePort & {
   stopAll: ReturnType<typeof vi.fn>;
 } {
+  const dispatchRun = vi.fn((scope, dispatch) => {
+    if (scope.kind === 'feature_phase') {
+      const sessionId =
+        dispatch.mode === 'resume' ? dispatch.sessionId : dispatch.agentRunId;
+      if (scope.phase === 'discuss') {
+        return Promise.resolve({
+          kind: 'completed_inline' as const,
+          agentRunId: dispatch.agentRunId,
+          sessionId,
+          output: {
+            kind: 'text_phase' as const,
+            phase: 'discuss' as const,
+            result: { summary: 'discussed' },
+          },
+        });
+      }
+      if (scope.phase === 'plan' || scope.phase === 'replan') {
+        return Promise.resolve({
+          kind: 'awaiting_approval' as const,
+          agentRunId: dispatch.agentRunId,
+          sessionId,
+          output: {
+            kind: 'proposal' as const,
+            phase: scope.phase,
+            result: {
+              summary: 'ok',
+              proposal: makeProposal(scope.phase),
+              details: proposalDetails,
+            },
+          },
+        });
+      }
+    }
+    return Promise.resolve({
+      kind: 'started' as const,
+      agentRunId: 'run-1',
+      sessionId: 'sess-1',
+    });
+  });
+
   return {
-    dispatchRun: () =>
-      Promise.resolve({
-        kind: 'started',
-        agentRunId: 'run-1',
-        sessionId: 'sess-1',
-      }),
+    dispatchRun,
     dispatchTask: (_task: Task, _dispatch) =>
       Promise.resolve({
         kind: 'started',
@@ -1752,7 +1787,7 @@ describe('SchedulerLoop', () => {
 
   it('dispatches planning on shared run plane and stores submitted proposal for approval', async () => {
     const order: string[] = [];
-    const { ports } = createPorts(order);
+    const { ports, runtime } = createPorts(order);
     const createAgentRun = vi.spyOn(ports.store, 'createAgentRun');
     const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
     const planFeature = vi.spyOn(ports.agents, 'planFeature');
@@ -1775,24 +1810,24 @@ describe('SchedulerLoop', () => {
         runStatus: 'ready',
       }),
     );
-    expect(planFeature).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'f-1' }),
-      { agentRunId: 'run-feature:f-1:plan' },
+    expect(runtime.dispatchRun).toHaveBeenCalledWith(
+      { kind: 'feature_phase', featureId: 'f-1', phase: 'plan' },
+      { mode: 'start', agentRunId: 'run-feature:f-1:plan' },
+      { kind: 'feature_phase' },
     );
-    expect(updateAgentRun).toHaveBeenNthCalledWith(1, 'run-feature:f-1:plan', {
-      runStatus: 'running',
-      owner: 'system',
-    });
-    expect(updateAgentRun).toHaveBeenNthCalledWith(2, 'run-feature:f-1:plan', {
+    expect(planFeature).not.toHaveBeenCalled();
+    expect(updateAgentRun).toHaveBeenCalledWith('run-feature:f-1:plan', {
       runStatus: 'await_approval',
       owner: 'manual',
+      sessionId: 'run-feature:f-1:plan',
       payloadJson: JSON.stringify(makeProposal('plan')),
+      restartCount: 0,
     });
   });
 
   it('passes existing feature-phase sessionId back into resumed planning runs', async () => {
     const order: string[] = [];
-    const { ports } = createPorts(order);
+    const { ports, runtime } = createPorts(order);
     const planFeature = vi.spyOn(ports.agents, 'planFeature');
     ports.store.createAgentRun(
       makeFeaturePhaseRun('plan', {
@@ -1810,13 +1845,16 @@ describe('SchedulerLoop', () => {
 
     await loop.step(100);
 
-    expect(planFeature).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'f-1' }),
+    expect(runtime.dispatchRun).toHaveBeenCalledWith(
+      { kind: 'feature_phase', featureId: 'f-1', phase: 'plan' },
       {
+        mode: 'resume',
         agentRunId: 'run-feature:f-1:plan',
         sessionId: 'sess-existing',
       },
+      { kind: 'feature_phase' },
     );
+    expect(planFeature).not.toHaveBeenCalled();
   });
 
   it('dispatches ci_check through the verification service before agent-level verifying', async () => {
@@ -2067,10 +2105,8 @@ describe('SchedulerLoop', () => {
 
   it('enqueues feature_phase_error after failed feature-phase work', async () => {
     const order: string[] = [];
-    const { ports } = createPorts(order);
-    vi.spyOn(ports.agents, 'planFeature').mockRejectedValueOnce(
-      new Error('boom'),
-    );
+    const { ports, runtime } = createPorts(order);
+    vi.spyOn(runtime, 'dispatchRun').mockRejectedValueOnce(new Error('boom'));
     const graph = createProposalApprovalGraph({
       status: 'pending',
       workControl: 'planning',
@@ -2091,7 +2127,7 @@ describe('SchedulerLoop', () => {
 
   it('does not redispatch a feature phase whose run is already running', async () => {
     const order: string[] = [];
-    const { ports } = createPorts(order);
+    const { ports, runtime } = createPorts(order);
     ports.store.createAgentRun(
       makeFeaturePhaseRun('plan', {
         id: 'run-feature:f-1:plan',
@@ -2109,12 +2145,13 @@ describe('SchedulerLoop', () => {
 
     await loop.step(100);
 
+    expect(runtime.dispatchRun).not.toHaveBeenCalled();
     expect(planFeature).not.toHaveBeenCalled();
   });
 
   it('does not dispatch cancelled feature phases', async () => {
     const order: string[] = [];
-    const { ports } = createPorts(order);
+    const { ports, runtime } = createPorts(order);
     const planFeature = vi.spyOn(ports.agents, 'planFeature');
     const graph = createProposalApprovalGraph({
       status: 'in_progress',
@@ -2126,6 +2163,7 @@ describe('SchedulerLoop', () => {
 
     await loop.step(100);
 
+    expect(runtime.dispatchRun).not.toHaveBeenCalled();
     expect(planFeature).not.toHaveBeenCalled();
   });
 
@@ -2190,7 +2228,7 @@ describe('SchedulerLoop', () => {
 
   it('rejects planning proposal, leaves graph unchanged, blocks auto-redispatch, and allows explicit rerun', async () => {
     const order: string[] = [];
-    const { ports } = createPorts(order);
+    const { ports, runtime } = createPorts(order);
     const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
     const appendEvent = vi.spyOn(ports.store, 'appendEvent');
     const deleteSession = vi.spyOn(ports.sessionStore, 'delete');
@@ -2238,7 +2276,9 @@ describe('SchedulerLoop', () => {
     );
 
     planFeature.mockClear();
+    vi.mocked(runtime.dispatchRun).mockClear();
     await loop.step(100);
+    expect(runtime.dispatchRun).not.toHaveBeenCalled();
     expect(planFeature).not.toHaveBeenCalled();
 
     loop.setAutoExecutionEnabled(false);
@@ -2257,14 +2297,16 @@ describe('SchedulerLoop', () => {
     });
 
     planFeature.mockClear();
+    vi.mocked(runtime.dispatchRun).mockClear();
     loop.setAutoExecutionEnabled(true);
     await loop.step(100);
-    expect(planFeature).toHaveBeenCalledOnce();
+    expect(runtime.dispatchRun).toHaveBeenCalledOnce();
+    expect(planFeature).not.toHaveBeenCalled();
   });
 
-  it('passes derived rerun reason into replanning', async () => {
+  it('passes derived rerun reason into replanning runtime dispatch', async () => {
     const order: string[] = [];
-    const { ports } = createPorts(order);
+    const { ports, runtime } = createPorts(order);
     const replanFeature = vi.spyOn(ports.agents, 'replanFeature');
     const graph = createProposalApprovalGraph(
       {
@@ -2294,16 +2336,20 @@ describe('SchedulerLoop', () => {
 
     await loop.step(100);
 
-    expect(replanFeature).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'f-1' }),
-      'Need fresh proposal after review.',
-      { agentRunId: 'run-feature:f-1:replan' },
+    expect(runtime.dispatchRun).toHaveBeenCalledWith(
+      { kind: 'feature_phase', featureId: 'f-1', phase: 'replan' },
+      { mode: 'start', agentRunId: 'run-feature:f-1:replan' },
+      {
+        kind: 'feature_phase',
+        replanReason: 'Need fresh proposal after review.',
+      },
     );
+    expect(replanFeature).not.toHaveBeenCalled();
   });
 
   it('ignores successful verify summaries when deriving replan reason', async () => {
     const order: string[] = [];
-    const { ports } = createPorts(order);
+    const { ports, runtime } = createPorts(order);
     const replanFeature = vi.spyOn(ports.agents, 'replanFeature');
     const graph = createProposalApprovalGraph(
       {
@@ -2334,11 +2380,15 @@ describe('SchedulerLoop', () => {
 
     await loop.step(100);
 
-    expect(replanFeature).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'f-1' }),
-      'Scheduler requested replanning.',
-      { agentRunId: 'run-feature:f-1:replan' },
+    expect(runtime.dispatchRun).toHaveBeenCalledWith(
+      { kind: 'feature_phase', featureId: 'f-1', phase: 'replan' },
+      { mode: 'start', agentRunId: 'run-feature:f-1:replan' },
+      {
+        kind: 'feature_phase',
+        replanReason: 'Scheduler requested replanning.',
+      },
     );
+    expect(replanFeature).not.toHaveBeenCalled();
   });
 
   it('approves replanning proposal, restores stuck task, and makes approved work executable immediately', async () => {

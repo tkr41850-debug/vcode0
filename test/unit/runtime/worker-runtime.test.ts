@@ -3,6 +3,7 @@ import type {
   Feature,
   FeaturePhaseResult,
   GitConflictContext,
+  ProposalPhaseDetails,
   Task,
   TaskId,
   TaskResumeReason,
@@ -33,6 +34,19 @@ import {
   createTaskFixture,
 } from '../../helpers/graph-builders.js';
 import { InMemorySessionStore } from '../../integration/harness/in-memory-session-store.js';
+
+const proposalDetails: ProposalPhaseDetails = {
+  summary: 'proposal ready',
+  chosenApproach: 'Reuse current proposal backend seam.',
+  keyConstraints: ['Keep approval payload as raw proposal JSON'],
+  decompositionRationale: ['Route only plan/replan through dispatchRun'],
+  orderingRationale: [
+    'Extend discuss backend instead of widening scheduler now',
+  ],
+  verificationExpectations: ['Cover runtime and scheduler behavior'],
+  risksTradeoffs: ['Feature-phase backend handles more phases'],
+  assumptions: ['Approval handling remains scheduler-owned'],
+};
 
 interface MockHandle extends SessionHandle {
   _sentMessages: OrchestratorToWorkerMessage[];
@@ -286,6 +300,8 @@ describe('LocalWorkerPool', () => {
         discussFeature: vi
           .fn()
           .mockResolvedValue(makeDiscussResult('discussed')),
+        planFeature: vi.fn(),
+        replanFeature: vi.fn(),
       };
       const backend = new DiscussFeaturePhaseBackend(
         graph,
@@ -335,6 +351,8 @@ describe('LocalWorkerPool', () => {
       await sessionStore.save('sess-existing', []);
       const agent = {
         discussFeature: vi.fn().mockResolvedValue(makeDiscussResult('resumed')),
+        planFeature: vi.fn(),
+        replanFeature: vi.fn(),
       };
       const backend = new DiscussFeaturePhaseBackend(
         graph,
@@ -390,6 +408,8 @@ describe('LocalWorkerPool', () => {
       const sessionStore = new InMemorySessionStore();
       const agent = {
         discussFeature: vi.fn().mockResolvedValue(makeDiscussResult()),
+        planFeature: vi.fn(),
+        replanFeature: vi.fn(),
       };
       const backend = new DiscussFeaturePhaseBackend(
         graph,
@@ -414,6 +434,138 @@ describe('LocalWorkerPool', () => {
         agentRunId: 'run-feature:f-feature-1:discuss',
         sessionId: 'sess-missing',
         reason: 'session_not_found',
+      });
+    });
+
+    it('runs planning through the feature-phase backend and returns awaiting approval', async () => {
+      const { harness } = setupPool();
+      const graph = new InMemoryFeatureGraph({
+        milestones: [
+          {
+            id: 'm-1',
+            name: 'M',
+            description: 'd',
+            status: 'pending',
+            order: 0,
+          },
+        ],
+        features: [makeFeature()],
+        tasks: [],
+      });
+      const sessionStore = new InMemorySessionStore();
+      const proposal = {
+        version: 1 as const,
+        mode: 'plan' as const,
+        aliases: {},
+        ops: [],
+      };
+      const agent = {
+        discussFeature: vi.fn(),
+        planFeature: vi.fn().mockResolvedValue({
+          summary: 'planned',
+          proposal,
+          details: proposalDetails,
+        }),
+        replanFeature: vi.fn(),
+      };
+      const backend = new DiscussFeaturePhaseBackend(
+        graph,
+        agent,
+        sessionStore,
+      );
+      const pool = new LocalWorkerPool(harness, 4, undefined, backend);
+
+      const result = await pool.dispatchRun(
+        { kind: 'feature_phase', featureId: 'f-feature-1', phase: 'plan' },
+        { mode: 'start', agentRunId: 'run-feature:f-feature-1:plan' },
+        { kind: 'feature_phase' },
+      );
+
+      expect(agent.planFeature).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'f-feature-1' }),
+        { agentRunId: 'run-feature:f-feature-1:plan' },
+      );
+      expect(result).toEqual({
+        kind: 'awaiting_approval',
+        agentRunId: 'run-feature:f-feature-1:plan',
+        sessionId: 'run-feature:f-feature-1:plan',
+        output: {
+          kind: 'proposal',
+          phase: 'plan',
+          result: {
+            summary: 'planned',
+            proposal,
+            details: proposalDetails,
+          },
+        },
+      });
+    });
+
+    it('passes replan reason through the feature-phase backend', async () => {
+      const { harness } = setupPool();
+      const graph = new InMemoryFeatureGraph({
+        milestones: [
+          {
+            id: 'm-1',
+            name: 'M',
+            description: 'd',
+            status: 'pending',
+            order: 0,
+          },
+        ],
+        features: [makeFeature()],
+        tasks: [],
+      });
+      const sessionStore = new InMemorySessionStore();
+      const proposal = {
+        version: 1 as const,
+        mode: 'replan' as const,
+        aliases: {},
+        ops: [],
+      };
+      const agent = {
+        discussFeature: vi.fn(),
+        planFeature: vi.fn(),
+        replanFeature: vi.fn().mockResolvedValue({
+          summary: 'replanned',
+          proposal,
+          details: proposalDetails,
+        }),
+      };
+      const backend = new DiscussFeaturePhaseBackend(
+        graph,
+        agent,
+        sessionStore,
+      );
+      const pool = new LocalWorkerPool(harness, 4, undefined, backend);
+
+      const result = await pool.dispatchRun(
+        { kind: 'feature_phase', featureId: 'f-feature-1', phase: 'replan' },
+        { mode: 'start', agentRunId: 'run-feature:f-feature-1:replan' },
+        {
+          kind: 'feature_phase',
+          replanReason: 'verify failed',
+        },
+      );
+
+      expect(agent.replanFeature).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'f-feature-1' }),
+        'verify failed',
+        { agentRunId: 'run-feature:f-feature-1:replan' },
+      );
+      expect(result).toEqual({
+        kind: 'awaiting_approval',
+        agentRunId: 'run-feature:f-feature-1:replan',
+        sessionId: 'run-feature:f-feature-1:replan',
+        output: {
+          kind: 'proposal',
+          phase: 'replan',
+          result: {
+            summary: 'replanned',
+            proposal,
+            details: proposalDetails,
+          },
+        },
       });
     });
 

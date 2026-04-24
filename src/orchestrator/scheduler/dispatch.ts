@@ -292,7 +292,7 @@ export async function dispatchFeaturePhaseUnit(params: {
   try {
     await params.ports.worktree.ensureFeatureWorktree(params.feature);
 
-    if (params.phase === 'discuss') {
+    if (params.phase === 'discuss' || isProposalPhase(params.phase)) {
       const dispatch =
         run.sessionId === undefined
           ? { mode: 'start' as const, agentRunId: run.id }
@@ -306,9 +306,17 @@ export async function dispatchFeaturePhaseUnit(params: {
         featureId: params.feature.id,
         phase: params.phase,
       };
-      let result = await params.ports.runtime.dispatchRun(scope, dispatch, {
-        kind: 'feature_phase',
-      });
+      const payload = {
+        kind: 'feature_phase' as const,
+        ...(params.phase === 'replan'
+          ? { replanReason: deriveReplanReason(params.ports, params.feature) }
+          : {}),
+      };
+      let result = await params.ports.runtime.dispatchRun(
+        scope,
+        dispatch,
+        payload,
+      );
 
       if (result.kind === 'not_resumable' && dispatch.mode === 'resume') {
         result = await params.ports.runtime.dispatchRun(
@@ -317,32 +325,58 @@ export async function dispatchFeaturePhaseUnit(params: {
             mode: 'start',
             agentRunId: run.id,
           },
-          {
-            kind: 'feature_phase',
-          },
+          payload,
         );
       }
 
-      if (result.kind !== 'completed_inline') {
+      if (params.phase === 'discuss') {
+        if (result.kind !== 'completed_inline') {
+          throw new Error(
+            `dispatchFeaturePhaseUnit: discuss expected completed_inline result, got '${result.kind}'`,
+          );
+        }
+        if (
+          result.output.kind !== 'text_phase' ||
+          result.output.phase !== 'discuss'
+        ) {
+          throw new Error(
+            `dispatchFeaturePhaseUnit: discuss expected text_phase/discuss output, got '${result.output.kind}'`,
+          );
+        }
+
+        persistRunningFeaturePhaseRun(params.ports, run, result);
+        await params.handleEvent({
+          type: 'feature_phase_complete',
+          featureId: params.feature.id,
+          phase: params.phase,
+          summary: result.output.result.summary,
+        });
+        return true;
+      }
+
+      if (result.kind !== 'awaiting_approval') {
         throw new Error(
-          `dispatchFeaturePhaseUnit: discuss expected completed_inline result, got '${result.kind}'`,
+          `dispatchFeaturePhaseUnit: ${params.phase} expected awaiting_approval result, got '${result.kind}'`,
         );
       }
       if (
-        result.output.kind !== 'text_phase' ||
-        result.output.phase !== 'discuss'
+        result.output.kind !== 'proposal' ||
+        result.output.phase !== params.phase
       ) {
         throw new Error(
-          `dispatchFeaturePhaseUnit: discuss expected text_phase/discuss output, got '${result.output.kind}'`,
+          `dispatchFeaturePhaseUnit: ${params.phase} expected proposal/${params.phase} output, got '${result.output.kind}'`,
         );
       }
 
-      persistRunningFeaturePhaseRun(params.ports, run, result);
-      await params.handleEvent({
-        type: 'feature_phase_complete',
-        featureId: params.feature.id,
-        phase: params.phase,
-        summary: result.output.result.summary,
+      params.ports.store.updateAgentRun(run.id, {
+        runStatus: 'await_approval',
+        owner: 'manual',
+        sessionId: result.sessionId,
+        payloadJson: JSON.stringify(result.output.result.proposal),
+        restartCount:
+          run.runStatus === 'retry_await'
+            ? run.restartCount + 1
+            : run.restartCount,
       });
       return true;
     }
@@ -367,18 +401,6 @@ export async function dispatchFeaturePhaseUnit(params: {
           featureId: params.feature.id,
           phase: params.phase,
           summary: result.summary,
-        });
-        return true;
-      }
-      case 'plan': {
-        const result = await params.ports.agents.planFeature(
-          params.feature,
-          runContext,
-        );
-        params.ports.store.updateAgentRun(run.id, {
-          runStatus: 'await_approval',
-          owner: 'manual',
-          payloadJson: JSON.stringify(result.proposal),
         });
         return true;
       }
@@ -419,19 +441,6 @@ export async function dispatchFeaturePhaseUnit(params: {
           featureId: params.feature.id,
           phase: params.phase,
           summary: result.summary,
-        });
-        return true;
-      }
-      case 'replan': {
-        const result = await params.ports.agents.replanFeature(
-          params.feature,
-          deriveReplanReason(params.ports, params.feature),
-          runContext,
-        );
-        params.ports.store.updateAgentRun(run.id, {
-          runStatus: 'await_approval',
-          owner: 'manual',
-          payloadJson: JSON.stringify(result.proposal),
         });
         return true;
       }
