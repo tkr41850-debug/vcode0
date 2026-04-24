@@ -1890,6 +1890,54 @@ describe('SchedulerLoop', () => {
     expect(retryFeatureCiPatch?.retryAt).toEqual(expect.any(Number));
   });
 
+  it('dispatches discuss feature phases through runtime dispatchRun', async () => {
+    const order: string[] = [];
+    const { ports, runtime } = createPorts(order);
+    vi.spyOn(runtime, 'dispatchRun').mockResolvedValue({
+      kind: 'completed_inline',
+      agentRunId: 'run-feature:f-1:discuss',
+      sessionId: 'sess-discuss',
+      output: {
+        kind: 'text_phase',
+        phase: 'discuss',
+        result: { summary: 'discussed' },
+      },
+    });
+    const discussFeature = vi.spyOn(ports.agents, 'discussFeature');
+    const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
+    const graph = createSingleFeatureGraph({
+      status: 'pending',
+      workControl: 'discussing',
+      collabControl: 'none',
+    });
+
+    const loop = new SchedulerLoop(graph, ports);
+
+    await loop.step(100);
+
+    expect(runtime.dispatchRun).toHaveBeenCalledWith(
+      {
+        kind: 'feature_phase',
+        featureId: 'f-1',
+        phase: 'discuss',
+      },
+      { mode: 'start', agentRunId: 'run-feature:f-1:discuss' },
+      { kind: 'feature_phase' },
+    );
+    expect(discussFeature).not.toHaveBeenCalled();
+    expect(updateAgentRun).toHaveBeenCalledWith('run-feature:f-1:discuss', {
+      runStatus: 'running',
+      owner: 'system',
+      sessionId: 'sess-discuss',
+      restartCount: 0,
+    });
+    expect(graph.features.get('f-1')).toMatchObject({
+      workControl: 'researching',
+      status: 'pending',
+      collabControl: 'none',
+    });
+  });
+
   it('dispatches verify feature phases through the agent port', async () => {
     const order: string[] = [];
     const { ports } = createPorts(order);

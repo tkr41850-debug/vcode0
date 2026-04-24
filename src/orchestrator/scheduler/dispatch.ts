@@ -12,6 +12,7 @@ import type {
   AgentRunPhase,
   EventRecord,
   Feature,
+  FeaturePhaseAgentRun,
   Task,
   TaskAgentRun,
 } from '@core/types/index';
@@ -147,18 +148,33 @@ export function taskDispatchForRun(run: TaskAgentRun): TaskRuntimeDispatch {
   };
 }
 
-export function persistRunningTaskRun(
-  ports: OrchestratorPorts,
-  run: TaskAgentRun,
+function runningRunPatch(
+  run: Pick<AgentRun, 'runStatus' | 'restartCount'>,
   result: Pick<DispatchRunResult, 'sessionId'>,
-): void {
-  ports.store.updateAgentRun(run.id, {
+): Pick<AgentRun, 'runStatus' | 'owner' | 'sessionId' | 'restartCount'> {
+  return {
     runStatus: 'running',
     owner: 'system',
     sessionId: result.sessionId,
     restartCount:
       run.runStatus === 'retry_await' ? run.restartCount + 1 : run.restartCount,
-  });
+  };
+}
+
+export function persistRunningTaskRun(
+  ports: OrchestratorPorts,
+  run: TaskAgentRun,
+  result: Pick<DispatchRunResult, 'sessionId'>,
+): void {
+  ports.store.updateAgentRun(run.id, runningRunPatch(run, result));
+}
+
+export function persistRunningFeaturePhaseRun(
+  ports: OrchestratorPorts,
+  run: FeaturePhaseAgentRun,
+  result: Pick<DispatchRunResult, 'sessionId'>,
+): void {
+  ports.store.updateAgentRun(run.id, runningRunPatch(run, result));
 }
 
 export function markTaskRunning(
@@ -262,37 +278,85 @@ export async function dispatchFeaturePhaseUnit(params: {
   markFeaturePhaseRunning: (feature: Feature) => void;
   handleEvent: (event: SchedulerEvent) => Promise<void>;
 }): Promise<boolean> {
-  const run = ensureFeaturePhaseRun(params.ports, params.feature, params.phase);
+  const run = ensureFeaturePhaseRun(
+    params.ports,
+    params.feature,
+    params.phase,
+  ) as FeaturePhaseAgentRun;
   if (isProposalPhase(params.phase) && run.runStatus === 'completed') {
     return false;
   }
 
   params.markFeaturePhaseRunning(params.feature);
-  params.ports.store.updateAgentRun(run.id, {
-    runStatus: 'running',
-    owner: 'system',
-  });
 
   try {
     await params.ports.worktree.ensureFeatureWorktree(params.feature);
+
+    if (params.phase === 'discuss') {
+      const dispatch =
+        run.sessionId === undefined
+          ? { mode: 'start' as const, agentRunId: run.id }
+          : {
+              mode: 'resume' as const,
+              agentRunId: run.id,
+              sessionId: run.sessionId,
+            };
+      const scope = {
+        kind: 'feature_phase' as const,
+        featureId: params.feature.id,
+        phase: params.phase,
+      };
+      let result = await params.ports.runtime.dispatchRun(scope, dispatch, {
+        kind: 'feature_phase',
+      });
+
+      if (result.kind === 'not_resumable' && dispatch.mode === 'resume') {
+        result = await params.ports.runtime.dispatchRun(
+          scope,
+          {
+            mode: 'start',
+            agentRunId: run.id,
+          },
+          {
+            kind: 'feature_phase',
+          },
+        );
+      }
+
+      if (result.kind !== 'completed_inline') {
+        throw new Error(
+          `dispatchFeaturePhaseUnit: discuss expected completed_inline result, got '${result.kind}'`,
+        );
+      }
+      if (
+        result.output.kind !== 'text_phase' ||
+        result.output.phase !== 'discuss'
+      ) {
+        throw new Error(
+          `dispatchFeaturePhaseUnit: discuss expected text_phase/discuss output, got '${result.output.kind}'`,
+        );
+      }
+
+      persistRunningFeaturePhaseRun(params.ports, run, result);
+      await params.handleEvent({
+        type: 'feature_phase_complete',
+        featureId: params.feature.id,
+        phase: params.phase,
+        summary: result.output.result.summary,
+      });
+      return true;
+    }
+
+    params.ports.store.updateAgentRun(run.id, {
+      runStatus: 'running',
+      owner: 'system',
+    });
+
     const runContext = {
       agentRunId: run.id,
       ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
     };
     switch (params.phase) {
-      case 'discuss': {
-        const result = await params.ports.agents.discussFeature(
-          params.feature,
-          runContext,
-        );
-        await params.handleEvent({
-          type: 'feature_phase_complete',
-          featureId: params.feature.id,
-          phase: params.phase,
-          summary: result.summary,
-        });
-        return true;
-      }
       case 'research': {
         const result = await params.ports.agents.researchFeature(
           params.feature,

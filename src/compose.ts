@@ -28,7 +28,10 @@ import type {
   RuntimePort,
   WorkerToOrchestratorMessage,
 } from '@runtime/contracts';
-import { PiSdkHarness } from '@runtime/harness/index';
+import {
+  DiscussFeaturePhaseBackend,
+  PiSdkHarness,
+} from '@runtime/harness/index';
 import { FileSessionStore } from '@runtime/sessions/index';
 import { LocalWorkerPool } from '@runtime/worker-pool';
 import { GitWorktreeProvisioner } from '@runtime/worktree/index';
@@ -201,17 +204,6 @@ export async function composeApplication(): Promise<GvcApplication> {
     },
   });
 
-  const runtime = new LocalWorkerPool(
-    new PiSdkHarness(sessionStore, projectRoot),
-    maxWorkers,
-    (message) => {
-      const workerOutput = formatWorkerOutput(message);
-      if (workerOutput !== undefined) {
-        ui.onWorkerOutput(message.agentRunId, message.taskId, workerOutput);
-      }
-      schedulerRef.current?.enqueue({ type: 'worker_message', message });
-    },
-  );
   const agents = new PiFeatureAgentRuntime({
     modelId: config.modelRouting?.ceiling ?? DEFAULT_MODEL_ID,
     config,
@@ -222,6 +214,18 @@ export async function composeApplication(): Promise<GvcApplication> {
     projectRoot,
     getApiKey,
   });
+  const runtime = new LocalWorkerPool(
+    new PiSdkHarness(sessionStore, projectRoot),
+    maxWorkers,
+    (message) => {
+      const workerOutput = formatWorkerOutput(message);
+      if (workerOutput !== undefined) {
+        ui.onWorkerOutput(message.agentRunId, message.taskId, workerOutput);
+      }
+      schedulerRef.current?.enqueue({ type: 'worker_message', message });
+    },
+    new DiscussFeaturePhaseBackend(graph, agents, sessionStore),
+  );
 
   const verification = new VerificationService({ config }, projectRoot);
   const worktree = new GitWorktreeProvisioner(projectRoot);

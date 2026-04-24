@@ -18,7 +18,12 @@ import type { OrchestratorPorts, UiPort } from '@orchestrator/ports/index';
 import { SchedulerLoop } from '@orchestrator/scheduler/index';
 import { VerificationService } from '@orchestrator/services/index';
 import type { RuntimePort } from '@runtime/contracts';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import {
+  DiscussFeaturePhaseBackend,
+  type SessionHarness,
+} from '@runtime/index';
+import { LocalWorkerPool } from '@runtime/worker-pool';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   createFauxProvider,
@@ -113,6 +118,21 @@ function createTaskFixture(overrides: Partial<Task> = {}): Task {
     status: 'pending',
     collabControl: 'none',
     ...overrides,
+  };
+}
+
+function createUnusedTaskHarness(): SessionHarness {
+  return {
+    async start(): Promise<never> {
+      throw new Error(
+        'task harness start not expected in feature-phase integration test',
+      );
+    },
+    async resume(): Promise<never> {
+      throw new Error(
+        'task harness resume not expected in feature-phase integration test',
+      );
+    },
   };
 }
 
@@ -325,7 +345,7 @@ describe('feature-phase agent flow', () => {
     faux.unregister();
   });
 
-  it('dispatches discuss end-to-end with structured submitDiscuss and advances to researching', async () => {
+  it('dispatches discuss end-to-end through runtime.dispatchRun and advances to researching', async () => {
     faux.setResponses([
       fauxAssistantMessage(
         [
@@ -347,14 +367,52 @@ describe('feature-phase agent flow', () => {
       fauxAssistantMessage([fauxText('Discussion structured.')]),
     ]);
 
-    const { graph, store, sessionStore, loop } = createFixture({
-      featureOverrides: {
-        workControl: 'discussing',
-      },
+    const graph = createSingleFeatureGraph({
+      workControl: 'discussing',
     });
+    const store = new InMemoryStore();
+    const sessionStore = new InMemorySessionStore();
+    const config = createConfig();
+    const agents = new PiFeatureAgentRuntime({
+      modelId: 'claude-sonnet-4-6',
+      config,
+      promptLibrary,
+      graph,
+      store,
+      sessionStore,
+      projectRoot: '/repo',
+    });
+    const pool = new LocalWorkerPool(
+      createUnusedTaskHarness(),
+      1,
+      undefined,
+      new DiscussFeaturePhaseBackend(graph, agents, sessionStore),
+    );
+    const dispatchRun = vi.fn(pool.dispatchRun.bind(pool));
+    const ports: OrchestratorPorts = {
+      store,
+      runtime: {
+        ...createRuntimeStub(),
+        dispatchRun,
+      },
+      sessionStore,
+      agents,
+      verification: {
+        verifyFeature: () => Promise.resolve({ ok: true, summary: 'ok' }),
+      } as unknown as OrchestratorPorts['verification'],
+      worktree: createWorktreeStub(),
+      ui: createUiStub(),
+      config,
+    };
+    const loop = new SchedulerLoop(graph, ports);
 
     await loop.step(100);
 
+    expect(dispatchRun).toHaveBeenCalledWith(
+      { kind: 'feature_phase', featureId: 'f-1', phase: 'discuss' },
+      { mode: 'start', agentRunId: 'run-feature:f-1:discuss' },
+      { kind: 'feature_phase' },
+    );
     expect(graph.features.get('f-1')).toEqual(
       expect.objectContaining({
         workControl: 'researching',

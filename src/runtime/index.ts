@@ -25,7 +25,10 @@ export type {
   SessionHandle,
   SessionHarness,
 } from '@runtime/harness';
-export { createFeaturePhaseHandle } from '@runtime/harness';
+export {
+  createFeaturePhaseHandle,
+  DiscussFeaturePhaseBackend,
+} from '@runtime/harness';
 export type { ChildIpcTransport, IpcTransport } from '@runtime/ipc';
 export type { ModelBridgeConfig } from '@runtime/routing/model-bridge';
 export { resolveModel } from '@runtime/routing/model-bridge';

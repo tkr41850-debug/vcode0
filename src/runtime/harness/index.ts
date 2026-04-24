@@ -197,6 +197,7 @@ export class PiSdkHarness implements SessionHarness {
 export type { FeaturePhaseBackend } from '@runtime/harness/feature-phase/index';
 export {
   createFeaturePhaseHandle,
+  DiscussFeaturePhaseBackend,
   type FeaturePhaseDispatchOutcome,
   type FeaturePhaseSessionHandle,
   type ResumeFeaturePhaseResult,

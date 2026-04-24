@@ -1,4 +1,7 @@
+import { InMemoryFeatureGraph } from '@core/graph';
 import type {
+  Feature,
+  FeaturePhaseResult,
   GitConflictContext,
   Task,
   TaskId,
@@ -14,6 +17,7 @@ import type {
 } from '@runtime/contracts';
 import {
   createFeaturePhaseHandle,
+  DiscussFeaturePhaseBackend,
   type FeaturePhaseBackend,
   type SessionHandle,
   type SessionHarness,
@@ -24,7 +28,11 @@ import { WorkerRuntime } from '@runtime/worker';
 import { LocalWorkerPool } from '@runtime/worker-pool';
 import { describe, expect, it, vi } from 'vitest';
 
-import { createTaskFixture } from '../../helpers/graph-builders.js';
+import {
+  createFeatureFixture,
+  createTaskFixture,
+} from '../../helpers/graph-builders.js';
+import { InMemorySessionStore } from '../../integration/harness/in-memory-session-store.js';
 
 interface MockHandle extends SessionHandle {
   _sentMessages: OrchestratorToWorkerMessage[];
@@ -115,6 +123,20 @@ function makeTask(id: TaskId = 't-task-1'): Task {
     status: 'running',
     collabControl: 'branch_open',
   });
+}
+
+function makeFeature(overrides: Partial<Feature> = {}): Feature {
+  return createFeatureFixture({
+    id: 'f-feature-1',
+    description: 'Test feature',
+    ...overrides,
+  });
+}
+
+function makeDiscussResult(
+  summary = 'fake discuss summary',
+): FeaturePhaseResult {
+  return { summary };
 }
 
 function setupPool(
@@ -241,6 +263,157 @@ describe('LocalWorkerPool', () => {
           phase: 'discuss',
           result: { summary: 'fake discuss summary' },
         },
+      });
+    });
+
+    it('runs discuss through the real discuss backend on start', async () => {
+      const { harness } = setupPool();
+      const graph = new InMemoryFeatureGraph({
+        milestones: [
+          {
+            id: 'm-1',
+            name: 'M',
+            description: 'd',
+            status: 'pending',
+            order: 0,
+          },
+        ],
+        features: [makeFeature()],
+        tasks: [],
+      });
+      const sessionStore = new InMemorySessionStore();
+      const agent = {
+        discussFeature: vi
+          .fn()
+          .mockResolvedValue(makeDiscussResult('discussed')),
+      };
+      const backend = new DiscussFeaturePhaseBackend(
+        graph,
+        agent,
+        sessionStore,
+      );
+      const pool = new LocalWorkerPool(harness, 4, undefined, backend);
+
+      const result = await pool.dispatchRun(
+        { kind: 'feature_phase', featureId: 'f-feature-1', phase: 'discuss' },
+        { mode: 'start', agentRunId: 'run-feature:f-feature-1:discuss' },
+        { kind: 'feature_phase' },
+      );
+
+      expect(agent.discussFeature).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'f-feature-1' }),
+        { agentRunId: 'run-feature:f-feature-1:discuss' },
+      );
+      expect(result).toEqual({
+        kind: 'completed_inline',
+        agentRunId: 'run-feature:f-feature-1:discuss',
+        sessionId: 'run-feature:f-feature-1:discuss',
+        output: {
+          kind: 'text_phase',
+          phase: 'discuss',
+          result: { summary: 'discussed' },
+        },
+      });
+    });
+
+    it('resumes discuss through the real discuss backend when session state exists', async () => {
+      const { harness } = setupPool();
+      const graph = new InMemoryFeatureGraph({
+        milestones: [
+          {
+            id: 'm-1',
+            name: 'M',
+            description: 'd',
+            status: 'pending',
+            order: 0,
+          },
+        ],
+        features: [makeFeature()],
+        tasks: [],
+      });
+      const sessionStore = new InMemorySessionStore();
+      await sessionStore.save('sess-existing', []);
+      const agent = {
+        discussFeature: vi.fn().mockResolvedValue(makeDiscussResult('resumed')),
+      };
+      const backend = new DiscussFeaturePhaseBackend(
+        graph,
+        agent,
+        sessionStore,
+      );
+      const pool = new LocalWorkerPool(harness, 4, undefined, backend);
+
+      const result = await pool.dispatchRun(
+        { kind: 'feature_phase', featureId: 'f-feature-1', phase: 'discuss' },
+        {
+          mode: 'resume',
+          agentRunId: 'run-feature:f-feature-1:discuss',
+          sessionId: 'sess-existing',
+        },
+        { kind: 'feature_phase' },
+      );
+
+      expect(agent.discussFeature).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'f-feature-1' }),
+        {
+          agentRunId: 'run-feature:f-feature-1:discuss',
+          sessionId: 'sess-existing',
+        },
+      );
+      expect(result).toEqual({
+        kind: 'completed_inline',
+        agentRunId: 'run-feature:f-feature-1:discuss',
+        sessionId: 'sess-existing',
+        output: {
+          kind: 'text_phase',
+          phase: 'discuss',
+          result: { summary: 'resumed' },
+        },
+      });
+    });
+
+    it('returns not_resumable for discuss when the session is missing', async () => {
+      const { harness } = setupPool();
+      const graph = new InMemoryFeatureGraph({
+        milestones: [
+          {
+            id: 'm-1',
+            name: 'M',
+            description: 'd',
+            status: 'pending',
+            order: 0,
+          },
+        ],
+        features: [makeFeature()],
+        tasks: [],
+      });
+      const sessionStore = new InMemorySessionStore();
+      const agent = {
+        discussFeature: vi.fn().mockResolvedValue(makeDiscussResult()),
+      };
+      const backend = new DiscussFeaturePhaseBackend(
+        graph,
+        agent,
+        sessionStore,
+      );
+      const pool = new LocalWorkerPool(harness, 4, undefined, backend);
+
+      const result = await pool.dispatchRun(
+        { kind: 'feature_phase', featureId: 'f-feature-1', phase: 'discuss' },
+        {
+          mode: 'resume',
+          agentRunId: 'run-feature:f-feature-1:discuss',
+          sessionId: 'sess-missing',
+        },
+        { kind: 'feature_phase' },
+      );
+
+      expect(agent.discussFeature).not.toHaveBeenCalled();
+      expect(result).toEqual({
+        kind: 'not_resumable',
+        agentRunId: 'run-feature:f-feature-1:discuss',
+        sessionId: 'sess-missing',
+        reason: 'session_not_found',
       });
     });
 
