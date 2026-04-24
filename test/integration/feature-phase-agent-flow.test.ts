@@ -308,6 +308,197 @@ describe('feature-phase agent flow', () => {
     faux.unregister();
   });
 
+  // Plan 05-01 Task 1: Faux-backed planner acceptance (REQ-PLAN-02 SC1).
+  // Proves AgentRuntime.planFeature() emits a task DAG via typed tool calls
+  // (addTask x 2 + addDependency + editTask[weight] + submit) and that after
+  // approval the graph reflects the full proposal.
+  describe('plan phase acceptance', () => {
+    it('emits task DAG via typed tools (addTask, addDependency, editTask[weight], submit) and applies on approval', async () => {
+      faux.setResponses([
+        fauxAssistantMessage(
+          [
+            fauxToolCall('addTask', {
+              featureId: 'f-1',
+              description: 'build X',
+            }),
+            fauxToolCall('addTask', {
+              featureId: 'f-1',
+              description: 'wire Y',
+            }),
+            // Task ids are generated sequentially by InMemoryFeatureGraph.addTask:
+            // first addTask -> t-1, second -> t-2. We depend the later on the earlier.
+            fauxToolCall('addDependency', {
+              from: 't-2',
+              to: 't-1',
+            }),
+            // Exercise editTask({patch:{weight}}) — the "reweight" path per CONTEXT § H
+            // (no separate reweight tool; editTask[weight] is the contract).
+            fauxToolCall('editTask', {
+              taskId: 't-1',
+              patch: { weight: 'heavy' },
+            }),
+            fauxToolCall('submit', proposalDetails),
+          ],
+          { stopReason: 'toolUse' },
+        ),
+        fauxAssistantMessage([fauxText('Planning complete.')]),
+      ]);
+
+      const { graph, store, sessionStore, loop } = createFixture({
+        featureOverrides: {
+          workControl: 'planning',
+        },
+      });
+
+      // Step 1: planner runs, emits proposal, lands in await_approval.
+      await loop.step(100);
+
+      const run = store.getAgentRun('run-feature:f-1:plan');
+      expect(run).toEqual(
+        expect.objectContaining({
+          runStatus: 'await_approval',
+          owner: 'manual',
+          sessionId: 'run-feature:f-1:plan',
+        }),
+      );
+      expect(run?.payloadJson).toBeDefined();
+      const payload = JSON.parse(run?.payloadJson ?? '{}') as {
+        mode?: string;
+        ops?: Array<Record<string, unknown>>;
+      };
+      expect(payload.mode).toBe('plan');
+      // Proposal carries the full typed-tool sequence (add_task x 2, add_dependency, edit_task).
+      expect(payload.ops).toEqual([
+        expect.objectContaining({
+          kind: 'add_task',
+          featureId: 'f-1',
+          description: 'build X',
+        }),
+        expect.objectContaining({
+          kind: 'add_task',
+          featureId: 'f-1',
+          description: 'wire Y',
+        }),
+        expect.objectContaining({
+          kind: 'add_dependency',
+        }),
+        expect.objectContaining({
+          kind: 'edit_task',
+          patch: { weight: 'heavy' },
+        }),
+      ]);
+      // Before approval: graph still empty (proposal not yet applied).
+      expect([...graph.tasks.values()]).toHaveLength(0);
+      await expect(
+        sessionStore.load('run-feature:f-1:plan'),
+      ).resolves.not.toBeNull();
+
+      // Step 2: approve the proposal so applyGraphProposal runs end-to-end.
+      // Disable auto execution so the scheduler does not try to dispatch the
+      // newly-ready task through the runtime stub (same pattern as the
+      // replanning-approval test below).
+      loop.setAutoExecutionEnabled(false);
+      loop.enqueue({
+        type: 'feature_phase_approval_decision',
+        featureId: 'f-1',
+        phase: 'plan',
+        decision: 'approved',
+      });
+      await loop.step(100);
+
+      // (a) Two new tasks on the feature.
+      const featureTasks = [...graph.tasks.values()].filter(
+        (task) => task.featureId === 'f-1',
+      );
+      expect(featureTasks).toHaveLength(2);
+      const buildX = featureTasks.find((task) => task.description === 'build X');
+      const wireY = featureTasks.find((task) => task.description === 'wire Y');
+      expect(buildX).toBeDefined();
+      expect(wireY).toBeDefined();
+
+      // (b) wire-Y depends on build-X (dependency accessor reflects the edge).
+      expect(wireY?.dependsOn).toEqual([buildX?.id]);
+
+      // (c) Reweighted task has weight='heavy' (editTask[weight] round-tripped).
+      expect(buildX?.weight).toBe('heavy');
+
+      // (d) Feature advanced to executing (plan phase complete).
+      expect(graph.features.get('f-1')).toEqual(
+        expect.objectContaining({
+          workControl: 'executing',
+          status: 'pending',
+          collabControl: 'branch_open',
+        }),
+      );
+
+      // (e) AgentRun for phase='plan' is now completed.
+      expect(store.getAgentRun('run-feature:f-1:plan')).toEqual(
+        expect.objectContaining({
+          runStatus: 'completed',
+          owner: 'system',
+        }),
+      );
+
+      // proposal_applied event was recorded for plan phase.
+      const appliedEvent = findEvent(
+        store.listEvents({ entityId: 'f-1' }),
+        'proposal_applied',
+      );
+      expect(appliedEvent?.payload).toMatchObject({
+        phase: 'plan',
+        mode: 'plan',
+      });
+    });
+
+    // Edge case: submit-before-any-addTask. Per CONTEXT § empty-proposal semantics
+    // (approveFeatureProposal → feature.cancelFeature for zero-task plans), we pin
+    // the current truth: empty plan cancels the feature rather than silently succeeding.
+    it('submit-before-addTask cancels the feature (empty-proposal semantics)', async () => {
+      faux.setResponses([
+        fauxAssistantMessage(
+          [fauxToolCall('submit', proposalDetails)],
+          { stopReason: 'toolUse' },
+        ),
+        fauxAssistantMessage([fauxText('Planning complete.')]),
+      ]);
+
+      const { graph, store, loop } = createFixture({
+        featureOverrides: {
+          workControl: 'planning',
+        },
+      });
+
+      // Planner runs, emits empty proposal (only submit), lands in await_approval.
+      await loop.step(100);
+      const run = store.getAgentRun('run-feature:f-1:plan');
+      expect(run?.runStatus).toBe('await_approval');
+
+      // Approve: empty proposal triggers feature cancellation (see
+      // approveFeatureProposal in src/orchestrator/proposals/index.ts).
+      loop.enqueue({
+        type: 'feature_phase_approval_decision',
+        featureId: 'f-1',
+        phase: 'plan',
+        decision: 'approved',
+      });
+      await loop.step(100);
+
+      expect(graph.features.get('f-1')?.collabControl).toBe('cancelled');
+      const cancelledEvent = findEvent(
+        store.listEvents({ entityId: 'f-1' }),
+        'feature_cancelled_empty_proposal',
+      );
+      expect(cancelledEvent?.payload).toMatchObject({
+        phase: 'plan',
+        reason: 'empty_proposal',
+      });
+      // Graph has no tasks on the feature (empty plan really was empty).
+      expect(
+        [...graph.tasks.values()].filter((task) => task.featureId === 'f-1'),
+      ).toHaveLength(0);
+    });
+  });
+
   it('dispatches discuss end-to-end with structured submitDiscuss and advances to researching', async () => {
     faux.setResponses([
       fauxAssistantMessage(
