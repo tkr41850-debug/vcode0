@@ -7,11 +7,17 @@ import type {
 } from '@core/types';
 import type { TaskPayload } from '@runtime/context';
 import type {
+  FeaturePhaseRunPayload,
   OrchestratorToWorkerMessage,
   RuntimeSteeringDirective,
   WorkerToOrchestratorMessage,
 } from '@runtime/contracts';
-import type { SessionHandle, SessionHarness } from '@runtime/harness';
+import {
+  createFeaturePhaseHandle,
+  type FeaturePhaseBackend,
+  type SessionHandle,
+  type SessionHarness,
+} from '@runtime/harness';
 import type { ChildIpcTransport } from '@runtime/ipc';
 import type { SessionStore } from '@runtime/sessions';
 import { WorkerRuntime } from '@runtime/worker';
@@ -34,6 +40,13 @@ interface PoolTestSetup {
   handle: MockHandle;
   harness: SessionHarness & { lastStartPayload: TaskPayload | undefined };
   pool: LocalWorkerPool;
+}
+
+function createFeaturePhaseBackend(): FeaturePhaseBackend {
+  return {
+    start: vi.fn(),
+    resume: vi.fn(),
+  };
 }
 
 function createMockHandle(sessionId = 'sess-1'): MockHandle {
@@ -184,6 +197,66 @@ describe('LocalWorkerPool', () => {
         taskId: task.id,
         agentRunId: 'run-wrapper',
         sessionId: 'sess-wrapper',
+      });
+    });
+  });
+
+  describe('dispatchRun (feature_phase)', () => {
+    it('returns a session-handle-compatible inline result from a fake backend', async () => {
+      const { harness } = setupPool();
+      const backend = createFeaturePhaseBackend();
+      const payload: FeaturePhaseRunPayload = { kind: 'feature_phase' };
+      vi.mocked(backend.start).mockResolvedValue(
+        createFeaturePhaseHandle({
+          sessionId: 'feature-sess-1',
+          outcome: {
+            kind: 'completed_inline',
+            output: {
+              kind: 'text_phase',
+              phase: 'discuss',
+              result: { summary: 'fake discuss summary' },
+            },
+          },
+        }),
+      );
+      const pool = new LocalWorkerPool(harness, 4, undefined, backend);
+
+      const result = await pool.dispatchRun(
+        { kind: 'feature_phase', featureId: 'f-feature-1', phase: 'discuss' },
+        { mode: 'start', agentRunId: 'run-feature:f-feature-1:discuss' },
+        payload,
+      );
+
+      expect(backend.start).toHaveBeenCalledWith(
+        { kind: 'feature_phase', featureId: 'f-feature-1', phase: 'discuss' },
+        payload,
+        'run-feature:f-feature-1:discuss',
+      );
+      expect(result).toEqual({
+        kind: 'completed_inline',
+        agentRunId: 'run-feature:f-feature-1:discuss',
+        sessionId: 'feature-sess-1',
+        output: {
+          kind: 'text_phase',
+          phase: 'discuss',
+          result: { summary: 'fake discuss summary' },
+        },
+      });
+    });
+
+    it('keeps task dispatch behavior unchanged when feature-phase backend is absent', async () => {
+      const { pool } = setupPool('sess-task-path');
+
+      const result = await pool.dispatchRun(
+        { kind: 'task', taskId: 't-task-1', featureId: 'f-feature-1' },
+        { mode: 'start', agentRunId: 'run-task:t-task-1' },
+        { kind: 'task', task: makeTask(), payload: {} },
+      );
+
+      expect(result).toEqual({
+        kind: 'started',
+        agentRunId: 'run-task:t-task-1',
+        sessionId: 'sess-task-path',
       });
     });
   });

@@ -13,6 +13,10 @@ import type {
 } from '@core/types/index';
 import type { TaskPayload } from '@runtime/context/index';
 
+export type FeaturePhaseRunPayload = {
+  kind: 'feature_phase';
+};
+
 /**
  * Scope-aware run identity for `RuntimePort.dispatchRun`.
  *
@@ -62,14 +66,17 @@ export type PhaseOutput =
  *
  * Carries everything a backend needs to actually run the scope in question.
  * Task payload ships the full `Task` row so subprocess-based harnesses can
- * inline it into the `run` IPC frame. Feature-phase variants are added in
- * later Phase A commits when the feature-phase backend lands.
+ * inline it into the `run` IPC frame. Feature-phase payload stays intentionally
+ * tiny in A.7 because the new backend seam only needs to prove dispatch and
+ * result synthesis; real agent wiring lands in later commits.
  */
-export type RunPayload = {
-  kind: 'task';
-  task: Task;
-  payload: TaskPayload;
-};
+export type RunPayload =
+  | {
+      kind: 'task';
+      task: Task;
+      payload: TaskPayload;
+    }
+  | FeaturePhaseRunPayload;
 
 /**
  * Scope-aware dispatch outcome. Covers both async subprocess dispatches
@@ -206,9 +213,9 @@ export type HelpResponse =
 export interface RuntimePort {
   /**
    * Scope-aware dispatch seam. Delegates to the right backend for `scope`:
-   * task runs go through `SessionHarness`; feature-phase runs (plan,
-   * replan, discuss, research, verify, summarize, ci_check) are wired in
-   * later Phase A commits. For now, feature-phase scope throws.
+   * task runs go through `SessionHarness`; feature-phase runs go through the
+   * lightweight `FeaturePhaseBackend` seam introduced in Phase A.7.
+   * Real agent/verification wiring stays in later commits.
    */
   dispatchRun(
     this: void,

@@ -194,6 +194,14 @@ export class PiSdkHarness implements SessionHarness {
   }
 }
 
+export type { FeaturePhaseBackend } from '@runtime/harness/feature-phase/index';
+export {
+  createFeaturePhaseHandle,
+  type FeaturePhaseDispatchOutcome,
+  type FeaturePhaseSessionHandle,
+  type ResumeFeaturePhaseResult,
+} from '@runtime/harness/feature-phase/index';
+
 function createSessionHandle(
   taskId: string,
   agentRunId: string,

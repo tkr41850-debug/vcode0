@@ -3,6 +3,7 @@ export { buildTaskPayload } from '@runtime/context';
 export type {
   ApprovalDecision,
   DispatchTaskResult,
+  FeaturePhaseRunPayload,
   HelpResponse,
   OrchestratorToWorkerMessage,
   ResumableTaskExecutionRunRef,
@@ -16,10 +17,15 @@ export type {
   WorkerToOrchestratorMessage,
 } from '@runtime/contracts';
 export type {
+  FeaturePhaseBackend,
+  FeaturePhaseDispatchOutcome,
+  FeaturePhaseSessionHandle,
+  ResumeFeaturePhaseResult,
   ResumeSessionResult,
   SessionHandle,
   SessionHarness,
 } from '@runtime/harness';
+export { createFeaturePhaseHandle } from '@runtime/harness';
 export type { ChildIpcTransport, IpcTransport } from '@runtime/ipc';
 export type { ModelBridgeConfig } from '@runtime/routing/model-bridge';
 export { resolveModel } from '@runtime/routing/model-bridge';

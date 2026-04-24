@@ -17,7 +17,11 @@ import type {
   TaskRuntimeDispatch,
   WorkerToOrchestratorMessage,
 } from '@runtime/contracts';
-import type { SessionHandle, SessionHarness } from '@runtime/harness/index';
+import type {
+  FeaturePhaseBackend,
+  SessionHandle,
+  SessionHarness,
+} from '@runtime/harness/index';
 
 interface LiveSession {
   ref: RunExecutionRef;
@@ -35,6 +39,7 @@ export class LocalWorkerPool implements RuntimePort {
     private readonly harness: SessionHarness,
     private readonly maxConcurrency: number,
     private readonly onTaskComplete?: TaskCompleteCallback,
+    private readonly featurePhaseBackend?: FeaturePhaseBackend,
   ) {}
 
   async dispatchRun(
@@ -43,9 +48,53 @@ export class LocalWorkerPool implements RuntimePort {
     payload: RunPayload,
   ): Promise<DispatchRunResult> {
     if (scope.kind === 'feature_phase') {
-      throw new Error(
-        'feature_phase dispatch not yet supported — wire FeaturePhaseBackend in Phase A.7',
+      if (payload.kind !== 'feature_phase') {
+        throw new Error(
+          `dispatchRun: scope.kind=${scope.kind} expects payload.kind='feature_phase', got '${payload.kind}'`,
+        );
+      }
+      if (this.featurePhaseBackend === undefined) {
+        throw new Error('feature_phase dispatch not configured');
+      }
+
+      if (dispatch.mode === 'resume') {
+        const resumeResult = await this.featurePhaseBackend.resume(
+          scope,
+          {
+            agentRunId: dispatch.agentRunId,
+            sessionId: dispatch.sessionId,
+          },
+          payload,
+        );
+        if (resumeResult.kind === 'not_resumable') {
+          return {
+            kind: 'not_resumable',
+            agentRunId: dispatch.agentRunId,
+            sessionId: dispatch.sessionId,
+            reason: resumeResult.reason,
+          };
+        }
+        const outcome = await resumeResult.handle.awaitOutcome();
+        return {
+          kind: outcome.kind,
+          agentRunId: dispatch.agentRunId,
+          sessionId: resumeResult.handle.sessionId,
+          output: outcome.output,
+        };
+      }
+
+      const handle = await this.featurePhaseBackend.start(
+        scope,
+        payload,
+        dispatch.agentRunId,
       );
+      const outcome = await handle.awaitOutcome();
+      return {
+        kind: outcome.kind,
+        agentRunId: dispatch.agentRunId,
+        sessionId: handle.sessionId,
+        output: outcome.output,
+      };
     }
     if (payload.kind !== 'task') {
       throw new Error(
