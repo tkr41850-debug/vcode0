@@ -69,6 +69,13 @@ function createRuntimeMock(): RuntimePort & {
   resumeTask: ReturnType<typeof vi.fn>;
 } {
   return {
+    dispatchRun: vi.fn(() =>
+      Promise.resolve({
+        kind: 'started' as const,
+        agentRunId: 'run-stub',
+        sessionId: 'sess-stub',
+      }),
+    ),
     dispatchTask: vi.fn(
       (
         _task,

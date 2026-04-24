@@ -5,7 +5,11 @@ import type {
 } from '@core/types/index';
 import type { TaskPayload } from '@runtime/context/index';
 import type {
+  DispatchRunResult,
   DispatchTaskResult,
+  RunPayload,
+  RunScope,
+  RuntimeDispatch,
   RuntimePort,
   RuntimeSteeringDirective,
   TaskControlResult,
@@ -32,6 +36,51 @@ export class LocalWorkerPool implements RuntimePort {
     private readonly maxConcurrency: number,
     private readonly onTaskComplete?: TaskCompleteCallback,
   ) {}
+
+  async dispatchRun(
+    scope: RunScope,
+    dispatch: RuntimeDispatch,
+    payload: RunPayload,
+  ): Promise<DispatchRunResult> {
+    if (scope.kind === 'feature_phase') {
+      throw new Error(
+        'feature_phase dispatch not yet supported — wire FeaturePhaseBackend in Phase A.7',
+      );
+    }
+    if (payload.kind !== 'task') {
+      throw new Error(
+        `dispatchRun: scope.kind=${scope.kind} expects payload.kind='task', got '${payload.kind}'`,
+      );
+    }
+
+    const taskResult = await this.dispatchTask(
+      payload.task,
+      dispatch,
+      payload.payload,
+    );
+
+    switch (taskResult.kind) {
+      case 'started':
+        return {
+          kind: 'started',
+          agentRunId: taskResult.agentRunId,
+          sessionId: taskResult.sessionId,
+        };
+      case 'resumed':
+        return {
+          kind: 'resumed',
+          agentRunId: taskResult.agentRunId,
+          sessionId: taskResult.sessionId,
+        };
+      case 'not_resumable':
+        return {
+          kind: 'not_resumable',
+          agentRunId: taskResult.agentRunId,
+          sessionId: taskResult.sessionId,
+          reason: taskResult.reason,
+        };
+    }
+  }
 
   async dispatchTask(
     task: Task,

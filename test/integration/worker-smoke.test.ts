@@ -98,6 +98,31 @@ describe('worker smoke (faux provider + in-process harness)', () => {
     expect(result?.result.filesChanged).toEqual([]);
   });
 
+  it('dispatches a task via dispatchRun with task-scoped RunScope', async () => {
+    const task = makeTask({ id: 't-smoke-run' });
+
+    const result = await pool.dispatchRun(
+      { kind: 'task', taskId: task.id, featureId: task.featureId },
+      { mode: 'start', agentRunId: 'run-dispatch-run' },
+      { kind: 'task', task, payload: {} },
+    );
+
+    expect(result.kind).toBe('started');
+    if (result.kind !== 'started') {
+      throw new Error('expected started result');
+    }
+    expect(result.agentRunId).toBe('run-dispatch-run');
+    expect(result.sessionId).toBe('run-dispatch-run');
+
+    await harness.drain();
+
+    const terminalResult = completions.find(
+      (message): message is WorkerToOrchestratorMessage & { type: 'result' } =>
+        message.type === 'result' && message.taskId === task.id,
+    );
+    expect(terminalResult?.agentRunId).toBe('run-dispatch-run');
+  });
+
   it('persists the session through the in-memory store', async () => {
     const task = makeTask({ id: 't-smoke-2' });
 

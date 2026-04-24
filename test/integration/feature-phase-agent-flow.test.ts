@@ -39,6 +39,12 @@ function createConfig(overrides: Partial<GvcConfig> = {}): GvcConfig {
 
 function createRuntimeStub(): RuntimePort {
   return {
+    dispatchRun: () =>
+      Promise.reject(
+        new Error(
+          'run dispatch not expected in feature-phase integration test',
+        ),
+      ),
     dispatchTask: () =>
       Promise.reject(
         new Error(

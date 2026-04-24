@@ -58,6 +58,20 @@ export type PhaseOutput =
   | { kind: 'ci_check'; verification: VerificationSummary };
 
 /**
+ * Scope-aware dispatch payload.
+ *
+ * Carries everything a backend needs to actually run the scope in question.
+ * Task payload ships the full `Task` row so subprocess-based harnesses can
+ * inline it into the `run` IPC frame. Feature-phase variants are added in
+ * later Phase A commits when the feature-phase backend lands.
+ */
+export type RunPayload = {
+  kind: 'task';
+  task: Task;
+  payload: TaskPayload;
+};
+
+/**
  * Scope-aware dispatch outcome. Covers both async subprocess dispatches
  * (`started` / `resumed`) and synchronous in-process completions
  * (`completed_inline` for text/verification phases, `awaiting_approval` for
@@ -185,6 +199,18 @@ export type HelpResponse =
   | { kind: 'discuss' };
 
 export interface RuntimePort {
+  /**
+   * Scope-aware dispatch seam. Delegates to the right backend for `scope`:
+   * task runs go through `SessionHarness`; feature-phase runs (plan,
+   * replan, discuss, research, verify, summarize, ci_check) are wired in
+   * later Phase A commits. For now, feature-phase scope throws.
+   */
+  dispatchRun(
+    this: void,
+    scope: RunScope,
+    dispatch: RuntimeDispatch,
+    payload: RunPayload,
+  ): Promise<DispatchRunResult>;
   dispatchTask(
     this: void,
     task: Task,

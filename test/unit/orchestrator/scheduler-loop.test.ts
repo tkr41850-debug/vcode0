@@ -160,6 +160,12 @@ function createRuntimeMock(order: string[]): RuntimePort & {
   stopAll: ReturnType<typeof vi.fn>;
 } {
   return {
+    dispatchRun: () =>
+      Promise.resolve({
+        kind: 'started',
+        agentRunId: 'run-1',
+        sessionId: 'sess-1',
+      }),
     dispatchTask: (_task: Task, _dispatch) =>
       Promise.resolve({
         kind: 'started',
