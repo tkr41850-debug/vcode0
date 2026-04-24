@@ -16,16 +16,19 @@
  * `t-down-1`. Each test flips the upstream feature's work/collab state
  * and re-queries `readyTasks()`.
  */
+
+import type { InMemoryFeatureGraph } from '@core/graph/index';
+
+import type {
+  FeatureCollabControl,
+  FeatureWorkControl,
+} from '@core/types/index';
 import { describe, expect, it } from 'vitest';
-
-import type { FeatureCollabControl, FeatureWorkControl } from '@core/types/index';
-
 import {
   createGraphWithMilestone,
   updateFeature,
   updateTask,
 } from '../../helpers/graph-builders.js';
-import type { InMemoryFeatureGraph } from '@core/graph/index';
 
 function buildTwoFeatureChain(opts: {
   upstreamWork: FeatureWorkControl;
@@ -76,7 +79,11 @@ describe('readyTasks — upstream feature-dep merged gate', () => {
     collab: FeatureCollabControl;
     label: string;
   }> = [
-    { work: 'executing', collab: 'branch_open', label: 'executing + branch_open' },
+    {
+      work: 'executing',
+      collab: 'branch_open',
+      label: 'executing + branch_open',
+    },
     {
       work: 'work_complete',
       collab: 'branch_open',

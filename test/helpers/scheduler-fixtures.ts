@@ -820,3 +820,66 @@ export function mixedOverlapFixture(): {
   const runs = createRunReaderFromRuns([]);
   return { graph: g, runs };
 }
+
+// ─── Large bulk graph fixture (perf smoke — Plan 04-03) ──────────────
+
+/**
+ * Synthetic bulk-graph generator for perf smoke tests. Produces
+ * `featureCount` features × `tasksPerFeature` tasks. Features are
+ * chained in groups of 5 (linear within a group, parallel across
+ * groups) so the combined-graph exercises both inter-feature edges and
+ * intra-feature task chains.
+ *
+ * Even-indexed features are `executing` (task nodes expand); odd-indexed
+ * stay in pre-execution `discussing` (single virtual node, weight is
+ * sum of medium-weight tasks).
+ *
+ * Returns `{ graph }` only — the metric expectations are not computed
+ * for bulk fixtures, only their structure.
+ */
+export function largeGraphFixture(opts: {
+  featureCount: number;
+  tasksPerFeature: number;
+}): { graph: InMemoryFeatureGraph } {
+  const g = createGraphWithMilestone();
+  withTick(g, () => {
+    g.queueMilestone('m-1');
+    for (let i = 0; i < opts.featureCount; i++) {
+      const id: FeatureId = `f-${i}`;
+      // Chain within groups of 5 (indices ending 1..4 depend on
+      // previous); first of each group (i % 5 === 0) has no dep.
+      const depIds: FeatureId[] = i >= 1 && i % 5 !== 0 ? [`f-${i - 1}`] : [];
+      g.createFeature({
+        id,
+        milestoneId: 'm-1',
+        name: `F${i}`,
+        description: `bulk feature ${i}`,
+        dependsOn: depIds,
+      });
+      for (let t = 0; t < opts.tasksPerFeature; t++) {
+        const taskId: TaskId = `t-${i}-${t}`;
+        const prevDeps: TaskId[] = t > 0 ? [`t-${i}-${t - 1}`] : [];
+        g.createTask({
+          id: taskId,
+          featureId: id,
+          description: `task ${t} on f-${i}`,
+          dependsOn: prevDeps,
+        });
+      }
+    }
+  });
+
+  // After all features/tasks exist, flip every other feature to
+  // executing and mark its first task ready. Odd-indexed features stay
+  // pre-execution (single virtual node).
+  for (let i = 0; i < opts.featureCount; i++) {
+    if (i % 2 === 0) {
+      const id: FeatureId = `f-${i}`;
+      updateFeature(g, id, { workControl: 'executing' });
+      const firstTaskId: TaskId = `t-${i}-0`;
+      updateTask(g, firstTaskId, { status: 'ready' });
+    }
+  }
+
+  return { graph: g };
+}
