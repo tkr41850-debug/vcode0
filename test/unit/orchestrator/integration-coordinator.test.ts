@@ -195,6 +195,9 @@ describe('IntegrationCoordinator', () => {
     expect(feature?.mainMergeSha).toBe(
       outcome.kind === 'merged' ? outcome.mainMergeSha : undefined,
     );
+    expect(feature?.branchHeadSha).toBe(
+      outcome.kind === 'merged' ? outcome.branchHeadSha : undefined,
+    );
   });
 
   it('reroutes to replanning with rebase issues on conflict', async () => {

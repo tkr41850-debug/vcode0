@@ -329,7 +329,14 @@ export async function handleSchedulerEvent(params: {
   }
 
   if (event.type === 'feature_integration_complete') {
-    features.completeIntegration(event.featureId);
+    // When the event originates from IntegrationCoordinator, the feature is
+    // already 'merged' (coordinator persists the transition atomically with
+    // the SHA write + marker clear); skip the duplicate call to avoid a
+    // no-op FSM throw that would skip the cross-feature release loop below.
+    const feature = graph.features.get(event.featureId);
+    if (feature !== undefined && feature.collabControl !== 'merged') {
+      features.completeIntegration(event.featureId);
+    }
     const releases = await conflicts.releaseCrossFeatureOverlap(
       event.featureId,
     );
