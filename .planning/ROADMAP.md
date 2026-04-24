@@ -87,12 +87,12 @@ Plans:
   3. Priority sort obeys the 6-key order (milestone → work-type tier → critical-path → partial-failed → overlap → retry → age)
   4. Reservation overlap applies scheduling penalty but does not block; runtime overlap (write pre-hook) routes to coordination
   5. Feature deps enforce "wait for merge to main" — downstream feature dispatches only after upstream's `collab=merged`
-**Plans**: TBD (~3 plans)
+**Plans**: 3 plans
 
 Plans:
-- [ ] 04-01: Serial event queue + tick loop skeleton + event type schema
-- [ ] 04-02: Combined virtual graph + critical-path metrics + prioritized frontier
-- [ ] 04-03: Reservation overlap penalty + feature-dep enforcement + dispatcher integration
+- [ ] 04-01-PLAN.md — Serial event queue hardening + boundary-test infrastructure (AST walker + runtime `__enterTick` guard); enqueue-wake wiring; shutdown handler + exhaustiveness assertion; route-through refactors for compose.ts TUI callbacks and agents/runtime.ts phase-agent mutations. Closes SC1.
+- [ ] 04-02-PLAN.md — Canonical DAG fixture library (diamond/linear/parallel/deepNested/mixed); 7-key + ID-tiebreaker full-order sort test; reservation-overlap-is-penalty-not-block test; retry-eligibility backoff formula alignment with CONTEXT § H; ROADMAP + graph-operations.md doc reconciliation. Closes SC2, SC3, SC4.
+- [ ] 04-03-PLAN.md — readyTasks() upstream feature-dep merged gate + dispatch-time defensive guard; comprehensive collab-state test matrix; feature-phase worker-cap verification (REQ-EXEC-05); perf smoke (default 50×20 p95<100ms, LOAD_TEST 100×20 p95<250ms); two-feature E2E with WorkerPool. Closes SC5 + REQ-EXEC-05/06.
 
 ### Phase 5: Feature Lifecycle & Feature-Level Planner
 **Goal**: A single feature goes plan → execute → verify → merge-ready end-to-end: feature-level planner produces a task DAG, tasks execute, verify phase runs a real agent review, repair loop handles failures.
@@ -245,7 +245,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 1. Foundations & Clarity | 0/TBD (~3) | Not started | - |
 | 2. Persistence & Port Contracts | 0/TBD (~3) | Not started | - |
 | 3. Worker Execution Loop (+ Spike) | 5/5 | ✓ Complete | 2026-04-23 |
-| 4. Scheduler Tick + Event Queue | 0/TBD (~3) | Not started | - |
+| 4. Scheduler Tick + Event Queue | 0/3 | Planned | - |
 | 5. Feature Lifecycle & Feature-Level Planner | 0/TBD (~4) | Not started | - |
 | 6. Merge Train | 0/TBD (~3) | Not started | - |
 | 7. Top-Level Planner + Inbox + Pause/Resume | 0/TBD (~5) | Not started | - |
@@ -257,3 +257,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 
 ---
 *Roadmap created: 2026-04-23*
+*Last updated: 2026-04-24 — Phase 4 plans finalized (3 plans, waves 1-3 serial)*
