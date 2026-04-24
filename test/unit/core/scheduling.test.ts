@@ -8,9 +8,9 @@ import type {
 } from '@core/scheduling/index';
 import {
   buildCombinedGraph,
-  computeRetryBackoffMs,
   CriticalPathScheduler,
   computeGraphMetrics,
+  computeRetryBackoffMs,
   type RetryPolicy,
   schedulableUnitKey,
   TASK_WEIGHT_VALUE,

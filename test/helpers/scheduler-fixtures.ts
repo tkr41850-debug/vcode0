@@ -15,7 +15,7 @@
  * Default task weight is `TASK_WEIGHT_VALUE.medium = 10`.
  */
 
-import { InMemoryFeatureGraph } from '@core/graph/index';
+import type { InMemoryFeatureGraph } from '@core/graph/index';
 import type { ExecutionRunReader, NodeMetrics } from '@core/scheduling/index';
 import type {
   AgentRun,
@@ -388,9 +388,7 @@ export function mixedFeatureTaskFixture(): SchedulerFixture {
  * and indexes them by task-id or `<featureId>:<phase>` for lookups.
  * Mirrors the production shape used by `CriticalPathScheduler.prioritizeReadyWork`.
  */
-export function createRunReaderFromRuns(
-  runs: AgentRun[],
-): ExecutionRunReader {
+export function createRunReaderFromRuns(runs: AgentRun[]): ExecutionRunReader {
   const byTaskId = new Map<string, AgentRun>();
   const byFeaturePhase = new Map<string, AgentRun>();
 
