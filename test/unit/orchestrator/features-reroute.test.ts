@@ -96,6 +96,82 @@ describe('FeatureLifecycleCoordinator.rerouteToReplan', () => {
     ]);
   });
 
+  it('dedupes incoming entries that match existing ids', () => {
+    const existing: VerifyIssue = {
+      source: 'ci_check',
+      id: 'ci-f-1-feature-1',
+      severity: 'blocking',
+      phase: 'feature',
+      checkName: 'npm test',
+      command: 'npm test',
+      description: 'npm test failed (first)',
+    };
+    const graph = makeGraph({
+      workControl: 'ci_check',
+      verifyIssues: [existing],
+    });
+    const features = new FeatureLifecycleCoordinator(graph);
+
+    features.rerouteToReplan('f-1', [
+      {
+        source: 'ci_check',
+        id: 'ci-f-1-feature-1',
+        severity: 'blocking',
+        phase: 'feature',
+        checkName: 'npm test',
+        command: 'npm test',
+        description: 'npm test failed (second)',
+      },
+    ]);
+
+    const feature = graph.features.get('f-1');
+    expect(feature?.verifyIssues).toHaveLength(1);
+    expect(feature?.verifyIssues?.[0]?.description).toBe(
+      'npm test failed (second)',
+    );
+  });
+
+  it('merges incoming list with unrelated existing entries without duplicates', () => {
+    const existing: VerifyIssue[] = [
+      {
+        source: 'verify',
+        id: 'vi-keep',
+        severity: 'nit',
+        description: 'style',
+      },
+      {
+        source: 'rebase',
+        id: 'rb-f-1-1',
+        severity: 'blocking',
+        description: 'old rebase conflict',
+        conflictedFiles: ['src/a.ts'],
+      },
+    ];
+    const graph = makeGraph({
+      workControl: 'ci_check',
+      verifyIssues: existing,
+    });
+    const features = new FeatureLifecycleCoordinator(graph);
+
+    features.rerouteToReplan('f-1', [
+      {
+        source: 'rebase',
+        id: 'rb-f-1-1',
+        severity: 'blocking',
+        description: 'new rebase conflict',
+        conflictedFiles: ['src/a.ts', 'src/b.ts'],
+      },
+    ]);
+
+    const feature = graph.features.get('f-1');
+    expect(feature?.verifyIssues?.map((i) => i.id).sort()).toEqual([
+      'rb-f-1-1',
+      'vi-keep',
+    ]);
+    const rebase = feature?.verifyIssues?.find((i) => i.id === 'rb-f-1-1');
+    expect(rebase?.description).toBe('new rebase conflict');
+  });
+
   it('ejects integrating features back to branch_open before replanning', () => {
     const graph = makeGraph({
       workControl: 'awaiting_merge',

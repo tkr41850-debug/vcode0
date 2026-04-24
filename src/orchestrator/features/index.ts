@@ -257,7 +257,14 @@ function mergeVerifyIssues(
   if (incoming.length === 0) {
     return existing;
   }
-  return existing !== undefined ? [...existing, ...incoming] : [...incoming];
+  const byId = new Map<string, VerifyIssue>();
+  for (const issue of existing ?? []) {
+    byId.set(issue.id, issue);
+  }
+  for (const issue of incoming) {
+    byId.set(issue.id, issue);
+  }
+  return [...byId.values()];
 }
 
 function ciCheckIssuesFromVerification(
