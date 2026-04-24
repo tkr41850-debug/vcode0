@@ -1,8 +1,10 @@
 import type {
   DispatchRunResult,
+  OrchestratorToWorkerMessage,
   PhaseOutput,
   RunScope,
   RuntimeDispatch,
+  WorkerToOrchestratorMessage,
 } from '@runtime/contracts';
 import { describe, expectTypeOf, it } from 'vitest';
 
@@ -137,5 +139,47 @@ describe('scope-aware runtime contracts', () => {
     expectTypeOf(completed).toMatchTypeOf<DispatchRunResult>();
     expectTypeOf(awaiting).toMatchTypeOf<DispatchRunResult>();
     expectTypeOf(notResumable).toMatchTypeOf<DispatchRunResult>();
+  });
+
+  it('OrchestratorToWorkerMessage carries optional scopeRef alongside legacy taskId', () => {
+    // scopeRef is optional for now so construction sites can migrate
+    // incrementally. Later commits populate it everywhere and make it required.
+    const runWithScope: OrchestratorToWorkerMessage = {
+      type: 'run',
+      taskId: 't-1',
+      agentRunId: 'run-1',
+      scopeRef: { kind: 'task', taskId: 't-1', featureId: 'f-1' },
+      dispatch: { mode: 'start', agentRunId: 'run-1' },
+      task: {
+        id: 't-1',
+        featureId: 'f-1',
+        orderInFeature: 0,
+        description: '',
+        dependsOn: [],
+        status: 'ready',
+        collabControl: 'none',
+      },
+      payload: {},
+    };
+    expectTypeOf(runWithScope).toMatchTypeOf<OrchestratorToWorkerMessage>();
+    expectTypeOf<
+      Extract<OrchestratorToWorkerMessage, { type: 'run' }>['scopeRef']
+    >().toEqualTypeOf<RunScope | undefined>();
+  });
+
+  it('WorkerToOrchestratorMessage carries optional scopeRef alongside legacy taskId', () => {
+    const progressWithScope: WorkerToOrchestratorMessage = {
+      type: 'progress',
+      taskId: 't-1',
+      agentRunId: 'run-1',
+      scopeRef: { kind: 'task', taskId: 't-1', featureId: 'f-1' },
+      message: 'still running',
+    };
+    expectTypeOf(
+      progressWithScope,
+    ).toMatchTypeOf<WorkerToOrchestratorMessage>();
+    expectTypeOf<
+      Extract<WorkerToOrchestratorMessage, { type: 'progress' }>['scopeRef']
+    >().toEqualTypeOf<RunScope | undefined>();
   });
 });

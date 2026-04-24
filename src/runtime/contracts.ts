@@ -241,6 +241,7 @@ export type OrchestratorToWorkerMessage =
       type: 'run';
       taskId: string;
       agentRunId: string;
+      scopeRef?: RunScope;
       dispatch: TaskRuntimeDispatch;
       task: Task;
       payload: TaskPayload;
@@ -249,12 +250,14 @@ export type OrchestratorToWorkerMessage =
       type: 'steer';
       taskId: string;
       agentRunId: string;
+      scopeRef?: RunScope;
       directive: RuntimeSteeringDirective;
     }
   | {
       type: 'suspend';
       taskId: string;
       agentRunId: string;
+      scopeRef?: RunScope;
       reason: TaskSuspendReason;
       files: string[];
     }
@@ -262,35 +265,41 @@ export type OrchestratorToWorkerMessage =
       type: 'resume';
       taskId: string;
       agentRunId: string;
+      scopeRef?: RunScope;
       reason: TaskResumeReason;
     }
   | {
       type: 'abort';
       taskId: string;
       agentRunId: string;
+      scopeRef?: RunScope;
     }
   | {
       type: 'help_response';
       taskId: string;
       agentRunId: string;
+      scopeRef?: RunScope;
       response: HelpResponse;
     }
   | {
       type: 'approval_decision';
       taskId: string;
       agentRunId: string;
+      scopeRef?: RunScope;
       decision: ApprovalDecision;
     }
   | {
       type: 'manual_input';
       taskId: string;
       agentRunId: string;
+      scopeRef?: RunScope;
       text: string;
     }
   | {
       type: 'claim_decision';
       taskId: string;
       agentRunId: string;
+      scopeRef?: RunScope;
       claimId: string;
       kind: 'granted' | 'denied';
       deniedPaths?: readonly string[];
@@ -301,12 +310,14 @@ export type WorkerToOrchestratorMessage =
       type: 'progress';
       taskId: string;
       agentRunId: string;
+      scopeRef?: RunScope;
       message: string;
     }
   | {
       type: 'result';
       taskId: string;
       agentRunId: string;
+      scopeRef?: RunScope;
       result: TaskResult;
       usage: RuntimeUsageDelta;
       completionKind?: 'submitted' | 'implicit';
@@ -315,6 +326,7 @@ export type WorkerToOrchestratorMessage =
       type: 'error';
       taskId: string;
       agentRunId: string;
+      scopeRef?: RunScope;
       error: string;
       usage?: RuntimeUsageDelta;
     }
@@ -322,24 +334,28 @@ export type WorkerToOrchestratorMessage =
       type: 'request_help';
       taskId: string;
       agentRunId: string;
+      scopeRef?: RunScope;
       query: string;
     }
   | {
       type: 'request_approval';
       taskId: string;
       agentRunId: string;
+      scopeRef?: RunScope;
       payload: ApprovalPayload;
     }
   | {
       type: 'assistant_output';
       taskId: string;
       agentRunId: string;
+      scopeRef?: RunScope;
       text: string;
     }
   | {
       type: 'claim_lock';
       taskId: string;
       agentRunId: string;
+      scopeRef?: RunScope;
       claimId: string;
       paths: readonly string[];
     };
