@@ -2,7 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { PiFeatureAgentRuntime, promptLibrary } from '@agents';
+import { FeaturePhaseOrchestrator, promptLibrary } from '@agents';
 import { type ApplicationLifecycle, GvcApplication } from '@app/index';
 import type { FeatureGraph } from '@core/graph/index';
 import type {
@@ -204,7 +204,7 @@ export async function composeApplication(): Promise<GvcApplication> {
     },
   });
 
-  const agents = new PiFeatureAgentRuntime({
+  const agents = new FeaturePhaseOrchestrator({
     modelId: config.modelRouting?.ceiling ?? DEFAULT_MODEL_ID,
     config,
     promptLibrary,

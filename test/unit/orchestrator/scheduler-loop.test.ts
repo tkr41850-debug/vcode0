@@ -171,7 +171,18 @@ function createRuntimeMock(order: string[]): RuntimePort & {
           output: {
             kind: 'text_phase' as const,
             phase: 'discuss' as const,
-            result: { summary: 'discussed' },
+            result: {
+              summary: 'discussed',
+              extra: {
+                intent: 'intent',
+                successCriteria: ['criterion'],
+                constraints: [],
+                risks: [],
+                externalIntegrations: [],
+                antiGoals: [],
+                openQuestions: [],
+              },
+            },
           },
         });
       }
@@ -183,7 +194,18 @@ function createRuntimeMock(order: string[]): RuntimePort & {
           output: {
             kind: 'text_phase' as const,
             phase: 'research' as const,
-            result: { summary: 'researched' },
+            result: {
+              summary: 'researched',
+              extra: {
+                existingBehavior: 'existing',
+                essentialFiles: [],
+                reusePatterns: [],
+                riskyBoundaries: [],
+                proofsNeeded: [],
+                verificationSurfaces: [],
+                planningNotes: [],
+              },
+            },
           },
         });
       }
@@ -242,7 +264,16 @@ function createRuntimeMock(order: string[]): RuntimePort & {
           output: {
             kind: 'text_phase' as const,
             phase: 'summarize' as const,
-            result: { summary: 'summarized' },
+            result: {
+              summary: 'summarized',
+              extra: {
+                outcome: 'outcome',
+                deliveredCapabilities: [],
+                importantFiles: [],
+                verificationConfidence: [],
+                carryForwardNotes: [],
+              },
+            },
           },
         });
       }
@@ -2072,7 +2103,18 @@ describe('SchedulerLoop', () => {
       output: {
         kind: 'text_phase',
         phase: 'discuss',
-        result: { summary: 'discussed' },
+        result: {
+          summary: 'discussed',
+          extra: {
+            intent: 'intent',
+            successCriteria: ['criterion'],
+            constraints: [],
+            risks: [],
+            externalIntegrations: [],
+            antiGoals: [],
+            openQuestions: [],
+          },
+        },
       },
     });
     const discussFeature = vi.spyOn(ports.agents, 'discussFeature');
@@ -2103,10 +2145,27 @@ describe('SchedulerLoop', () => {
       sessionId: 'sess-discuss',
       restartCount: 0,
     });
+    expect(updateAgentRun).toHaveBeenCalledWith('run-feature:f-1:discuss', {
+      runStatus: 'completed',
+      owner: 'system',
+      sessionId: 'sess-discuss',
+    });
+    expect(ports.store.listEvents({ entityId: 'f-1' })).toContainEqual(
+      expect.objectContaining({
+        eventType: 'feature_phase_completed',
+        payload: expect.objectContaining({
+          phase: 'discuss',
+          summary: 'discussed',
+          sessionId: 'sess-discuss',
+          extra: expect.objectContaining({ intent: 'intent' }),
+        }),
+      }),
+    );
     expect(graph.features.get('f-1')).toMatchObject({
       workControl: 'researching',
       status: 'pending',
       collabControl: 'none',
+      discussOutput: expect.stringContaining('Intent'),
     });
   });
 
@@ -2137,10 +2196,27 @@ describe('SchedulerLoop', () => {
       sessionId: 'run-feature:f-1:research',
       restartCount: 0,
     });
+    expect(updateAgentRun).toHaveBeenCalledWith('run-feature:f-1:research', {
+      runStatus: 'completed',
+      owner: 'system',
+      sessionId: 'run-feature:f-1:research',
+    });
+    expect(ports.store.listEvents({ entityId: 'f-1' })).toContainEqual(
+      expect.objectContaining({
+        eventType: 'feature_phase_completed',
+        payload: expect.objectContaining({
+          phase: 'research',
+          summary: 'researched',
+          sessionId: 'run-feature:f-1:research',
+          extra: expect.objectContaining({ existingBehavior: 'existing' }),
+        }),
+      }),
+    );
     expect(graph.features.get('f-1')).toMatchObject({
       workControl: 'planning',
       status: 'pending',
       collabControl: 'none',
+      researchOutput: expect.stringContaining('Existing Behavior'),
     });
   });
 
@@ -2171,6 +2247,25 @@ describe('SchedulerLoop', () => {
       sessionId: 'run-feature:f-1:verify',
       restartCount: 0,
     });
+    expect(updateAgentRun).toHaveBeenCalledWith('run-feature:f-1:verify', {
+      runStatus: 'completed',
+      owner: 'system',
+      sessionId: 'run-feature:f-1:verify',
+    });
+    expect(ports.store.listEvents({ entityId: 'f-1' })).toContainEqual(
+      expect.objectContaining({
+        eventType: 'feature_phase_completed',
+        payload: expect.objectContaining({
+          phase: 'verify',
+          summary: 'verify failed',
+          sessionId: 'run-feature:f-1:verify',
+          extra: expect.objectContaining({
+            outcome: 'repair_needed',
+            failedChecks: ['proof missing'],
+          }),
+        }),
+      }),
+    );
     expect(graph.features.get('f-1')).toMatchObject({
       workControl: 'replanning',
       status: 'pending',
@@ -3056,6 +3151,7 @@ describe('SchedulerLoop', () => {
     const order: string[] = [];
     const { ports } = createPorts(order);
     const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
+    const appendEvent = vi.spyOn(ports.store, 'appendEvent');
     const graph = new InMemoryFeatureGraph({
       milestones: [
         {
@@ -3112,6 +3208,14 @@ describe('SchedulerLoop', () => {
     expect(updateAgentRun).toHaveBeenCalledWith('run-feature:f-1:verify', {
       runStatus: 'completed',
       owner: 'system',
+    });
+    const verifyEvent = appendEvent.mock.calls.find(
+      ([event]) => event.eventType === 'feature_phase_completed',
+    )?.[0];
+    expect(verifyEvent?.payload).toMatchObject({
+      phase: 'verify',
+      summary: 'verified',
+      extra: { ok: true, summary: 'verified' },
     });
   });
 

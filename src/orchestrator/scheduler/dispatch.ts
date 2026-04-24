@@ -492,6 +492,17 @@ async function synthesizeFeaturePhaseDispatchResult(params: {
       params.result,
       JSON.stringify(params.result.output.result.proposal),
     );
+    params.ports.store.appendEvent({
+      eventType: 'feature_phase_completed',
+      entityId: params.feature.id,
+      timestamp: Date.now(),
+      payload: {
+        phase: params.phase,
+        summary: params.result.output.result.summary,
+        sessionId: params.result.sessionId,
+        extra: params.result.output.result.details,
+      },
+    });
     return;
   }
 
@@ -504,6 +515,7 @@ async function synthesizeFeaturePhaseDispatchResult(params: {
   const completion = featurePhaseCompletionEvent(
     params.feature.id,
     params.phase,
+    params.result.sessionId,
     params.result.output,
   );
   persistRunningFeaturePhaseRun(params.ports, params.run, params.result);
@@ -513,6 +525,7 @@ async function synthesizeFeaturePhaseDispatchResult(params: {
 function featurePhaseCompletionEvent(
   featureId: Feature['id'],
   phase: Exclude<AgentRunPhase, 'execute' | 'plan' | 'replan'>,
+  sessionId: string,
   output: PhaseOutput,
 ): SchedulerEvent {
   if (phase === 'verify') {
@@ -526,6 +539,8 @@ function featurePhaseCompletionEvent(
       featureId,
       phase,
       summary: output.verification.summary ?? '',
+      sessionId,
+      extra: output.verification,
       verification: output.verification,
     };
   }
@@ -541,6 +556,8 @@ function featurePhaseCompletionEvent(
       featureId,
       phase,
       summary: output.verification.summary ?? '',
+      sessionId,
+      extra: output.verification,
       verification: output.verification,
     };
   }
@@ -556,7 +573,25 @@ function featurePhaseCompletionEvent(
     featureId,
     phase,
     summary: output.result.summary,
+    sessionId,
+    ...(mergeSummaryExtra(output.result.summary, output.result.extra) !==
+    undefined
+      ? { extra: mergeSummaryExtra(output.result.summary, output.result.extra) }
+      : {}),
   };
+}
+
+function mergeSummaryExtra(summary: string, extra: unknown): unknown {
+  if (extra === undefined) {
+    return undefined;
+  }
+  if (typeof extra === 'object' && extra !== null && !Array.isArray(extra)) {
+    return {
+      summary,
+      ...(extra as Record<string, unknown>),
+    };
+  }
+  return extra;
 }
 
 export function deriveReplanReason(

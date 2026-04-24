@@ -2,7 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { PiFeatureAgentRuntime, promptLibrary } from '@agents';
+import { FeaturePhaseOrchestrator, promptLibrary } from '@agents';
 import { InMemoryFeatureGraph } from '@core/graph/index';
 import { worktreePath } from '@core/naming/index';
 import type { GraphProposal } from '@core/proposals/index';
@@ -249,7 +249,7 @@ function createFixture({
     ({
       verifyFeature: () => Promise.resolve({ ok: true, summary: 'ok' }),
     } as unknown as OrchestratorPorts['verification']);
-  const agents = new PiFeatureAgentRuntime({
+  const agents = new FeaturePhaseOrchestrator({
     modelId: 'claude-sonnet-4-6',
     config,
     promptLibrary,
@@ -333,7 +333,7 @@ describe('feature-phase agent flow', () => {
     const store = new InMemoryStore();
     const sessionStore = new InMemorySessionStore();
     const config = createConfig();
-    const agents = new PiFeatureAgentRuntime({
+    const agents = new FeaturePhaseOrchestrator({
       modelId: 'claude-sonnet-4-6',
       config,
       promptLibrary,

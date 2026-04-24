@@ -65,7 +65,7 @@ type PhaseResultExtra<Phase extends TextPhase> = Phase extends 'discuss'
     ? ResearchPhaseDetails
     : SummarizePhaseDetails;
 
-export class PiFeatureAgentRuntime {
+export class FeaturePhaseOrchestrator {
   constructor(private readonly deps: FeatureAgentRuntimeConfig) {}
 
   discussFeature(
@@ -144,22 +144,7 @@ export class PiFeatureAgentRuntime {
     await this.executeAgent(agent, feature.description);
     const finalMessages = agent.state.messages;
     const result = getSubmittedPhaseResult(host, phase);
-    const sessionId = await this.persistMessages(
-      run,
-      finalMessages,
-      model.provider,
-      model.id,
-    );
-
-    this.recordPhaseCompletion(
-      feature.id,
-      phase,
-      result.summary,
-      sessionId,
-      result.extra !== undefined
-        ? { summary: result.summary, ...result.extra }
-        : undefined,
-    );
+    await this.persistMessages(run, finalMessages, model.provider, model.id);
 
     return result;
   }
@@ -198,17 +183,10 @@ export class PiFeatureAgentRuntime {
     }
 
     const finalMessages = agent.state.messages;
-    const sessionId = await this.persistMessages(
-      run,
-      finalMessages,
-      model.provider,
-      model.id,
-    );
+    await this.persistMessages(run, finalMessages, model.provider, model.id);
     const proposal = host.buildProposal();
     const details = host.getProposalDetails();
     const summary = details.summary;
-
-    this.recordPhaseCompletion(feature.id, phase, summary, sessionId, details);
 
     return { summary, proposal, details };
   }
@@ -239,22 +217,8 @@ export class PiFeatureAgentRuntime {
     }
 
     const finalMessages = agent.state.messages;
-    const sessionId = await this.persistMessages(
-      run,
-      finalMessages,
-      model.provider,
-      model.id,
-    );
+    await this.persistMessages(run, finalMessages, model.provider, model.id);
     const verification = host.getVerificationSummary();
-    const summary = verification.summary ?? 'Verification complete.';
-
-    this.recordPhaseCompletion(
-      feature.id,
-      'verify',
-      summary,
-      sessionId,
-      verification,
-    );
 
     return verification;
   }
@@ -391,60 +355,40 @@ export class PiFeatureAgentRuntime {
     });
     return sessionId;
   }
+}
 
-  private recordPhaseCompletion(
-    featureId: string,
-    phase: AgentRun['phase'],
-    summary: string,
-    sessionId: string,
-    extra?: unknown,
-  ): void {
-    this.deps.store.appendEvent({
-      eventType: 'feature_phase_completed',
-      entityId: featureId,
-      timestamp: Date.now(),
-      payload: {
-        phase,
-        summary,
-        sessionId,
-        ...(extra !== undefined ? { extra } : {}),
-      },
-    });
-    this.persistPhaseOutputToFeature(featureId, phase, extra);
-  }
+export function persistPhaseOutputToFeature(
+  graph: Pick<FeatureGraph, 'features' | 'editFeature'>,
+  featureId: Feature['id'],
+  phase: AgentRun['phase'],
+  extra: unknown,
+): void {
+  const feature = graph.features.get(featureId);
+  if (feature === undefined) return;
 
-  private persistPhaseOutputToFeature(
-    featureId: string,
-    phase: AgentRun['phase'],
-    extra: unknown,
-  ): void {
-    const feature = this.deps.graph.features.get(featureId as Feature['id']);
-    if (feature === undefined) return;
-
-    if (phase === 'discuss') {
-      const details = extractDiscussDetails(extra);
-      if (details !== undefined) {
-        this.deps.graph.editFeature(feature.id, {
-          discussOutput: markdownFromDiscuss(details),
-        });
-      }
-      return;
-    }
-    if (phase === 'research') {
-      const details = extractResearchDetails(extra);
-      if (details !== undefined) {
-        this.deps.graph.editFeature(feature.id, {
-          researchOutput: markdownFromResearch(details),
-        });
-      }
-      return;
-    }
-    if (phase === 'verify') {
-      const issues = extractVerifyIssues(extra);
-      this.deps.graph.editFeature(feature.id, {
-        verifyIssues: issues,
+  if (phase === 'discuss') {
+    const details = extractDiscussDetails(extra);
+    if (details !== undefined) {
+      graph.editFeature(feature.id, {
+        discussOutput: markdownFromDiscuss(details),
       });
     }
+    return;
+  }
+  if (phase === 'research') {
+    const details = extractResearchDetails(extra);
+    if (details !== undefined) {
+      graph.editFeature(feature.id, {
+        researchOutput: markdownFromResearch(details),
+      });
+    }
+    return;
+  }
+  if (phase === 'verify') {
+    const issues = extractVerifyIssues(extra);
+    graph.editFeature(feature.id, {
+      verifyIssues: issues,
+    });
   }
 }
 
@@ -484,6 +428,8 @@ function markdownFromDiscuss(details: DiscussPhaseDetails): string {
   }
   return sections.join('\n\n');
 }
+
+export { FeaturePhaseOrchestrator as PiFeatureAgentRuntime };
 
 function markdownFromResearch(details: ResearchPhaseDetails): string {
   const sections: string[] = [];

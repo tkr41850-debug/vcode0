@@ -50,6 +50,8 @@ export type SchedulerEvent =
       featureId: FeatureId;
       phase: AgentRunPhase;
       summary: string;
+      sessionId?: string;
+      extra?: unknown;
       verification?: VerificationSummary;
     }
   | {

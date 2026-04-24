@@ -1,3 +1,4 @@
+import { persistPhaseOutputToFeature } from '@agents';
 import type { FeatureGraph } from '@core/graph/index';
 import type { AgentRun, FeatureId } from '@core/types/index';
 import type { ConflictCoordinator } from '@orchestrator/conflicts/index';
@@ -271,28 +272,33 @@ export async function handleSchedulerEvent(params: {
     const run = ports.store.getAgentRun(
       `run-feature:${event.featureId}:${event.phase}`,
     );
+    const sessionId = event.sessionId ?? run?.sessionId;
     if (run !== undefined) {
       ports.store.updateAgentRun(run.id, {
         runStatus: 'completed',
         owner: 'system',
-        ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
+        ...(sessionId !== undefined ? { sessionId } : {}),
       });
     }
 
+    const extra = event.extra ?? event.verification;
+    const timestamp = Date.now();
+    ports.store.appendEvent({
+      eventType: 'feature_phase_completed',
+      entityId: event.featureId,
+      timestamp,
+      payload: {
+        phase: event.phase,
+        summary: event.summary,
+        ...(sessionId !== undefined ? { sessionId } : {}),
+        ...(extra !== undefined ? { extra } : {}),
+      },
+    });
+    if (extra !== undefined) {
+      persistPhaseOutputToFeature(graph, event.featureId, event.phase, extra);
+    }
+
     if (event.phase === 'ci_check') {
-      const timestamp = Date.now();
-      ports.store.appendEvent({
-        eventType: 'feature_phase_completed',
-        entityId: event.featureId,
-        timestamp,
-        payload: {
-          phase: event.phase,
-          summary: event.summary,
-          ...(event.verification !== undefined
-            ? { extra: event.verification }
-            : {}),
-        },
-      });
       params.emitEmptyVerificationChecksWarning(
         event.featureId,
         'feature',

@@ -18,7 +18,11 @@ export {
 export type { ProposalAgent, ProposalPhaseResult } from '@agents/proposal';
 export type { ReplannerAgent } from '@agents/replanner';
 export type { FeatureAgentRuntimeConfig } from '@agents/runtime';
-export { PiFeatureAgentRuntime } from '@agents/runtime';
+export {
+  FeaturePhaseOrchestrator,
+  PiFeatureAgentRuntime,
+  persistPhaseOutputToFeature,
+} from '@agents/runtime';
 export type {
   AddFeatureOptions,
   AddTaskOptions,

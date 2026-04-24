@@ -2,13 +2,12 @@ import assert from 'node:assert/strict';
 
 import {
   createPromptLibrary,
-  PiFeatureAgentRuntime,
+  FeaturePhaseOrchestrator,
   type PromptLibrary,
   promptLibrary,
 } from '@agents';
 import type {
   DiscussPhaseDetails,
-  EventRecord,
   Feature,
   FeaturePhaseAgentRun,
   GvcConfig,
@@ -78,7 +77,7 @@ function createRuntimeFixture(
   store: InMemoryStore;
   sessionStore: InMemorySessionStore;
   run: FeaturePhaseAgentRun;
-  runtime: PiFeatureAgentRuntime;
+  runtime: FeaturePhaseOrchestrator;
 } {
   const { graph, feature } = createFeatureGraph();
   const store = new InMemoryStore();
@@ -86,7 +85,7 @@ function createRuntimeFixture(
   const run = createFeatureRun(phase);
   store.createAgentRun(run);
 
-  const runtime = new PiFeatureAgentRuntime({
+  const runtime = new FeaturePhaseOrchestrator({
     modelId: 'claude-sonnet-4-6',
     config: createConfig(options.config),
     promptLibrary: options.promptLibrary ?? promptLibrary,
@@ -174,13 +173,6 @@ function appendFeaturePhaseEvent(
   });
 }
 
-function findEvent(
-  events: readonly EventRecord[],
-  eventType: string,
-): EventRecord | undefined {
-  return events.find((event) => event.eventType === eventType);
-}
-
 const proposalDetails: ProposalPhaseDetails = {
   summary: 'Plan ready.',
   chosenApproach: 'Reuse existing prompt registry and proposal host.',
@@ -196,7 +188,7 @@ const proposalDetails: ProposalPhaseDetails = {
   assumptions: ['Proposal apply path still reads payloadJson'],
 };
 
-describe('PiFeatureAgentRuntime', () => {
+describe('FeaturePhaseOrchestrator', () => {
   let faux: FauxProviderRegistration;
 
   beforeEach(() => {
@@ -248,19 +240,7 @@ describe('PiFeatureAgentRuntime', () => {
       expect.objectContaining({ sessionId: run.id }),
     );
     await expect(sessionStore.load(run.id)).resolves.not.toBeNull();
-    const discussEvent = findEvent(
-      store.listEvents({ entityId: feature.id }),
-      'feature_phase_completed',
-    );
-    expect(discussEvent?.payload).toMatchObject({
-      phase: 'discuss',
-      summary: 'Discussion summary.',
-      sessionId: run.id,
-      extra: {
-        summary: 'Discussion summary.',
-        intent: 'Clarify feature intent',
-      },
-    });
+    expect(store.listEvents({ entityId: feature.id })).toEqual([]);
   });
 
   it('persists token usage on feature-phase runs after completion', async () => {
@@ -398,7 +378,7 @@ describe('PiFeatureAgentRuntime', () => {
     expect(captured.plan).toContain('Reuse prompt library registry');
   });
 
-  it('records proposal session and phase event after planning', async () => {
+  it('records proposal session after planning', async () => {
     faux.setResponses([
       fauxAssistantMessage(
         [
@@ -434,16 +414,7 @@ describe('PiFeatureAgentRuntime', () => {
     expect(store.getAgentRun(run.id)).toEqual(
       expect.objectContaining({ sessionId: run.id }),
     );
-    const planEvent = findEvent(
-      store.listEvents({ entityId: feature.id }),
-      'feature_phase_completed',
-    );
-    expect(planEvent?.payload).toMatchObject({
-      phase: 'plan',
-      summary: 'Plan ready.',
-      sessionId: run.id,
-      extra: proposalDetails,
-    });
+    expect(store.listEvents({ entityId: feature.id })).toEqual([]);
   });
 
   it('returns structured verify repair-needed failures from submitVerify', async () => {
@@ -488,19 +459,7 @@ describe('PiFeatureAgentRuntime', () => {
     const storedRun = store.getAgentRun(run.id);
     expect(storedRun?.sessionId).toBe(run.id);
     expect(storedRun?.tokenUsage?.llmCalls).toBe(2);
-    const verifyEvent = findEvent(
-      store.listEvents({ entityId: feature.id }),
-      'feature_phase_completed',
-    );
-    expect(verifyEvent?.payload).toMatchObject({
-      phase: 'verify',
-      summary: 'Repair needed: missing proof for success criteria.',
-      sessionId: run.id,
-      extra: {
-        outcome: 'repair_needed',
-        failedChecks: ['missing proof for success criteria'],
-      },
-    });
+    expect(store.listEvents({ entityId: feature.id })).toEqual([]);
   });
 
   it('exposes repo inspection tools during research', async () => {
@@ -600,7 +559,7 @@ describe('PiFeatureAgentRuntime', () => {
       response: 'Discussion notes only.',
       runPhase: 'discuss' as const,
       invoke: (
-        runtime: PiFeatureAgentRuntime,
+        runtime: FeaturePhaseOrchestrator,
         feature: Feature,
         agentRunId: string,
       ) => runtime.discussFeature(feature, { agentRunId }),
@@ -611,7 +570,7 @@ describe('PiFeatureAgentRuntime', () => {
       response: 'Looks good overall.',
       runPhase: 'verify' as const,
       invoke: (
-        runtime: PiFeatureAgentRuntime,
+        runtime: FeaturePhaseOrchestrator,
         feature: Feature,
         agentRunId: string,
       ) => runtime.verifyFeature(feature, { agentRunId }),
@@ -622,7 +581,7 @@ describe('PiFeatureAgentRuntime', () => {
       response: 'Research notes only.',
       runPhase: 'research' as const,
       invoke: (
-        runtime: PiFeatureAgentRuntime,
+        runtime: FeaturePhaseOrchestrator,
         feature: Feature,
         agentRunId: string,
       ) => runtime.researchFeature(feature, { agentRunId }),
@@ -634,7 +593,7 @@ describe('PiFeatureAgentRuntime', () => {
       response: 'Summary notes only.',
       runPhase: 'summarize' as const,
       invoke: (
-        runtime: PiFeatureAgentRuntime,
+        runtime: FeaturePhaseOrchestrator,
         feature: Feature,
         agentRunId: string,
       ) => runtime.summarizeFeature(feature, { agentRunId }),
