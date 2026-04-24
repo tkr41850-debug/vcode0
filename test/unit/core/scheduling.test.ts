@@ -30,6 +30,14 @@ import {
   updateFeature,
   updateTask,
 } from '../../helpers/graph-builders.js';
+import {
+  deepNestedFixture,
+  diamondFixture,
+  linearChainFixture,
+  mixedFeatureTaskFixture,
+  parallelSiblingsFixture,
+  type SchedulerFixture,
+} from '../../helpers/scheduler-fixtures.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────
 
@@ -1099,4 +1107,40 @@ describe('CriticalPathScheduler.prioritizeReadyWork', () => {
       expect(unit.phase).toBe('plan');
     }
   });
+});
+
+// ── canonical DAG fixtures (phase-4-02) ───────────────────────────────
+
+describe('canonical DAG fixtures', () => {
+  const fixtures: SchedulerFixture[] = [
+    diamondFixture(),
+    linearChainFixture(),
+    parallelSiblingsFixture(),
+    deepNestedFixture(),
+    mixedFeatureTaskFixture(),
+  ];
+
+  for (const fx of fixtures) {
+    describe(fx.description, () => {
+      it('computeGraphMetrics matches expected maxDepth + distance per node', () => {
+        const metrics = computeGraphMetrics(buildCombinedGraph(fx.graph));
+        for (const [nodeId, expected] of fx.expectedMetrics) {
+          expect(metrics.nodeMetrics.get(nodeId), `node ${nodeId}`).toEqual(
+            expected,
+          );
+        }
+      });
+
+      it('combined graph contains exactly the expected fixture nodes', () => {
+        const combined = buildCombinedGraph(fx.graph);
+        // Every ID in expectedMetrics must exist in the combined graph.
+        for (const nodeId of fx.expectedMetrics.keys()) {
+          expect(
+            combined.nodes.has(nodeId),
+            `missing combined-graph node ${nodeId}`,
+          ).toBe(true);
+        }
+      });
+    });
+  }
 });
