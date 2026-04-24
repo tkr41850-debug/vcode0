@@ -154,6 +154,17 @@ function makeDiscussResult(
   return { summary };
 }
 
+function createVerificationStub(
+  verification: VerificationSummary = { ok: true, summary: 'verified' },
+): Pick<
+  { verifyFeature(feature: Feature): Promise<VerificationSummary> },
+  'verifyFeature'
+> {
+  return {
+    verifyFeature: vi.fn().mockResolvedValue(verification),
+  };
+}
+
 function setupPool(
   sessionId = 'sess-1',
   maxConcurrency = 4,
@@ -308,6 +319,7 @@ describe('LocalWorkerPool', () => {
       const backend = new DiscussFeaturePhaseBackend(
         graph,
         agent,
+        createVerificationStub(),
         sessionStore,
       );
       const pool = new LocalWorkerPool(harness, 4, undefined, backend);
@@ -360,6 +372,7 @@ describe('LocalWorkerPool', () => {
       const backend = new DiscussFeaturePhaseBackend(
         graph,
         agent,
+        createVerificationStub(),
         sessionStore,
       );
       const pool = new LocalWorkerPool(harness, 4, undefined, backend);
@@ -418,6 +431,7 @@ describe('LocalWorkerPool', () => {
       const backend = new DiscussFeaturePhaseBackend(
         graph,
         agent,
+        createVerificationStub(),
         sessionStore,
       );
       const pool = new LocalWorkerPool(harness, 4, undefined, backend);
@@ -476,6 +490,7 @@ describe('LocalWorkerPool', () => {
       const backend = new DiscussFeaturePhaseBackend(
         graph,
         agent,
+        createVerificationStub(),
         sessionStore,
       );
       const pool = new LocalWorkerPool(harness, 4, undefined, backend);
@@ -541,6 +556,7 @@ describe('LocalWorkerPool', () => {
       const backend = new DiscussFeaturePhaseBackend(
         graph,
         agent,
+        createVerificationStub(),
         sessionStore,
       );
       const pool = new LocalWorkerPool(harness, 4, undefined, backend);
@@ -606,6 +622,7 @@ describe('LocalWorkerPool', () => {
       const backend = new DiscussFeaturePhaseBackend(
         graph,
         agent,
+        createVerificationStub(),
         sessionStore,
       );
       const pool = new LocalWorkerPool(harness, 4, undefined, backend);
@@ -656,6 +673,7 @@ describe('LocalWorkerPool', () => {
       const backend = new DiscussFeaturePhaseBackend(
         graph,
         agent,
+        createVerificationStub(),
         sessionStore,
       );
       const pool = new LocalWorkerPool(harness, 4, undefined, backend);
@@ -675,6 +693,113 @@ describe('LocalWorkerPool', () => {
         kind: 'not_resumable',
         agentRunId: 'run-feature:f-feature-1:verify',
         sessionId: 'sess-verify',
+        reason: 'unsupported_by_harness',
+      });
+    });
+
+    it('runs ci_check through the verification backend and returns ci_check output', async () => {
+      const { harness } = setupPool();
+      const graph = new InMemoryFeatureGraph({
+        milestones: [
+          {
+            id: 'm-1',
+            name: 'M',
+            description: 'd',
+            status: 'pending',
+            order: 0,
+          },
+        ],
+        features: [makeFeature()],
+        tasks: [],
+      });
+      const sessionStore = new InMemorySessionStore();
+      const verification: VerificationSummary = {
+        ok: true,
+        outcome: 'pass',
+        summary: 'feature ci green',
+      };
+      const agent = {
+        discussFeature: vi.fn(),
+        planFeature: vi.fn(),
+        verifyFeature: vi.fn(),
+        replanFeature: vi.fn(),
+      };
+      const verificationBackend = createVerificationStub(verification);
+      const backend = new DiscussFeaturePhaseBackend(
+        graph,
+        agent,
+        verificationBackend,
+        sessionStore,
+      );
+      const pool = new LocalWorkerPool(harness, 4, undefined, backend);
+
+      const result = await pool.dispatchRun(
+        { kind: 'feature_phase', featureId: 'f-feature-1', phase: 'ci_check' },
+        { mode: 'start', agentRunId: 'run-feature:f-feature-1:ci_check' },
+        { kind: 'feature_phase' },
+      );
+
+      expect(verificationBackend.verifyFeature).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'f-feature-1' }),
+      );
+      expect(agent.verifyFeature).not.toHaveBeenCalled();
+      expect(result).toEqual({
+        kind: 'completed_inline',
+        agentRunId: 'run-feature:f-feature-1:ci_check',
+        sessionId: 'run-feature:f-feature-1:ci_check',
+        output: {
+          kind: 'ci_check',
+          verification,
+        },
+      });
+    });
+
+    it('returns not_resumable for ci_check resume attempts', async () => {
+      const { harness } = setupPool();
+      const graph = new InMemoryFeatureGraph({
+        milestones: [
+          {
+            id: 'm-1',
+            name: 'M',
+            description: 'd',
+            status: 'pending',
+            order: 0,
+          },
+        ],
+        features: [makeFeature()],
+        tasks: [],
+      });
+      const sessionStore = new InMemorySessionStore();
+      const agent = {
+        discussFeature: vi.fn(),
+        planFeature: vi.fn(),
+        verifyFeature: vi.fn(),
+        replanFeature: vi.fn(),
+      };
+      const verificationBackend = createVerificationStub();
+      const backend = new DiscussFeaturePhaseBackend(
+        graph,
+        agent,
+        verificationBackend,
+        sessionStore,
+      );
+      const pool = new LocalWorkerPool(harness, 4, undefined, backend);
+
+      const result = await pool.dispatchRun(
+        { kind: 'feature_phase', featureId: 'f-feature-1', phase: 'ci_check' },
+        {
+          mode: 'resume',
+          agentRunId: 'run-feature:f-feature-1:ci_check',
+          sessionId: 'sess-ci-check',
+        },
+        { kind: 'feature_phase' },
+      );
+
+      expect(verificationBackend.verifyFeature).not.toHaveBeenCalled();
+      expect(result).toEqual({
+        kind: 'not_resumable',
+        agentRunId: 'run-feature:f-feature-1:ci_check',
+        sessionId: 'sess-ci-check',
         reason: 'unsupported_by_harness',
       });
     });

@@ -244,6 +244,11 @@ function createFixture({
   const store = new InMemoryStore();
   const sessionStore = new InMemorySessionStore();
   const config = createConfig(configOverrides);
+  const resolvedVerification: OrchestratorPorts['verification'] =
+    verification ??
+    ({
+      verifyFeature: () => Promise.resolve({ ok: true, summary: 'ok' }),
+    } as unknown as OrchestratorPorts['verification']);
   const agents = new PiFeatureAgentRuntime({
     modelId: 'claude-sonnet-4-6',
     config,
@@ -257,13 +262,13 @@ function createFixture({
     createUnusedTaskHarness(),
     1,
     undefined,
-    new DiscussFeaturePhaseBackend(graph, agents, sessionStore),
+    new DiscussFeaturePhaseBackend(
+      graph,
+      agents,
+      resolvedVerification,
+      sessionStore,
+    ),
   );
-  const resolvedVerification: OrchestratorPorts['verification'] =
-    verification ??
-    ({
-      verifyFeature: () => Promise.resolve({ ok: true, summary: 'ok' }),
-    } as unknown as OrchestratorPorts['verification']);
   const ports: OrchestratorPorts = {
     store,
     runtime,
@@ -280,6 +285,7 @@ function createFixture({
     store,
     sessionStore,
     config,
+    runtime,
     loop: new SchedulerLoop(graph, ports),
   };
 }
@@ -336,11 +342,14 @@ describe('feature-phase agent flow', () => {
       sessionStore,
       projectRoot: '/repo',
     });
+    const verification = {
+      verifyFeature: () => Promise.resolve({ ok: true, summary: 'ok' }),
+    } as unknown as OrchestratorPorts['verification'];
     const pool = new LocalWorkerPool(
       createUnusedTaskHarness(),
       1,
       undefined,
-      new DiscussFeaturePhaseBackend(graph, agents, sessionStore),
+      new DiscussFeaturePhaseBackend(graph, agents, verification, sessionStore),
     );
     const dispatchRun = vi.spyOn(pool, 'dispatchRun');
     const ports: OrchestratorPorts = {
@@ -348,9 +357,7 @@ describe('feature-phase agent flow', () => {
       runtime: pool,
       sessionStore,
       agents,
-      verification: {
-        verifyFeature: () => Promise.resolve({ ok: true, summary: 'ok' }),
-      } as unknown as OrchestratorPorts['verification'],
+      verification,
       worktree: createWorktreeStub(),
       ui: createUiStub(),
       config,
@@ -722,7 +729,7 @@ describe('feature-phase agent flow', () => {
     });
   });
 
-  it('runs real ci_check verification service and advances to verifying', async () => {
+  it('dispatches real ci_check through runtime.dispatchRun and advances to verifying', async () => {
     const projectRoot = await fs.mkdtemp(
       path.join(os.tmpdir(), 'gvc0-feature-ci-pass-'),
     );
@@ -747,7 +754,7 @@ describe('feature-phase agent flow', () => {
         projectRoot,
         config,
       );
-      const { graph, store, loop } = createFixture({
+      const { graph, store, runtime, loop } = createFixture({
         featureOverrides: {
           status: 'in_progress',
           workControl: 'ci_check',
@@ -757,6 +764,7 @@ describe('feature-phase agent flow', () => {
         configOverrides,
         verification,
       });
+      const dispatchRun = vi.spyOn(runtime, 'dispatchRun');
       const feature = graph.features.get('f-1');
       if (feature === undefined) {
         throw new Error('missing feature fixture');
@@ -766,6 +774,11 @@ describe('feature-phase agent flow', () => {
 
       await loop.step(100);
 
+      expect(dispatchRun).toHaveBeenCalledWith(
+        { kind: 'feature_phase', featureId: 'f-1', phase: 'ci_check' },
+        { mode: 'start', agentRunId: 'run-feature:f-1:ci_check' },
+        { kind: 'feature_phase' },
+      );
       expect(graph.features.get('f-1')).toEqual(
         expect.objectContaining({
           workControl: 'verifying',

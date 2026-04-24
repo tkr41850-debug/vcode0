@@ -207,6 +207,21 @@ function createRuntimeMock(order: string[]): RuntimePort & {
           },
         });
       }
+      if (scope.phase === 'ci_check') {
+        return Promise.resolve({
+          kind: 'completed_inline' as const,
+          agentRunId: dispatch.agentRunId,
+          sessionId,
+          output: {
+            kind: 'ci_check' as const,
+            verification: {
+              ok: true,
+              outcome: 'pass' as const,
+              summary: 'ci green',
+            },
+          },
+        });
+      }
     }
     return Promise.resolve({
       kind: 'started' as const,
@@ -1873,9 +1888,9 @@ describe('SchedulerLoop', () => {
     expect(planFeature).not.toHaveBeenCalled();
   });
 
-  it('dispatches ci_check through the verification service before agent-level verifying', async () => {
+  it('dispatches ci_check through runtime.dispatchRun using the verification backend', async () => {
     const order: string[] = [];
-    const { ports } = createPorts(order);
+    const { ports, runtime } = createPorts(order);
     const verifyFeatureBranch = vi.spyOn(ports.verification, 'verifyFeature');
     const graph = createSingleFeatureGraph(
       {
@@ -1897,15 +1912,23 @@ describe('SchedulerLoop', () => {
 
     await loop.step(100);
 
-    expect(verifyFeatureBranch).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'f-1' }),
+    expect(runtime.dispatchRun).toHaveBeenCalledWith(
+      { kind: 'feature_phase', featureId: 'f-1', phase: 'ci_check' },
+      { mode: 'start', agentRunId: 'run-feature:f-1:ci_check' },
+      { kind: 'feature_phase' },
     );
+    expect(verifyFeatureBranch).not.toHaveBeenCalled();
+    expect(graph.features.get('f-1')).toMatchObject({
+      workControl: 'verifying',
+      status: 'pending',
+      collabControl: 'branch_open',
+    });
   });
 
-  it('moves ci_check into retry_await when the verification service throws', async () => {
+  it('moves ci_check into retry_await when runtime dispatch fails', async () => {
     const order: string[] = [];
-    const { ports } = createPorts(order);
-    vi.spyOn(ports.verification, 'verifyFeature').mockRejectedValueOnce(
+    const { ports, runtime } = createPorts(order);
+    vi.spyOn(runtime, 'dispatchRun').mockRejectedValueOnce(
       new Error('feature checks failed to run'),
     );
     const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');

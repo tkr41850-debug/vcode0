@@ -3,6 +3,7 @@ import type { ProposalPhaseResult } from '@agents/proposal';
 import type { ReplannerAgent } from '@agents/replanner';
 import type { FeatureGraph } from '@core/graph/index';
 import type {
+  Feature,
   FeaturePhaseRunContext,
   VerificationSummary,
 } from '@core/types/index';
@@ -64,6 +65,10 @@ export class DiscussFeaturePhaseBackend implements FeaturePhaseBackend {
       'discussFeature' | 'planFeature' | 'verifyFeature'
     > &
       Pick<ReplannerAgent, 'replanFeature'>,
+    private readonly verification: Pick<
+      { verifyFeature(feature: Feature): Promise<VerificationSummary> },
+      'verifyFeature'
+    >,
     private readonly sessionStore: SessionStore,
   ) {}
 
@@ -156,6 +161,13 @@ export class DiscussFeaturePhaseBackend implements FeaturePhaseBackend {
             .verifyFeature(feature, runContext)
             .then((verification) => verificationOutcome(verification)),
         });
+      case 'ci_check':
+        return createFeaturePhaseHandle({
+          sessionId,
+          outcome: this.verification
+            .verifyFeature(feature)
+            .then((verification) => ciCheckOutcome(verification)),
+        });
       default:
         throw new Error(
           `feature phase '${scope.phase}' not configured by DiscussFeaturePhaseBackend`,
@@ -199,6 +211,18 @@ function verificationOutcome(
     kind: 'completed_inline',
     output: {
       kind: 'verification',
+      verification,
+    },
+  };
+}
+
+function ciCheckOutcome(
+  verification: VerificationSummary,
+): FeaturePhaseDispatchOutcome {
+  return {
+    kind: 'completed_inline',
+    output: {
+      kind: 'ci_check',
       verification,
     },
   };

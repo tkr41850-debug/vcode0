@@ -295,6 +295,7 @@ export async function dispatchFeaturePhaseUnit(params: {
     if (
       params.phase === 'discuss' ||
       params.phase === 'verify' ||
+      params.phase === 'ci_check' ||
       isProposalPhase(params.phase)
     ) {
       const dispatch =
@@ -333,7 +334,11 @@ export async function dispatchFeaturePhaseUnit(params: {
         );
       }
 
-      if (params.phase === 'discuss' || params.phase === 'verify') {
+      if (
+        params.phase === 'discuss' ||
+        params.phase === 'verify' ||
+        params.phase === 'ci_check'
+      ) {
         if (result.kind !== 'completed_inline') {
           throw new Error(
             `dispatchFeaturePhaseUnit: ${params.phase} expected completed_inline result, got '${result.kind}'`,
@@ -360,9 +365,27 @@ export async function dispatchFeaturePhaseUnit(params: {
           return true;
         }
 
-        if (result.output.kind !== 'verification') {
+        if (params.phase === 'verify') {
+          if (result.output.kind !== 'verification') {
+            throw new Error(
+              `dispatchFeaturePhaseUnit: verify expected verification output, got '${result.output.kind}'`,
+            );
+          }
+
+          persistRunningFeaturePhaseRun(params.ports, run, result);
+          await params.handleEvent({
+            type: 'feature_phase_complete',
+            featureId: params.feature.id,
+            phase: params.phase,
+            summary: result.output.verification.summary ?? '',
+            verification: result.output.verification,
+          });
+          return true;
+        }
+
+        if (result.output.kind !== 'ci_check') {
           throw new Error(
-            `dispatchFeaturePhaseUnit: verify expected verification output, got '${result.output.kind}'`,
+            `dispatchFeaturePhaseUnit: ci_check expected ci_check output, got '${result.output.kind}'`,
           );
         }
 
@@ -424,19 +447,6 @@ export async function dispatchFeaturePhaseUnit(params: {
           featureId: params.feature.id,
           phase: params.phase,
           summary: result.summary,
-        });
-        return true;
-      }
-      case 'ci_check': {
-        const verification = await params.ports.verification.verifyFeature(
-          params.feature,
-        );
-        await params.handleEvent({
-          type: 'feature_phase_complete',
-          featureId: params.feature.id,
-          phase: params.phase,
-          summary: verification.summary ?? '',
-          verification,
         });
         return true;
       }

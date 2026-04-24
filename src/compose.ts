@@ -214,6 +214,7 @@ export async function composeApplication(): Promise<GvcApplication> {
     projectRoot,
     getApiKey,
   });
+  const verification = new VerificationService({ config }, projectRoot);
   const runtime = new LocalWorkerPool(
     new PiSdkHarness(sessionStore, projectRoot),
     maxWorkers,
@@ -224,10 +225,8 @@ export async function composeApplication(): Promise<GvcApplication> {
       }
       schedulerRef.current?.enqueue({ type: 'worker_message', message });
     },
-    new DiscussFeaturePhaseBackend(graph, agents, sessionStore),
+    new DiscussFeaturePhaseBackend(graph, agents, verification, sessionStore),
   );
-
-  const verification = new VerificationService({ config }, projectRoot);
   const worktree = new GitWorktreeProvisioner(projectRoot);
   const ports: OrchestratorPorts = {
     store,
