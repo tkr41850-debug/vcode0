@@ -10,6 +10,51 @@ import {
   renderSection,
 } from './shared.js';
 
+/**
+ * Input Contract — `plan` / `replan` prompt templates.
+ *
+ * `renderPrompt` in src/agents/runtime.ts (lines 271-324) threads the
+ * following fields into `template.render({...})`. The planner prompt
+ * consumes a subset via `getString(input, '<key>')` below; the rest are
+ * wired for other templates and are NOT read by the planner.
+ *
+ * Consumed by `renderPlanningPrompt`:
+ *
+ * | Field                      | Source (runtime.ts)                                   | First plan? | Replan? | Rendered as                        |
+ * | -------------------------- | ----------------------------------------------------- | ----------- | ------- | ---------------------------------- |
+ * | `feature`                  | live `Feature` record                                 | yes         | yes     | Feature section (shared renderer)  |
+ * | `run`                      | live `FeaturePhaseRunContext`                         | yes         | yes     | Run section (shared renderer)      |
+ * | `discussionSummary`        | latest `feature_phase_completed{phase:discuss}` event | yes*        | yes     | "Discussion Summary" block         |
+ * | `researchSummary`          | latest `feature_phase_completed{phase:research}`      | yes*        | yes     | "Research Summary" block           |
+ * | `proposalSummary`          | latest `feature_phase_completed{phase:plan/replan}`   | no          | yes     | "Current Proposal State" block     |
+ * | `blockerSummary`           | events of type `proposal_apply_failed`                | no          | usually | "Blockers or Discoveries" block    |
+ * | `verificationExpectations` | `config.verification.feature.checks[].description`    | yes         | yes     | "Verification Expectations" block  |
+ * | `constraints`              | latest discuss `extra.constraints` + conflict flag    | yes*        | yes     | "Constraints" block                |
+ * | `externalIntegrations`     | latest discuss `extra.externalIntegrations`           | yes*        | yes     | "External Integrations" block      |
+ * | `antiGoals`                | latest discuss `extra.antiGoals`                      | yes*        | yes     | "Anti-Goals" block                 |
+ * | `decisions`                | events of type `proposal_applied`                     | no          | yes     | "Decisions" block                  |
+ * | `replanReason` / `reason`  | `runProposalPhase(reason)` argument                   | no          | yes     | Inline in "Planning Mode" section  |
+ *
+ * * "yes*" = populated on first plan only when a prior discuss/research
+ *   phase has completed for the feature. If discuss was skipped, the
+ *   field is undefined and the labeled block is omitted by
+ *   `renderLabeledBlock`.
+ *
+ * Mode switch: `renderPlanningPrompt('plan', ...)` vs
+ * `renderPlanningPrompt('replan', ...)` differs only in the
+ * "Planning Mode" preamble — authority and toolset are identical per
+ * CONTEXT § A / doctrine block below.
+ *
+ * NOT consumed by planner (threaded for other templates):
+ *   requestedOutcome, featureContext, successCriteria, executionEvidence,
+ *   verificationResults, integratedOutcome, verificationSummary,
+ *   executionSummary, followUpNotes, importantFiles, codebaseMap.
+ *
+ * Maintenance note: when `renderPrompt` adds a new input relevant to the
+ * planner, add the corresponding `renderLabeledBlock(...)` call below
+ * AND update this table. When the planner stops reading a field,
+ * remove both.
+ */
 const PLANNING_DOCTRINE = `You are gvc0's feature planning agent.
 
 You convert discussed intent and researched code reality into concrete proposed work.
