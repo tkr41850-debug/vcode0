@@ -14,6 +14,39 @@ export interface ExecutionRunReader {
   getExecutionRun(scopeId: string, phase?: AgentRunPhase): AgentRun | undefined;
 }
 
+/**
+ * Retry-backoff policy used by the scheduler's retry-eligibility key
+ * (priority key 6). Matches `config.workers.retry.*` + `config.retryCap`
+ * field names (see `src/config/schema.ts`). CONTEXT § H of Phase 4:
+ * retry-eligibility iff the run is in `retry_await`, `attempts < retryCap`,
+ * and `now >= retryAt` where `retryAt = lastFailedAt + min(baseDelayMs *
+ * 2^attempts, maxDelayMs)`.
+ *
+ * The scheduler trusts the `retryAt` field on the AgentRun as the
+ * authoritative "eligible when now >= retryAt" signal; the formula is
+ * documented here and covered by unit tests so drift (e.g. linear
+ * backoff) surfaces immediately.
+ */
+export interface RetryPolicy {
+  baseDelayMs: number;
+  maxDelayMs: number;
+  retryCap: number;
+}
+
+/**
+ * Exposed for unit testing and for callers that want to compute the
+ * next retry time outside the scheduler. The scheduler itself relies
+ * on the persisted `retryAt` field on the AgentRun and only calls this
+ * to verify the formula in tests.
+ */
+export function computeRetryBackoffMs(
+  attempts: number,
+  policy: Pick<RetryPolicy, 'baseDelayMs' | 'maxDelayMs'>,
+): number {
+  const exponential = policy.baseDelayMs * 2 ** attempts;
+  return Math.min(exponential, policy.maxDelayMs);
+}
+
 // Work-type tier for scheduling priority (maps to groups of AgentRunPhase)
 export type WorkTypeTier = 'verify' | 'execute' | 'plan' | 'summarize';
 
@@ -436,6 +469,7 @@ export class CriticalPathScheduler {
     metrics: GraphMetrics,
     now: number,
     readySince?: Map<string, number>,
+    retryPolicy?: RetryPolicy,
   ): SchedulableUnit[] {
     const units: SchedulableUnit[] = [];
 
@@ -577,9 +611,13 @@ export class CriticalPathScheduler {
         b.kind === 'task' && overlappingTaskIds.has(b.task.id) ? 1 : 0;
       if (aOverlap !== bOverlap) return aOverlap - bOverlap;
 
-      // Key 6: Retry-eligible before fresh (stuck/failed before pending)
-      const aRetry = isRetryEligible(a) ? 0 : 1;
-      const bRetry = isRetryEligible(b) ? 0 : 1;
+      // Key 6: Retry-eligible before fresh. Prefer run-based signal when
+      // a RetryPolicy is supplied (CONTEXT § H: runStatus === 'retry_await',
+      // attempts < retryCap, now >= retryAt). Fall back to the legacy
+      // task-status proxy when no policy is threaded through — keeps the
+      // single-arg behaviour intact for existing call sites.
+      const aRetry = isRetryEligible(a, runs, now, retryPolicy) ? 0 : 1;
+      const bRetry = isRetryEligible(b, runs, now, retryPolicy) ? 0 : 1;
       if (aRetry !== bRetry) return aRetry - bRetry;
 
       // Key 7: Stable fallback by readiness age (older first)
@@ -606,7 +644,39 @@ function unitToNodeId(unit: SchedulableUnit): string | undefined {
   return `virtual:${unit.feature.id}`;
 }
 
-function isRetryEligible(unit: SchedulableUnit): boolean {
+/**
+ * Per CONTEXT § H of Phase 4: a schedulable unit is retry-eligible iff
+ *   - its most-recent AgentRun is in `retry_await`, AND
+ *   - `attempts < retryCap`, AND
+ *   - `now >= retryAt` (so the exponential backoff window has elapsed).
+ *
+ * When `retryPolicy` is undefined, fall back to the legacy task-status
+ * proxy (`status ∈ {stuck, failed}`) so existing callers that don't
+ * thread a policy through keep working. Once all call sites supply a
+ * policy, the proxy path can be retired.
+ */
+function isRetryEligible(
+  unit: SchedulableUnit,
+  runs: ExecutionRunReader,
+  now: number,
+  retryPolicy: RetryPolicy | undefined,
+): boolean {
+  if (retryPolicy !== undefined) {
+    const run =
+      unit.kind === 'task'
+        ? runs.getExecutionRun(unit.task.id)
+        : runs.getExecutionRun(unit.feature.id, unit.phase);
+    if (run === undefined) return false;
+    if (run.runStatus !== 'retry_await') return false;
+    const attempts = run.restartCount ?? 0;
+    if (attempts >= retryPolicy.retryCap) return false;
+    if (run.retryAt !== undefined && now < run.retryAt) return false;
+    return true;
+  }
+
+  // Legacy proxy — kept for backward compatibility with callers that
+  // don't supply a RetryPolicy. Tests and CONTEXT § H coverage use the
+  // run-based path above.
   if (unit.kind === 'task') {
     return unit.task.status === 'stuck' || unit.task.status === 'failed';
   }
@@ -625,6 +695,7 @@ export function prioritizeReadyWork(
   metrics: GraphMetrics,
   now: number,
   readySince?: Map<string, number>,
+  retryPolicy?: RetryPolicy,
 ): SchedulableUnit[] {
   return new CriticalPathScheduler().prioritizeReadyWork(
     graph,
@@ -632,5 +703,6 @@ export function prioritizeReadyWork(
     metrics,
     now,
     readySince,
+    retryPolicy,
   );
 }

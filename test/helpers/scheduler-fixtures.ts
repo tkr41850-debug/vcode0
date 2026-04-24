@@ -16,8 +16,14 @@
  */
 
 import { InMemoryFeatureGraph } from '@core/graph/index';
-import type { NodeMetrics } from '@core/scheduling/index';
-import type { FeatureId, TaskId } from '@core/types/index';
+import type { ExecutionRunReader, NodeMetrics } from '@core/scheduling/index';
+import type {
+  AgentRun,
+  AgentRunPhase,
+  FeatureId,
+  TaskAgentRun,
+  TaskId,
+} from '@core/types/index';
 
 import {
   createGraphWithFeature,
@@ -373,4 +379,446 @@ export function mixedFeatureTaskFixture(): SchedulerFixture {
     description:
       'mixedFeatureTaskFixture — executing f-a (2 tasks) + pre-execution f-b (3 tasks as virtual node) via feature-dep',
   };
+}
+
+// ─── Run reader helpers ──────────────────────────────────────────────
+
+/**
+ * Minimal in-memory `ExecutionRunReader` stub. Accepts a list of runs
+ * and indexes them by task-id or `<featureId>:<phase>` for lookups.
+ * Mirrors the production shape used by `CriticalPathScheduler.prioritizeReadyWork`.
+ */
+export function createRunReaderFromRuns(
+  runs: AgentRun[],
+): ExecutionRunReader {
+  const byTaskId = new Map<string, AgentRun>();
+  const byFeaturePhase = new Map<string, AgentRun>();
+
+  for (const run of runs) {
+    if (run.scopeType === 'task') {
+      byTaskId.set(run.scopeId, run);
+      continue;
+    }
+    byFeaturePhase.set(`${run.scopeId}:${run.phase}`, run);
+  }
+
+  return {
+    getExecutionRun(
+      scopeId: string,
+      phase?: AgentRunPhase,
+    ): AgentRun | undefined {
+      if (phase !== undefined) {
+        return byFeaturePhase.get(`${scopeId}:${phase}`);
+      }
+      return byTaskId.get(scopeId);
+    },
+  };
+}
+
+function makeRetryTaskRun(
+  taskId: TaskId,
+  overrides: Partial<TaskAgentRun> = {},
+): TaskAgentRun {
+  return {
+    id: `run-${taskId}`,
+    scopeType: 'task',
+    scopeId: taskId,
+    phase: 'execute',
+    runStatus: 'retry_await',
+    owner: 'system',
+    attention: 'none',
+    restartCount: 0,
+    maxRetries: 3,
+    retryAt: 50,
+    ...overrides,
+  };
+}
+
+// ─── Full-key-order fixture (7 semantic keys + 1 ID tiebreaker) ─────
+
+/**
+ * Canonical 9-unit regression-proof fixture for the priority-sort
+ * contract. Each adjacent pair in the expected output differs from the
+ * next on EXACTLY ONE priority key, agreeing on all preceding keys, so
+ * any reorder or added/removed key surfaces as a string[] diff.
+ *
+ * Expected order (what `prioritizeReadyWork` must return):
+ *
+ *   [
+ *     't-unit-01',   // key 1 (milestone pos): lower wins
+ *     'f-unit-02',   // key 2 (work-type tier): verify beats execute
+ *     't-unit-03',   // key 3 (critical-path maxDepth): higher wins
+ *     't-unit-04',   // key 4 (partial-failed): 0-fails wins
+ *     't-unit-05',   // key 5 (reservation overlap): non-overlapping wins
+ *     't-unit-06',   // key 6 (retry-eligible): retry-eligible wins
+ *     't-unit-07',   // key 7 (readiness age): older readyAt wins
+ *     't-unit-08',   // key 8 (entity ID): alphabetical — 08 < 09
+ *     't-unit-09',   // last — tied with 08 on keys 1-7, loses on ID
+ *   ]
+ *
+ * NOTE: key 6's direction is "retry-eligible is preferred over fresh" —
+ * the comparator returns `(eligible ? 0 : 1) - ...`, so lower is earlier.
+ * That means unit-06 is the retry-eligible one (wins over unit-07 which
+ * is fresh on this pair), NOT the other way around. Re-reading the test:
+ *   - 05 vs 06: 05 wins key 5 (no overlap). Both fresh on key 6.
+ *   - 06 vs 07: both overlap, 06 is retry-eligible, 07 is fresh → 06 wins key 6.
+ * So unit-06 has a retry_await run; unit-07 does not.
+ */
+export function fullKeyOrderFixture(): {
+  graph: InMemoryFeatureGraph;
+  runs: ExecutionRunReader;
+  now: number;
+  expectedOrderedIds: string[];
+} {
+  const g = createGraphWithMilestone();
+  const NOW = 1000;
+
+  withTick(g, () => {
+    g.createMilestone({ id: 'm-2', name: 'M2', description: 'pos 2' });
+    g.queueMilestone('m-1'); // pos 1
+    g.queueMilestone('m-2'); // pos 2
+  });
+
+  // ── Feature factory helpers ────────────────────────────────────────
+
+  function createExecutingFeature(
+    featureId: FeatureId,
+    milestoneId: 'm-1' | 'm-2',
+  ): void {
+    withTick(g, () => {
+      g.createFeature({
+        id: featureId,
+        milestoneId,
+        name: featureId,
+        description: 'desc',
+      });
+    });
+    // updateFeature is not a graph mutator (it's a test-only direct
+    // map.set), so no tick guard is required.
+    updateFeature(g, featureId, { workControl: 'executing' });
+  }
+
+  function createReadyTaskOn(
+    featureId: FeatureId,
+    taskId: TaskId,
+    opts: {
+      weight?: 'trivial' | 'small' | 'medium' | 'heavy';
+      reservedWritePaths?: string[];
+      consecutiveFailures?: number;
+    } = {},
+  ): void {
+    withTick(g, () => {
+      const createOpts: {
+        id: TaskId;
+        featureId: FeatureId;
+        description: string;
+        weight?: 'trivial' | 'small' | 'medium' | 'heavy';
+        reservedWritePaths?: string[];
+      } = {
+        id: taskId,
+        featureId,
+        description: taskId,
+      };
+      if (opts.weight !== undefined) createOpts.weight = opts.weight;
+      if (opts.reservedWritePaths !== undefined) {
+        createOpts.reservedWritePaths = opts.reservedWritePaths;
+      }
+      g.createTask(createOpts);
+      const patch: {
+        status: 'ready';
+        consecutiveFailures?: number;
+      } = { status: 'ready' };
+      if (opts.consecutiveFailures !== undefined) {
+        patch.consecutiveFailures = opts.consecutiveFailures;
+      }
+      updateTask(g, taskId, patch);
+    });
+  }
+
+  // ── Unit 01 — task on executing feature in milestone pos 1 ─────────
+  //
+  // Wins on key 1 (milestone pos=1 < 2). Everything else is irrelevant
+  // for this pair because the comparator short-circuits on key 1.
+  createExecutingFeature('f-unit-01', 'm-1');
+  createReadyTaskOn('f-unit-01', 't-unit-01', { weight: 'medium' });
+
+  // ── Unit 02 — verify-tier feature-phase in milestone pos 2 ────────
+  //
+  // Beats 03..09 on key 2 (verify beats execute). Shares milestone pos
+  // 2 with them. No tasks on this feature.
+  withTick(g, () => {
+    g.createFeature({
+      id: 'f-unit-02',
+      milestoneId: 'm-2',
+      name: 'f-unit-02',
+      description: 'verify-tier',
+    });
+  });
+  updateFeature(g, 'f-unit-02', { workControl: 'verifying' });
+
+  // ── Unit 03 — execute task with max critical-path depth ───────────
+  //
+  // Beats 04..09 on key 3 (maxDepth=30 > 10). Shares pos=2 and execute-
+  // tier with 04..09.
+  createExecutingFeature('f-unit-03', 'm-2');
+  createReadyTaskOn('f-unit-03', 't-unit-03', { weight: 'heavy' });
+
+  // ── Unit 04 — execute task, 0 failures ─────────────────────────────
+  //
+  // Beats 05..09 on key 4 (aHasFailures=0 < 1). Shares pos=2, execute,
+  // maxDepth=10 with 05..09.
+  createExecutingFeature('f-unit-04', 'm-2');
+  createReadyTaskOn('f-unit-04', 't-unit-04', {
+    weight: 'medium',
+    consecutiveFailures: 0,
+  });
+
+  // ── Unit 05 — execute task, 1 failure, NO reservation overlap ─────
+  //
+  // Beats 06..09 on key 5 (overlap=0 < 1). Shares pos=2, execute,
+  // maxDepth=10, aHasFailures=1 with 06..09.
+  createExecutingFeature('f-unit-05', 'm-2');
+  createReadyTaskOn('f-unit-05', 't-unit-05', {
+    weight: 'medium',
+    consecutiveFailures: 1,
+  });
+
+  // ── Units 06, 07, 08, 09 — all reserve the same path (overlap=1) ──
+  //
+  // Shared reservation path → overlap set contains {t-unit-06..09}.
+  // Unit-06 has a retry_await run (retry-eligible); units 07, 08, 09
+  // are fresh (no run). Unit-06 wins key 6 over unit-07.
+  //
+  // Unit 07 vs 08: both fresh (key 6 = 1 for both), readyAt differs
+  // (unit-07=100 older, unit-08=200 newer). unit-07 wins key 7.
+  //
+  // Unit 08 vs 09: both fresh, same readyAt=200, different IDs. unit-08
+  // wins key 8 (alphabetical: 't-unit-08' < 't-unit-09').
+  const SHARED_PATH = 'shared/overlap.ts';
+
+  createExecutingFeature('f-unit-06', 'm-2');
+  createReadyTaskOn('f-unit-06', 't-unit-06', {
+    weight: 'medium',
+    consecutiveFailures: 1,
+    reservedWritePaths: [SHARED_PATH],
+  });
+
+  createExecutingFeature('f-unit-07', 'm-2');
+  createReadyTaskOn('f-unit-07', 't-unit-07', {
+    weight: 'medium',
+    consecutiveFailures: 1,
+    reservedWritePaths: [SHARED_PATH],
+  });
+
+  createExecutingFeature('f-unit-08', 'm-2');
+  createReadyTaskOn('f-unit-08', 't-unit-08', {
+    weight: 'medium',
+    consecutiveFailures: 1,
+    reservedWritePaths: [SHARED_PATH],
+  });
+
+  createExecutingFeature('f-unit-09', 'm-2');
+  createReadyTaskOn('f-unit-09', 't-unit-09', {
+    weight: 'medium',
+    consecutiveFailures: 1,
+    reservedWritePaths: [SHARED_PATH],
+  });
+
+  // ── Run reader: only unit-06 is retry-eligible ────────────────────
+  const runs = createRunReaderFromRuns([
+    // unit-06: retry_await, retryAt=50 (< now=1000), restartCount=0
+    //          → eligible under retryCap=5
+    makeRetryTaskRun('t-unit-06', {
+      runStatus: 'retry_await',
+      retryAt: 50,
+      restartCount: 0,
+    }),
+  ]);
+
+  // ── Readiness map: unit-07 older than unit-08/09 ──────────────────
+  //
+  // NOTE: prioritizeReadyWork's readyAt assignment is
+  //   unit.readyAt = readySince?.get(schedulableUnitKey(unit)) ?? now
+  // and `schedulableUnitKey` for tasks is `task:<taskId>`.
+  //
+  // Only the unit-07/08/09 readyAt values matter (they're the only
+  // ones the comparator reaches key 7 for). We set them explicitly
+  // to force a predictable "older wins" ordering for the key-7 pair.
+  // Unit-06's readyAt doesn't matter — unit-06 vs unit-07 resolves at
+  // key 6 before key 7 is consulted.
+  const expectedOrderedIds = [
+    't-unit-01',
+    'f-unit-02',
+    't-unit-03',
+    't-unit-04',
+    't-unit-05',
+    't-unit-06',
+    't-unit-07',
+    't-unit-08',
+    't-unit-09',
+  ];
+
+  return { graph: g, runs, now: NOW, expectedOrderedIds };
+}
+
+/**
+ * Readiness map that pairs with `fullKeyOrderFixture` to force unit-07
+ * older (readyAt=100) than unit-08/09 (readyAt=200). Separate from the
+ * fixture to keep the fixture function's return shape minimal.
+ */
+export function fullKeyOrderReadySince(): Map<string, number> {
+  return new Map<string, number>([
+    ['task:t-unit-07', 100],
+    ['task:t-unit-08', 200],
+    ['task:t-unit-09', 200],
+  ]);
+}
+
+// ─── Reservation-overlap fixtures (penalty, not block) ───────────────
+
+/**
+ * Two tasks that share a reserved write path. Both should still appear
+ * in `prioritizeReadyWork`'s output — the overlap demotes priority but
+ * does NOT filter them out. Both on same milestone/tier so other keys
+ * don't push one out of the list.
+ */
+export function twoOverlappingReadyTasksFixture(): {
+  graph: InMemoryFeatureGraph;
+  runs: ExecutionRunReader;
+} {
+  const g = createGraphWithMilestone();
+
+  withTick(g, () => {
+    g.queueMilestone('m-1');
+
+    g.createFeature({
+      id: 'f-a',
+      milestoneId: 'm-1',
+      name: 'FA',
+      description: 'desc',
+    });
+    g.createFeature({
+      id: 'f-b',
+      milestoneId: 'm-1',
+      name: 'FB',
+      description: 'desc',
+    });
+  });
+
+  updateFeature(g, 'f-a', { workControl: 'executing' });
+  updateFeature(g, 'f-b', { workControl: 'executing' });
+
+  withTick(g, () => {
+    g.createTask({
+      id: 't-over-a',
+      featureId: 'f-a',
+      description: 'overlap a',
+      reservedWritePaths: ['src/shared.ts'],
+    });
+    updateTask(g, 't-over-a', { status: 'ready' });
+
+    g.createTask({
+      id: 't-over-b',
+      featureId: 'f-b',
+      description: 'overlap b',
+      reservedWritePaths: ['src/shared.ts'],
+    });
+    updateTask(g, 't-over-b', { status: 'ready' });
+  });
+
+  const runs = createRunReaderFromRuns([]);
+  return { graph: g, runs };
+}
+
+/**
+ * Mixed overlap fixture: 1 non-overlapping task on a high-priority
+ * milestone, 1 non-overlapping task on a lower-priority milestone, and
+ * 1 overlapping task (shares path with a sibling). Exercised to prove:
+ *   - non-overlapping tasks sort ahead of overlapping ones (key 5);
+ *   - the overlapping task is present in the output (penalty ≠ block).
+ */
+export function mixedOverlapFixture(): {
+  graph: InMemoryFeatureGraph;
+  runs: ExecutionRunReader;
+} {
+  const g = createGraphWithMilestone();
+  const OVERLAP_PATH = 'shared/owned.ts';
+
+  withTick(g, () => {
+    g.createMilestone({
+      id: 'm-low',
+      name: 'Low',
+      description: 'lower priority',
+    });
+    g.queueMilestone('m-1'); // pos 1 (high)
+    g.queueMilestone('m-low'); // pos 2 (low)
+
+    g.createFeature({
+      id: 'f-high',
+      milestoneId: 'm-1',
+      name: 'high',
+      description: 'desc',
+    });
+    g.createFeature({
+      id: 'f-low',
+      milestoneId: 'm-low',
+      name: 'low',
+      description: 'desc',
+    });
+    g.createFeature({
+      id: 'f-overlap-a',
+      milestoneId: 'm-1',
+      name: 'overlap a',
+      description: 'desc',
+    });
+    g.createFeature({
+      id: 'f-overlap-b',
+      milestoneId: 'm-1',
+      name: 'overlap b',
+      description: 'desc',
+    });
+  });
+
+  updateFeature(g, 'f-high', { workControl: 'executing' });
+  updateFeature(g, 'f-low', { workControl: 'executing' });
+  updateFeature(g, 'f-overlap-a', { workControl: 'executing' });
+  updateFeature(g, 'f-overlap-b', { workControl: 'executing' });
+
+  withTick(g, () => {
+    // Non-overlapping, high milestone
+    g.createTask({
+      id: 't-non-overlap-high',
+      featureId: 'f-high',
+      description: 'ok high',
+    });
+    updateTask(g, 't-non-overlap-high', { status: 'ready' });
+
+    // Non-overlapping, low milestone
+    g.createTask({
+      id: 't-non-overlap-low',
+      featureId: 'f-low',
+      description: 'ok low',
+    });
+    updateTask(g, 't-non-overlap-low', { status: 'ready' });
+
+    // Two tasks sharing a reserved path → both overlap=1
+    g.createTask({
+      id: 't-overlap',
+      featureId: 'f-overlap-a',
+      description: 'overlap primary',
+      reservedWritePaths: [OVERLAP_PATH],
+    });
+    updateTask(g, 't-overlap', { status: 'ready' });
+
+    g.createTask({
+      id: 't-overlap-partner',
+      featureId: 'f-overlap-b',
+      description: 'overlap partner',
+      reservedWritePaths: [OVERLAP_PATH],
+    });
+    updateTask(g, 't-overlap-partner', { status: 'ready' });
+  });
+
+  const runs = createRunReaderFromRuns([]);
+  return { graph: g, runs };
 }

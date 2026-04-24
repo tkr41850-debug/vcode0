@@ -8,8 +8,10 @@ import type {
 } from '@core/scheduling/index';
 import {
   buildCombinedGraph,
+  computeRetryBackoffMs,
   CriticalPathScheduler,
   computeGraphMetrics,
+  type RetryPolicy,
   schedulableUnitKey,
   TASK_WEIGHT_VALUE,
   workTypeTierOf,
@@ -31,12 +33,17 @@ import {
   updateTask,
 } from '../../helpers/graph-builders.js';
 import {
+  createRunReaderFromRuns,
   deepNestedFixture,
   diamondFixture,
+  fullKeyOrderFixture,
+  fullKeyOrderReadySince,
   linearChainFixture,
   mixedFeatureTaskFixture,
+  mixedOverlapFixture,
   parallelSiblingsFixture,
   type SchedulerFixture,
+  twoOverlappingReadyTasksFixture,
 } from '../../helpers/scheduler-fixtures.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────
@@ -1143,4 +1150,246 @@ describe('canonical DAG fixtures', () => {
       });
     });
   }
+});
+
+// ── Priority sort: full-order canonical 7+1 fixture ────────────────────
+
+describe('priority key order — canonical 7+1 fixture', () => {
+  it('lock the 7-key + ID tiebreaker order against a regression-proof fixture', () => {
+    const { graph, runs, now, expectedOrderedIds } = fullKeyOrderFixture();
+    const retryPolicy: RetryPolicy = {
+      baseDelayMs: 250,
+      maxDelayMs: 30_000,
+      retryCap: 5,
+    };
+
+    const combined = buildCombinedGraph(graph);
+    const metrics = computeGraphMetrics(combined);
+    const scheduler = new CriticalPathScheduler();
+    const ready = scheduler.prioritizeReadyWork(
+      graph,
+      runs,
+      metrics,
+      now,
+      fullKeyOrderReadySince(),
+      retryPolicy,
+    );
+
+    expect(extractSchedulableIds(ready)).toEqual(expectedOrderedIds);
+  });
+});
+
+// ── Reservation overlap is penalty, not block ──────────────────────────
+
+describe('reservation overlap is penalty, not block', () => {
+  it('two overlapping ready tasks both appear in the output (not filtered)', () => {
+    const { graph, runs } = twoOverlappingReadyTasksFixture();
+    const combined = buildCombinedGraph(graph);
+    const metrics = computeGraphMetrics(combined);
+    const ready = new CriticalPathScheduler().prioritizeReadyWork(
+      graph,
+      runs,
+      metrics,
+      0,
+    );
+
+    expect(ready).toHaveLength(2);
+    const ids = extractSchedulableIds(ready);
+    expect(ids).toContain('t-over-a');
+    expect(ids).toContain('t-over-b');
+  });
+
+  it('non-overlapping tasks sort ahead of overlapping siblings on the same milestone', () => {
+    const { graph, runs } = mixedOverlapFixture();
+    const combined = buildCombinedGraph(graph);
+    const metrics = computeGraphMetrics(combined);
+    const ready = new CriticalPathScheduler().prioritizeReadyWork(
+      graph,
+      runs,
+      metrics,
+      0,
+    );
+
+    // All four ready tasks appear — penalty, not block.
+    const ids = extractSchedulableIds(ready);
+    expect(ids).toHaveLength(4);
+    expect(ids).toEqual([
+      // m-1 high-priority, non-overlap → key 5 wins among m-1 units
+      't-non-overlap-high',
+      // m-1 overlap pair: 't-overlap' < 't-overlap-partner' alphabetically
+      't-overlap',
+      't-overlap-partner',
+      // m-low (lower priority key 1) even though it's non-overlapping
+      't-non-overlap-low',
+    ]);
+  });
+});
+
+// ── Retry eligibility — CONTEXT § H backoff formula ────────────────────
+
+describe('retry eligibility backoff formula', () => {
+  const baseRetryPolicy: RetryPolicy = {
+    baseDelayMs: 250,
+    maxDelayMs: 30_000,
+    retryCap: 5,
+  };
+
+  function makeSingleRetryFixture(
+    run: TaskAgentRun,
+    overrides: { consecutiveFailures?: number } = {},
+  ): InMemoryFeatureGraph {
+    const g = createGraphWithMilestone();
+    g.__enterTick();
+    g.createFeature({
+      id: 'f-retry',
+      milestoneId: 'm-1',
+      name: 'Retry feature',
+      description: 'desc',
+    });
+    g.__leaveTick();
+    updateFeature(g, 'f-retry', { workControl: 'executing' });
+    g.__enterTick();
+    g.createTask({
+      id: 't-retry-probe',
+      featureId: 'f-retry',
+      description: 'retry probe',
+    });
+    g.__leaveTick();
+    const patch: { status: 'ready'; consecutiveFailures?: number } = {
+      status: 'ready',
+    };
+    if (overrides.consecutiveFailures !== undefined) {
+      patch.consecutiveFailures = overrides.consecutiveFailures;
+    }
+    updateTask(g, 't-retry-probe', patch);
+    g.__enterTick();
+    g.queueMilestone('m-1');
+    g.__leaveTick();
+    void run; // consumed by the caller via a RunReader
+    return g;
+  }
+
+  function runWith(run: TaskAgentRun, now: number): SchedulableUnit[] {
+    const g = makeSingleRetryFixture(run);
+    // Also add a fresh-pending task on the same feature so "retry-
+    // eligible first" ordering has something to compare against.
+    g.__enterTick();
+    g.createTask({
+      id: 't-fresh-probe',
+      featureId: 'f-retry',
+      description: 'fresh probe',
+    });
+    g.__leaveTick();
+    updateTask(g, 't-fresh-probe', { status: 'ready' });
+
+    const runs = createRunReaderFromRuns([run]);
+    return new CriticalPathScheduler().prioritizeReadyWork(
+      g,
+      runs,
+      computeGraphMetrics(buildCombinedGraph(g)),
+      now,
+      undefined,
+      baseRetryPolicy,
+    );
+  }
+
+  it('attempts=0: retry-eligible when runStatus=retry_await and now >= retryAt', () => {
+    // baseDelayMs * 2^0 = 250. retryAt = lastFailedAt + 250.
+    const lastFailedAt = 1_000_000;
+    const retryAt = lastFailedAt + 250;
+    const run: TaskAgentRun = {
+      id: 'run-t-retry-probe',
+      scopeType: 'task',
+      scopeId: 't-retry-probe',
+      phase: 'execute',
+      runStatus: 'retry_await',
+      owner: 'system',
+      attention: 'none',
+      restartCount: 0,
+      maxRetries: 3,
+      retryAt,
+    };
+
+    // At now == retryAt: eligible → sorts first (key 6).
+    const atBoundary = runWith(run, retryAt);
+    const boundaryIds = extractSchedulableIds(atBoundary);
+    expect(boundaryIds.indexOf('t-retry-probe')).toBeLessThan(
+      boundaryIds.indexOf('t-fresh-probe'),
+    );
+
+    // At now == retryAt - 1: blocked by isBlockedByRun (run.retryAt >
+    // now) → dropped from the ready list entirely.
+    const beforeBoundary = runWith(run, retryAt - 1);
+    const beforeIds = extractSchedulableIds(beforeBoundary);
+    expect(beforeIds).not.toContain('t-retry-probe');
+    expect(beforeIds).toContain('t-fresh-probe');
+  });
+
+  it('attempts=5: backoff hits the cap (min(baseDelayMs * 2^5, maxDelayMs))', () => {
+    // baseDelayMs * 2^5 = 250 * 32 = 8000. < maxDelayMs=30_000 → 8000.
+    const attempts = 5;
+    const expected = computeRetryBackoffMs(attempts, baseRetryPolicy);
+    expect(expected).toBe(8_000);
+  });
+
+  it('attempts=10: backoff is capped at maxDelayMs (250 * 2^10 = 256_000 > 30_000)', () => {
+    // 250 * 2^10 = 256_000; cap = 30_000 → 30_000.
+    expect(computeRetryBackoffMs(10, baseRetryPolicy)).toBe(30_000);
+  });
+
+  it('attempts >= retryCap: not retry-eligible even when retryAt has elapsed', () => {
+    // retryCap=5; restartCount=5 → caller must stop retrying.
+    const run: TaskAgentRun = {
+      id: 'run-t-retry-probe',
+      scopeType: 'task',
+      scopeId: 't-retry-probe',
+      phase: 'execute',
+      runStatus: 'retry_await',
+      owner: 'system',
+      attention: 'none',
+      restartCount: 5,
+      maxRetries: 5,
+      retryAt: 100,
+    };
+
+    // Above retryCap, the unit is still blocked by `isBlockedByRun`
+    // when retryAt > now, so use now >= retryAt and confirm the sort
+    // key still treats it as fresh (retry rank 1).
+    const ready = runWith(run, 200);
+    const ids = extractSchedulableIds(ready);
+    // Both tasks present (unit is ready, run is past retryAt)
+    expect(ids).toContain('t-retry-probe');
+    expect(ids).toContain('t-fresh-probe');
+    // Fresh task wins because probe is NOT retry-eligible (attempts >= cap)
+    // → both rank=1 on key 6, falls through to later keys. Tie-break on
+    // readyAt (both = now) then ID: 't-fresh-probe' < 't-retry-probe'.
+    expect(ids.indexOf('t-fresh-probe')).toBeLessThan(
+      ids.indexOf('t-retry-probe'),
+    );
+  });
+
+  it('runStatus !== retry_await: not retry-eligible', () => {
+    // runStatus='ready' (not retry_await) → NOT eligible.
+    const run: TaskAgentRun = {
+      id: 'run-t-retry-probe',
+      scopeType: 'task',
+      scopeId: 't-retry-probe',
+      phase: 'execute',
+      runStatus: 'ready',
+      owner: 'system',
+      attention: 'none',
+      restartCount: 0,
+      maxRetries: 3,
+    };
+
+    const ready = runWith(run, 1_000);
+    const ids = extractSchedulableIds(ready);
+    // Both ready (isBlockedByRun doesn't block runStatus='ready'); neither
+    // is retry-eligible → tie-break on ID alphabetically.
+    expect(ids).toContain('t-retry-probe');
+    expect(ids).toContain('t-fresh-probe');
+    expect(ids.indexOf('t-fresh-probe')).toBeLessThan(
+      ids.indexOf('t-retry-probe'),
+    );
+  });
 });
