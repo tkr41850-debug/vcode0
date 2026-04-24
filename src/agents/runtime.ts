@@ -29,6 +29,7 @@ import type {
 import type { AgentMessage, AgentTool } from '@mariozechner/pi-agent-core';
 import { Agent } from '@mariozechner/pi-agent-core';
 import type { Store } from '@orchestrator/ports/index';
+import type { FeaturePhaseGraphMutation } from '@orchestrator/scheduler/events';
 import { resolveModel } from '@runtime/routing/model-bridge';
 import type { SessionStore } from '@runtime/sessions/index';
 import { messagesToTokenUsageAggregate } from '@runtime/usage';
@@ -45,6 +46,14 @@ export interface FeatureAgentRuntimeConfig {
   getApiKey?: (
     provider: string,
   ) => Promise<string | undefined> | string | undefined;
+  // Plan 04-01 Task 3: route graph edits from the agent runtime through
+  // the scheduler event queue instead of calling graph.editFeature
+  // directly. When undefined, the runtime falls back to a direct
+  // mutation (legacy/test path).
+  enqueueGraphMutation?: (
+    featureId: Feature['id'],
+    mutation: FeaturePhaseGraphMutation,
+  ) => void;
 }
 
 interface PhaseContextInput {
@@ -424,8 +433,9 @@ export class PiFeatureAgentRuntime {
     if (phase === 'discuss') {
       const details = extractDiscussDetails(extra);
       if (details !== undefined) {
-        this.deps.graph.editFeature(feature.id, {
-          discussOutput: markdownFromDiscuss(details),
+        this.mutateFeature(feature.id, {
+          kind: 'edit_feature',
+          patch: { discussOutput: markdownFromDiscuss(details) },
         });
       }
       return;
@@ -433,17 +443,38 @@ export class PiFeatureAgentRuntime {
     if (phase === 'research') {
       const details = extractResearchDetails(extra);
       if (details !== undefined) {
-        this.deps.graph.editFeature(feature.id, {
-          researchOutput: markdownFromResearch(details),
+        this.mutateFeature(feature.id, {
+          kind: 'edit_feature',
+          patch: { researchOutput: markdownFromResearch(details) },
         });
       }
       return;
     }
     if (phase === 'verify') {
       const issues = extractVerifyIssues(extra);
-      this.deps.graph.editFeature(feature.id, {
-        verifyIssues: issues,
+      this.mutateFeature(feature.id, {
+        kind: 'edit_feature',
+        patch: { verifyIssues: issues },
       });
+    }
+  }
+
+  /**
+   * Plan 04-01 Task 3: prefer routing mutations through the scheduler
+   * event queue (runs inside a tick). Fall back to a direct graph edit
+   * only when no enqueue callback is configured — preserves behaviour
+   * for legacy/test construction paths.
+   */
+  private mutateFeature(
+    featureId: Feature['id'],
+    mutation: FeaturePhaseGraphMutation,
+  ): void {
+    if (this.deps.enqueueGraphMutation !== undefined) {
+      this.deps.enqueueGraphMutation(featureId, mutation);
+      return;
+    }
+    if (mutation.kind === 'edit_feature') {
+      this.deps.graph.editFeature(featureId, mutation.patch);
     }
   }
 }

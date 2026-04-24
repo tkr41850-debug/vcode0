@@ -1,0 +1,29 @@
+{
+  "_comment": "Plan 04-01 Task 3: enumerated call sites permitted to mutate the FeatureGraph outside the scheduler's event queue. Every NEW direct mutation from src/ must either land in an allowlisted file below or be refactored to route through schedulerRef.current?.enqueue(...). The walker only scans the files listed in `scanned_files`; everything else is considered out-of-scope for this plan.",
+
+  "scanned_files": ["src/compose.ts", "src/agents/runtime.ts"],
+
+  "allowlist": {
+    "src/compose.ts": [
+      {
+        "methods": [
+          "createMilestone",
+          "queueMilestone",
+          "createFeature",
+          "transitionFeature"
+        ],
+        "reason": "initializeProjectGraph/transitionFeatureToPlanning run during app bootstrap — no scheduler loop yet, so they execute before any tick can exist. These are one-shot setup paths, not a runtime bypass."
+      },
+      {
+        "methods": ["cancelFeature"],
+        "reason": "cancelFeatureRunWork is invoked by the scheduler handler for `ui_cancel_feature_run_work` — it runs INSIDE a tick via the closure threaded through SchedulerLoopOptions. The mutation is not a bypass; it's the queue-routed destination."
+      }
+    ],
+    "src/agents/runtime.ts": [
+      {
+        "methods": ["editFeature"],
+        "reason": "Legacy fallback inside mutateFeature(): only runs when deps.enqueueGraphMutation is undefined (test/legacy construction without a scheduler). Production path through compose.ts always supplies the enqueue callback."
+      }
+    ]
+  }
+}

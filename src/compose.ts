@@ -4,6 +4,7 @@ import * as path from 'node:path';
 
 import { PiFeatureAgentRuntime, promptLibrary } from '@agents';
 import { type ApplicationLifecycle, GvcApplication } from '@app/index';
+import { JsonConfigLoader } from '@config';
 import type { FeatureGraph } from '@core/graph/index';
 import type {
   AgentRun,
@@ -20,7 +21,6 @@ import {
 import { openDatabase } from '@persistence/db';
 import { PersistentFeatureGraph } from '@persistence/feature-graph';
 import { SqliteStore } from '@persistence/sqlite-store';
-import { JsonConfigLoader } from '@config';
 import type {
   ApprovalPayload,
   RuntimePort,
@@ -77,20 +77,25 @@ export async function composeApplication(): Promise<GvcApplication> {
       return schedulerRef.current?.setAutoExecutionEnabled(next) ?? next;
     },
     toggleMilestoneQueue: (milestoneId) => {
-      const milestone = graph
-        .snapshot()
-        .milestones.find((entry) => entry.id === milestoneId);
-      if (milestone?.steeringQueuePosition !== undefined) {
-        graph.dequeueMilestone(milestoneId);
-        return;
-      }
-      graph.queueMilestone(milestoneId);
+      // Plan 04-01 Task 3: route through the scheduler event queue so the
+      // mutation runs inside a tick (guarded by __enterTick/__leaveTick).
+      schedulerRef.current?.enqueue({
+        type: 'ui_toggle_milestone_queue',
+        milestoneId,
+      });
     },
     initializeProject: (input) => {
       return initializeProjectGraph(graph, input);
     },
-    cancelFeature: async (featureId) => {
-      await cancelFeatureRunWork({ graph, store, runtime }, featureId);
+    cancelFeature: (featureId) => {
+      // Plan 04-01 Task 3: the handler invokes cancelFeatureRunWork via
+      // the closure threaded into SchedulerLoopOptions below, keeping all
+      // graph mutations inside the tick boundary.
+      schedulerRef.current?.enqueue({
+        type: 'ui_cancel_feature_run_work',
+        featureId,
+      });
+      return Promise.resolve();
     },
     saveFeatureRun: (run) => {
       const existing = store.getAgentRun(run.id);
@@ -244,6 +249,15 @@ export async function composeApplication(): Promise<GvcApplication> {
     sessionStore,
     projectRoot,
     getApiKey,
+    // Plan 04-01 Task 3: route agent-runtime graph edits through the
+    // scheduler event queue so they run inside a tick.
+    enqueueGraphMutation: (featureId, mutation) => {
+      schedulerRef.current?.enqueue({
+        type: 'feature_phase_graph_mutation',
+        featureId,
+        mutation,
+      });
+    },
   });
 
   const verification = new VerificationService({ config }, projectRoot);
@@ -259,7 +273,12 @@ export async function composeApplication(): Promise<GvcApplication> {
     config,
   };
 
-  const scheduler = new SchedulerLoop(graph, ports);
+  const scheduler = new SchedulerLoop(graph, ports, {
+    // Plan 04-01 Task 3: thread the cancel closure so the
+    // `ui_cancel_feature_run_work` handler can invoke it inside a tick.
+    cancelFeatureRunWork: (featureId) =>
+      cancelFeatureRunWork({ graph, store, runtime }, featureId),
+  });
   const recovery = new RecoveryService(ports, graph, projectRoot);
   schedulerRef.current = scheduler;
 
