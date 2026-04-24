@@ -53,7 +53,7 @@ gvc0/
 │   ├── app/            -- app lifecycle and startup
 │   ├── core/           -- graph/state/scheduling/warning contracts
 │   ├── orchestrator/   -- scheduler, feature lifecycle, conflicts, summaries
-│   ├── agents/         -- planner/replanner prompts and graph-mutation tools
+│   ├── agents/         -- planner/replanner prompts and proposal-graph tools
 │   ├── runtime/        -- worker pool, IPC, harness, context assembly
 │   ├── persistence/    -- SQLite implementation and migrations
 │   └── tui/            -- terminal UI shell and derived view state

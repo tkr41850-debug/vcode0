@@ -8,8 +8,8 @@ It does not own task-worker execution tools; those live under [Worker Agent](../
 ## Current surface
 
 - `index.ts` is barrel only; concrete pieces live in `types.ts`, `proposal-host.ts`, `feature-phase-host.ts`, `schemas.ts`, `planner-toolset.ts`, and `agent-toolset.ts`.
-- Proposal tools operate on a cloned draft graph: `addFeature`, `removeFeature`, `editFeature`, `addTask`, `removeTask`, `editTask`, `addDependency`, `removeDependency`, `submit`.
-- Feature-phase tools inspect authoritative state and return structured phase outputs: `getFeatureState`, `listFeatureTasks`, `getTaskResult`, `listFeatureEvents`, `listFeatureRuns`, `getChangedFiles`, `submitDiscuss`, `submitResearch`, `submitSummarize`, `submitVerify`.
+- Proposal tools operate on a cloned draft graph: `addMilestone`, `addFeature`, `editFeature`, `removeFeature`, `setFeatureObjective`, `setFeatureDoD`, `addTask`, `editTask`, `removeTask`, `addDependency`, `removeDependency`, `submit`.
+- Feature-phase tools inspect authoritative state and return structured phase outputs: `getFeatureState`, `listFeatureTasks`, `getTaskResult`, `listFeatureEvents`, `listFeatureRuns`, `getChangedFiles`, `raiseIssue`, `submitDiscuss`, `submitResearch`, `submitSummarize`, `submitVerify`.
 - `GraphProposalToolHost` mutates only an `InMemoryFeatureGraph` draft until `submit()` builds a proposal.
 - `DefaultFeaturePhaseToolHost` reads live graph/store state and caches the structured result each phase must submit.
 

@@ -80,5 +80,5 @@ Primary influences:
 
 Local gvc0 alignment:
 - `src/agents/planner.ts` and `src/agents/replanner.ts` — separate phase entrypoints, shared doctrine
-- `src/agents/tools/index.ts` — current planner/replanner proposal vocabulary (`addMilestone`, `addFeature`, `addTask`, `addDependency`, `submit`, etc.)
+- `src/agents/tools/planner-toolset.ts` + `src/agents/tools/schemas.ts` — current planner/replanner proposal vocabulary (`addMilestone`, `addFeature`, `editFeature`, `removeFeature`, `setFeatureObjective`, `setFeatureDoD`, `addTask`, `editTask`, `removeTask`, `addDependency`, `removeDependency`, `submit`)
 - `src/agents/runtime.ts` — planning and replanning run through same feature-phase runtime surface with different prompt/context inputs
