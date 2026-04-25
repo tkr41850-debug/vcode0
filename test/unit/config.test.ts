@@ -24,6 +24,9 @@ describe('JsonConfigLoader', () => {
         rebaseReplanLoopThreshold: 3,
         totalReplanLoopThreshold: 6,
       },
+      harness: {
+        kind: 'pi-sdk',
+      },
     });
 
     await expect(fs.stat(configPath)).resolves.toBeTruthy();
@@ -70,6 +73,14 @@ describe('JsonConfigLoader', () => {
             longFeatureBlockingMs: 1234,
             verifyReplanLoopThreshold: 7,
           },
+          harness: {
+            kind: 'claude-code',
+            claudeCode: {
+              binary: '/usr/local/bin/claude',
+              settings: '/tmp/claude-settings.json',
+              mcpServerPort: 4321,
+            },
+          },
         },
         null,
         2,
@@ -115,6 +126,42 @@ describe('JsonConfigLoader', () => {
         ciCheckReplanLoopThreshold: 3,
         rebaseReplanLoopThreshold: 3,
         totalReplanLoopThreshold: 6,
+      },
+      harness: {
+        kind: 'claude-code',
+        claudeCode: {
+          binary: '/usr/local/bin/claude',
+          settings: '/tmp/claude-settings.json',
+          mcpServerPort: 4321,
+        },
+      },
+    });
+  });
+
+  it('parses explicit pi-sdk harness config cleanly', async () => {
+    const configPath = path.join(getTmpDir(), 'pi-sdk-harness-config.json');
+    await fs.writeFile(
+      configPath,
+      JSON.stringify({
+        tokenProfile: 'balanced',
+        harness: {
+          kind: 'pi-sdk',
+        },
+      }),
+      'utf-8',
+    );
+
+    await expect(new JsonConfigLoader(configPath).load()).resolves.toEqual({
+      tokenProfile: 'balanced',
+      warnings: {
+        longFeatureBlockingMs: 8 * 60 * 60 * 1000,
+        verifyReplanLoopThreshold: 3,
+        ciCheckReplanLoopThreshold: 3,
+        rebaseReplanLoopThreshold: 3,
+        totalReplanLoopThreshold: 6,
+      },
+      harness: {
+        kind: 'pi-sdk',
       },
     });
   });

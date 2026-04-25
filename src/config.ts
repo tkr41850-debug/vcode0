@@ -3,7 +3,9 @@ import * as path from 'node:path';
 
 import type {
   BudgetConfig,
+  ClaudeCodeHarnessConfig,
   GvcConfig,
+  HarnessConfig,
   ModelRoutingConfig,
   RoutingTier,
   TokenProfile,
@@ -51,9 +53,18 @@ function defaultWarningConfig(): WarningConfig {
   };
 }
 
+function defaultHarnessConfig(): HarnessConfig {
+  return {
+    kind: 'pi-sdk',
+  };
+}
+
 const DEFAULT_CONFIG: GvcConfig = {
   tokenProfile: 'balanced',
   warnings: defaultWarningConfig(),
+  harness: {
+    kind: 'pi-sdk',
+  },
 };
 
 export interface ConfigLoader {
@@ -92,6 +103,7 @@ function cloneDefaultConfig(): GvcConfig {
   return {
     tokenProfile: DEFAULT_CONFIG.tokenProfile,
     warnings: defaultWarningConfig(),
+    harness: defaultHarnessConfig(),
   };
 }
 
@@ -118,6 +130,9 @@ function normalizeConfig(input: unknown, configPath: string): GvcConfig {
     ...(input.warnings !== undefined
       ? { warnings: parseWarningConfig(input.warnings, configPath) }
       : { warnings: defaultWarningConfig() }),
+    ...(input.harness !== undefined
+      ? { harness: parseHarnessConfig(input.harness, configPath) }
+      : { harness: defaultHarnessConfig() }),
   };
 }
 
@@ -225,6 +240,75 @@ function parseWarningConfig(value: unknown, configPath: string): WarningConfig {
       configPath,
       DEFAULT_WARNING_THRESHOLDS.totalReplanLoopThreshold,
     ),
+  };
+}
+
+function parseHarnessConfig(value: unknown, configPath: string): HarnessConfig {
+  if (!isRecord(value)) {
+    throw new Error(`Config at ${configPath} has invalid harness section.`);
+  }
+
+  const kind = parseHarnessKind(value.kind, configPath);
+
+  return {
+    kind,
+    ...(value.claudeCode !== undefined
+      ? {
+          claudeCode: parseClaudeCodeHarnessConfig(
+            value.claudeCode,
+            configPath,
+          ),
+        }
+      : {}),
+  };
+}
+
+function parseHarnessKind(
+  value: unknown,
+  configPath: string,
+): HarnessConfig['kind'] {
+  if (value === 'pi-sdk' || value === 'claude-code') {
+    return value;
+  }
+  throw new Error(`Config at ${configPath} has invalid harness.kind.`);
+}
+
+function parseClaudeCodeHarnessConfig(
+  value: unknown,
+  configPath: string,
+): ClaudeCodeHarnessConfig {
+  if (!isRecord(value)) {
+    throw new Error(`Config at ${configPath} has invalid harness.claudeCode.`);
+  }
+
+  return {
+    ...(value.binary !== undefined
+      ? {
+          binary: parseString(
+            value.binary,
+            'harness.claudeCode.binary',
+            configPath,
+          ),
+        }
+      : {}),
+    ...(value.settings !== undefined
+      ? {
+          settings: parseString(
+            value.settings,
+            'harness.claudeCode.settings',
+            configPath,
+          ),
+        }
+      : {}),
+    ...(value.mcpServerPort !== undefined
+      ? {
+          mcpServerPort: parseNumber(
+            value.mcpServerPort,
+            'harness.claudeCode.mcpServerPort',
+            configPath,
+          ),
+        }
+      : {}),
   };
 }
 

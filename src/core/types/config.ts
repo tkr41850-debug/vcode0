@@ -22,6 +22,19 @@ export interface ModelRoutingConfig {
   budgetPressure: boolean;
 }
 
+export type HarnessKind = 'pi-sdk' | 'claude-code';
+
+export interface ClaudeCodeHarnessConfig {
+  binary?: string;
+  settings?: string;
+  mcpServerPort?: number;
+}
+
+export interface HarnessConfig {
+  kind: HarnessKind;
+  claudeCode?: ClaudeCodeHarnessConfig;
+}
+
 export interface WarningConfig {
   longFeatureBlockingMs?: number;
   verifyReplanLoopThreshold?: number;
@@ -36,4 +49,5 @@ export interface GvcConfig {
   modelRouting?: ModelRoutingConfig;
   verification?: VerificationConfig;
   warnings?: WarningConfig;
+  harness?: HarnessConfig;
 }
