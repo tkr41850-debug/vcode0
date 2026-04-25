@@ -1,4 +1,5 @@
 import type {
+  AgentRunHarnessKind,
   AgentRunPhase,
   AgentRunStatus,
   FeatureCollabControl,
@@ -106,6 +107,10 @@ interface BaseAgentRunRow {
   owner: RunOwner;
   attention: RunAttention;
   session_id: string | null;
+  harness_kind: AgentRunHarnessKind | null;
+  worker_pid: number | null;
+  worker_boot_epoch: number | null;
+  harness_meta_json: string | null;
   payload_json: string | null;
   token_usage: string | null;
   max_retries: number;

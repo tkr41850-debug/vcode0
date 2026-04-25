@@ -7,6 +7,7 @@ import { Migration005TaskPlannerPayload } from '@persistence/migrations/005_task
 import { Migration006RenameFeatureCiToCiCheck } from '@persistence/migrations/006_rename_feature_ci_to_ci_check';
 import { Migration007MergeTrainExecutorState } from '@persistence/migrations/007_merge_train_executor_state';
 import { Migration008IntegrationPostRebaseSha } from '@persistence/migrations/008_integration_post_rebase_sha';
+import { Migration009AgentRunHarnessMetadata } from '@persistence/migrations/009_agent_run_harness_metadata';
 import { MigrationRunner } from '@persistence/migrations/index';
 import type Database from 'better-sqlite3';
 import BetterSqlite3 from 'better-sqlite3';
@@ -58,6 +59,7 @@ describe('persistence migrations', () => {
     expect(applied).toContain(Migration004FeaturePhaseOutputs.id);
     expect(applied).toContain(Migration005TaskPlannerPayload.id);
     expect(applied).toContain(Migration007MergeTrainExecutorState.id);
+    expect(applied).toContain(Migration009AgentRunHarnessMetadata.id);
   });
 
   it('adds runtime_blocked_by_feature_id to features', () => {
@@ -69,13 +71,17 @@ describe('persistence migrations', () => {
     expect(columns).toContain('runtime_blocked_by_feature_id');
   });
 
-  it('adds token_usage to agent_runs', () => {
+  it('adds token_usage and harness metadata to agent_runs', () => {
     const columns = db
       .prepare<[], { name: string }>("PRAGMA table_info('agent_runs')")
       .all()
       .map((row) => row.name);
 
     expect(columns).toContain('token_usage');
+    expect(columns).toContain('harness_kind');
+    expect(columns).toContain('worker_pid');
+    expect(columns).toContain('worker_boot_epoch');
+    expect(columns).toContain('harness_meta_json');
   });
 
   it('adds feature-phase output columns to features', () => {
@@ -112,6 +118,10 @@ describe('persistence migrations', () => {
       Migration003AgentRunTokenUsage,
       Migration004FeaturePhaseOutputs,
       Migration005TaskPlannerPayload,
+      Migration006RenameFeatureCiToCiCheck,
+      Migration007MergeTrainExecutorState,
+      Migration008IntegrationPostRebaseSha,
+      Migration009AgentRunHarnessMetadata,
     ]);
     runner.run();
     runner.run();
@@ -120,7 +130,7 @@ describe('persistence migrations', () => {
       .prepare<[string], { count: number }>(
         'SELECT COUNT(*) AS count FROM schema_migrations WHERE id = ?',
       )
-      .get(Migration005TaskPlannerPayload.id);
+      .get(Migration009AgentRunHarnessMetadata.id);
     expect(rows?.count).toBe(1);
   });
 
@@ -253,6 +263,51 @@ describe('persistence migrations', () => {
       .all()
       .map((r) => r.name);
     expect(cols).toContain('feature_branch_post_rebase_sha');
+
+    legacy.close();
+  });
+
+  it('migration 009 runs cleanly against a pre-009 database', () => {
+    const legacy = new BetterSqlite3(':memory:');
+    legacy.pragma('foreign_keys = ON');
+    new MigrationRunner(legacy, [
+      Migration001Init,
+      Migration002FeatureRuntimeBlock,
+      Migration003AgentRunTokenUsage,
+      Migration004FeaturePhaseOutputs,
+      Migration005TaskPlannerPayload,
+      Migration006RenameFeatureCiToCiCheck,
+      Migration007MergeTrainExecutorState,
+      Migration008IntegrationPostRebaseSha,
+    ]).run();
+
+    legacy
+      .prepare(
+        "INSERT INTO agent_runs (id, scope_type, scope_id, phase, run_status, owner, attention, session_id, payload_json, token_usage, max_retries, restart_count, retry_at, created_at, updated_at) VALUES ('r-1', 'task', 't-1', 'execute', 'ready', 'system', 'none', NULL, NULL, NULL, 0, 0, NULL, 0, 0)",
+      )
+      .run();
+
+    new MigrationRunner(legacy, [Migration009AgentRunHarnessMetadata]).run();
+
+    const row = legacy
+      .prepare<
+        [],
+        {
+          harness_kind: string | null;
+          worker_pid: number | null;
+          worker_boot_epoch: number | null;
+          harness_meta_json: string | null;
+        }
+      >(
+        "SELECT harness_kind, worker_pid, worker_boot_epoch, harness_meta_json FROM agent_runs WHERE id = 'r-1'",
+      )
+      .get();
+    expect(row).toEqual({
+      harness_kind: 'pi-sdk',
+      worker_pid: null,
+      worker_boot_epoch: null,
+      harness_meta_json: null,
+    });
 
     legacy.close();
   });

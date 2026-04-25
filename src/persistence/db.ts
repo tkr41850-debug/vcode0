@@ -6,6 +6,7 @@ import { Migration005TaskPlannerPayload } from '@persistence/migrations/005_task
 import { Migration006RenameFeatureCiToCiCheck } from '@persistence/migrations/006_rename_feature_ci_to_ci_check';
 import { Migration007MergeTrainExecutorState } from '@persistence/migrations/007_merge_train_executor_state';
 import { Migration008IntegrationPostRebaseSha } from '@persistence/migrations/008_integration_post_rebase_sha';
+import { Migration009AgentRunHarnessMetadata } from '@persistence/migrations/009_agent_run_harness_metadata';
 import { MigrationRunner } from '@persistence/migrations/index';
 import Database from 'better-sqlite3';
 
@@ -29,6 +30,7 @@ export function openDatabase(path: string): Database.Database {
     Migration006RenameFeatureCiToCiCheck,
     Migration007MergeTrainExecutorState,
     Migration008IntegrationPostRebaseSha,
+    Migration009AgentRunHarnessMetadata,
   ]).run();
 
   return db;

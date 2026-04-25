@@ -23,7 +23,7 @@ import type {
 import type Database from 'better-sqlite3';
 
 const AGENT_RUN_COLUMNS =
-  'id, scope_type, scope_id, phase, run_status, owner, attention, session_id, payload_json, token_usage, max_retries, restart_count, retry_at, created_at, updated_at';
+  'id, scope_type, scope_id, phase, run_status, owner, attention, session_id, harness_kind, worker_pid, worker_boot_epoch, harness_meta_json, payload_json, token_usage, max_retries, restart_count, retry_at, created_at, updated_at';
 
 const EVENT_COLUMNS = 'id, timestamp, event_type, entity_id, payload';
 
@@ -39,6 +39,10 @@ interface AgentRunInsertParams {
   owner: string;
   attention: string;
   session_id: string | null;
+  harness_kind: string | null;
+  worker_pid: number | null;
+  worker_boot_epoch: number | null;
+  harness_meta_json: string | null;
   payload_json: string | null;
   token_usage: string | null;
   max_retries: number;
@@ -61,6 +65,10 @@ interface AgentRunUpdateParams {
   owner: string;
   attention: string;
   session_id: string | null;
+  harness_kind: string | null;
+  worker_pid: number | null;
+  worker_boot_epoch: number | null;
+  harness_meta_json: string | null;
   payload_json: string | null;
   token_usage: string | null;
   max_retries: number;
@@ -99,8 +107,9 @@ export class SqliteStore implements Store {
     this.insertAgentRunStmt = db.prepare<AgentRunInsertParams>(
       `INSERT INTO agent_runs (${AGENT_RUN_COLUMNS}) VALUES (
         :id, :scope_type, :scope_id, :phase, :run_status, :owner, :attention,
-        :session_id, :payload_json, :token_usage, :max_retries, :restart_count,
-        :retry_at, :created_at, :updated_at
+        :session_id, :harness_kind, :worker_pid, :worker_boot_epoch,
+        :harness_meta_json, :payload_json, :token_usage, :max_retries,
+        :restart_count, :retry_at, :created_at, :updated_at
       )`,
     );
 
@@ -111,6 +120,10 @@ export class SqliteStore implements Store {
         owner = :owner,
         attention = :attention,
         session_id = :session_id,
+        harness_kind = :harness_kind,
+        worker_pid = :worker_pid,
+        worker_boot_epoch = :worker_boot_epoch,
+        harness_meta_json = :harness_meta_json,
         payload_json = :payload_json,
         token_usage = :token_usage,
         max_retries = :max_retries,
@@ -173,6 +186,10 @@ export class SqliteStore implements Store {
           owner: row.owner,
           attention: row.attention,
           session_id: row.session_id,
+          harness_kind: row.harness_kind,
+          worker_pid: row.worker_pid,
+          worker_boot_epoch: row.worker_boot_epoch,
+          harness_meta_json: row.harness_meta_json,
           payload_json: row.payload_json,
           token_usage: row.token_usage,
           max_retries: row.max_retries,

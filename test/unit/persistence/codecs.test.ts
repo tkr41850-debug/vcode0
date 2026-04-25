@@ -445,6 +445,32 @@ describe('codecs — round-trip', () => {
         tokenUsage: TOKEN_USAGE,
       });
     });
+
+    it('round-trips agent-run harness metadata fields', () => {
+      const run: TaskAgentRun = {
+        id: 'run-harness-1',
+        scopeType: 'task',
+        scopeId: 't-1',
+        phase: 'execute',
+        runStatus: 'running',
+        owner: 'system',
+        attention: 'crashloop_backoff',
+        restartCount: 2,
+        maxRetries: 5,
+        harnessKind: 'claude-code',
+        workerPid: 4321,
+        workerBootEpoch: 1_717_171,
+        harnessMetaJson: JSON.stringify({ transport: 'stdio' }),
+      };
+      const row = fullRow<AgentRunRow>(agentRunToRow(run));
+      expect(row.harness_kind).toBe('claude-code');
+      expect(row.worker_pid).toBe(4321);
+      expect(row.worker_boot_epoch).toBe(1_717_171);
+      expect(row.harness_meta_json).toBe(
+        JSON.stringify({ transport: 'stdio' }),
+      );
+      expect(rowToAgentRun(row)).toEqual(run);
+    });
   });
 
   describe('Event', () => {

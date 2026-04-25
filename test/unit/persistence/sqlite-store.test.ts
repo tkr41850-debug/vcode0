@@ -196,6 +196,58 @@ describe('SqliteStore', () => {
       expect(loaded).toMatchObject({ ...run, tokenUsage: TOKEN_USAGE });
     });
 
+    it('round-trips harness metadata fields through sqlite', () => {
+      const run = makeTaskRun({
+        harnessKind: 'claude-code',
+        workerPid: 9876,
+        workerBootEpoch: 123456,
+        harnessMetaJson: JSON.stringify({ mode: 'stdio' }),
+      });
+      store.createAgentRun(run);
+
+      expect(store.getAgentRun(run.id)).toEqual(run);
+
+      const row = db
+        .prepare<
+          [string],
+          {
+            harness_kind: string | null;
+            worker_pid: number | null;
+            worker_boot_epoch: number | null;
+            harness_meta_json: string | null;
+          }
+        >(
+          'SELECT harness_kind, worker_pid, worker_boot_epoch, harness_meta_json FROM agent_runs WHERE id = ?',
+        )
+        .get(run.id);
+      expect(row).toEqual({
+        harness_kind: 'claude-code',
+        worker_pid: 9876,
+        worker_boot_epoch: 123456,
+        harness_meta_json: JSON.stringify({ mode: 'stdio' }),
+      });
+    });
+
+    it('updates harness metadata via updateAgentRun', () => {
+      const run = makeTaskRun();
+      store.createAgentRun(run);
+
+      store.updateAgentRun(run.id, {
+        harnessKind: 'pi-sdk',
+        workerPid: 321,
+        workerBootEpoch: 654,
+        harnessMetaJson: JSON.stringify({ child: true }),
+      } as Partial<AgentRun>);
+
+      expect(store.getAgentRun(run.id)).toEqual({
+        ...run,
+        harnessKind: 'pi-sdk',
+        workerPid: 321,
+        workerBootEpoch: 654,
+        harnessMetaJson: JSON.stringify({ child: true }),
+      });
+    });
+
     it('updateAgentRun throws on missing run without touching any row', () => {
       const run = makeTaskRun();
       store.createAgentRun(run);

@@ -35,6 +35,7 @@ export type {
 } from './phases.js';
 export type {
   AgentRun,
+  AgentRunHarnessKind,
   AgentRunPhase,
   AgentRunStatus,
   FeaturePhaseAgentRun,

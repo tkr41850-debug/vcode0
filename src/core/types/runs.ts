@@ -1,6 +1,8 @@
 import type { TokenUsageAggregate } from './usage.js';
 import type { FeatureId, TaskId } from './workflow.js';
 
+export type AgentRunHarnessKind = 'pi-sdk' | 'claude-code';
+
 export type AgentRunPhase =
   | 'execute'
   | 'discuss'
@@ -32,6 +34,10 @@ interface BaseAgentRun {
   owner: RunOwner;
   attention: RunAttention;
   sessionId?: string;
+  harnessKind?: AgentRunHarnessKind;
+  workerPid?: number;
+  workerBootEpoch?: number;
+  harnessMetaJson?: string;
   payloadJson?: string;
   tokenUsage?: TokenUsageAggregate;
   restartCount: number;
