@@ -128,6 +128,15 @@ export class RecoveryService {
 
     this.ports.store.updateAgentRun(run.id, {
       sessionId: result.sessionId,
+      ...(result.harnessKind !== undefined
+        ? { harnessKind: result.harnessKind }
+        : {}),
+      ...(result.workerPid !== undefined
+        ? { workerPid: result.workerPid }
+        : {}),
+      ...(result.workerBootEpoch !== undefined
+        ? { workerBootEpoch: result.workerBootEpoch }
+        : {}),
       restartCount: run.restartCount + 1,
     });
     return true;
@@ -161,6 +170,15 @@ export class RecoveryService {
 
     this.ports.store.updateAgentRun(run.id, {
       sessionId: result.sessionId,
+      ...(result.harnessKind !== undefined
+        ? { harnessKind: result.harnessKind }
+        : {}),
+      ...(result.workerPid !== undefined
+        ? { workerPid: result.workerPid }
+        : {}),
+      ...(result.workerBootEpoch !== undefined
+        ? { workerBootEpoch: result.workerBootEpoch }
+        : {}),
       restartCount: run.restartCount + 1,
     });
     this.applyRecoveredFeaturePhaseResult(feature, run, result);
@@ -221,6 +239,15 @@ export class RecoveryService {
       this.ports.store.updateAgentRun(run.id, {
         runStatus: 'await_approval',
         owner: 'manual',
+        ...(result.harnessKind !== undefined
+          ? { harnessKind: result.harnessKind }
+          : {}),
+        ...(result.workerPid !== undefined
+          ? { workerPid: result.workerPid }
+          : {}),
+        ...(result.workerBootEpoch !== undefined
+          ? { workerBootEpoch: result.workerBootEpoch }
+          : {}),
         payloadJson: JSON.stringify(result.output.result.proposal),
       });
       return;

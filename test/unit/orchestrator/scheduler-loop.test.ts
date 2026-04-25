@@ -150,6 +150,12 @@ function createStoreMock(): Store {
   };
 }
 
+const runtimeDispatchMetadata = {
+  harnessKind: 'pi-sdk' as const,
+  workerPid: 4321,
+  workerBootEpoch: 1_717_171_717,
+};
+
 function createRuntimeMock(order: string[]): RuntimePort & {
   stopAll: ReturnType<typeof vi.fn>;
 } {
@@ -162,6 +168,7 @@ function createRuntimeMock(order: string[]): RuntimePort & {
           kind: 'completed_inline' as const,
           agentRunId: dispatch.agentRunId,
           sessionId,
+          ...runtimeDispatchMetadata,
           output: {
             kind: 'text_phase' as const,
             phase: 'discuss' as const,
@@ -185,6 +192,7 @@ function createRuntimeMock(order: string[]): RuntimePort & {
           kind: 'completed_inline' as const,
           agentRunId: dispatch.agentRunId,
           sessionId,
+          ...runtimeDispatchMetadata,
           output: {
             kind: 'text_phase' as const,
             phase: 'research' as const,
@@ -208,6 +216,7 @@ function createRuntimeMock(order: string[]): RuntimePort & {
           kind: 'awaiting_approval' as const,
           agentRunId: dispatch.agentRunId,
           sessionId,
+          ...runtimeDispatchMetadata,
           output: {
             kind: 'proposal' as const,
             phase: scope.phase,
@@ -224,6 +233,7 @@ function createRuntimeMock(order: string[]): RuntimePort & {
           kind: 'completed_inline' as const,
           agentRunId: dispatch.agentRunId,
           sessionId,
+          ...runtimeDispatchMetadata,
           output: {
             kind: 'verification' as const,
             verification: {
@@ -240,6 +250,7 @@ function createRuntimeMock(order: string[]): RuntimePort & {
           kind: 'completed_inline' as const,
           agentRunId: dispatch.agentRunId,
           sessionId,
+          ...runtimeDispatchMetadata,
           output: {
             kind: 'ci_check' as const,
             verification: {
@@ -255,6 +266,7 @@ function createRuntimeMock(order: string[]): RuntimePort & {
           kind: 'completed_inline' as const,
           agentRunId: dispatch.agentRunId,
           sessionId,
+          ...runtimeDispatchMetadata,
           output: {
             kind: 'text_phase' as const,
             phase: 'summarize' as const,
@@ -276,6 +288,7 @@ function createRuntimeMock(order: string[]): RuntimePort & {
       kind: 'started' as const,
       agentRunId: 'run-1',
       sessionId: 'sess-1',
+      ...runtimeDispatchMetadata,
     });
   });
 
@@ -806,6 +819,9 @@ describe('SchedulerLoop', () => {
       runStatus: 'running',
       owner: 'system',
       sessionId: 'sess-1',
+      harnessKind: 'pi-sdk',
+      workerPid: 4321,
+      workerBootEpoch: 1_717_171_717,
       restartCount: 0,
     });
   });
@@ -863,6 +879,9 @@ describe('SchedulerLoop', () => {
       runStatus: 'running',
       owner: 'system',
       sessionId: 'sess-1',
+      harnessKind: 'pi-sdk',
+      workerPid: 4321,
+      workerBootEpoch: 1_717_171_717,
       restartCount: 0,
     });
   });
@@ -891,6 +910,7 @@ describe('SchedulerLoop', () => {
         kind: 'started',
         agentRunId: 'run-task:t-1',
         sessionId: 'sess-fresh',
+        ...runtimeDispatchMetadata,
       });
     const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
 
@@ -935,6 +955,9 @@ describe('SchedulerLoop', () => {
       runStatus: 'running',
       owner: 'system',
       sessionId: 'sess-fresh',
+      harnessKind: 'pi-sdk',
+      workerPid: 4321,
+      workerBootEpoch: 1_717_171_717,
       restartCount: 2,
     });
   });
@@ -974,6 +997,9 @@ describe('SchedulerLoop', () => {
       runStatus: 'running',
       owner: 'system',
       sessionId: 'sess-1',
+      harnessKind: 'pi-sdk',
+      workerPid: 4321,
+      workerBootEpoch: 1_717_171_717,
       restartCount: 3,
     });
   });
@@ -1832,6 +1858,9 @@ describe('SchedulerLoop', () => {
       runStatus: 'await_approval',
       owner: 'manual',
       sessionId: 'run-feature:f-1:plan',
+      harnessKind: 'pi-sdk',
+      workerPid: 4321,
+      workerBootEpoch: 1_717_171_717,
       payloadJson: JSON.stringify(makeProposal('plan')),
       restartCount: 0,
     });
@@ -1889,6 +1918,7 @@ describe('SchedulerLoop', () => {
         kind: 'awaiting_approval',
         agentRunId: 'run-feature:f-1:plan',
         sessionId: 'sess-fresh',
+        ...runtimeDispatchMetadata,
         output: {
           kind: 'proposal',
           phase: 'plan',
@@ -1933,6 +1963,9 @@ describe('SchedulerLoop', () => {
       runStatus: 'await_approval',
       owner: 'manual',
       sessionId: 'sess-fresh',
+      harnessKind: 'pi-sdk',
+      workerPid: 4321,
+      workerBootEpoch: 1_717_171_717,
       payloadJson: JSON.stringify(makeProposal('plan')),
       restartCount: 2,
     });
@@ -2024,6 +2057,7 @@ describe('SchedulerLoop', () => {
       kind: 'completed_inline',
       agentRunId: 'run-feature:f-1:discuss',
       sessionId: 'sess-discuss',
+      ...runtimeDispatchMetadata,
       output: {
         kind: 'text_phase',
         phase: 'discuss',
@@ -2065,6 +2099,9 @@ describe('SchedulerLoop', () => {
       runStatus: 'running',
       owner: 'system',
       sessionId: 'sess-discuss',
+      harnessKind: 'pi-sdk',
+      workerPid: 4321,
+      workerBootEpoch: 1_717_171_717,
       restartCount: 0,
     });
     expect(updateAgentRun).toHaveBeenCalledWith('run-feature:f-1:discuss', {
@@ -2114,6 +2151,9 @@ describe('SchedulerLoop', () => {
       runStatus: 'running',
       owner: 'system',
       sessionId: 'run-feature:f-1:research',
+      harnessKind: 'pi-sdk',
+      workerPid: 4321,
+      workerBootEpoch: 1_717_171_717,
       restartCount: 0,
     });
     expect(updateAgentRun).toHaveBeenCalledWith('run-feature:f-1:research', {
@@ -2163,6 +2203,9 @@ describe('SchedulerLoop', () => {
       runStatus: 'running',
       owner: 'system',
       sessionId: 'run-feature:f-1:verify',
+      harnessKind: 'pi-sdk',
+      workerPid: 4321,
+      workerBootEpoch: 1_717_171_717,
       restartCount: 0,
     });
     expect(updateAgentRun).toHaveBeenCalledWith('run-feature:f-1:verify', {
@@ -2214,6 +2257,9 @@ describe('SchedulerLoop', () => {
       runStatus: 'running',
       owner: 'system',
       sessionId: 'run-feature:f-1:summarize',
+      harnessKind: 'pi-sdk',
+      workerPid: 4321,
+      workerBootEpoch: 1_717_171_717,
       restartCount: 0,
     });
   });

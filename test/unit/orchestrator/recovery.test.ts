@@ -97,6 +97,12 @@ function createStoreMock(runs: AgentRun[]): Store {
   };
 }
 
+const runtimeDispatchMetadata = {
+  harnessKind: 'pi-sdk' as const,
+  workerPid: 4321,
+  workerBootEpoch: 1_717_171_717,
+};
+
 function createRuntimeMock(): RuntimePort & {
   dispatchTask: ReturnType<typeof vi.fn>;
   resumeTask: ReturnType<typeof vi.fn>;
@@ -139,6 +145,7 @@ function createRuntimeMock(): RuntimePort & {
             dispatch.mode === 'resume'
               ? (dispatch.sessionId ?? 'sess-feature-resumed')
               : 'sess-feature-started',
+          ...runtimeDispatchMetadata,
           output: {
             kind: 'proposal',
             phase: scope.phase,
@@ -175,6 +182,7 @@ function createRuntimeMock(): RuntimePort & {
           kind: 'completed_inline',
           agentRunId: dispatch.agentRunId,
           sessionId,
+          ...runtimeDispatchMetadata,
           output: {
             kind: 'verification',
             verification: {
@@ -191,6 +199,7 @@ function createRuntimeMock(): RuntimePort & {
           kind: 'completed_inline',
           agentRunId: dispatch.agentRunId,
           sessionId,
+          ...runtimeDispatchMetadata,
           output: {
             kind: 'ci_check',
             verification: {
@@ -206,6 +215,7 @@ function createRuntimeMock(): RuntimePort & {
         kind: 'completed_inline',
         agentRunId: dispatch.agentRunId,
         sessionId,
+        ...runtimeDispatchMetadata,
         output: {
           kind: 'text_phase',
           phase: scope.phase,
@@ -221,6 +231,7 @@ function createRuntimeMock(): RuntimePort & {
         kind: 'resumed',
         agentRunId: dispatch.agentRunId,
         sessionId: dispatch.sessionId ?? 'sess-resumed',
+        ...runtimeDispatchMetadata,
       });
     }
 
@@ -228,6 +239,7 @@ function createRuntimeMock(): RuntimePort & {
       kind: 'started',
       agentRunId: dispatch.agentRunId,
       sessionId: 'sess-started',
+      ...runtimeDispatchMetadata,
     });
   };
 
@@ -398,6 +410,9 @@ describe('RecoveryService', () => {
     expect(runtime.resumeTask).not.toHaveBeenCalled();
     expect(store.updateAgentRun).toHaveBeenCalledWith(run.id, {
       sessionId: 'sess-1',
+      harnessKind: 'pi-sdk',
+      workerPid: 4321,
+      workerBootEpoch: 1_717_171_717,
       restartCount: 1,
     });
   });
@@ -490,10 +505,16 @@ describe('RecoveryService', () => {
     expect(runtime.resumeTask).not.toHaveBeenCalled();
     expect(store.updateAgentRun).toHaveBeenCalledWith('run-help', {
       sessionId: 'sess-help',
+      harnessKind: 'pi-sdk',
+      workerPid: 4321,
+      workerBootEpoch: 1_717_171_717,
       restartCount: 1,
     });
     expect(store.updateAgentRun).toHaveBeenCalledWith('run-approval', {
       sessionId: 'sess-approval',
+      harnessKind: 'pi-sdk',
+      workerPid: 4321,
+      workerBootEpoch: 1_717_171_717,
       restartCount: 1,
     });
     expect(store.updateAgentRun).not.toHaveBeenCalledWith(
@@ -606,6 +627,9 @@ describe('RecoveryService', () => {
     );
     expect(store.updateAgentRun).toHaveBeenCalledWith(run.id, {
       sessionId: 'sess-feature-1',
+      harnessKind: 'pi-sdk',
+      workerPid: 4321,
+      workerBootEpoch: 1_717_171_717,
       restartCount: 1,
     });
     expect(store.updateAgentRun).toHaveBeenCalledWith(run.id, {
@@ -669,6 +693,9 @@ describe('RecoveryService', () => {
     );
     expect(store.updateAgentRun).toHaveBeenCalledWith(run.id, {
       sessionId: 'sess-feature-started',
+      harnessKind: 'pi-sdk',
+      workerPid: 4321,
+      workerBootEpoch: 1_717_171_717,
       restartCount: 1,
     });
     expect(store.updateAgentRun).toHaveBeenCalledWith(run.id, {

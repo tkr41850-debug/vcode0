@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import type { Readable, Writable } from 'node:stream';
 
 import { resolveTaskWorktreeBranch, worktreePath } from '@core/naming/index';
-import type { Task } from '@core/types/index';
+import type { HarnessKind, Task } from '@core/types/index';
 import type { TaskPayload } from '@runtime/context/index';
 import type {
   OrchestratorToWorkerMessage,
@@ -21,6 +21,9 @@ export interface SessionExitInfo {
 
 export interface SessionHandle {
   sessionId: string;
+  harnessKind?: HarnessKind;
+  workerPid?: number;
+  workerBootEpoch?: number;
   abort(this: void): void;
   sendInput(this: void, text: string): Promise<void>;
   send(this: void, message: OrchestratorToWorkerMessage): void;
@@ -63,10 +66,12 @@ const WORKER_ENTRY = path.resolve(
 );
 
 const ABORT_GRACE_MS = 5_000;
+const PARENT_PROCESS_BOOT_EPOCH = Date.now();
 
 interface ChildLike {
   stdin: Writable | null;
   stdout: Readable | null;
+  pid?: number | undefined;
   kill(signal?: NodeJS.Signals): void;
   killed: boolean;
   on(
@@ -108,6 +113,11 @@ export class PiSdkHarness implements SessionHarness {
       sessionId,
       child,
       transport,
+      {
+        harnessKind: 'pi-sdk',
+        ...(child.pid !== undefined ? { workerPid: child.pid } : {}),
+        workerBootEpoch: PARENT_PROCESS_BOOT_EPOCH,
+      },
     );
 
     transport.send({
@@ -149,6 +159,11 @@ export class PiSdkHarness implements SessionHarness {
       run.sessionId,
       child,
       transport,
+      {
+        harnessKind: 'pi-sdk',
+        ...(child.pid !== undefined ? { workerPid: child.pid } : {}),
+        workerBootEpoch: PARENT_PROCESS_BOOT_EPOCH,
+      },
     );
 
     transport.send({
@@ -209,6 +224,11 @@ function createSessionHandle(
   sessionId: string,
   child: ChildLike,
   transport: NdjsonStdioTransport,
+  metadata: {
+    harnessKind: HarnessKind;
+    workerPid?: number;
+    workerBootEpoch?: number;
+  },
 ): SessionHandle {
   let exitInfo: SessionExitInfo | undefined;
   const exitHandlers: Array<(info: SessionExitInfo) => void> = [];
@@ -228,6 +248,13 @@ function createSessionHandle(
 
   return {
     sessionId,
+    harnessKind: metadata.harnessKind,
+    ...(metadata.workerPid !== undefined
+      ? { workerPid: metadata.workerPid }
+      : {}),
+    ...(metadata.workerBootEpoch !== undefined
+      ? { workerBootEpoch: metadata.workerBootEpoch }
+      : {}),
 
     abort() {
       transport.send({

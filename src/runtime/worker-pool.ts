@@ -28,6 +28,24 @@ interface LiveSession {
   handle: SessionHandle;
 }
 
+function dispatchMetadata(
+  handle: Pick<SessionHandle, 'harnessKind' | 'workerPid' | 'workerBootEpoch'>,
+): {
+  harnessKind?: NonNullable<SessionHandle['harnessKind']>;
+  workerPid?: number;
+  workerBootEpoch?: number;
+} {
+  return {
+    ...(handle.harnessKind !== undefined
+      ? { harnessKind: handle.harnessKind }
+      : {}),
+    ...(handle.workerPid !== undefined ? { workerPid: handle.workerPid } : {}),
+    ...(handle.workerBootEpoch !== undefined
+      ? { workerBootEpoch: handle.workerBootEpoch }
+      : {}),
+  };
+}
+
 export type TaskCompleteCallback = (
   message: WorkerToOrchestratorMessage,
 ) => void;
@@ -75,11 +93,21 @@ export class LocalWorkerPool implements RuntimePort {
           };
         }
         const outcome = await resumeResult.handle.awaitOutcome();
+        if (outcome.kind === 'completed_inline') {
+          return {
+            kind: 'completed_inline',
+            agentRunId: dispatch.agentRunId,
+            sessionId: resumeResult.handle.sessionId,
+            output: outcome.output,
+            ...dispatchMetadata(resumeResult.handle),
+          };
+        }
         return {
-          kind: outcome.kind,
+          kind: 'awaiting_approval',
           agentRunId: dispatch.agentRunId,
           sessionId: resumeResult.handle.sessionId,
           output: outcome.output,
+          ...dispatchMetadata(resumeResult.handle),
         };
       }
 
@@ -89,11 +117,21 @@ export class LocalWorkerPool implements RuntimePort {
         dispatch.agentRunId,
       );
       const outcome = await handle.awaitOutcome();
+      if (outcome.kind === 'completed_inline') {
+        return {
+          kind: 'completed_inline',
+          agentRunId: dispatch.agentRunId,
+          sessionId: handle.sessionId,
+          output: outcome.output,
+          ...dispatchMetadata(handle),
+        };
+      }
       return {
-        kind: outcome.kind,
+        kind: 'awaiting_approval',
         agentRunId: dispatch.agentRunId,
         sessionId: handle.sessionId,
         output: outcome.output,
+        ...dispatchMetadata(handle),
       };
     }
     if (payload.kind !== 'task') {
@@ -134,6 +172,7 @@ export class LocalWorkerPool implements RuntimePort {
         kind: 'resumed',
         agentRunId: dispatch.agentRunId,
         sessionId: resumeResult.handle.sessionId,
+        ...dispatchMetadata(resumeResult.handle),
       };
     }
 
@@ -154,6 +193,7 @@ export class LocalWorkerPool implements RuntimePort {
       kind: 'started',
       agentRunId: dispatch.agentRunId,
       sessionId: handle.sessionId,
+      ...dispatchMetadata(handle),
     };
   }
 
@@ -181,6 +221,15 @@ export class LocalWorkerPool implements RuntimePort {
           taskId: task.id,
           agentRunId: runResult.agentRunId,
           sessionId: runResult.sessionId,
+          ...(runResult.harnessKind !== undefined
+            ? { harnessKind: runResult.harnessKind }
+            : {}),
+          ...(runResult.workerPid !== undefined
+            ? { workerPid: runResult.workerPid }
+            : {}),
+          ...(runResult.workerBootEpoch !== undefined
+            ? { workerBootEpoch: runResult.workerBootEpoch }
+            : {}),
         };
       case 'resumed':
         return {
@@ -188,6 +237,15 @@ export class LocalWorkerPool implements RuntimePort {
           taskId: task.id,
           agentRunId: runResult.agentRunId,
           sessionId: runResult.sessionId,
+          ...(runResult.harnessKind !== undefined
+            ? { harnessKind: runResult.harnessKind }
+            : {}),
+          ...(runResult.workerPid !== undefined
+            ? { workerPid: runResult.workerPid }
+            : {}),
+          ...(runResult.workerBootEpoch !== undefined
+            ? { workerBootEpoch: runResult.workerBootEpoch }
+            : {}),
         };
       case 'not_resumable':
         return {

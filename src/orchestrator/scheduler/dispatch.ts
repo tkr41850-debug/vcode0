@@ -153,12 +153,31 @@ export function taskDispatchForRun(run: TaskAgentRun): TaskRuntimeDispatch {
 
 function runningRunPatch(
   run: Pick<AgentRun, 'runStatus' | 'restartCount'>,
-  result: Pick<DispatchRunResult, 'sessionId'>,
-): Pick<AgentRun, 'runStatus' | 'owner' | 'sessionId' | 'restartCount'> {
+  result: Pick<
+    DispatchRunResult,
+    'sessionId' | 'harnessKind' | 'workerPid' | 'workerBootEpoch'
+  >,
+): Pick<
+  AgentRun,
+  | 'runStatus'
+  | 'owner'
+  | 'sessionId'
+  | 'harnessKind'
+  | 'workerPid'
+  | 'workerBootEpoch'
+  | 'restartCount'
+> {
   return {
     runStatus: 'running',
     owner: 'system',
     sessionId: result.sessionId,
+    ...(result.harnessKind !== undefined
+      ? { harnessKind: result.harnessKind }
+      : {}),
+    ...(result.workerPid !== undefined ? { workerPid: result.workerPid } : {}),
+    ...(result.workerBootEpoch !== undefined
+      ? { workerBootEpoch: result.workerBootEpoch }
+      : {}),
     restartCount:
       run.runStatus === 'retry_await' ? run.restartCount + 1 : run.restartCount,
   };
@@ -166,16 +185,33 @@ function runningRunPatch(
 
 function proposalAwaitingApprovalPatch(
   run: Pick<AgentRun, 'runStatus' | 'restartCount'>,
-  result: Pick<DispatchRunResult, 'sessionId'>,
+  result: Pick<
+    DispatchRunResult,
+    'sessionId' | 'harnessKind' | 'workerPid' | 'workerBootEpoch'
+  >,
   payloadJson: string,
 ): Pick<
   AgentRun,
-  'runStatus' | 'owner' | 'sessionId' | 'payloadJson' | 'restartCount'
+  | 'runStatus'
+  | 'owner'
+  | 'sessionId'
+  | 'harnessKind'
+  | 'workerPid'
+  | 'workerBootEpoch'
+  | 'payloadJson'
+  | 'restartCount'
 > {
   return {
     runStatus: 'await_approval',
     owner: 'manual',
     sessionId: result.sessionId,
+    ...(result.harnessKind !== undefined
+      ? { harnessKind: result.harnessKind }
+      : {}),
+    ...(result.workerPid !== undefined ? { workerPid: result.workerPid } : {}),
+    ...(result.workerBootEpoch !== undefined
+      ? { workerBootEpoch: result.workerBootEpoch }
+      : {}),
     payloadJson,
     restartCount:
       run.runStatus === 'retry_await' ? run.restartCount + 1 : run.restartCount,
@@ -185,7 +221,10 @@ function proposalAwaitingApprovalPatch(
 export function persistRunningTaskRun(
   ports: OrchestratorPorts,
   run: TaskAgentRun,
-  result: Pick<DispatchRunResult, 'sessionId'>,
+  result: Pick<
+    DispatchRunResult,
+    'sessionId' | 'harnessKind' | 'workerPid' | 'workerBootEpoch'
+  >,
 ): void {
   ports.store.updateAgentRun(run.id, runningRunPatch(run, result));
 }
@@ -193,7 +232,10 @@ export function persistRunningTaskRun(
 export function persistRunningFeaturePhaseRun(
   ports: OrchestratorPorts,
   run: FeaturePhaseAgentRun,
-  result: Pick<DispatchRunResult, 'sessionId'>,
+  result: Pick<
+    DispatchRunResult,
+    'sessionId' | 'harnessKind' | 'workerPid' | 'workerBootEpoch'
+  >,
 ): void {
   ports.store.updateAgentRun(run.id, runningRunPatch(run, result));
 }
@@ -201,7 +243,10 @@ export function persistRunningFeaturePhaseRun(
 export function persistAwaitingApprovalFeaturePhaseRun(
   ports: OrchestratorPorts,
   run: FeaturePhaseAgentRun,
-  result: Pick<DispatchRunResult, 'sessionId'>,
+  result: Pick<
+    DispatchRunResult,
+    'sessionId' | 'harnessKind' | 'workerPid' | 'workerBootEpoch'
+  >,
   payloadJson: string,
 ): void {
   ports.store.updateAgentRun(

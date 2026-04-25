@@ -72,7 +72,17 @@ function createFeaturePhaseBackend(): FeaturePhaseBackend {
   };
 }
 
-function createMockHandle(sessionId = 'sess-1'): MockHandle {
+function createMockHandle(
+  sessionId = 'sess-1',
+  metadata: Pick<
+    SessionHandle,
+    'harnessKind' | 'workerPid' | 'workerBootEpoch'
+  > = {
+    harnessKind: 'pi-sdk',
+    workerPid: 4321,
+    workerBootEpoch: 1_717_171_717,
+  },
+): MockHandle {
   const sentMessages: OrchestratorToWorkerMessage[] = [];
   let messageHandler: ((msg: WorkerToOrchestratorMessage) => void) | undefined;
   let exitHandler:
@@ -86,6 +96,7 @@ function createMockHandle(sessionId = 'sess-1'): MockHandle {
 
   return {
     sessionId,
+    ...metadata,
     abort,
     sendInput: vi.fn().mockResolvedValue(undefined),
     send(msg: OrchestratorToWorkerMessage) {
@@ -284,6 +295,7 @@ describe('LocalWorkerPool', () => {
         kind: 'completed_inline',
         agentRunId: 'run-feature:f-feature-1:discuss',
         sessionId: 'feature-sess-1',
+        harnessKind: 'pi-sdk',
         output: {
           kind: 'text_phase',
           phase: 'discuss',
@@ -340,6 +352,7 @@ describe('LocalWorkerPool', () => {
         kind: 'completed_inline',
         agentRunId: 'run-feature:f-feature-1:discuss',
         sessionId: 'run-feature:f-feature-1:discuss',
+        harnessKind: 'pi-sdk',
         output: {
           kind: 'text_phase',
           phase: 'discuss',
@@ -402,6 +415,7 @@ describe('LocalWorkerPool', () => {
         kind: 'completed_inline',
         agentRunId: 'run-feature:f-feature-1:discuss',
         sessionId: 'sess-existing',
+        harnessKind: 'pi-sdk',
         output: {
           kind: 'text_phase',
           phase: 'discuss',
@@ -507,6 +521,7 @@ describe('LocalWorkerPool', () => {
         kind: 'completed_inline',
         agentRunId: 'run-feature:f-feature-1:research',
         sessionId: 'run-feature:f-feature-1:research',
+        harnessKind: 'pi-sdk',
         output: {
           kind: 'text_phase',
           phase: 'research',
@@ -571,6 +586,7 @@ describe('LocalWorkerPool', () => {
         kind: 'completed_inline',
         agentRunId: 'run-feature:f-feature-1:research',
         sessionId: 'sess-existing',
+        harnessKind: 'pi-sdk',
         output: {
           kind: 'text_phase',
           phase: 'research',
@@ -635,6 +651,7 @@ describe('LocalWorkerPool', () => {
         kind: 'awaiting_approval',
         agentRunId: 'run-feature:f-feature-1:plan',
         sessionId: 'run-feature:f-feature-1:plan',
+        harnessKind: 'pi-sdk',
         output: {
           kind: 'proposal',
           phase: 'plan',
@@ -707,6 +724,7 @@ describe('LocalWorkerPool', () => {
         kind: 'awaiting_approval',
         agentRunId: 'run-feature:f-feature-1:replan',
         sessionId: 'run-feature:f-feature-1:replan',
+        harnessKind: 'pi-sdk',
         output: {
           kind: 'proposal',
           phase: 'replan',
@@ -771,6 +789,7 @@ describe('LocalWorkerPool', () => {
         kind: 'completed_inline',
         agentRunId: 'run-feature:f-feature-1:verify',
         sessionId: 'run-feature:f-feature-1:verify',
+        harnessKind: 'pi-sdk',
         output: {
           kind: 'verification',
           verification,
@@ -875,6 +894,7 @@ describe('LocalWorkerPool', () => {
         kind: 'completed_inline',
         agentRunId: 'run-feature:f-feature-1:summarize',
         sessionId: 'run-feature:f-feature-1:summarize',
+        harnessKind: 'pi-sdk',
         output: {
           kind: 'text_phase',
           phase: 'summarize',
@@ -939,6 +959,7 @@ describe('LocalWorkerPool', () => {
         kind: 'completed_inline',
         agentRunId: 'run-feature:f-feature-1:summarize',
         sessionId: 'sess-existing',
+        harnessKind: 'pi-sdk',
         output: {
           kind: 'text_phase',
           phase: 'summarize',
@@ -999,6 +1020,7 @@ describe('LocalWorkerPool', () => {
         kind: 'completed_inline',
         agentRunId: 'run-feature:f-feature-1:ci_check',
         sessionId: 'run-feature:f-feature-1:ci_check',
+        harnessKind: 'pi-sdk',
         output: {
           kind: 'ci_check',
           verification,
@@ -1071,6 +1093,9 @@ describe('LocalWorkerPool', () => {
         kind: 'started',
         agentRunId: 'run-task:t-task-1',
         sessionId: 'sess-task-path',
+        harnessKind: 'pi-sdk',
+        workerPid: 4321,
+        workerBootEpoch: 1_717_171_717,
       });
     });
   });
@@ -1088,6 +1113,9 @@ describe('LocalWorkerPool', () => {
       expect(result.sessionId).toBe('sess-new');
       expect(result.taskId).toBe('t-task-1');
       expect(result.agentRunId).toBe('run-1');
+      expect(result.harnessKind).toBe('pi-sdk');
+      expect(result.workerPid).toBe(4321);
+      expect(result.workerBootEpoch).toBe(1_717_171_717);
     });
 
     it('passes payload to the harness start call', async () => {
@@ -1142,6 +1170,9 @@ describe('LocalWorkerPool', () => {
 
       expect(result.kind).toBe('resumed');
       expect(result.sessionId).toBe('sess-old');
+      expect(result.harnessKind).toBe('pi-sdk');
+      expect(result.workerPid).toBe(4321);
+      expect(result.workerBootEpoch).toBe(1_717_171_717);
     });
 
     it('returns not_resumable when harness cannot resume', async () => {

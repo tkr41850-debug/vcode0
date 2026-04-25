@@ -6,6 +6,7 @@ import type {
   Feature,
   FeaturePhaseResult,
   FeaturePhaseRunContext,
+  HarnessKind,
   VerificationSummary,
 } from '@core/types/index';
 import type {
@@ -269,6 +270,9 @@ function supportsSessionResume(
 export function createFeaturePhaseHandle(params: {
   sessionId: string;
   outcome: FeaturePhaseDispatchOutcome | Promise<FeaturePhaseDispatchOutcome>;
+  harnessKind?: HarnessKind;
+  workerPid?: number;
+  workerBootEpoch?: number;
 }): FeaturePhaseSessionHandle {
   const outcome = Promise.resolve(params.outcome);
   let exitInfo: SessionExitInfo | undefined;
@@ -302,6 +306,11 @@ export function createFeaturePhaseHandle(params: {
 
   return {
     sessionId: params.sessionId,
+    harnessKind: params.harnessKind ?? 'pi-sdk',
+    ...(params.workerPid !== undefined ? { workerPid: params.workerPid } : {}),
+    ...(params.workerBootEpoch !== undefined
+      ? { workerBootEpoch: params.workerBootEpoch }
+      : {}),
     abort(): void {
       // Synthetic handles have no subprocess to terminate.
     },

@@ -4,6 +4,7 @@ import type {
   FeatureId,
   FeaturePhaseResult,
   GitConflictContext,
+  HarnessKind,
   Task,
   TaskId,
   TaskResult,
@@ -86,27 +87,41 @@ export type RunPayload =
  * plan/replan). `not_resumable` mirrors `ResumeSessionResult` but without
  * a taskId field, so feature-phase recovery can surface the same reason.
  */
+type DispatchHarnessMetadata = {
+  harnessKind?: HarnessKind;
+  workerPid?: number;
+  workerBootEpoch?: number;
+};
+
 export type DispatchRunResult =
-  | { kind: 'started'; agentRunId: string; sessionId: string }
-  | { kind: 'resumed'; agentRunId: string; sessionId: string }
-  | {
+  | ({
+      kind: 'started';
+      agentRunId: string;
+      sessionId: string;
+    } & DispatchHarnessMetadata)
+  | ({
+      kind: 'resumed';
+      agentRunId: string;
+      sessionId: string;
+    } & DispatchHarnessMetadata)
+  | ({
       kind: 'completed_inline';
       agentRunId: string;
       sessionId: string;
       output: PhaseOutput;
-    }
-  | {
+    } & DispatchHarnessMetadata)
+  | ({
       kind: 'awaiting_approval';
       agentRunId: string;
       sessionId: string;
       output: PhaseOutput;
-    }
-  | {
+    } & DispatchHarnessMetadata)
+  | ({
       kind: 'not_resumable';
       agentRunId: string;
       sessionId: string;
       reason: 'session_not_found' | 'path_mismatch' | 'unsupported_by_harness';
-    };
+    } & DispatchHarnessMetadata);
 
 export interface TaskExecutionRunRef {
   taskId: string;
@@ -134,25 +149,25 @@ export type TaskRuntimeDispatch =
     };
 
 export type DispatchTaskResult =
-  | {
+  | ({
       kind: 'started';
       taskId: string;
       agentRunId: string;
       sessionId: string;
-    }
-  | {
+    } & DispatchHarnessMetadata)
+  | ({
       kind: 'resumed';
       taskId: string;
       agentRunId: string;
       sessionId: string;
-    }
-  | {
+    } & DispatchHarnessMetadata)
+  | ({
       kind: 'not_resumable';
       taskId: string;
       agentRunId: string;
       sessionId: string;
       reason: 'session_not_found' | 'path_mismatch' | 'unsupported_by_harness';
-    };
+    } & DispatchHarnessMetadata);
 
 export type TaskControlResult =
   | {

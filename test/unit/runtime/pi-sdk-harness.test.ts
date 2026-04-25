@@ -33,6 +33,7 @@ class CollectingWritable extends Writable {
 }
 
 type FakeChild = ChildProcess & {
+  pid: number;
   writes: string[];
   kill: ReturnType<typeof vi.fn>;
   emitExit: (code: number | null, signal: NodeJS.Signals | null) => void;
@@ -45,6 +46,7 @@ function createForkedChild(): FakeChild {
   const child = {
     stdin,
     stdout: new PassThrough(),
+    pid: 4321,
     kill: vi.fn(),
     killed: false,
     writes: stdin.writes,
@@ -126,6 +128,9 @@ describe('PiSdkHarness', () => {
     );
 
     expect(handle.sessionId).toBe('run-pinned-id');
+    expect(handle.harnessKind).toBe('pi-sdk');
+    expect(handle.workerPid).toBe(4321);
+    expect(handle.workerBootEpoch).toEqual(expect.any(Number));
   });
 
   it('uses legacy fallback naming when task branch is absent', async () => {
