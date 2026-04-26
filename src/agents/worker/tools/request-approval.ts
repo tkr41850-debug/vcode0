@@ -44,7 +44,7 @@ export function createRequestApprovalTool(
     description:
       'Ask the human operator to approve a replan proposal or destructive action. Blocks until an approval decision arrives.',
     parameters,
-    execute: async (_toolCallId, params) => {
+    execute: async (toolCallId, params) => {
       const payload =
         params.kind === 'replan_proposal'
           ? {
@@ -64,7 +64,7 @@ export function createRequestApprovalTool(
                 detail: params.detail,
               };
 
-      const decision = await ipc.requestApproval(payload);
+      const decision = await ipc.requestApproval(toolCallId, payload);
       const text =
         decision.kind === 'approved'
           ? 'approved'

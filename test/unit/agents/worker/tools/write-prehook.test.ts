@@ -20,7 +20,7 @@ function createStubBridge(
     requestHelp: () => Promise.resolve({ kind: 'discuss' as const }),
     requestApproval: () => Promise.resolve({ kind: 'approved' as const }),
     claimLock: claimLockMock,
-    submitResult: () => {},
+    submitResult: () => Promise.resolve(),
   } satisfies IpcBridge;
   return Object.assign(bridge, { claimLockMock });
 }

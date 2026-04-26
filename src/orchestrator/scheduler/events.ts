@@ -125,7 +125,10 @@ export async function handleSchedulerEvent(params: {
       ports.store.updateAgentRun(run.id, {
         runStatus: 'await_response',
         owner: 'manual',
-        payloadJson: JSON.stringify({ query: message.query }),
+        payloadJson: JSON.stringify({
+          toolCallId: message.toolCallId,
+          query: message.query,
+        }),
         ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
       });
       return;
@@ -135,7 +138,10 @@ export async function handleSchedulerEvent(params: {
       ports.store.updateAgentRun(run.id, {
         runStatus: 'await_approval',
         owner: 'manual',
-        payloadJson: JSON.stringify(message.payload),
+        payloadJson: JSON.stringify({
+          toolCallId: message.toolCallId,
+          ...message.payload,
+        }),
         ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
       });
     }

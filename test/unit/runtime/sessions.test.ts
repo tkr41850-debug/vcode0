@@ -2,7 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
 import type { AgentMessage } from '@mariozechner/pi-agent-core';
-import { FileSessionStore } from '@runtime/sessions';
+import { FileSessionStore, type SessionCheckpoint } from '@runtime/sessions';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { useTmpDir } from '../../helpers/tmp-dir.js';
@@ -10,6 +10,14 @@ import { useTmpDir } from '../../helpers/tmp-dir.js';
 describe('FileSessionStore', () => {
   const getTmpDir = useTmpDir('session-test');
   let store: FileSessionStore;
+  const helpCheckpoint: SessionCheckpoint = {
+    messages: [],
+    pendingWait: {
+      kind: 'help',
+      toolCallId: 'tool-help-1',
+      query: 'Need guidance',
+    },
+  };
 
   beforeEach(() => {
     store = new FileSessionStore(getTmpDir());
@@ -60,6 +68,49 @@ describe('FileSessionStore', () => {
       expect(stat.isDirectory()).toBe(true);
     });
 
+    it('round-trips a wait-state checkpoint through saveCheckpoint then loadCheckpoint', async () => {
+      await store.saveCheckpoint('session-checkpoint', helpCheckpoint);
+
+      const loaded = await store.loadCheckpoint('session-checkpoint');
+
+      expect(loaded).toEqual(helpCheckpoint);
+    });
+
+    it('round-trips completed tool results and terminal result through checkpoints', async () => {
+      const checkpoint: SessionCheckpoint = {
+        messages: [],
+        completedToolResults: [
+          {
+            role: 'toolResult',
+            toolCallId: 'tool-help-1',
+            toolName: 'request_help',
+            content: [{ type: 'text', text: 'use option B' }],
+            details: { query: 'Need guidance', responseKind: 'answer' },
+            isError: false,
+            timestamp: 123,
+          },
+        ],
+        terminalResult: {
+          summary: 'done',
+          filesChanged: ['src/a.ts'],
+        },
+      };
+
+      await store.saveCheckpoint('session-tool-result', checkpoint);
+
+      const loaded = await store.loadCheckpoint('session-tool-result');
+
+      expect(loaded).toEqual(checkpoint);
+    });
+
+    it('load() still returns only messages from a checkpoint save', async () => {
+      await store.saveCheckpoint('session-checkpoint-messages', helpCheckpoint);
+
+      const loaded = await store.load('session-checkpoint-messages');
+
+      expect(loaded).toEqual(helpCheckpoint.messages);
+    });
+
     it('overwrites a previous save atomically', async () => {
       const first = [
         { role: 'user' as const, content: 'v1', timestamp: 1 },
@@ -94,6 +145,15 @@ describe('FileSessionStore', () => {
   });
 
   describe('delete', () => {
+    it('deletes checkpoints saved with saveCheckpoint', async () => {
+      await store.saveCheckpoint('session-checkpoint-delete', helpCheckpoint);
+      await store.delete('session-checkpoint-delete');
+
+      await expect(
+        store.loadCheckpoint('session-checkpoint-delete'),
+      ).resolves.toBeNull();
+    });
+
     it('removes a previously saved session', async () => {
       await store.save('session-del', []);
       await store.delete('session-del');

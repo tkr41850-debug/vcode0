@@ -66,7 +66,7 @@ const WORKER_ENTRY = path.resolve(
 );
 
 const ABORT_GRACE_MS = 5_000;
-const PARENT_PROCESS_BOOT_EPOCH = Date.now();
+export const CURRENT_ORCHESTRATOR_BOOT_EPOCH = Date.now();
 
 interface ChildLike {
   stdin: Writable | null;
@@ -81,11 +81,18 @@ interface ChildLike {
   on(event: 'error', handler: (err: Error) => void): unknown;
 }
 
+type ForkWorker = (
+  modulePath: string,
+  args: readonly string[],
+  options: child_process.ForkOptions,
+) => child_process.ChildProcess;
+
 export class PiSdkHarness implements SessionHarness {
   constructor(
     private readonly sessionStore: SessionStore,
     private readonly projectRoot: string,
     private readonly entryPath: string = WORKER_ENTRY,
+    private readonly forkProcess: ForkWorker = child_process.fork,
   ) {}
 
   start(
@@ -101,7 +108,7 @@ export class PiSdkHarness implements SessionHarness {
     const sessionId = agentRunId;
     const worktreeDir = this.resolveWorktreePath(task);
 
-    const child = this.forkWorker(worktreeDir);
+    const child = this.spawnWorker(worktreeDir, agentRunId);
     const transport = new NdjsonStdioTransport({
       stdin: child.stdin as Writable,
       stdout: child.stdout as Readable,
@@ -116,7 +123,7 @@ export class PiSdkHarness implements SessionHarness {
       {
         harnessKind: 'pi-sdk',
         ...(child.pid !== undefined ? { workerPid: child.pid } : {}),
-        workerBootEpoch: PARENT_PROCESS_BOOT_EPOCH,
+        workerBootEpoch: CURRENT_ORCHESTRATOR_BOOT_EPOCH,
       },
     );
 
@@ -147,7 +154,7 @@ export class PiSdkHarness implements SessionHarness {
     }
 
     const worktreeDir = this.resolveWorktreePath(task);
-    const child = this.forkWorker(worktreeDir);
+    const child = this.spawnWorker(worktreeDir, run.agentRunId);
     const transport = new NdjsonStdioTransport({
       stdin: child.stdin as Writable,
       stdout: child.stdout as Readable,
@@ -162,7 +169,7 @@ export class PiSdkHarness implements SessionHarness {
       {
         harnessKind: 'pi-sdk',
         ...(child.pid !== undefined ? { workerPid: child.pid } : {}),
-        workerBootEpoch: PARENT_PROCESS_BOOT_EPOCH,
+        workerBootEpoch: CURRENT_ORCHESTRATOR_BOOT_EPOCH,
       },
     );
 
@@ -182,14 +189,18 @@ export class PiSdkHarness implements SessionHarness {
     return { kind: 'resumed', handle };
   }
 
-  private forkWorker(cwd: string): child_process.ChildProcess {
-    const child = child_process.fork(this.entryPath, [], {
+  private spawnWorker(
+    cwd: string,
+    agentRunId: string,
+  ): child_process.ChildProcess {
+    const child = this.forkProcess(this.entryPath, [], {
       cwd,
       stdio: ['pipe', 'pipe', 'inherit'],
       execArgv: ['--import', 'tsx'],
       env: {
         ...process.env,
         GVC0_PROJECT_ROOT: this.projectRoot,
+        GVC0_AGENT_RUN_ID: agentRunId,
       },
     });
 

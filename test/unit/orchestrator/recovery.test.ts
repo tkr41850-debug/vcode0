@@ -23,6 +23,7 @@ import type {
   RuntimeDispatch,
   RuntimePort,
 } from '@runtime/contracts';
+import { CURRENT_ORCHESTRATOR_BOOT_EPOCH } from '@runtime/harness/index';
 import { describe, expect, it, vi } from 'vitest';
 import { InMemorySessionStore } from '../../integration/harness/in-memory-session-store.js';
 
@@ -102,6 +103,21 @@ const runtimeDispatchMetadata = {
   workerPid: 4321,
   workerBootEpoch: 1_717_171_717,
 };
+
+function createProcEnvironmentReader(
+  pid: number,
+  markers: Record<string, string> | Error | null,
+): (requestedPid: number) => Promise<Record<string, string> | null> {
+  return vi.fn(async (requestedPid: number) => {
+    if (requestedPid !== pid) {
+      return null;
+    }
+    if (markers instanceof Error) {
+      return null;
+    }
+    return markers;
+  });
+}
 
 function createRuntimeMock(): RuntimePort & {
   dispatchTask: ReturnType<typeof vi.fn>;
@@ -417,6 +433,312 @@ describe('RecoveryService', () => {
     });
   });
 
+  it('kills stale task workers before resuming persisted sessions when proc markers match', async () => {
+    const run = makeTaskRun({
+      runStatus: 'running',
+      sessionId: 'sess-1',
+      workerPid: 9991,
+      workerBootEpoch: CURRENT_ORCHESTRATOR_BOOT_EPOCH - 1,
+    });
+    const { ports, runtime, graph } = createPorts([run]);
+    const readProcEnvironment = createProcEnvironmentReader(9991, {
+      GVC0_AGENT_RUN_ID: run.id,
+      GVC0_PROJECT_ROOT: process.cwd(),
+    });
+    const service = new RecoveryService(
+      ports,
+      graph,
+      process.cwd(),
+      readProcEnvironment,
+    );
+    const killSpy = vi
+      .spyOn(process, 'kill')
+      .mockImplementation(
+        ((_pid: number, _signal?: NodeJS.Signals | number) =>
+          true) as typeof process.kill,
+      );
+
+    await service.recoverOrphanedRuns();
+
+    expect(readProcEnvironment).toHaveBeenCalledWith(9991);
+    expect(killSpy).toHaveBeenCalledWith(9991, 'SIGKILL');
+    const killCallOrder = killSpy.mock.invocationCallOrder[0];
+    const dispatchCallOrder = runtime.dispatchRun.mock.invocationCallOrder[0];
+    if (killCallOrder === undefined || dispatchCallOrder === undefined) {
+      throw new Error('expected recovery and dispatch call order');
+    }
+    expect(killCallOrder).toBeLessThan(dispatchCallOrder);
+    killSpy.mockRestore();
+  });
+
+  it('skips stale-worker kill when persisted worker pid is missing', async () => {
+    const run = makeFeaturePhaseRun({
+      id: 'run-feature:f-1:discuss:no-pid',
+      phase: 'discuss',
+      runStatus: 'running',
+      sessionId: 'sess-feature-1',
+      workerBootEpoch: CURRENT_ORCHESTRATOR_BOOT_EPOCH - 1,
+    });
+    const { ports, runtime, graph } = createPorts([run]);
+    const service = new RecoveryService(ports, graph);
+    const killSpy = vi
+      .spyOn(process, 'kill')
+      .mockImplementation(
+        ((_pid: number, _signal?: NodeJS.Signals | number) =>
+          true) as typeof process.kill,
+      );
+
+    await service.recoverOrphanedRuns();
+
+    expect(killSpy).not.toHaveBeenCalled();
+    expect(runtime.dispatchRun).toHaveBeenCalledWith(
+      {
+        kind: 'feature_phase',
+        featureId: 'f-1',
+        phase: 'discuss',
+      },
+      {
+        mode: 'resume',
+        agentRunId: run.id,
+        sessionId: 'sess-feature-1',
+      },
+      { kind: 'feature_phase' },
+    );
+    killSpy.mockRestore();
+  });
+
+  it('ignores ESRCH while killing stale feature-phase workers and continues recovery', async () => {
+    const run = makeFeaturePhaseRun({
+      id: 'run-feature:f-1:discuss:stale-pid',
+      phase: 'discuss',
+      runStatus: 'running',
+      sessionId: 'sess-feature-1',
+      workerPid: 9992,
+      workerBootEpoch: CURRENT_ORCHESTRATOR_BOOT_EPOCH - 1,
+    });
+    const { ports, runtime, store, graph } = createPorts([run]);
+    const readProcEnvironment = createProcEnvironmentReader(9992, {
+      GVC0_AGENT_RUN_ID: run.id,
+      GVC0_PROJECT_ROOT: process.cwd(),
+    });
+    const service = new RecoveryService(
+      ports,
+      graph,
+      process.cwd(),
+      readProcEnvironment,
+    );
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation(((
+      _pid: number,
+      _signal?: NodeJS.Signals | number,
+    ) => {
+      const error = new Error('worker not found') as NodeJS.ErrnoException;
+      error.code = 'ESRCH';
+      throw error;
+    }) as typeof process.kill);
+
+    await service.recoverOrphanedRuns();
+
+    expect(killSpy).toHaveBeenCalledWith(9992, 'SIGKILL');
+    expect(runtime.dispatchRun).toHaveBeenCalledWith(
+      {
+        kind: 'feature_phase',
+        featureId: 'f-1',
+        phase: 'discuss',
+      },
+      {
+        mode: 'resume',
+        agentRunId: run.id,
+        sessionId: 'sess-feature-1',
+      },
+      { kind: 'feature_phase' },
+    );
+    expect(store.updateAgentRun).toHaveBeenCalledWith(run.id, {
+      sessionId: 'sess-feature-1',
+      harnessKind: 'pi-sdk',
+      workerPid: 4321,
+      workerBootEpoch: 1_717_171_717,
+      restartCount: 1,
+    });
+    killSpy.mockRestore();
+  });
+
+  it('rethrows non-ESRCH stale-worker kill errors', async () => {
+    const run = makeFeaturePhaseRun({
+      id: 'run-feature:f-1:discuss:kill-error',
+      phase: 'discuss',
+      runStatus: 'running',
+      sessionId: 'sess-feature-1',
+      workerPid: 9993,
+      workerBootEpoch: CURRENT_ORCHESTRATOR_BOOT_EPOCH - 1,
+    });
+    const { ports, runtime, graph } = createPorts([run]);
+    const readProcEnvironment = createProcEnvironmentReader(9993, {
+      GVC0_AGENT_RUN_ID: run.id,
+      GVC0_PROJECT_ROOT: process.cwd(),
+    });
+    const service = new RecoveryService(
+      ports,
+      graph,
+      process.cwd(),
+      readProcEnvironment,
+    );
+    const killError = new Error('permission denied') as NodeJS.ErrnoException;
+    killError.code = 'EPERM';
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation(((
+      _pid: number,
+      _signal?: NodeJS.Signals | number,
+    ) => {
+      throw killError;
+    }) as typeof process.kill);
+
+    await expect(service.recoverOrphanedRuns()).rejects.toBe(killError);
+
+    expect(readProcEnvironment).toHaveBeenCalledWith(9993);
+    expect(killSpy).toHaveBeenCalledWith(9993, 'SIGKILL');
+    expect(runtime.dispatchRun).not.toHaveBeenCalled();
+    killSpy.mockRestore();
+  });
+
+  it('does not kill persisted workers from the current boot epoch', async () => {
+    const run = makeFeaturePhaseRun({
+      id: 'run-feature:f-1:discuss:current-epoch',
+      phase: 'discuss',
+      runStatus: 'running',
+      sessionId: 'sess-feature-1',
+      workerPid: 9994,
+      workerBootEpoch: CURRENT_ORCHESTRATOR_BOOT_EPOCH,
+    });
+    const { ports, runtime, graph } = createPorts([run]);
+    const readProcEnvironment = vi.fn(async (_pid: number) => null);
+    const service = new RecoveryService(
+      ports,
+      graph,
+      process.cwd(),
+      readProcEnvironment,
+    );
+    const killSpy = vi
+      .spyOn(process, 'kill')
+      .mockImplementation(
+        ((_pid: number, _signal?: NodeJS.Signals | number) =>
+          true) as typeof process.kill,
+      );
+
+    await service.recoverOrphanedRuns();
+
+    expect(readProcEnvironment).not.toHaveBeenCalled();
+    expect(killSpy).not.toHaveBeenCalled();
+    expect(runtime.dispatchRun).toHaveBeenCalledWith(
+      {
+        kind: 'feature_phase',
+        featureId: 'f-1',
+        phase: 'discuss',
+      },
+      {
+        mode: 'resume',
+        agentRunId: run.id,
+        sessionId: 'sess-feature-1',
+      },
+      { kind: 'feature_phase' },
+    );
+    killSpy.mockRestore();
+  });
+
+  it('skips stale-worker kill when proc markers mismatch', async () => {
+    const run = makeTaskRun({
+      runStatus: 'running',
+      sessionId: 'sess-1',
+      workerPid: 9998,
+      workerBootEpoch: CURRENT_ORCHESTRATOR_BOOT_EPOCH - 1,
+    });
+    const { ports, runtime, graph } = createPorts([run]);
+    const readProcEnvironment = createProcEnvironmentReader(9998, {
+      GVC0_AGENT_RUN_ID: 'different-run',
+      GVC0_PROJECT_ROOT: process.cwd(),
+    });
+    const service = new RecoveryService(
+      ports,
+      graph,
+      process.cwd(),
+      readProcEnvironment,
+    );
+    const killSpy = vi
+      .spyOn(process, 'kill')
+      .mockImplementation(
+        ((_pid: number, _signal?: NodeJS.Signals | number) =>
+          true) as typeof process.kill,
+      );
+
+    await service.recoverOrphanedRuns();
+
+    expect(readProcEnvironment).toHaveBeenCalledWith(9998);
+    expect(killSpy).not.toHaveBeenCalled();
+    expect(runtime.dispatchRun).toHaveBeenCalledWith(
+      {
+        kind: 'task',
+        taskId: 't-1',
+        featureId: 'f-1',
+      },
+      {
+        mode: 'resume',
+        agentRunId: run.id,
+        sessionId: 'sess-1',
+      },
+      {
+        kind: 'task',
+        task: expect.objectContaining({ id: 't-1' }),
+        payload: expect.any(Object),
+      },
+    );
+    killSpy.mockRestore();
+  });
+
+  it('skips stale-worker kill when procfs environ is unreadable', async () => {
+    const run = makeFeaturePhaseRun({
+      id: 'run-feature:f-1:discuss:unreadable-environ',
+      phase: 'discuss',
+      runStatus: 'running',
+      sessionId: 'sess-feature-1',
+      workerPid: 9999,
+      workerBootEpoch: CURRENT_ORCHESTRATOR_BOOT_EPOCH - 1,
+    });
+    const { ports, runtime, graph } = createPorts([run]);
+    const readProcEnvironment = createProcEnvironmentReader(
+      9999,
+      new Error('EACCES'),
+    );
+    const service = new RecoveryService(
+      ports,
+      graph,
+      process.cwd(),
+      readProcEnvironment,
+    );
+    const killSpy = vi
+      .spyOn(process, 'kill')
+      .mockImplementation(
+        ((_pid: number, _signal?: NodeJS.Signals | number) =>
+          true) as typeof process.kill,
+      );
+
+    await service.recoverOrphanedRuns();
+
+    expect(readProcEnvironment).toHaveBeenCalledWith(9999);
+    expect(killSpy).not.toHaveBeenCalled();
+    expect(runtime.dispatchRun).toHaveBeenCalledWith(
+      {
+        kind: 'feature_phase',
+        featureId: 'f-1',
+        phase: 'discuss',
+      },
+      {
+        mode: 'resume',
+        agentRunId: run.id,
+        sessionId: 'sess-feature-1',
+      },
+      { kind: 'feature_phase' },
+    );
+    killSpy.mockRestore();
+  });
+
   it('resets running task without session id to ready system ownership', async () => {
     const run = makeTaskRun({
       runStatus: 'running',
@@ -523,10 +845,12 @@ describe('RecoveryService', () => {
     );
   });
 
-  it('does not resume suspended task runs across restart', async () => {
+  it('kills stale task workers before early return for suspended tasks', async () => {
     const run = makeTaskRun({
       runStatus: 'running',
       sessionId: 'sess-1',
+      workerPid: 9995,
+      workerBootEpoch: CURRENT_ORCHESTRATOR_BOOT_EPOCH - 1,
     });
     const { ports, runtime, store, graph } = createPorts([run]);
     const task = graph.tasks.get('t-1');
@@ -539,10 +863,27 @@ describe('RecoveryService', () => {
       suspendedAt: 100,
       blockedByFeatureId: 'f-2',
     });
-    const service = new RecoveryService(ports, graph);
+    const readProcEnvironment = createProcEnvironmentReader(9995, {
+      GVC0_AGENT_RUN_ID: run.id,
+      GVC0_PROJECT_ROOT: process.cwd(),
+    });
+    const service = new RecoveryService(
+      ports,
+      graph,
+      process.cwd(),
+      readProcEnvironment,
+    );
+    const killSpy = vi
+      .spyOn(process, 'kill')
+      .mockImplementation(
+        ((_pid: number, _signal?: NodeJS.Signals | number) =>
+          true) as typeof process.kill,
+      );
 
     await service.recoverOrphanedRuns();
 
+    expect(readProcEnvironment).toHaveBeenCalledWith(9995);
+    expect(killSpy).toHaveBeenCalledWith(9995, 'SIGKILL');
     expect(runtime.dispatchRun).not.toHaveBeenCalled();
     expect(runtime.resumeTask).not.toHaveBeenCalled();
     expect(store.updateAgentRun).toHaveBeenCalledWith(run.id, {
@@ -550,12 +891,15 @@ describe('RecoveryService', () => {
       owner: 'system',
       sessionId: 'sess-1',
     });
+    killSpy.mockRestore();
   });
 
-  it('does not resume cancelled suspended task runs across restart', async () => {
+  it('kills stale task workers before early return for cancelled suspended tasks', async () => {
     const run = makeTaskRun({
       runStatus: 'running',
       sessionId: 'sess-1',
+      workerPid: 9996,
+      workerBootEpoch: CURRENT_ORCHESTRATOR_BOOT_EPOCH - 1,
     });
     const { ports, runtime, store, graph } = createPorts([run]);
     const task = graph.tasks.get('t-1');
@@ -568,10 +912,27 @@ describe('RecoveryService', () => {
       suspendedAt: 100,
       blockedByFeatureId: 'f-2',
     });
-    const service = new RecoveryService(ports, graph);
+    const readProcEnvironment = createProcEnvironmentReader(9996, {
+      GVC0_AGENT_RUN_ID: run.id,
+      GVC0_PROJECT_ROOT: process.cwd(),
+    });
+    const service = new RecoveryService(
+      ports,
+      graph,
+      process.cwd(),
+      readProcEnvironment,
+    );
+    const killSpy = vi
+      .spyOn(process, 'kill')
+      .mockImplementation(
+        ((_pid: number, _signal?: NodeJS.Signals | number) =>
+          true) as typeof process.kill,
+      );
 
     await service.recoverOrphanedRuns();
 
+    expect(readProcEnvironment).toHaveBeenCalledWith(9996);
+    expect(killSpy).toHaveBeenCalledWith(9996, 'SIGKILL');
     expect(runtime.dispatchRun).not.toHaveBeenCalled();
     expect(runtime.dispatchTask).not.toHaveBeenCalled();
     expect(runtime.resumeTask).not.toHaveBeenCalled();
@@ -580,6 +941,7 @@ describe('RecoveryService', () => {
       owner: 'system',
       sessionId: 'sess-1',
     });
+    killSpy.mockRestore();
   });
 
   it('writes recovery marker into canonical worktree directory for graph-created tasks before resume', async () => {
@@ -598,6 +960,52 @@ describe('RecoveryService', () => {
     await expect(
       fs.readFile(path.join(taskDir, 'RECOVERY_REBASE'), 'utf-8'),
     ).resolves.toBe('feat-feature-1-1');
+  });
+
+  it('kills stale feature-phase workers before early return for cancelled features', async () => {
+    const run = makeFeaturePhaseRun({
+      id: 'run-feature:f-1:discuss:cancelled-feature',
+      phase: 'discuss',
+      runStatus: 'running',
+      sessionId: 'sess-feature-1',
+      workerPid: 9997,
+      workerBootEpoch: CURRENT_ORCHESTRATOR_BOOT_EPOCH - 1,
+    });
+    const { ports, runtime, store, graph } = createPorts([run]);
+    const feature = graph.features.get('f-1');
+    assert(feature !== undefined, 'missing feature fixture');
+    graph.features.set('f-1', {
+      ...feature,
+      collabControl: 'cancelled',
+    });
+    const readProcEnvironment = createProcEnvironmentReader(9997, {
+      GVC0_AGENT_RUN_ID: run.id,
+      GVC0_PROJECT_ROOT: process.cwd(),
+    });
+    const service = new RecoveryService(
+      ports,
+      graph,
+      process.cwd(),
+      readProcEnvironment,
+    );
+    const killSpy = vi
+      .spyOn(process, 'kill')
+      .mockImplementation(
+        ((_pid: number, _signal?: NodeJS.Signals | number) =>
+          true) as typeof process.kill,
+      );
+
+    await service.recoverOrphanedRuns();
+
+    expect(readProcEnvironment).toHaveBeenCalledWith(9997);
+    expect(killSpy).toHaveBeenCalledWith(9997, 'SIGKILL');
+    expect(runtime.dispatchRun).not.toHaveBeenCalled();
+    expect(store.updateAgentRun).toHaveBeenCalledWith(run.id, {
+      runStatus: 'cancelled',
+      owner: 'system',
+      sessionId: 'sess-feature-1',
+    });
+    killSpy.mockRestore();
   });
 
   it('recovers running feature-phase runs through dispatchRun and completes the phase', async () => {

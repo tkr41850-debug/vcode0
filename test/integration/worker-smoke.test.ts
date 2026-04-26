@@ -168,6 +168,8 @@ describe('worker smoke (faux provider + in-process harness)', () => {
       ): message is WorkerToOrchestratorMessage & { type: 'request_help' } =>
         message.type === 'request_help' && message.taskId === task.id,
     );
+    expect(helpRequest).toBeDefined();
+    expect(helpRequest?.toolCallId).toEqual(expect.any(String));
     expect(helpRequest).toMatchObject({ query: 'Need operator guidance' });
     expect(
       completions.some(
@@ -175,8 +177,11 @@ describe('worker smoke (faux provider + in-process harness)', () => {
       ),
     ).toBe(false);
 
+    if (helpRequest === undefined) {
+      throw new Error('expected help request');
+    }
     await expect(
-      pool.respondToHelp(task.id, {
+      pool.respondToRunHelp('run-help', helpRequest.toolCallId, {
         kind: 'answer',
         text: 'Use option B',
       }),
@@ -237,6 +242,8 @@ describe('worker smoke (faux provider + in-process harness)', () => {
         type: 'request_approval';
       } => message.type === 'request_approval' && message.taskId === task.id,
     );
+    expect(approvalRequest).toBeDefined();
+    expect(approvalRequest?.toolCallId).toEqual(expect.any(String));
     expect(approvalRequest).toMatchObject({
       payload: {
         kind: 'custom',
@@ -250,8 +257,13 @@ describe('worker smoke (faux provider + in-process harness)', () => {
       ),
     ).toBe(false);
 
+    if (approvalRequest === undefined) {
+      throw new Error('expected approval request');
+    }
     await expect(
-      pool.decideApproval(task.id, { kind: 'approved' }),
+      pool.decideRunApproval('run-approval', approvalRequest.toolCallId, {
+        kind: 'approved',
+      }),
     ).resolves.toMatchObject({ kind: 'delivered', taskId: task.id });
 
     await harness.drain();

@@ -12,8 +12,10 @@ import { PersistentFeatureGraph } from '@persistence/feature-graph';
 import {
   cancelFeatureRunWork,
   composeApplication,
+  decidePendingTaskApproval,
   formatWorkerOutput,
   initializeProjectGraph,
+  respondToPendingTaskHelp,
   summarizeApprovalPayload,
 } from '@root/compose';
 import type { ApprovalPayload, RuntimePort } from '@runtime/contracts';
@@ -58,6 +60,7 @@ describe('compose helpers', () => {
         type: 'request_help',
         taskId: 't-1',
         agentRunId: 'run-task:t-1',
+        toolCallId: 'tool-help-1',
         query: 'Need operator guidance',
       }),
     ).toBe('help requested: Need operator guidance');
@@ -67,6 +70,7 @@ describe('compose helpers', () => {
         type: 'request_approval',
         taskId: 't-1',
         agentRunId: 'run-task:t-1',
+        toolCallId: 'tool-approval-1',
         payload: {
           kind: 'custom',
           label: 'Approve destructive step',
@@ -218,6 +222,104 @@ describe('compose helpers', () => {
       runStatus: 'cancelled',
       owner: 'system',
     });
+  });
+});
+
+describe('compose task-reply helpers', () => {
+  it('forwards help replies with pending wait toolCallId from stored payload', async () => {
+    const run = makeTaskRun({
+      runStatus: 'await_response',
+      payloadJson: JSON.stringify({
+        toolCallId: 'tool-help-1',
+        query: 'Need operator guidance',
+      }),
+    });
+    const store = {
+      getAgentRun: vi.fn(() => run),
+      updateAgentRun: vi.fn(),
+    };
+    const runtime = {
+      respondToRunHelp: vi.fn().mockResolvedValue({
+        kind: 'delivered',
+        taskId: 't-1',
+        agentRunId: 'run-task:t-1',
+      }),
+    };
+
+    await expect(
+      respondToPendingTaskHelp(store, runtime, 't-1', {
+        kind: 'answer',
+        text: 'Use option B',
+      }),
+    ).resolves.toBe('Sent help response to t-1.');
+    expect(runtime.respondToRunHelp).toHaveBeenCalledWith(
+      'run-task:t-1',
+      'tool-help-1',
+      { kind: 'answer', text: 'Use option B' },
+    );
+    expect(store.updateAgentRun).toHaveBeenCalledWith('run-task:t-1', {
+      runStatus: 'running',
+      owner: 'manual',
+      payloadJson: undefined,
+    });
+  });
+
+  it('forwards approval decisions with pending wait toolCallId from stored payload', async () => {
+    const run = makeTaskRun({
+      runStatus: 'await_approval',
+      payloadJson: JSON.stringify({
+        toolCallId: 'tool-approval-1',
+        kind: 'custom',
+        label: 'Need approval',
+        detail: 'delete file',
+      }),
+    });
+    const store = {
+      getAgentRun: vi.fn(() => run),
+      updateAgentRun: vi.fn(),
+    };
+    const runtime = {
+      decideRunApproval: vi.fn().mockResolvedValue({
+        kind: 'delivered',
+        taskId: 't-1',
+        agentRunId: 'run-task:t-1',
+      }),
+    };
+
+    await expect(
+      decidePendingTaskApproval(store, runtime, 't-1', { kind: 'approved' }),
+    ).resolves.toBe('Approved t-1.');
+    expect(runtime.decideRunApproval).toHaveBeenCalledWith(
+      'run-task:t-1',
+      'tool-approval-1',
+      { kind: 'approved' },
+    );
+    expect(store.updateAgentRun).toHaveBeenCalledWith('run-task:t-1', {
+      runStatus: 'running',
+      owner: 'manual',
+      payloadJson: undefined,
+    });
+  });
+
+  it('rejects missing pending wait toolCallId when replying', async () => {
+    const run = makeTaskRun({
+      runStatus: 'await_response',
+      payloadJson: JSON.stringify({ query: 'Need operator guidance' }),
+    });
+    const store = {
+      getAgentRun: vi.fn(() => run),
+      updateAgentRun: vi.fn(),
+    };
+    const runtime = {
+      respondToRunHelp: vi.fn(),
+    };
+
+    await expect(
+      respondToPendingTaskHelp(store, runtime, 't-1', {
+        kind: 'answer',
+        text: 'Use option B',
+      }),
+    ).rejects.toThrow('missing pending wait toolCallId');
   });
 });
 

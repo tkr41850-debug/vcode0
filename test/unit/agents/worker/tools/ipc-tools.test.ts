@@ -28,11 +28,11 @@ function createMockBridge(): MockBridge {
     progress(msg: string) {
       bridge._progressMessages.push(msg);
     },
-    requestHelp(query: string) {
+    requestHelp(_toolCallId: string, query: string) {
       bridge._lastHelpQuery = query;
       return Promise.resolve(bridge._nextHelpResponse ?? { kind: 'discuss' });
     },
-    requestApproval(payload: ApprovalPayload) {
+    requestApproval(_toolCallId: string, payload: ApprovalPayload) {
       bridge._lastApprovalPayload = payload;
       return Promise.resolve(
         bridge._nextApprovalDecision ?? { kind: 'approved' },
@@ -43,6 +43,7 @@ function createMockBridge(): MockBridge {
     },
     submitResult(result: TaskResult) {
       bridge._lastResult = result;
+      return Promise.resolve();
     },
   };
   return bridge;

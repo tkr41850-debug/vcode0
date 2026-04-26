@@ -25,14 +25,17 @@ export interface IpcBridge {
   progress(message: string): void;
 
   /** Block until the operator responds to a help request. */
-  requestHelp(query: string): Promise<HelpResponse>;
+  requestHelp(toolCallId: string, query: string): Promise<HelpResponse>;
 
   /** Block until the operator responds to an approval request. */
-  requestApproval(payload: ApprovalPayload): Promise<ApprovalDecision>;
+  requestApproval(
+    toolCallId: string,
+    payload: ApprovalPayload,
+  ): Promise<ApprovalDecision>;
 
   /** Block until the orchestrator responds with a claim decision for the given paths. */
   claimLock(paths: readonly string[]): Promise<ClaimLockResult>;
 
   /** Emit the terminal task result. */
-  submitResult(result: TaskResult): void;
+  submitResult(result: TaskResult): Promise<void>;
 }

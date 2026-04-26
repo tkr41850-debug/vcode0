@@ -22,7 +22,11 @@ import type {
 } from '@runtime/contracts';
 import type { ChildIpcTransport } from '@runtime/ipc/index';
 import { resolveModel } from '@runtime/routing/model-bridge';
-import type { SessionStore } from '@runtime/sessions/index';
+import type {
+  SessionCheckpoint,
+  SessionStore,
+  SessionToolResult,
+} from '@runtime/sessions/index';
 import { messagesToTokenUsageAggregate } from '@runtime/usage';
 import { buildSystemPrompt } from '@runtime/worker/system-prompt';
 
@@ -36,11 +40,15 @@ export interface WorkerRuntimeConfig {
 }
 
 interface PendingHelp {
-  resolve: (response: HelpResponse) => void;
+  toolCallId: string;
+  query: string;
+  resolve: (response: HelpResponse) => void | Promise<void>;
 }
 
 interface PendingApproval {
-  resolve: (decision: ApprovalDecision) => void;
+  toolCallId: string;
+  payload: ApprovalPayload;
+  resolve: (decision: ApprovalDecision) => void | Promise<void>;
 }
 
 interface PendingClaim {
@@ -54,8 +62,13 @@ interface SuspensionState {
 
 export class WorkerRuntime {
   private agent: Agent | undefined;
+  private currentSessionId: string | undefined;
+  private currentTaskId: string | undefined;
+  private currentAgentRunId: string | undefined;
   private pendingHelp: PendingHelp | undefined;
   private pendingApproval: PendingApproval | undefined;
+  private deliveringHelpResponse = false;
+  private deliveringApprovalDecision = false;
   private readonly pendingClaims = new Map<string, PendingClaim>();
   private terminalResult: TaskResult | undefined;
   private suspended: SuspensionState | undefined;
@@ -88,15 +101,28 @@ export class WorkerRuntime {
 
     const systemPrompt = buildSystemPrompt(task, payload);
 
+    const sessionId =
+      dispatch.mode === 'resume' ? dispatch.sessionId : dispatch.agentRunId;
+
     let messages: AgentMessage[] = [];
+    let checkpoint: SessionCheckpoint | null = null;
     if (dispatch.mode === 'resume') {
-      const loaded = await this.sessionStore.load(dispatch.sessionId);
-      if (loaded !== null) {
-        messages = loaded;
+      checkpoint = await this.sessionStore.loadCheckpoint(dispatch.sessionId);
+      if (checkpoint !== null) {
+        messages = checkpoint.messages;
+        this.terminalResult = checkpoint.terminalResult;
       }
     }
 
-    const ipcBridge = this.createIpcBridge(task.id, dispatch.agentRunId);
+    this.currentSessionId = sessionId;
+    this.currentTaskId = task.id;
+    this.currentAgentRunId = dispatch.agentRunId;
+
+    const ipcBridge = this.createIpcBridge(
+      task.id,
+      dispatch.agentRunId,
+      sessionId,
+    );
     const tools = buildWorkerToolset({
       ipc: ipcBridge,
       workdir: process.cwd(),
@@ -110,6 +136,7 @@ export class WorkerRuntime {
         tools,
         messages,
       },
+      toolExecution: 'sequential',
     };
     if (this.config.getApiKey !== undefined) {
       agentOptions.getApiKey = this.config.getApiKey;
@@ -120,17 +147,14 @@ export class WorkerRuntime {
 
     this.agent = new Agent(agentOptions);
 
-    const sessionId =
-      dispatch.mode === 'resume' ? dispatch.sessionId : dispatch.agentRunId;
-
     this.agent.subscribe((event: AgentEvent) =>
       this.handleAgentEvent(event, task.id, dispatch.agentRunId),
     );
 
     let runError: unknown;
     try {
-      if (dispatch.mode === 'resume' && messages.length > 0) {
-        await this.agent.continue();
+      if (dispatch.mode === 'resume' && checkpoint !== null) {
+        await this.resumeFromCheckpoint(checkpoint, task.description);
       } else {
         await this.agent.prompt(task.description);
       }
@@ -144,7 +168,12 @@ export class WorkerRuntime {
       model.provider,
       model.id,
     );
-    await this.sessionStore.save(sessionId, finalMessages);
+    await this.sessionStore.saveCheckpoint(sessionId, {
+      messages: finalMessages,
+      ...(this.terminalResult !== undefined
+        ? { terminalResult: this.terminalResult }
+        : {}),
+    });
 
     if (runError !== undefined) {
       const errorMessage = formatError(runError);
@@ -214,17 +243,33 @@ export class WorkerRuntime {
       }
       case 'help_response': {
         const pending = this.pendingHelp;
-        if (pending !== undefined) {
-          this.pendingHelp = undefined;
-          pending.resolve(message.response);
+        if (
+          pending !== undefined &&
+          pending.toolCallId === message.toolCallId &&
+          !this.deliveringHelpResponse
+        ) {
+          this.deliveringHelpResponse = true;
+          this.resolvePendingWait(pending, message.response)
+            .catch(() => {})
+            .finally(() => {
+              this.deliveringHelpResponse = false;
+            });
         }
         break;
       }
       case 'approval_decision': {
         const pending = this.pendingApproval;
-        if (pending !== undefined) {
-          this.pendingApproval = undefined;
-          pending.resolve(message.decision);
+        if (
+          pending !== undefined &&
+          pending.toolCallId === message.toolCallId &&
+          !this.deliveringApprovalDecision
+        ) {
+          this.deliveringApprovalDecision = true;
+          this.resolvePendingWait(pending, message.decision)
+            .catch(() => {})
+            .finally(() => {
+              this.deliveringApprovalDecision = false;
+            });
         }
         break;
       }
@@ -256,7 +301,15 @@ export class WorkerRuntime {
     }
   }
 
-  private createIpcBridge(taskId: string, agentRunId: string): IpcBridge {
+  private createIpcBridge(
+    taskId: string,
+    agentRunId: string,
+    sessionId: string,
+  ): IpcBridge {
+    this.currentSessionId = sessionId;
+    this.currentTaskId = taskId;
+    this.currentAgentRunId = agentRunId;
+
     return {
       taskId,
       agentRunId,
@@ -268,37 +321,59 @@ export class WorkerRuntime {
           message: messageText,
         });
       },
-      requestHelp: (query: string) => {
+      requestHelp: async (toolCallId: string, query: string) => {
         if (this.pendingHelp !== undefined) {
-          return Promise.reject(
-            new Error('request_help already pending — only one at a time'),
-          );
+          throw new Error('request_help already pending — only one at a time');
         }
-        this.transport.send({
-          type: 'request_help',
-          taskId,
-          agentRunId,
-          query,
+        const waitForResponse = new Promise<HelpResponse>((resolve) => {
+          this.pendingHelp = { toolCallId, query, resolve };
         });
-        return new Promise<HelpResponse>((resolve) => {
-          this.pendingHelp = { resolve };
-        });
+        try {
+          await this.persistCheckpoint({
+            kind: 'help',
+            toolCallId,
+            query,
+          });
+          this.transport.send({
+            type: 'request_help',
+            taskId,
+            agentRunId,
+            toolCallId,
+            query,
+          });
+        } catch (err: unknown) {
+          this.pendingHelp = undefined;
+          throw err;
+        }
+        return await waitForResponse;
       },
-      requestApproval: (payload: ApprovalPayload) => {
+      requestApproval: async (toolCallId: string, payload: ApprovalPayload) => {
         if (this.pendingApproval !== undefined) {
-          return Promise.reject(
-            new Error('request_approval already pending — only one at a time'),
+          throw new Error(
+            'request_approval already pending — only one at a time',
           );
         }
-        this.transport.send({
-          type: 'request_approval',
-          taskId,
-          agentRunId,
-          payload,
+        const waitForDecision = new Promise<ApprovalDecision>((resolve) => {
+          this.pendingApproval = { toolCallId, payload, resolve };
         });
-        return new Promise<ApprovalDecision>((resolve) => {
-          this.pendingApproval = { resolve };
-        });
+        try {
+          await this.persistCheckpoint({
+            kind: 'approval',
+            toolCallId,
+            payload,
+          });
+          this.transport.send({
+            type: 'request_approval',
+            taskId,
+            agentRunId,
+            toolCallId,
+            payload,
+          });
+        } catch (err: unknown) {
+          this.pendingApproval = undefined;
+          throw err;
+        }
+        return await waitForDecision;
       },
       claimLock: (paths: readonly string[]) => {
         const claimId = randomUUID();
@@ -313,19 +388,256 @@ export class WorkerRuntime {
           this.pendingClaims.set(claimId, { resolve });
         });
       },
-      submitResult: (result: TaskResult) => {
+      submitResult: async (result: TaskResult) => {
         this.terminalResult = result;
+        await this.persistCheckpoint(this.currentPendingWait());
       },
     };
   }
 
-  private handleAgentEvent(
+  private async persistCheckpoint(
+    pendingWait?:
+      | {
+          kind: 'help';
+          toolCallId: string;
+          query: string;
+        }
+      | {
+          kind: 'approval';
+          toolCallId: string;
+          payload: ApprovalPayload;
+        },
+  ): Promise<void> {
+    const sessionId = this.currentSessionId;
+    if (sessionId === undefined) {
+      return;
+    }
+
+    const messages = this.agent?.state.messages ?? [];
+
+    await this.sessionStore.saveCheckpoint(sessionId, {
+      messages,
+      ...(pendingWait !== undefined ? { pendingWait } : {}),
+      ...(this.terminalResult !== undefined
+        ? { terminalResult: this.terminalResult }
+        : {}),
+    });
+  }
+
+  private async resumeFromCheckpoint(
+    checkpoint: SessionCheckpoint,
+    taskDescription: string,
+  ): Promise<void> {
+    const agent = this.agent;
+    if (agent === undefined) {
+      throw new Error('worker agent not initialized');
+    }
+
+    if (checkpoint.pendingWait === undefined) {
+      if (checkpoint.terminalResult !== undefined) {
+        this.terminalResult = checkpoint.terminalResult;
+        return;
+      }
+      const completedToolResults = checkpoint.completedToolResults ?? [];
+      if (completedToolResults.length > 0) {
+        agent.state.messages = [
+          ...checkpoint.messages,
+          ...completedToolResults,
+        ];
+      }
+      if (agent.state.messages.length > 0) {
+        await agent.continue();
+      } else {
+        await agent.prompt(taskDescription);
+      }
+      return;
+    }
+
+    if (checkpoint.pendingWait.kind === 'help') {
+      await this.restorePendingHelp(checkpoint.pendingWait, checkpoint);
+      return;
+    }
+
+    await this.restorePendingApproval(checkpoint.pendingWait, checkpoint);
+  }
+
+  private async restorePendingHelp(
+    pendingWait: Extract<
+      NonNullable<SessionCheckpoint['pendingWait']>,
+      { kind: 'help' }
+    >,
+    checkpoint: SessionCheckpoint,
+  ): Promise<void> {
+    await new Promise<void>((resolve) => {
+      this.pendingHelp = {
+        toolCallId: pendingWait.toolCallId,
+        query: pendingWait.query,
+        resolve: async (response) => {
+          await this.finishRestoredWait(
+            pendingWait.toolCallId,
+            {
+              content: [
+                {
+                  type: 'text',
+                  text:
+                    response.kind === 'answer'
+                      ? response.text
+                      : '[operator chose to discuss — expect follow-up steering]',
+                },
+              ],
+              details: {
+                query: pendingWait.query,
+                responseKind: response.kind,
+              },
+            },
+            checkpoint,
+          );
+          resolve();
+        },
+      };
+      this.transport.send({
+        type: 'request_help',
+        taskId: this.currentTaskId ?? 'unknown-task',
+        agentRunId:
+          this.currentAgentRunId ?? this.currentSessionId ?? 'unknown-run',
+        toolCallId: pendingWait.toolCallId,
+        query: pendingWait.query,
+      });
+    });
+  }
+
+  private async restorePendingApproval(
+    pendingWait: Extract<
+      NonNullable<SessionCheckpoint['pendingWait']>,
+      { kind: 'approval' }
+    >,
+    checkpoint: SessionCheckpoint,
+  ): Promise<void> {
+    await new Promise<void>((resolve) => {
+      this.pendingApproval = {
+        toolCallId: pendingWait.toolCallId,
+        payload: pendingWait.payload,
+        resolve: async (decision) => {
+          await this.finishRestoredWait(
+            pendingWait.toolCallId,
+            {
+              content: [
+                {
+                  type: 'text',
+                  text:
+                    decision.kind === 'approved'
+                      ? 'approved'
+                      : decision.kind === 'approve_always'
+                        ? 'approved (always)'
+                        : decision.kind === 'reject'
+                          ? `rejected${decision.comment !== undefined ? `: ${decision.comment}` : ''}`
+                          : 'operator chose to discuss',
+                },
+              ],
+              details: {
+                kind: pendingWait.payload.kind,
+                decision: decision.kind,
+              },
+            },
+            checkpoint,
+          );
+          resolve();
+        },
+      };
+      this.transport.send({
+        type: 'request_approval',
+        taskId: this.currentTaskId ?? 'unknown-task',
+        agentRunId:
+          this.currentAgentRunId ?? this.currentSessionId ?? 'unknown-run',
+        toolCallId: pendingWait.toolCallId,
+        payload: pendingWait.payload,
+      });
+    });
+  }
+
+  private async finishRestoredWait(
+    toolCallId: string,
+    result: {
+      content: { type: 'text'; text: string }[];
+      details: Record<string, unknown>;
+    },
+    checkpoint: SessionCheckpoint,
+  ): Promise<void> {
+    const agent = this.agent;
+    if (agent === undefined) {
+      throw new Error('worker agent not initialized');
+    }
+    const toolResult = buildToolResultMessage(
+      toolCallId,
+      inferToolName(checkpoint.pendingWait),
+      result,
+    );
+    agent.state.messages = [...checkpoint.messages, toolResult];
+    await this.persistCheckpoint();
+    await agent.continue();
+  }
+
+  private resolvePendingWait(
+    pending: PendingHelp,
+    response: HelpResponse,
+  ): Promise<void>;
+  private resolvePendingWait(
+    pending: PendingApproval,
+    response: ApprovalDecision,
+  ): Promise<void>;
+  private async resolvePendingWait(
+    pending: PendingHelp | PendingApproval,
+    response: HelpResponse | ApprovalDecision,
+  ): Promise<void> {
+    const toolResult = isPendingApproval(pending)
+      ? buildApprovalToolResult(pending, response as ApprovalDecision)
+      : buildHelpToolResult(pending, response as HelpResponse);
+    const sessionId = this.currentSessionId;
+    if (sessionId !== undefined) {
+      await this.sessionStore.saveCheckpoint(sessionId, {
+        messages: this.agent?.state.messages ?? [],
+        completedToolResults: [toolResult],
+        ...(this.terminalResult !== undefined
+          ? { terminalResult: this.terminalResult }
+          : {}),
+      });
+    }
+    if (isPendingApproval(pending)) {
+      this.pendingApproval = undefined;
+    } else {
+      this.pendingHelp = undefined;
+    }
+    await pending.resolve(response as never);
+  }
+
+  private currentPendingWait(): SessionCheckpoint['pendingWait'] | undefined {
+    if (this.pendingHelp !== undefined) {
+      return {
+        kind: 'help',
+        toolCallId: this.pendingHelp.toolCallId,
+        query: this.pendingHelp.query,
+      };
+    }
+    if (this.pendingApproval !== undefined) {
+      return {
+        kind: 'approval',
+        toolCallId: this.pendingApproval.toolCallId,
+        payload: this.pendingApproval.payload,
+      };
+    }
+    return undefined;
+  }
+
+  private async handleAgentEvent(
     event: AgentEvent,
     taskId: string,
     agentRunId: string,
-  ): void {
+  ): Promise<void> {
     switch (event.type) {
       case 'message_end': {
+        if (event.message.role === 'toolResult') {
+          await this.persistCheckpoint(this.currentPendingWait());
+        }
         if (isAssistantMessage(event.message)) {
           const text = extractText(event.message);
           if (text.length > 0) {
@@ -356,6 +668,83 @@ export class WorkerRuntime {
 
 function isAssistantMessage(msg: AgentMessage): msg is AssistantMessage {
   return (msg as AssistantMessage).role === 'assistant';
+}
+
+function inferToolName(
+  pendingWait: SessionCheckpoint['pendingWait'],
+): 'request_help' | 'request_approval' {
+  return pendingWait?.kind === 'approval' ? 'request_approval' : 'request_help';
+}
+
+function buildToolResultMessage(
+  toolCallId: string,
+  toolName: string,
+  result: {
+    content: { type: 'text'; text: string }[];
+    details: Record<string, unknown>;
+  },
+): SessionToolResult {
+  return {
+    role: 'toolResult',
+    toolCallId,
+    toolName,
+    content: result.content,
+    details: result.details,
+    isError: false,
+    timestamp: Date.now(),
+  };
+}
+
+function isPendingApproval(
+  pending: PendingHelp | PendingApproval,
+): pending is PendingApproval {
+  return 'payload' in pending;
+}
+
+function buildHelpToolResult(
+  pending: PendingHelp,
+  response: HelpResponse,
+): SessionToolResult {
+  return buildToolResultMessage(pending.toolCallId, 'request_help', {
+    content: [
+      {
+        type: 'text',
+        text:
+          response.kind === 'answer'
+            ? response.text
+            : '[operator chose to discuss — expect follow-up steering]',
+      },
+    ],
+    details: {
+      query: pending.query,
+      responseKind: response.kind,
+    },
+  });
+}
+
+function buildApprovalToolResult(
+  pending: PendingApproval,
+  decision: ApprovalDecision,
+): SessionToolResult {
+  return buildToolResultMessage(pending.toolCallId, 'request_approval', {
+    content: [
+      {
+        type: 'text',
+        text:
+          decision.kind === 'approved'
+            ? 'approved'
+            : decision.kind === 'approve_always'
+              ? 'approved (always)'
+              : decision.kind === 'reject'
+                ? `rejected${decision.comment !== undefined ? `: ${decision.comment}` : ''}`
+                : 'operator chose to discuss',
+      },
+    ],
+    details: {
+      kind: pending.payload.kind,
+      decision: decision.kind,
+    },
+  });
 }
 
 function formatSteeringMessage(directive: {

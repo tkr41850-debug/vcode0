@@ -10,7 +10,7 @@ function noopBridge(): IpcBridge {
     requestHelp: () => Promise.resolve({ kind: 'discuss' }),
     requestApproval: () => Promise.resolve({ kind: 'approved' }),
     claimLock: () => Promise.resolve({ granted: true }),
-    submitResult: () => {},
+    submitResult: () => Promise.resolve(),
   };
 }
 

@@ -24,7 +24,9 @@ import { PersistentFeatureGraph } from '@persistence/feature-graph';
 import { SqliteStore } from '@persistence/sqlite-store';
 import { JsonConfigLoader } from '@root/config';
 import type {
+  ApprovalDecision,
   ApprovalPayload,
+  HelpResponse,
   RuntimePort,
   WorkerToOrchestratorMessage,
 } from '@runtime/contracts';
@@ -137,48 +139,10 @@ export async function composeApplication(): Promise<GvcApplication> {
         phase: event.phase,
       });
     },
-    respondToTaskHelp: async (taskId, response) => {
-      const run = store.getAgentRun(`run-task:${taskId}`);
-      if (run?.scopeType !== 'task') {
-        throw new Error(`task "${taskId}" has no run`);
-      }
-      if (run.runStatus !== 'await_response') {
-        throw new Error(`task "${taskId}" is not waiting for help`);
-      }
-
-      const result = await runtime.respondToRunHelp(run.id, response);
-      if (result.kind !== 'delivered') {
-        throw new Error(`task "${taskId}" is not running`);
-      }
-
-      store.updateAgentRun(run.id, {
-        runStatus: 'running',
-        owner: 'manual',
-      });
-      return `Sent help response to ${taskId}.`;
-    },
-    decideTaskApproval: async (taskId, decision) => {
-      const run = store.getAgentRun(`run-task:${taskId}`);
-      if (run?.scopeType !== 'task') {
-        throw new Error(`task "${taskId}" has no run`);
-      }
-      if (run.runStatus !== 'await_approval') {
-        throw new Error(`task "${taskId}" is not waiting for approval`);
-      }
-
-      const result = await runtime.decideRunApproval(run.id, decision);
-      if (result.kind !== 'delivered') {
-        throw new Error(`task "${taskId}" is not running`);
-      }
-
-      store.updateAgentRun(run.id, {
-        runStatus: 'running',
-        owner: 'manual',
-      });
-      return decision.kind === 'approved'
-        ? `Approved ${taskId}.`
-        : `Rejected ${taskId}.`;
-    },
+    respondToTaskHelp: (taskId, response) =>
+      respondToPendingTaskHelp(store, runtime, taskId, response),
+    decideTaskApproval: (taskId, decision) =>
+      decidePendingTaskApproval(store, runtime, taskId, decision),
     sendTaskManualInput: async (taskId, text) => {
       const run = store.getAgentRun(`run-task:${taskId}`);
       if (run?.scopeType !== 'task') {
@@ -275,6 +239,90 @@ async function ensureRuntimeDirs(projectRoot: string): Promise<void> {
   await fs.mkdir(path.join(projectRoot, '.gvc0', 'worktrees'), {
     recursive: true,
   });
+}
+
+export async function respondToPendingTaskHelp(
+  store: Pick<OrchestratorPorts['store'], 'getAgentRun' | 'updateAgentRun'>,
+  runtime: Pick<RuntimePort, 'respondToRunHelp'>,
+  taskId: string,
+  response: HelpResponse,
+): Promise<string> {
+  const run = store.getAgentRun(`run-task:${taskId}`);
+  if (run?.scopeType !== 'task') {
+    throw new Error(`task "${taskId}" has no run`);
+  }
+  if (run.runStatus !== 'await_response') {
+    throw new Error(`task "${taskId}" is not waiting for help`);
+  }
+
+  const toolCallId = parsePendingTaskToolCallId(taskId, run.payloadJson);
+  const result = await runtime.respondToRunHelp(run.id, toolCallId, response);
+  if (result.kind !== 'delivered') {
+    throw new Error(`task "${taskId}" is not running`);
+  }
+
+  store.updateAgentRun(run.id, {
+    runStatus: 'running',
+    owner: 'manual',
+    payloadJson: undefined,
+  });
+  return `Sent help response to ${taskId}.`;
+}
+
+export async function decidePendingTaskApproval(
+  store: Pick<OrchestratorPorts['store'], 'getAgentRun' | 'updateAgentRun'>,
+  runtime: Pick<RuntimePort, 'decideRunApproval'>,
+  taskId: string,
+  decision: ApprovalDecision,
+): Promise<string> {
+  const run = store.getAgentRun(`run-task:${taskId}`);
+  if (run?.scopeType !== 'task') {
+    throw new Error(`task "${taskId}" has no run`);
+  }
+  if (run.runStatus !== 'await_approval') {
+    throw new Error(`task "${taskId}" is not waiting for approval`);
+  }
+
+  const toolCallId = parsePendingTaskToolCallId(taskId, run.payloadJson);
+  const result = await runtime.decideRunApproval(run.id, toolCallId, decision);
+  if (result.kind !== 'delivered') {
+    throw new Error(`task "${taskId}" is not running`);
+  }
+
+  store.updateAgentRun(run.id, {
+    runStatus: 'running',
+    owner: 'manual',
+    payloadJson: undefined,
+  });
+  return decision.kind === 'approved'
+    ? `Approved ${taskId}.`
+    : `Rejected ${taskId}.`;
+}
+
+function parsePendingTaskToolCallId(
+  taskId: string,
+  payloadJson: string | undefined,
+): string {
+  if (payloadJson === undefined) {
+    throw new Error(`task "${taskId}" is missing pending wait payload`);
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(payloadJson);
+  } catch {
+    throw new Error(`task "${taskId}" has invalid pending wait payload`);
+  }
+
+  if (
+    typeof parsed !== 'object' ||
+    parsed === null ||
+    typeof (parsed as { toolCallId?: unknown }).toolCallId !== 'string'
+  ) {
+    throw new Error(`task "${taskId}" is missing pending wait toolCallId`);
+  }
+
+  return (parsed as { toolCallId: string }).toolCallId;
 }
 
 export function initializeProjectGraph(

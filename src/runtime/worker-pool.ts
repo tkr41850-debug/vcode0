@@ -315,6 +315,7 @@ export class LocalWorkerPool implements RuntimePort {
 
   respondToRunHelp(
     agentRunId: string,
+    toolCallId: string,
     response: { kind: 'answer'; text: string } | { kind: 'discuss' },
   ): Promise<TaskControlResult> {
     return Promise.resolve(
@@ -323,6 +324,7 @@ export class LocalWorkerPool implements RuntimePort {
           type: 'help_response',
           taskId: session.ref.taskId ?? '',
           agentRunId,
+          toolCallId,
           response,
         });
       }),
@@ -331,6 +333,7 @@ export class LocalWorkerPool implements RuntimePort {
 
   decideRunApproval(
     agentRunId: string,
+    toolCallId: string,
     decision:
       | { kind: 'approved' }
       | { kind: 'approve_always' }
@@ -343,6 +346,7 @@ export class LocalWorkerPool implements RuntimePort {
           type: 'approval_decision',
           taskId: session.ref.taskId ?? '',
           agentRunId,
+          toolCallId,
           decision,
         });
       }),
@@ -440,18 +444,20 @@ export class LocalWorkerPool implements RuntimePort {
 
   respondToHelp(
     taskId: string,
-    response: { kind: 'answer'; text: string } | { kind: 'discuss' },
+    _response: { kind: 'answer'; text: string } | { kind: 'discuss' },
   ): Promise<TaskControlResult> {
     const session = this.findSessionByTaskId(taskId);
     if (session === undefined) {
       return Promise.resolve({ kind: 'not_running', taskId });
     }
-    return this.respondToRunHelp(session.ref.agentRunId, response);
+    throw new Error(
+      'respondToHelp(taskId, ...) requires toolCallId correlation; use respondToRunHelp(agentRunId, toolCallId, ...) instead',
+    );
   }
 
   decideApproval(
     taskId: string,
-    decision:
+    _decision:
       | { kind: 'approved' }
       | { kind: 'approve_always' }
       | { kind: 'reject'; comment?: string }
@@ -461,7 +467,9 @@ export class LocalWorkerPool implements RuntimePort {
     if (session === undefined) {
       return Promise.resolve({ kind: 'not_running', taskId });
     }
-    return this.decideRunApproval(session.ref.agentRunId, decision);
+    throw new Error(
+      'decideApproval(taskId, ...) requires toolCallId correlation; use decideRunApproval(agentRunId, toolCallId, ...) instead',
+    );
   }
 
   sendManualInput(taskId: string, text: string): Promise<TaskControlResult> {

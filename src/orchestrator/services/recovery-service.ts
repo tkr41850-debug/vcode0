@@ -24,12 +24,18 @@ import type {
   PhaseOutput,
   RuntimeDispatch,
 } from '@runtime/contracts';
+import { CURRENT_ORCHESTRATOR_BOOT_EPOCH } from '@runtime/harness/index';
+
+type ProcEnvironmentReader = (
+  pid: number,
+) => Promise<Record<string, string> | null>;
 
 export class RecoveryService {
   constructor(
     private readonly ports: OrchestratorPorts,
     private readonly graph: FeatureGraph,
     private readonly projectRoot = process.cwd(),
+    private readonly readProcEnvironment: ProcEnvironmentReader = readProcEnvironmentMarkers,
   ) {}
 
   async recoverOrphanedRuns(): Promise<void> {
@@ -55,6 +61,11 @@ export class RecoveryService {
       return;
     }
 
+    const shouldCleanStaleWorker = shouldResumeTaskRun(run);
+    if (shouldCleanStaleWorker) {
+      await this.killStaleWorkerIfNeeded(run);
+    }
+
     if (task.status === 'cancelled') {
       if (run.runStatus !== 'completed' && run.runStatus !== 'cancelled') {
         this.ports.store.updateAgentRun(run.id, {
@@ -77,7 +88,7 @@ export class RecoveryService {
       return;
     }
 
-    if (shouldResumeTaskRun(run)) {
+    if (shouldCleanStaleWorker) {
       const resumed = await this.resumeTaskRun(task, run);
       if (resumed) {
         return;
@@ -153,6 +164,8 @@ export class RecoveryService {
     if (feature === undefined) {
       return;
     }
+
+    await this.killStaleWorkerIfNeeded(run);
 
     if (feature.collabControl === 'cancelled') {
       this.ports.store.updateAgentRun(run.id, {
@@ -340,6 +353,77 @@ export class RecoveryService {
     const rebaseMarker = path.join(taskDir, 'RECOVERY_REBASE');
     await fs.writeFile(rebaseMarker, feature.featureBranch, 'utf-8');
   }
+
+  private async killStaleWorkerIfNeeded(
+    run: Pick<
+      TaskAgentRun | FeaturePhaseAgentRun,
+      'id' | 'harnessKind' | 'workerPid' | 'workerBootEpoch'
+    >,
+  ): Promise<void> {
+    if (run.harnessKind !== undefined && run.harnessKind !== 'pi-sdk') {
+      return;
+    }
+
+    if (
+      run.workerPid === undefined ||
+      run.workerBootEpoch === undefined ||
+      run.workerBootEpoch === CURRENT_ORCHESTRATOR_BOOT_EPOCH
+    ) {
+      return;
+    }
+
+    const markers = await this.readProcEnvironment(run.workerPid);
+    if (
+      markers === null ||
+      markers.GVC0_AGENT_RUN_ID !== run.id ||
+      markers.GVC0_PROJECT_ROOT !== this.projectRoot
+    ) {
+      return;
+    }
+
+    try {
+      process.kill(run.workerPid, 'SIGKILL');
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && error.code === 'ESRCH') {
+        return;
+      }
+      throw error;
+    }
+  }
+}
+
+async function readProcEnvironmentMarkers(
+  pid: number,
+): Promise<Record<string, string> | null> {
+  try {
+    const raw = await fs.readFile(`/proc/${pid}/environ`);
+    return parseProcEnvironment(raw.toString('utf-8'));
+  } catch {
+    return null;
+  }
+}
+
+function parseProcEnvironment(
+  rawEnvironment: string,
+): Record<string, string> | null {
+  const environment: Record<string, string> = {};
+
+  for (const entry of rawEnvironment.split('\0')) {
+    if (entry.length === 0) {
+      continue;
+    }
+
+    const separatorIndex = entry.indexOf('=');
+    if (separatorIndex <= 0) {
+      return null;
+    }
+
+    environment[entry.slice(0, separatorIndex)] = entry.slice(
+      separatorIndex + 1,
+    );
+  }
+
+  return environment;
 }
 
 function shouldResumeTaskRun(run: TaskAgentRun): boolean {

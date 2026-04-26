@@ -12,6 +12,7 @@ import type {
 } from '@core/types';
 import type { TaskPayload } from '@runtime/context';
 import type {
+  ApprovalPayload,
   FeaturePhaseRunPayload,
   OrchestratorToWorkerMessage,
   RuntimeSteeringDirective,
@@ -25,7 +26,7 @@ import {
   type SessionHarness,
 } from '@runtime/harness';
 import type { ChildIpcTransport } from '@runtime/ipc';
-import type { SessionStore } from '@runtime/sessions';
+import type { SessionCheckpoint, SessionStore } from '@runtime/sessions';
 import { WorkerRuntime } from '@runtime/worker';
 import { LocalWorkerPool } from '@runtime/worker-pool';
 import { describe, expect, it, vi } from 'vitest';
@@ -199,6 +200,8 @@ function createSessionStoreMock(): SessionStore {
   return {
     save: vi.fn().mockResolvedValue(undefined),
     load: vi.fn().mockResolvedValue(null),
+    saveCheckpoint: vi.fn().mockResolvedValue(undefined),
+    loadCheckpoint: vi.fn().mockResolvedValue(null),
     delete: vi.fn().mockResolvedValue(undefined),
   };
 }
@@ -211,6 +214,11 @@ type AgentMessage = {
 
 function createAgentStub() {
   return {
+    state: {
+      messages: [] as SessionCheckpoint['messages'],
+    },
+    prompt: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    continue: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
     steer: vi.fn<(message: AgentMessage) => void>(),
     followUp: vi.fn<(message: AgentMessage) => void>(),
     abort: vi.fn<() => void>(),
@@ -218,6 +226,19 @@ function createAgentStub() {
 }
 
 interface IpcBridgeLike {
+  requestHelp(
+    toolCallId: string,
+    query: string,
+  ): Promise<{ kind: 'answer'; text: string } | { kind: 'discuss' }>;
+  requestApproval(
+    toolCallId: string,
+    payload: ApprovalPayload,
+  ): Promise<
+    | { kind: 'approved' }
+    | { kind: 'approve_always' }
+    | { kind: 'reject'; comment?: string }
+    | { kind: 'discuss' }
+  >;
   claimLock(
     paths: readonly string[],
   ): Promise<
@@ -1297,7 +1318,7 @@ describe('LocalWorkerPool', () => {
         agentRunId: 'run-1',
       });
 
-      const result = await pool.respondToRunHelp('run-1', {
+      const result = await pool.respondToRunHelp('run-1', 'tool-help-1', {
         kind: 'answer',
         text: 'use option b',
       });
@@ -1309,6 +1330,7 @@ describe('LocalWorkerPool', () => {
       expect(handle._sentMessages).toContainEqual(
         expect.objectContaining({
           type: 'help_response',
+          toolCallId: 'tool-help-1',
           response: { kind: 'answer', text: 'use option b' },
         }),
       );
@@ -1322,7 +1344,7 @@ describe('LocalWorkerPool', () => {
         agentRunId: 'run-1',
       });
 
-      const result = await pool.decideRunApproval('run-1', {
+      const result = await pool.decideRunApproval('run-1', 'tool-approval-1', {
         kind: 'reject',
         comment: 'needs changes',
       });
@@ -1334,6 +1356,7 @@ describe('LocalWorkerPool', () => {
       expect(handle._sentMessages).toContainEqual(
         expect.objectContaining({
           type: 'approval_decision',
+          toolCallId: 'tool-approval-1',
           decision: { kind: 'reject', comment: 'needs changes' },
         }),
       );
@@ -1490,48 +1513,38 @@ describe('LocalWorkerPool', () => {
   });
 
   describe('respondToHelp', () => {
-    it('delivers help response to a running task', async () => {
-      const { handle, pool } = setupPool('sess-help');
+    it('throws because taskId-only help replies cannot preserve toolCallId correlation', async () => {
+      const { pool } = setupPool('sess-help');
 
       await pool.dispatchTask(makeTask(), {
         mode: 'start',
         agentRunId: 'run-1',
       });
 
-      const result = await pool.respondToHelp('t-task-1', {
-        kind: 'answer',
-        text: 'use option b',
-      });
-      expect(result.kind).toBe('delivered');
-      expect(handle._sentMessages).toContainEqual(
-        expect.objectContaining({
-          type: 'help_response',
-          response: { kind: 'answer', text: 'use option b' },
+      expect(() =>
+        pool.respondToHelp('t-task-1', {
+          kind: 'answer',
+          text: 'use option b',
         }),
-      );
+      ).toThrow('requires toolCallId correlation');
     });
   });
 
   describe('decideApproval', () => {
-    it('delivers approval decision to a running task', async () => {
-      const { handle, pool } = setupPool('sess-approval');
+    it('throws because taskId-only approval replies cannot preserve toolCallId correlation', async () => {
+      const { pool } = setupPool('sess-approval');
 
       await pool.dispatchTask(makeTask(), {
         mode: 'start',
         agentRunId: 'run-1',
       });
 
-      const result = await pool.decideApproval('t-task-1', {
-        kind: 'reject',
-        comment: 'needs changes',
-      });
-      expect(result.kind).toBe('delivered');
-      expect(handle._sentMessages).toContainEqual(
-        expect.objectContaining({
-          type: 'approval_decision',
-          decision: { kind: 'reject', comment: 'needs changes' },
+      expect(() =>
+        pool.decideApproval('t-task-1', {
+          kind: 'reject',
+          comment: 'needs changes',
         }),
-      );
+      ).toThrow('requires toolCallId correlation');
     });
   });
 
@@ -1821,8 +1834,11 @@ describe('WorkerRuntime.handleMessage', () => {
   });
 
   describe('IpcBridge.claimLock', () => {
-    function createBridge(transport: ChildIpcTransport) {
-      const sessionStore = createSessionStoreMock();
+    function createBridge(
+      transport: ChildIpcTransport,
+      sessionStore: SessionStore = createSessionStoreMock(),
+      sessionId = 'sess-1',
+    ) {
       const runtime = new WorkerRuntime(transport, sessionStore, {
         modelId: 'claude-sonnet-4-20250514',
         projectRoot: '/tmp/project',
@@ -1834,10 +1850,11 @@ describe('WorkerRuntime.handleMessage', () => {
           createIpcBridge: (
             taskId: string,
             agentRunId: string,
+            sessionId?: string,
           ) => IpcBridgeLike;
         }
-      ).createIpcBridge('t-1', 'run-1');
-      return { runtime, bridge, transport };
+      ).createIpcBridge('t-1', 'run-1', sessionId);
+      return { runtime, bridge, transport, sessionStore };
     }
 
     it('sends a claim_lock message with a generated claimId', () => {
@@ -1965,6 +1982,369 @@ describe('WorkerRuntime.handleMessage', () => {
     });
   });
 
+  describe('IpcBridge wait checkpoints', () => {
+    it('persists a help wait checkpoint before sending request_help', async () => {
+      const transport = createTransportMock();
+      const sessionStore = createSessionStoreMock();
+      const { runtime, bridge } = ((): {
+        runtime: WorkerRuntime;
+        bridge: IpcBridgeLike;
+      } => {
+        const runtime = new WorkerRuntime(transport, sessionStore, {
+          modelId: 'claude-sonnet-4-20250514',
+          projectRoot: '/tmp/project',
+        });
+        const agent = createAgentStub();
+        Object.assign(runtime, { agent });
+        const bridge = (
+          runtime as unknown as {
+            createIpcBridge: (
+              taskId: string,
+              agentRunId: string,
+              sessionId?: string,
+            ) => IpcBridgeLike;
+          }
+        ).createIpcBridge('t-1', 'run-1', 'sess-help');
+        return { runtime, bridge };
+      })();
+
+      const pending = bridge.requestHelp('tool-help-1', 'Need guidance');
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(sessionStore.saveCheckpoint).toHaveBeenCalledWith('sess-help', {
+        messages: [],
+        pendingWait: {
+          kind: 'help',
+          toolCallId: 'tool-help-1',
+          query: 'Need guidance',
+        },
+      });
+      expect(transport.send).toHaveBeenCalledWith({
+        type: 'request_help',
+        taskId: 't-1',
+        agentRunId: 'run-1',
+        toolCallId: 'tool-help-1',
+        query: 'Need guidance',
+      });
+
+      runtime.handleMessage({
+        type: 'help_response',
+        taskId: 't-1',
+        agentRunId: 'run-1',
+        toolCallId: 'tool-help-1',
+        response: { kind: 'answer', text: 'Do this' },
+      });
+
+      await expect(pending).resolves.toEqual({
+        kind: 'answer',
+        text: 'Do this',
+      });
+    });
+
+    it('persists an approval wait checkpoint before sending request_approval', async () => {
+      const transport = createTransportMock();
+      const sessionStore = createSessionStoreMock();
+      const payload: ApprovalPayload = {
+        kind: 'custom',
+        label: 'Confirm',
+        detail: 'Need approval',
+      };
+      const { runtime, bridge } = ((): {
+        runtime: WorkerRuntime;
+        bridge: IpcBridgeLike;
+      } => {
+        const runtime = new WorkerRuntime(transport, sessionStore, {
+          modelId: 'claude-sonnet-4-20250514',
+          projectRoot: '/tmp/project',
+        });
+        const agent = createAgentStub();
+        Object.assign(runtime, { agent });
+        const bridge = (
+          runtime as unknown as {
+            createIpcBridge: (
+              taskId: string,
+              agentRunId: string,
+              sessionId?: string,
+            ) => IpcBridgeLike;
+          }
+        ).createIpcBridge('t-1', 'run-1', 'sess-approval');
+        return { runtime, bridge };
+      })();
+
+      const pending = bridge.requestApproval('tool-approval-1', payload);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(sessionStore.saveCheckpoint).toHaveBeenCalledWith(
+        'sess-approval',
+        {
+          messages: [],
+          pendingWait: {
+            kind: 'approval',
+            toolCallId: 'tool-approval-1',
+            payload,
+          },
+        },
+      );
+      expect(transport.send).toHaveBeenCalledWith({
+        type: 'request_approval',
+        taskId: 't-1',
+        agentRunId: 'run-1',
+        toolCallId: 'tool-approval-1',
+        payload,
+      });
+
+      runtime.handleMessage({
+        type: 'approval_decision',
+        taskId: 't-1',
+        agentRunId: 'run-1',
+        toolCallId: 'tool-approval-1',
+        decision: { kind: 'approved' },
+      });
+
+      await expect(pending).resolves.toEqual({ kind: 'approved' });
+    });
+  });
+
+  describe('resumeFromCheckpoint', () => {
+    it('re-emits pending help request and continues from synthesized tool result', async () => {
+      const transport = createTransportMock();
+      const sessionStore = createSessionStoreMock();
+      const runtime = new WorkerRuntime(transport, sessionStore, {
+        modelId: 'claude-sonnet-4-20250514',
+        projectRoot: '/tmp/project',
+      });
+      const agent = createAgentStub();
+      const checkpoint: SessionCheckpoint = {
+        messages: [{ role: 'assistant', content: [] } as never],
+        pendingWait: {
+          kind: 'help',
+          toolCallId: 'tool-help-1',
+          query: 'Need guidance',
+        },
+      };
+      agent.state.messages = checkpoint.messages;
+      Object.assign(runtime, {
+        agent,
+        currentSessionId: 'sess-help-restore',
+        currentTaskId: 't-1',
+        currentAgentRunId: 'run-1',
+      });
+
+      const resume = (
+        runtime as unknown as {
+          resumeFromCheckpoint: (
+            checkpoint: SessionCheckpoint,
+            taskDescription: string,
+          ) => Promise<void>;
+        }
+      ).resumeFromCheckpoint(checkpoint, 'task desc');
+      await Promise.resolve();
+
+      expect(transport.send).toHaveBeenCalledWith({
+        type: 'request_help',
+        taskId: 't-1',
+        agentRunId: 'run-1',
+        toolCallId: 'tool-help-1',
+        query: 'Need guidance',
+      });
+
+      runtime.handleMessage({
+        type: 'help_response',
+        taskId: 't-1',
+        agentRunId: 'run-1',
+        toolCallId: 'tool-help-1',
+        response: { kind: 'answer', text: 'Do this' },
+      });
+      await resume;
+
+      expect(sessionStore.saveCheckpoint).toHaveBeenNthCalledWith(
+        1,
+        'sess-help-restore',
+        expect.objectContaining({
+          messages: checkpoint.messages,
+          completedToolResults: [
+            expect.objectContaining({
+              role: 'toolResult',
+              toolCallId: 'tool-help-1',
+              toolName: 'request_help',
+            }),
+          ],
+        }),
+      );
+      expect(agent.continue).toHaveBeenCalledTimes(1);
+      expect(agent.state.messages.at(-1)).toMatchObject({
+        role: 'toolResult',
+        toolCallId: 'tool-help-1',
+      });
+    });
+
+    it('re-emits pending approval request and continues from synthesized tool result', async () => {
+      const transport = createTransportMock();
+      const sessionStore = createSessionStoreMock();
+      const runtime = new WorkerRuntime(transport, sessionStore, {
+        modelId: 'claude-sonnet-4-20250514',
+        projectRoot: '/tmp/project',
+      });
+      const agent = createAgentStub();
+      const checkpoint: SessionCheckpoint = {
+        messages: [{ role: 'assistant', content: [] } as never],
+        pendingWait: {
+          kind: 'approval',
+          toolCallId: 'tool-approval-1',
+          payload: {
+            kind: 'custom',
+            label: 'Confirm',
+            detail: 'Need approval',
+          },
+        },
+      };
+      agent.state.messages = checkpoint.messages;
+      Object.assign(runtime, {
+        agent,
+        currentSessionId: 'sess-approval-restore',
+        currentTaskId: 't-1',
+        currentAgentRunId: 'run-1',
+      });
+
+      const resume = (
+        runtime as unknown as {
+          resumeFromCheckpoint: (
+            checkpoint: SessionCheckpoint,
+            taskDescription: string,
+          ) => Promise<void>;
+        }
+      ).resumeFromCheckpoint(checkpoint, 'task desc');
+      await Promise.resolve();
+
+      expect(transport.send).toHaveBeenCalledWith({
+        type: 'request_approval',
+        taskId: 't-1',
+        agentRunId: 'run-1',
+        toolCallId: 'tool-approval-1',
+        payload: {
+          kind: 'custom',
+          label: 'Confirm',
+          detail: 'Need approval',
+        },
+      });
+
+      runtime.handleMessage({
+        type: 'approval_decision',
+        taskId: 't-1',
+        agentRunId: 'run-1',
+        toolCallId: 'tool-approval-1',
+        decision: { kind: 'approved' },
+      });
+      await resume;
+
+      expect(sessionStore.saveCheckpoint).toHaveBeenNthCalledWith(
+        1,
+        'sess-approval-restore',
+        expect.objectContaining({
+          messages: checkpoint.messages,
+          completedToolResults: [
+            expect.objectContaining({
+              role: 'toolResult',
+              toolCallId: 'tool-approval-1',
+              toolName: 'request_approval',
+            }),
+          ],
+        }),
+      );
+      expect(agent.continue).toHaveBeenCalledTimes(1);
+    });
+
+    it('continues from a stored completed tool result without re-emitting request', async () => {
+      const transport = createTransportMock();
+      const sessionStore = createSessionStoreMock();
+      const runtime = new WorkerRuntime(transport, sessionStore, {
+        modelId: 'claude-sonnet-4-20250514',
+        projectRoot: '/tmp/project',
+      });
+      const agent = createAgentStub();
+      const checkpoint: SessionCheckpoint = {
+        messages: [{ role: 'assistant', content: [] } as never],
+        completedToolResults: [
+          {
+            role: 'toolResult',
+            toolCallId: 'tool-help-1',
+            toolName: 'request_help',
+            content: [{ type: 'text', text: 'Do this' }],
+            details: { query: 'Need guidance', responseKind: 'answer' },
+            isError: false,
+            timestamp: 123,
+          },
+        ],
+      };
+      agent.state.messages = checkpoint.messages;
+      Object.assign(runtime, {
+        agent,
+        currentSessionId: 'sess-completed-tool-result',
+        currentTaskId: 't-1',
+        currentAgentRunId: 'run-1',
+      });
+
+      await (
+        runtime as unknown as {
+          resumeFromCheckpoint: (
+            checkpoint: SessionCheckpoint,
+            taskDescription: string,
+          ) => Promise<void>;
+        }
+      ).resumeFromCheckpoint(checkpoint, 'task desc');
+
+      expect(transport.send).not.toHaveBeenCalled();
+      expect(agent.continue).toHaveBeenCalledTimes(1);
+      expect(agent.state.messages).toEqual([
+        ...checkpoint.messages,
+        ...(checkpoint.completedToolResults ?? []),
+      ]);
+    });
+
+    it('short-circuits resume when terminal result already persisted', async () => {
+      const transport = createTransportMock();
+      const sessionStore = createSessionStoreMock();
+      const runtime = new WorkerRuntime(transport, sessionStore, {
+        modelId: 'claude-sonnet-4-20250514',
+        projectRoot: '/tmp/project',
+      });
+      const agent = createAgentStub();
+      const terminalResult = {
+        summary: 'done',
+        filesChanged: ['src/done.ts'],
+      };
+      const checkpoint: SessionCheckpoint = {
+        messages: [{ role: 'assistant', content: [] } as never],
+        terminalResult,
+      };
+      agent.state.messages = checkpoint.messages;
+      Object.assign(runtime, {
+        agent,
+        currentSessionId: 'sess-terminal-result',
+        currentTaskId: 't-1',
+        currentAgentRunId: 'run-1',
+      });
+
+      await (
+        runtime as unknown as {
+          resumeFromCheckpoint: (
+            checkpoint: SessionCheckpoint,
+            taskDescription: string,
+          ) => Promise<void>;
+        }
+      ).resumeFromCheckpoint(checkpoint, 'task desc');
+
+      expect(transport.send).not.toHaveBeenCalled();
+      expect(agent.prompt).not.toHaveBeenCalled();
+      expect(agent.continue).not.toHaveBeenCalled();
+      expect(
+        (runtime as unknown as { terminalResult?: unknown }).terminalResult,
+      ).toEqual(terminalResult);
+    });
+  });
+
   it('queues suspend as follow-up instead of aborting agent', () => {
     const transport = createTransportMock();
     const sessionStore = createSessionStoreMock();
@@ -2061,6 +2441,8 @@ describe('WorkerRuntime.handleMessage', () => {
     const first = new Promise((resolve) => {
       Object.assign(runtime, {
         pendingHelp: {
+          toolCallId: 'tool-help-1',
+          query: 'Need guidance',
           resolve: (
             response: { kind: 'answer'; text: string } | { kind: 'discuss' },
           ) => {
@@ -2075,12 +2457,14 @@ describe('WorkerRuntime.handleMessage', () => {
       type: 'help_response',
       taskId: 't-task-1',
       agentRunId: 'run-1',
+      toolCallId: 'tool-help-1',
       response: { kind: 'answer', text: 'do this' },
     });
     runtime.handleMessage({
       type: 'help_response',
       taskId: 't-task-1',
       agentRunId: 'run-1',
+      toolCallId: 'tool-help-2',
       response: { kind: 'answer', text: 'ignored' },
     });
 
@@ -2106,6 +2490,12 @@ describe('WorkerRuntime.handleMessage', () => {
     const first = new Promise((resolve) => {
       Object.assign(runtime, {
         pendingApproval: {
+          toolCallId: 'tool-approval-1',
+          payload: {
+            kind: 'custom',
+            label: 'Confirm',
+            detail: 'Need approval',
+          },
           resolve: (
             decision:
               | { kind: 'approved' }
@@ -2122,12 +2512,14 @@ describe('WorkerRuntime.handleMessage', () => {
       type: 'approval_decision',
       taskId: 't-task-1',
       agentRunId: 'run-1',
+      toolCallId: 'tool-approval-1',
       decision: { kind: 'approved' },
     });
     runtime.handleMessage({
       type: 'approval_decision',
       taskId: 't-task-1',
       agentRunId: 'run-1',
+      toolCallId: 'tool-approval-2',
       decision: { kind: 'reject', comment: 'ignored' },
     });
 

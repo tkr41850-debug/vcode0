@@ -27,12 +27,12 @@ export function createSubmitTool(
     description:
       'Signal that the task is complete. Emits the terminal `result` IPC message with the summary and files changed. Call exactly once when work is done.',
     parameters,
-    execute: (_toolCallId, params) => {
-      ipc.submitResult({
+    execute: async (_toolCallId, params) => {
+      await ipc.submitResult({
         summary: params.summary,
         filesChanged: params.filesChanged,
       });
-      return Promise.resolve({
+      return {
         content: [
           {
             type: 'text',
@@ -43,7 +43,7 @@ export function createSubmitTool(
           summary: params.summary,
           filesChanged: params.filesChanged,
         },
-      });
+      };
     },
   };
 }

@@ -15,6 +15,10 @@ function createSessionStoreMock(
   return {
     save: vi.fn().mockResolvedValue(undefined),
     load: vi.fn().mockResolvedValue(loadResult),
+    saveCheckpoint: vi.fn().mockResolvedValue(undefined),
+    loadCheckpoint: vi
+      .fn()
+      .mockResolvedValue(loadResult === null ? null : { messages: loadResult }),
     delete: vi.fn().mockResolvedValue(undefined),
   };
 }
@@ -77,8 +81,8 @@ describe('PiSdkHarness', () => {
       createSessionStoreMock(),
       '/tmp/project-root',
       '/tmp/custom-entry.ts',
+      forkWorker,
     );
-    Object.assign(harness as object, { forkWorker });
     const task = createTaskFixture({
       id: 't-1',
       featureId: 'f-1',
@@ -92,7 +96,15 @@ describe('PiSdkHarness', () => {
     );
 
     expect(forkWorker).toHaveBeenCalledWith(
-      '/tmp/project-root/.gvc0/worktrees/feat-custom-branch',
+      '/tmp/custom-entry.ts',
+      [],
+      expect.objectContaining({
+        cwd: '/tmp/project-root/.gvc0/worktrees/feat-custom-branch',
+        env: expect.objectContaining({
+          GVC0_PROJECT_ROOT: '/tmp/project-root',
+          GVC0_AGENT_RUN_ID: 'run-42',
+        }),
+      }),
     );
     expect(handle.sessionId).toBeTypeOf('string');
     expect(child.writes).toHaveLength(1);
@@ -118,8 +130,8 @@ describe('PiSdkHarness', () => {
       createSessionStoreMock(),
       '/tmp/project-root',
       '/tmp/custom-entry.ts',
+      forkWorker,
     );
-    Object.assign(harness as object, { forkWorker });
 
     const handle = await harness.start(
       createTaskFixture({ id: 't-1' }),
@@ -140,8 +152,8 @@ describe('PiSdkHarness', () => {
       createSessionStoreMock(),
       '/tmp/project-root',
       '/tmp/custom-entry.ts',
+      forkWorker,
     );
-    Object.assign(harness as object, { forkWorker });
 
     await harness.start(
       createTaskFixture({ id: 't-7', featureId: 'f-9' }),
@@ -150,7 +162,15 @@ describe('PiSdkHarness', () => {
     );
 
     expect(forkWorker).toHaveBeenCalledWith(
-      '/tmp/project-root/.gvc0/worktrees/feat-f-9-task-t-7',
+      '/tmp/custom-entry.ts',
+      [],
+      expect.objectContaining({
+        cwd: '/tmp/project-root/.gvc0/worktrees/feat-f-9-task-t-7',
+        env: expect.objectContaining({
+          GVC0_PROJECT_ROOT: '/tmp/project-root',
+          GVC0_AGENT_RUN_ID: 'run-7',
+        }),
+      }),
     );
   });
 
@@ -161,8 +181,8 @@ describe('PiSdkHarness', () => {
       createSessionStoreMock(),
       '/tmp/project-root',
       '/tmp/custom-entry.ts',
+      forkWorker,
     );
-    Object.assign(harness as object, { forkWorker });
     const graph = new InMemoryFeatureGraph();
     graph.createMilestone({ id: 'm-1', name: 'M1', description: 'desc' });
     graph.createFeature({
@@ -180,7 +200,15 @@ describe('PiSdkHarness', () => {
     await harness.start(task, {}, 'run-7');
 
     expect(forkWorker).toHaveBeenCalledWith(
-      '/tmp/project-root/.gvc0/worktrees/feat-feature-9-9-7',
+      '/tmp/custom-entry.ts',
+      [],
+      expect.objectContaining({
+        cwd: '/tmp/project-root/.gvc0/worktrees/feat-feature-9-9-7',
+        env: expect.objectContaining({
+          GVC0_PROJECT_ROOT: '/tmp/project-root',
+          GVC0_AGENT_RUN_ID: 'run-7',
+        }),
+      }),
     );
   });
 
@@ -213,8 +241,8 @@ describe('PiSdkHarness', () => {
       createSessionStoreMock([{ role: 'user', content: 'saved' }]),
       '/tmp/project-root',
       '/tmp/custom-entry.ts',
+      forkWorker,
     );
-    Object.assign(harness as object, { forkWorker });
 
     const result = await harness.resume(createTaskFixture({ id: 't-1' }), {
       taskId: 't-1',
@@ -228,7 +256,15 @@ describe('PiSdkHarness', () => {
     }
     expect(result.handle.sessionId).toBe('sess-99');
     expect(forkWorker).toHaveBeenCalledWith(
-      '/tmp/project-root/.gvc0/worktrees/feat-f-1-task-t-1',
+      '/tmp/custom-entry.ts',
+      [],
+      expect.objectContaining({
+        cwd: '/tmp/project-root/.gvc0/worktrees/feat-f-1-task-t-1',
+        env: expect.objectContaining({
+          GVC0_PROJECT_ROOT: '/tmp/project-root',
+          GVC0_AGENT_RUN_ID: 'run-99',
+        }),
+      }),
     );
     expect(JSON.parse(child.writes[0] ?? '')).toMatchObject({
       type: 'run',
@@ -243,6 +279,48 @@ describe('PiSdkHarness', () => {
     });
   });
 
+  it('includes agent run markers in fork env for start and resume', async () => {
+    const forkWorker = vi.fn(() => createForkedChild());
+    const harness = new PiSdkHarness(
+      createSessionStoreMock([{ role: 'user', content: 'saved' }]),
+      '/tmp/project-root',
+      '/tmp/custom-entry.ts',
+      forkWorker,
+    );
+
+    await harness.start(createTaskFixture({ id: 't-1' }), {}, 'run-start');
+    await harness.resume(createTaskFixture({ id: 't-1' }), {
+      taskId: 't-1',
+      agentRunId: 'run-resume',
+      sessionId: 'sess-99',
+    });
+
+    expect(forkWorker).toHaveBeenNthCalledWith(
+      1,
+      '/tmp/custom-entry.ts',
+      [],
+      expect.objectContaining({
+        cwd: '/tmp/project-root/.gvc0/worktrees/feat-f-1-task-t-1',
+        env: expect.objectContaining({
+          GVC0_PROJECT_ROOT: '/tmp/project-root',
+          GVC0_AGENT_RUN_ID: 'run-start',
+        }),
+      }),
+    );
+    expect(forkWorker).toHaveBeenNthCalledWith(
+      2,
+      '/tmp/custom-entry.ts',
+      [],
+      expect.objectContaining({
+        cwd: '/tmp/project-root/.gvc0/worktrees/feat-f-1-task-t-1',
+        env: expect.objectContaining({
+          GVC0_PROJECT_ROOT: '/tmp/project-root',
+          GVC0_AGENT_RUN_ID: 'run-resume',
+        }),
+      }),
+    );
+  });
+
   it('wires handle sendInput, send, and abort messages with real ids', async () => {
     vi.useFakeTimers();
     const child = createForkedChild();
@@ -251,8 +329,8 @@ describe('PiSdkHarness', () => {
       createSessionStoreMock(),
       '/tmp/project-root',
       '/tmp/custom-entry.ts',
+      forkWorker,
     );
-    Object.assign(harness as object, { forkWorker });
     const handle = await harness.start(
       createTaskFixture({ id: 't-1' }),
       {},
@@ -296,8 +374,8 @@ describe('PiSdkHarness', () => {
       createSessionStoreMock(),
       '/tmp/project-root',
       '/tmp/custom-entry.ts',
+      forkWorker,
     );
-    Object.assign(harness as object, { forkWorker });
     const handle = await harness.start(
       createTaskFixture({ id: 't-1' }),
       {},
@@ -324,8 +402,8 @@ describe('PiSdkHarness', () => {
       createSessionStoreMock(),
       '/tmp/project-root',
       '/tmp/custom-entry.ts',
+      forkWorker,
     );
-    Object.assign(harness as object, { forkWorker });
     const handle = await harness.start(
       createTaskFixture({ id: 't-1' }),
       {},

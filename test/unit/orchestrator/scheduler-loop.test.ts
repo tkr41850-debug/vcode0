@@ -307,9 +307,9 @@ function createRuntimeMock(order: string[]): RuntimePort & {
       Promise.resolve({ kind: 'not_running', taskId: agentRunId }),
     resumeRun: (agentRunId: string) =>
       Promise.resolve({ kind: 'not_running', taskId: agentRunId }),
-    respondToRunHelp: (agentRunId: string) =>
+    respondToRunHelp: (agentRunId: string, _toolCallId: string) =>
       Promise.resolve({ kind: 'not_running', taskId: agentRunId }),
-    decideRunApproval: (agentRunId: string) =>
+    decideRunApproval: (agentRunId: string, _toolCallId: string) =>
       Promise.resolve({ kind: 'not_running', taskId: agentRunId }),
     sendRunManualInput: (agentRunId: string) =>
       Promise.resolve({ kind: 'not_running', taskId: agentRunId }),
@@ -1755,6 +1755,7 @@ describe('SchedulerLoop', () => {
         type: 'request_help',
         taskId: 't-1',
         agentRunId: 'run-task:t-1',
+        toolCallId: 'tool-help-1',
         query: 'what should I do?',
       },
     });
@@ -1763,7 +1764,10 @@ describe('SchedulerLoop', () => {
     expect(updateAgentRun).toHaveBeenCalledWith('run-task:t-1', {
       runStatus: 'await_response',
       owner: 'manual',
-      payloadJson: JSON.stringify({ query: 'what should I do?' }),
+      payloadJson: JSON.stringify({
+        toolCallId: 'tool-help-1',
+        query: 'what should I do?',
+      }),
       sessionId: 'sess-1',
     });
   });
@@ -1804,6 +1808,7 @@ describe('SchedulerLoop', () => {
         type: 'request_approval',
         taskId: 't-1',
         agentRunId: 'run-task:t-1',
+        toolCallId: 'tool-approval-1',
         payload: {
           kind: 'custom',
           label: 'Need approval',
@@ -1817,6 +1822,7 @@ describe('SchedulerLoop', () => {
       runStatus: 'await_approval',
       owner: 'manual',
       payloadJson: JSON.stringify({
+        toolCallId: 'tool-approval-1',
         kind: 'custom',
         label: 'Need approval',
         detail: 'delete file',

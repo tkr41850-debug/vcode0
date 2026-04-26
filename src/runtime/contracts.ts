@@ -264,11 +264,13 @@ export interface RuntimePort {
   respondToRunHelp(
     this: void,
     agentRunId: string,
+    toolCallId: string,
     response: HelpResponse,
   ): Promise<TaskControlResult>;
   decideRunApproval(
     this: void,
     agentRunId: string,
+    toolCallId: string,
     decision: ApprovalDecision,
   ): Promise<TaskControlResult>;
   sendRunManualInput(
@@ -374,6 +376,7 @@ export type OrchestratorToWorkerMessage =
       taskId: string;
       agentRunId: string;
       scopeRef?: RunScope;
+      toolCallId: string;
       response: HelpResponse;
     }
   | {
@@ -381,6 +384,7 @@ export type OrchestratorToWorkerMessage =
       taskId: string;
       agentRunId: string;
       scopeRef?: RunScope;
+      toolCallId: string;
       decision: ApprovalDecision;
     }
   | {
@@ -430,6 +434,7 @@ export type WorkerToOrchestratorMessage =
       taskId: string;
       agentRunId: string;
       scopeRef?: RunScope;
+      toolCallId: string;
       query: string;
     }
   | {
@@ -437,6 +442,7 @@ export type WorkerToOrchestratorMessage =
       taskId: string;
       agentRunId: string;
       scopeRef?: RunScope;
+      toolCallId: string;
       payload: ApprovalPayload;
     }
   | {
