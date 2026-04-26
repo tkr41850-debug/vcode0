@@ -79,30 +79,45 @@ export class RecoveryService {
 
     if (task.collabControl === 'suspended') {
       if (run.runStatus === 'running') {
-        this.ports.store.updateAgentRun(run.id, {
-          runStatus: 'ready',
-          owner: 'system',
-          ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
+        this.resetTaskRunToReady(run, { preserveSession: true });
+      }
+      if (run.runStatus === 'await_response' || run.runStatus === 'await_approval') {
+        this.resetTaskRunToReady(run, {
+          clearPayload: true,
+          preserveSession: true,
         });
       }
       return;
     }
 
-    if (shouldCleanStaleWorker) {
+    if (shouldResumeTaskRun(run)) {
       const resumed = await this.resumeTaskRun(task, run);
       if (resumed) {
         return;
       }
     }
 
+    if (run.runStatus === 'await_response' || run.runStatus === 'await_approval') {
+      this.resetTaskRunToReady(run, { clearPayload: true });
+      return;
+    }
+
     if (run.runStatus !== 'running') {
       return;
     }
 
+    this.resetTaskRunToReady(run);
+  }
+
+  private resetTaskRunToReady(
+    run: TaskAgentRun,
+    options?: { clearPayload?: boolean; preserveSession?: boolean },
+  ): void {
     this.ports.store.updateAgentRun(run.id, {
       runStatus: 'ready',
       owner: 'system',
-      sessionId: undefined,
+      sessionId: options?.preserveSession ? run.sessionId : undefined,
+      ...(options?.clearPayload ? { payloadJson: undefined } : {}),
       restartCount: run.restartCount + 1,
     });
   }

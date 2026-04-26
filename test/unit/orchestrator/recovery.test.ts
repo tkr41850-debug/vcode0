@@ -845,6 +845,109 @@ describe('RecoveryService', () => {
     );
   });
 
+  it('resets await_response task runs when persisted resume is not resumable', async () => {
+    const run = makeTaskRun({
+      id: 'run-help',
+      scopeId: 't-1',
+      runStatus: 'await_response',
+      owner: 'manual',
+      sessionId: 'sess-help',
+      payloadJson: JSON.stringify({
+        toolCallId: 'tool-help-1',
+        query: 'Need operator guidance',
+      }),
+    });
+    const { ports, runtime, store, graph } = createPorts([run]);
+    runtime.dispatchRun.mockResolvedValueOnce({
+      kind: 'not_resumable',
+      agentRunId: run.id,
+      sessionId: 'sess-help',
+      reason: 'session_not_found',
+    });
+    const service = new RecoveryService(ports, graph);
+
+    await service.recoverOrphanedRuns();
+
+    expect(store.updateAgentRun).toHaveBeenCalledWith(run.id, {
+      runStatus: 'ready',
+      owner: 'system',
+      sessionId: undefined,
+      payloadJson: undefined,
+      restartCount: 1,
+    });
+  });
+
+  it('resets await_approval task runs when persisted resume is not resumable', async () => {
+    const run = makeTaskRun({
+      id: 'run-approval',
+      scopeId: 't-1',
+      runStatus: 'await_approval',
+      owner: 'manual',
+      sessionId: 'sess-approval',
+      payloadJson: JSON.stringify({
+        toolCallId: 'tool-approval-1',
+        kind: 'custom',
+        label: 'Need approval',
+        detail: 'Proceed with guarded change',
+      }),
+    });
+    const { ports, runtime, store, graph } = createPorts([run]);
+    runtime.dispatchRun.mockResolvedValueOnce({
+      kind: 'not_resumable',
+      agentRunId: run.id,
+      sessionId: 'sess-approval',
+      reason: 'session_not_found',
+    });
+    const service = new RecoveryService(ports, graph);
+
+    await service.recoverOrphanedRuns();
+
+    expect(store.updateAgentRun).toHaveBeenCalledWith(run.id, {
+      runStatus: 'ready',
+      owner: 'system',
+      sessionId: undefined,
+      payloadJson: undefined,
+      restartCount: 1,
+    });
+  });
+
+  it('resets suspended manual wait runs to ready while preserving resumable session', async () => {
+    const run = makeTaskRun({
+      id: 'run-help-suspended',
+      scopeId: 't-1',
+      runStatus: 'await_response',
+      owner: 'manual',
+      sessionId: 'sess-help',
+      payloadJson: JSON.stringify({
+        toolCallId: 'tool-help-1',
+        query: 'Need operator guidance',
+      }),
+    });
+    const { ports, runtime, store, graph } = createPorts([run]);
+    const task = graph.tasks.get('t-1');
+    assert(task !== undefined, 'missing task fixture');
+    graph.tasks.set('t-1', {
+      ...task,
+      status: 'running',
+      collabControl: 'suspended',
+      suspendReason: 'cross_feature_overlap',
+      suspendedAt: 100,
+      blockedByFeatureId: 'f-2',
+    });
+    const service = new RecoveryService(ports, graph);
+
+    await service.recoverOrphanedRuns();
+
+    expect(runtime.dispatchRun).not.toHaveBeenCalled();
+    expect(store.updateAgentRun).toHaveBeenCalledWith(run.id, {
+      runStatus: 'ready',
+      owner: 'system',
+      sessionId: 'sess-help',
+      payloadJson: undefined,
+      restartCount: 1,
+    });
+  });
+
   it('kills stale task workers before early return for suspended tasks', async () => {
     const run = makeTaskRun({
       runStatus: 'running',
@@ -890,6 +993,7 @@ describe('RecoveryService', () => {
       runStatus: 'ready',
       owner: 'system',
       sessionId: 'sess-1',
+      restartCount: 1,
     });
     killSpy.mockRestore();
   });
