@@ -4,10 +4,10 @@ import type { Readable, Writable } from 'node:stream';
 
 import { resolveTaskWorktreeBranch, worktreePath } from '@core/naming/index';
 import type { HarnessKind, Task } from '@core/types/index';
-import type { TaskPayload } from '@runtime/context/index';
 import type {
   OrchestratorToWorkerMessage,
   ResumableTaskExecutionRunRef,
+  TaskRunPayload,
   WorkerToOrchestratorMessage,
 } from '@runtime/contracts';
 import { NdjsonStdioTransport } from '@runtime/ipc/index';
@@ -46,15 +46,10 @@ export type ResumeSessionResult =
     };
 
 export interface SessionHarness {
-  start(
-    task: Task,
-    payload: TaskPayload,
-    agentRunId: string,
-  ): Promise<SessionHandle>;
+  start(taskRun: TaskRunPayload, agentRunId: string): Promise<SessionHandle>;
   resume(
-    task: Task,
+    taskRun: TaskRunPayload,
     run: ResumableTaskExecutionRunRef,
-    payload?: TaskPayload,
   ): Promise<ResumeSessionResult>;
 }
 
@@ -95,18 +90,14 @@ export class PiSdkHarness implements SessionHarness {
     private readonly forkProcess: ForkWorker = child_process.fork,
   ) {}
 
-  start(
-    task: Task,
-    payload: TaskPayload,
-    agentRunId: string,
-  ): Promise<SessionHandle> {
+  start(taskRun: TaskRunPayload, agentRunId: string): Promise<SessionHandle> {
     // Pin session id to agentRunId so the harness-reported sessionId (which
     // gets persisted to `agent_runs.session_id`) matches the key the worker
     // actually writes session messages under in `WorkerRuntime.run`. A prior
     // randomUUID here silently broke resume: the stored session_id pointed
     // at a file that was never written.
     const sessionId = agentRunId;
-    const worktreeDir = this.resolveWorktreePath(task);
+    const worktreeDir = this.resolveWorktreePath(taskRun.task);
 
     const child = this.spawnWorker(worktreeDir, agentRunId);
     const transport = new NdjsonStdioTransport({
@@ -115,7 +106,7 @@ export class PiSdkHarness implements SessionHarness {
     });
 
     const handle = createSessionHandle(
-      task.id,
+      taskRun.task.id,
       agentRunId,
       sessionId,
       child,
@@ -129,20 +120,21 @@ export class PiSdkHarness implements SessionHarness {
 
     transport.send({
       type: 'run',
-      taskId: task.id,
+      taskId: taskRun.task.id,
       agentRunId,
       dispatch: { mode: 'start', agentRunId },
-      task,
-      payload,
+      task: taskRun.task,
+      payload: taskRun.payload,
+      model: taskRun.model,
+      routingTier: taskRun.routingTier,
     });
 
     return Promise.resolve(handle);
   }
 
   async resume(
-    task: Task,
+    taskRun: TaskRunPayload,
     run: ResumableTaskExecutionRunRef,
-    payload: TaskPayload = {},
   ): Promise<ResumeSessionResult> {
     const messages = await this.sessionStore.load(run.sessionId);
     if (messages === null) {
@@ -153,7 +145,7 @@ export class PiSdkHarness implements SessionHarness {
       };
     }
 
-    const worktreeDir = this.resolveWorktreePath(task);
+    const worktreeDir = this.resolveWorktreePath(taskRun.task);
     const child = this.spawnWorker(worktreeDir, run.agentRunId);
     const transport = new NdjsonStdioTransport({
       stdin: child.stdin as Writable,
@@ -161,7 +153,7 @@ export class PiSdkHarness implements SessionHarness {
     });
 
     const handle = createSessionHandle(
-      task.id,
+      taskRun.task.id,
       run.agentRunId,
       run.sessionId,
       child,
@@ -175,15 +167,17 @@ export class PiSdkHarness implements SessionHarness {
 
     transport.send({
       type: 'run',
-      taskId: task.id,
+      taskId: taskRun.task.id,
       agentRunId: run.agentRunId,
       dispatch: {
         mode: 'resume',
         agentRunId: run.agentRunId,
         sessionId: run.sessionId,
       },
-      task,
-      payload,
+      task: taskRun.task,
+      payload: taskRun.payload,
+      model: taskRun.model,
+      routingTier: taskRun.routingTier,
     });
 
     return { kind: 'resumed', handle };

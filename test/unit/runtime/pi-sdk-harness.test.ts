@@ -9,6 +9,32 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createTaskFixture } from '../../helpers/graph-builders.js';
 
+function makeTaskRunPayload(
+  overrides: {
+    taskId?: `t-${string}`;
+    featureId?: `f-${string}`;
+    payload?: Record<string, unknown>;
+    model?: string;
+    routingTier?: 'standard' | 'light' | 'heavy';
+    worktreeBranch?: string;
+  } = {},
+) {
+  const task = createTaskFixture({
+    id: overrides.taskId ?? 't-1',
+    featureId: overrides.featureId ?? 'f-1',
+    ...(overrides.worktreeBranch !== undefined
+      ? { worktreeBranch: overrides.worktreeBranch }
+      : {}),
+  });
+  return {
+    kind: 'task' as const,
+    task,
+    payload: overrides.payload ?? {},
+    model: overrides.model ?? 'claude-sonnet-4-6',
+    routingTier: overrides.routingTier ?? 'standard',
+  };
+}
+
 function createSessionStoreMock(
   loadResult: unknown[] | null = null,
 ): SessionStore {
@@ -83,17 +109,14 @@ describe('PiSdkHarness', () => {
       '/tmp/custom-entry.ts',
       forkWorker,
     );
-    const task = createTaskFixture({
-      id: 't-1',
+    const taskRun = makeTaskRunPayload({
+      taskId: 't-1',
       featureId: 'f-1',
       worktreeBranch: 'feat-custom-branch',
+      payload: { planSummary: 'Plan here' },
     });
 
-    const handle = await harness.start(
-      task,
-      { planSummary: 'Plan here' },
-      'run-42',
-    );
+    const handle = await harness.start(taskRun, 'run-42');
 
     expect(forkWorker).toHaveBeenCalledWith(
       '/tmp/custom-entry.ts',
@@ -114,6 +137,8 @@ describe('PiSdkHarness', () => {
       agentRunId: 'run-42',
       dispatch: { mode: 'start', agentRunId: 'run-42' },
       payload: { planSummary: 'Plan here' },
+      model: 'claude-sonnet-4-6',
+      routingTier: 'standard',
     });
   });
 
@@ -134,8 +159,7 @@ describe('PiSdkHarness', () => {
     );
 
     const handle = await harness.start(
-      createTaskFixture({ id: 't-1' }),
-      {},
+      makeTaskRunPayload({ taskId: 't-1' }),
       'run-pinned-id',
     );
 
@@ -156,8 +180,7 @@ describe('PiSdkHarness', () => {
     );
 
     await harness.start(
-      createTaskFixture({ id: 't-7', featureId: 'f-9' }),
-      {},
+      makeTaskRunPayload({ taskId: 't-7', featureId: 'f-9' }),
       'run-7',
     );
 
@@ -197,7 +220,16 @@ describe('PiSdkHarness', () => {
       description: 'desc',
     });
 
-    await harness.start(task, {}, 'run-7');
+    await harness.start(
+      {
+        kind: 'task',
+        task,
+        payload: {},
+        model: 'claude-sonnet-4-6',
+        routingTier: 'standard',
+      },
+      'run-7',
+    );
 
     expect(forkWorker).toHaveBeenCalledWith(
       '/tmp/custom-entry.ts',
@@ -221,7 +253,7 @@ describe('PiSdkHarness', () => {
     );
 
     await expect(
-      harness.resume(createTaskFixture({ id: 't-1' }), {
+      harness.resume(makeTaskRunPayload({ taskId: 't-1' }), {
         taskId: 't-1',
         agentRunId: 'run-1',
         sessionId: 'sess-missing',
@@ -244,7 +276,7 @@ describe('PiSdkHarness', () => {
       forkWorker,
     );
 
-    const result = await harness.resume(createTaskFixture({ id: 't-1' }), {
+    const result = await harness.resume(makeTaskRunPayload({ taskId: 't-1' }), {
       taskId: 't-1',
       agentRunId: 'run-99',
       sessionId: 'sess-99',
@@ -276,6 +308,8 @@ describe('PiSdkHarness', () => {
         sessionId: 'sess-99',
       },
       payload: {},
+      model: 'claude-sonnet-4-6',
+      routingTier: 'standard',
     });
   });
 
@@ -288,8 +322,8 @@ describe('PiSdkHarness', () => {
       forkWorker,
     );
 
-    await harness.start(createTaskFixture({ id: 't-1' }), {}, 'run-start');
-    await harness.resume(createTaskFixture({ id: 't-1' }), {
+    await harness.start(makeTaskRunPayload({ taskId: 't-1' }), 'run-start');
+    await harness.resume(makeTaskRunPayload({ taskId: 't-1' }), {
       taskId: 't-1',
       agentRunId: 'run-resume',
       sessionId: 'sess-99',
@@ -332,8 +366,7 @@ describe('PiSdkHarness', () => {
       forkWorker,
     );
     const handle = await harness.start(
-      createTaskFixture({ id: 't-1' }),
-      {},
+      makeTaskRunPayload({ taskId: 't-1' }),
       'run-abc',
     );
 
@@ -377,8 +410,7 @@ describe('PiSdkHarness', () => {
       forkWorker,
     );
     const handle = await harness.start(
-      createTaskFixture({ id: 't-1' }),
-      {},
+      makeTaskRunPayload({ taskId: 't-1' }),
       'run-ex',
     );
 
@@ -405,8 +437,7 @@ describe('PiSdkHarness', () => {
       forkWorker,
     );
     const handle = await harness.start(
-      createTaskFixture({ id: 't-1' }),
-      {},
+      makeTaskRunPayload({ taskId: 't-1' }),
       'run-err',
     );
 

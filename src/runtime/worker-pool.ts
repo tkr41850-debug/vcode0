@@ -1,4 +1,5 @@
 import type {
+  GvcConfig,
   Task,
   TaskResumeReason,
   TaskSuspendReason,
@@ -14,6 +15,7 @@ import type {
   RuntimePort,
   RuntimeSteeringDirective,
   TaskControlResult,
+  TaskRunPayload,
   TaskRuntimeDispatch,
   WorkerToOrchestratorMessage,
 } from '@runtime/contracts';
@@ -22,6 +24,7 @@ import type {
   SessionHandle,
   SessionHarness,
 } from '@runtime/harness/index';
+import { ModelRouter, routingConfigOrDefault } from '@runtime/routing/index';
 
 interface LiveSession {
   ref: RunExecutionRef;
@@ -52,12 +55,14 @@ export type TaskCompleteCallback = (
 
 export class LocalWorkerPool implements RuntimePort {
   private readonly liveRuns = new Map<string, LiveSession>();
+  private readonly modelRouter = new ModelRouter();
 
   constructor(
     private readonly harness: SessionHarness,
     private readonly maxConcurrency: number,
     private readonly onTaskComplete?: TaskCompleteCallback,
     private readonly featurePhaseBackend?: FeaturePhaseBackend,
+    private readonly config: GvcConfig = { tokenProfile: 'balanced' },
   ) {}
 
   async dispatchRun(
@@ -140,17 +145,14 @@ export class LocalWorkerPool implements RuntimePort {
       );
     }
 
-    const { task, payload: taskPayload } = payload;
+    const taskRun = payload;
+    const { task } = taskRun;
     if (dispatch.mode === 'resume') {
-      const resumeResult = await this.harness.resume(
-        task,
-        {
-          taskId: task.id,
-          agentRunId: dispatch.agentRunId,
-          sessionId: dispatch.sessionId,
-        },
-        taskPayload,
-      );
+      const resumeResult = await this.harness.resume(taskRun, {
+        taskId: task.id,
+        agentRunId: dispatch.agentRunId,
+        sessionId: dispatch.sessionId,
+      });
 
       if (resumeResult.kind === 'not_resumable') {
         return {
@@ -176,11 +178,7 @@ export class LocalWorkerPool implements RuntimePort {
       };
     }
 
-    const handle = await this.harness.start(
-      task,
-      taskPayload,
-      dispatch.agentRunId,
-    );
+    const handle = await this.harness.start(taskRun, dispatch.agentRunId);
 
     const session: LiveSession = {
       ref: { taskId: task.id, agentRunId: dispatch.agentRunId },
@@ -208,10 +206,21 @@ export class LocalWorkerPool implements RuntimePort {
     dispatch: TaskRuntimeDispatch,
     payload: TaskPayload = {},
   ): Promise<DispatchTaskResult> {
+    const routing = this.modelRouter.routeModel(
+      'standard',
+      routingConfigOrDefault(this.config),
+    );
+    const taskRun: TaskRunPayload = {
+      kind: 'task',
+      task,
+      payload,
+      model: routing.model,
+      routingTier: routing.tier,
+    };
     const runResult = await this.dispatchRun(
       { kind: 'task', taskId: task.id, featureId: task.featureId },
       dispatch,
-      { kind: 'task', task, payload },
+      taskRun,
     );
 
     switch (runResult.kind) {

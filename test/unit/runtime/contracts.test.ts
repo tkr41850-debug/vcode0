@@ -160,6 +160,8 @@ describe('scope-aware runtime contracts', () => {
         collabControl: 'none',
       },
       payload: {},
+      model: 'claude-sonnet-4-6',
+      routingTier: 'standard',
     };
     expectTypeOf(runWithScope).toMatchTypeOf<OrchestratorToWorkerMessage>();
     expectTypeOf<

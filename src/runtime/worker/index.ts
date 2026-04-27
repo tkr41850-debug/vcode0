@@ -3,7 +3,6 @@ import type { ClaimLockResult, IpcBridge } from '@agents/worker';
 import { buildWorkerToolset } from '@agents/worker';
 import type {
   GitConflictContext,
-  Task,
   TaskResult,
   TaskResumeReason,
   TaskSuspendReason,
@@ -11,13 +10,13 @@ import type {
 import type { AgentEvent, AgentMessage } from '@mariozechner/pi-agent-core';
 import { Agent } from '@mariozechner/pi-agent-core';
 import type { AssistantMessage } from '@mariozechner/pi-ai';
-import type { TaskPayload } from '@runtime/context/index';
 import type {
   ApprovalDecision,
   ApprovalPayload,
   HelpResponse,
   OrchestratorToWorkerMessage,
   RuntimeUsageDelta,
+  TaskRunPayload,
   TaskRuntimeDispatch,
 } from '@runtime/contracts';
 import type { ChildIpcTransport } from '@runtime/ipc/index';
@@ -31,7 +30,6 @@ import { messagesToTokenUsageAggregate } from '@runtime/usage';
 import { buildSystemPrompt } from '@runtime/worker/system-prompt';
 
 export interface WorkerRuntimeConfig {
-  modelId: string;
   /** Absolute path to the project root — used to locate `.gvc0/` knowledge files. */
   projectRoot: string;
   getApiKey?: (
@@ -80,19 +78,19 @@ export class WorkerRuntime {
   ) {}
 
   async run(
-    task: Task,
-    payload: TaskPayload,
+    taskRun: TaskRunPayload,
     dispatch: TaskRuntimeDispatch,
   ): Promise<void> {
+    const { task, payload, model: modelId, routingTier } = taskRun;
     const model = resolveModel(
-      { model: this.config.modelId, tier: 'standard' },
+      { model: modelId, tier: routingTier },
       {
         enabled: false,
-        ceiling: this.config.modelId,
+        ceiling: modelId,
         tiers: {
-          heavy: this.config.modelId,
-          standard: this.config.modelId,
-          light: this.config.modelId,
+          heavy: modelId,
+          standard: modelId,
+          light: modelId,
         },
         escalateOnFailure: false,
         budgetPressure: false,

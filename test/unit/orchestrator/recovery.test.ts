@@ -485,11 +485,13 @@ describe('RecoveryService', () => {
         agentRunId: run.id,
         sessionId: 'sess-1',
       },
-      {
+      expect.objectContaining({
         kind: 'task',
         task: expect.objectContaining({ id: 't-1' }),
         payload: expect.any(Object),
-      },
+        model: 'claude-sonnet-4-6',
+        routingTier: 'standard',
+      }),
     );
     expect(runtime.dispatchTask).not.toHaveBeenCalled();
     expect(runtime.resumeTask).not.toHaveBeenCalled();
@@ -752,11 +754,13 @@ describe('RecoveryService', () => {
         agentRunId: run.id,
         sessionId: 'sess-1',
       },
-      {
+      expect.objectContaining({
         kind: 'task',
         task: expect.objectContaining({ id: 't-1' }),
         payload: expect.any(Object),
-      },
+        model: 'claude-sonnet-4-6',
+        routingTier: 'standard',
+      }),
     );
     killSpy.mockRestore();
   });
@@ -868,11 +872,13 @@ describe('RecoveryService', () => {
         agentRunId: 'run-help',
         sessionId: 'sess-help',
       },
-      {
+      expect.objectContaining({
         kind: 'task',
         task: expect.objectContaining({ id: 't-1' }),
         payload: expect.any(Object),
-      },
+        model: 'claude-sonnet-4-6',
+        routingTier: 'standard',
+      }),
     );
     expect(runtime.dispatchRun).toHaveBeenNthCalledWith(
       2,
@@ -886,11 +892,13 @@ describe('RecoveryService', () => {
         agentRunId: 'run-approval',
         sessionId: 'sess-approval',
       },
-      {
+      expect.objectContaining({
         kind: 'task',
         task: expect.objectContaining({ id: 't-1' }),
         payload: expect.any(Object),
-      },
+        model: 'claude-sonnet-4-6',
+        routingTier: 'standard',
+      }),
     );
     expect(runtime.dispatchTask).not.toHaveBeenCalled();
     expect(runtime.resumeTask).not.toHaveBeenCalled();

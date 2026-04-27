@@ -13,6 +13,7 @@ import type {
   EventRecord,
   Feature,
   FeaturePhaseAgentRun,
+  RoutingTier,
   Task,
   TaskAgentRun,
 } from '@core/types/index';
@@ -27,8 +28,10 @@ import type {
   FeaturePhaseRunPayload,
   PhaseOutput,
   RuntimeDispatch,
+  TaskRunPayload,
   TaskRuntimeDispatch,
 } from '@runtime/contracts';
+import { ModelRouter, routingConfigOrDefault } from '@runtime/routing/index';
 
 import type { SchedulerEvent } from './index.js';
 
@@ -290,7 +293,7 @@ export function markFeaturePhaseRunning(
 async function dispatchTaskRun(params: {
   task: Task;
   run: TaskAgentRun;
-  payload: ReturnType<typeof buildTaskPayload>;
+  payload: TaskRunPayload;
   ports: OrchestratorPorts;
 }): Promise<DispatchRunResult> {
   const scope = {
@@ -299,11 +302,11 @@ async function dispatchTaskRun(params: {
     featureId: params.task.featureId,
   };
   const dispatch = taskDispatchForRun(params.run);
-  const result = await params.ports.runtime.dispatchRun(scope, dispatch, {
-    kind: 'task',
-    task: params.task,
-    payload: params.payload,
-  });
+  const result = await params.ports.runtime.dispatchRun(
+    scope,
+    dispatch,
+    params.payload,
+  );
 
   if (result.kind === 'not_resumable' && dispatch.mode === 'resume') {
     return await params.ports.runtime.dispatchRun(
@@ -312,11 +315,7 @@ async function dispatchTaskRun(params: {
         mode: 'start',
         agentRunId: params.run.id,
       },
-      {
-        kind: 'task',
-        task: params.task,
-        payload: params.payload,
-      },
+      params.payload,
     );
   }
 
@@ -338,6 +337,31 @@ function featurePhaseDispatchForRun(
     agentRunId: run.id,
     sessionId: run.sessionId,
   };
+}
+
+const taskModelRouter = new ModelRouter();
+
+function buildTaskRunPayload(
+  ports: Pick<OrchestratorPorts, 'config'>,
+  task: Task,
+  feature: Feature | undefined,
+): TaskRunPayload {
+  const routing = taskModelRouter.routeModel(
+    taskRoutingTier(),
+    routingConfigOrDefault(ports.config),
+  );
+
+  return {
+    kind: 'task',
+    task,
+    payload: buildTaskPayload(task, feature),
+    model: routing.model,
+    routingTier: routing.tier,
+  };
+}
+
+function taskRoutingTier(): RoutingTier {
+  return 'standard';
 }
 
 function featurePhasePayload(
@@ -435,7 +459,7 @@ export async function dispatchTaskUnit(params: {
   await params.ports.worktree.ensureFeatureWorktree(feature);
   await params.ports.worktree.ensureTaskWorktree(params.task, feature);
 
-  const payload = buildTaskPayload(params.task, feature);
+  const payload = buildTaskRunPayload(params.ports, params.task, feature);
   const result = await dispatchTaskRun({
     task: params.task,
     run,

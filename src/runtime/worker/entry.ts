@@ -32,7 +32,6 @@ transport.onMessage((message: OrchestratorToWorkerMessage) => {
     initialized = true;
 
     runtime = new WorkerRuntime(transport, sessionStore, {
-      modelId: 'claude-sonnet-4-20250514',
       projectRoot,
       getApiKey: (provider: string) => {
         if (provider === 'anthropic') return process.env.ANTHROPIC_API_KEY;
@@ -42,7 +41,16 @@ transport.onMessage((message: OrchestratorToWorkerMessage) => {
     });
 
     runtime
-      .run(message.task, message.payload, message.dispatch)
+      .run(
+        {
+          kind: 'task',
+          task: message.task,
+          payload: message.payload,
+          model: message.model,
+          routingTier: message.routingTier,
+        },
+        message.dispatch,
+      )
       .then(() => {
         process.exit(0);
       })

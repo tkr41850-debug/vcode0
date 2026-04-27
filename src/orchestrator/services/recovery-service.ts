@@ -9,6 +9,7 @@ import type {
   Feature,
   FeaturePhaseAgentRun,
   ProposalPhaseDetails,
+  RoutingTier,
   Task,
   TaskAgentRun,
 } from '@core/types/index';
@@ -31,12 +32,39 @@ import type {
   FeaturePhaseRunPayload,
   PhaseOutput,
   RuntimeDispatch,
+  TaskRunPayload,
 } from '@runtime/contracts';
 import { CURRENT_ORCHESTRATOR_BOOT_EPOCH } from '@runtime/harness/index';
+import { ModelRouter, routingConfigOrDefault } from '@runtime/routing/index';
 
 type ProcEnvironmentReader = (
   pid: number,
 ) => Promise<Record<string, string> | null>;
+
+const taskModelRouter = new ModelRouter();
+
+function buildRecoveredTaskRunPayload(
+  ports: Pick<OrchestratorPorts, 'config'>,
+  task: Task,
+  feature: Feature | undefined,
+): TaskRunPayload {
+  const routing = taskModelRouter.routeModel(
+    taskRoutingTier(),
+    routingConfigOrDefault(ports.config),
+  );
+
+  return {
+    kind: 'task',
+    task,
+    payload: buildTaskPayload(task, feature),
+    model: routing.model,
+    routingTier: routing.tier,
+  };
+}
+
+function taskRoutingTier(): RoutingTier {
+  return 'standard';
+}
 
 export class RecoveryService {
   constructor(
@@ -148,7 +176,7 @@ export class RecoveryService {
     }
 
     const feature = this.graph.features.get(task.featureId);
-    const payload = buildTaskPayload(task, feature);
+    const payload = buildRecoveredTaskRunPayload(this.ports, task, feature);
     const result = await this.ports.runtime.dispatchRun(
       {
         kind: 'task',
@@ -156,11 +184,7 @@ export class RecoveryService {
         featureId: task.featureId,
       },
       dispatch,
-      {
-        kind: 'task',
-        task,
-        payload,
-      },
+      payload,
     );
     if (result.kind === 'not_resumable') {
       return false;

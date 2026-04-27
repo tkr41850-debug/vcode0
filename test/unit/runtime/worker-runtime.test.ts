@@ -16,6 +16,7 @@ import type {
   FeaturePhaseRunPayload,
   OrchestratorToWorkerMessage,
   RuntimeSteeringDirective,
+  TaskRunPayload,
   WorkerToOrchestratorMessage,
 } from '@runtime/contracts';
 import {
@@ -62,7 +63,7 @@ interface MockHandle extends SessionHandle {
 
 interface PoolTestSetup {
   handle: MockHandle;
-  harness: SessionHarness & { lastStartPayload: TaskPayload | undefined };
+  harness: SessionHarness & { lastStartTaskRun: TaskRunPayload | undefined };
   pool: LocalWorkerPool;
 }
 
@@ -123,12 +124,12 @@ function createMockHandle(
 
 function createMockHarness(
   handle?: MockHandle,
-): SessionHarness & { lastStartPayload: TaskPayload | undefined } {
+): SessionHarness & { lastStartTaskRun: TaskRunPayload | undefined } {
   const h = handle ?? createMockHandle();
   const harness = {
-    lastStartPayload: undefined as TaskPayload | undefined,
-    start: vi.fn((_task: Task, payload: TaskPayload, _agentRunId: string) => {
-      harness.lastStartPayload = payload;
+    lastStartTaskRun: undefined as TaskRunPayload | undefined,
+    start: vi.fn((taskRun: TaskRunPayload, _agentRunId: string) => {
+      harness.lastStartTaskRun = taskRun;
       return Promise.resolve(h);
     }),
     resume: vi.fn(() =>
@@ -270,7 +271,13 @@ describe('LocalWorkerPool', () => {
       expect(dispatchRun).toHaveBeenCalledWith(
         { kind: 'task', taskId: task.id, featureId: task.featureId },
         dispatch,
-        { kind: 'task', task, payload },
+        {
+          kind: 'task',
+          task,
+          payload,
+          model: 'claude-sonnet-4-6',
+          routingTier: 'standard',
+        },
       );
       expect(result).toEqual({
         kind: 'started',
@@ -1102,12 +1109,18 @@ describe('LocalWorkerPool', () => {
     });
 
     it('keeps task dispatch behavior unchanged when feature-phase backend is absent', async () => {
-      const { pool } = setupPool('sess-task-path');
+      const { harness, pool } = setupPool('sess-task-path');
 
       const result = await pool.dispatchRun(
         { kind: 'task', taskId: 't-task-1', featureId: 'f-feature-1' },
         { mode: 'start', agentRunId: 'run-task:t-task-1' },
-        { kind: 'task', task: makeTask(), payload: {} },
+        {
+          kind: 'task',
+          task: makeTask(),
+          payload: {},
+          model: 'claude-sonnet-4-6',
+          routingTier: 'standard',
+        },
       );
 
       expect(result).toEqual({
@@ -1117,6 +1130,13 @@ describe('LocalWorkerPool', () => {
         harnessKind: 'pi-sdk',
         workerPid: 4321,
         workerBootEpoch: 1_717_171_717,
+      });
+      expect(harness.lastStartTaskRun).toEqual({
+        kind: 'task',
+        task: expect.objectContaining({ id: 't-task-1' }),
+        payload: {},
+        model: 'claude-sonnet-4-6',
+        routingTier: 'standard',
       });
     });
   });
@@ -1153,7 +1173,13 @@ describe('LocalWorkerPool', () => {
         payload,
       );
 
-      expect(harness.lastStartPayload).toEqual(payload);
+      expect(harness.lastStartTaskRun).toEqual({
+        kind: 'task',
+        task: expect.objectContaining({ id: 't-task-1' }),
+        payload,
+        model: 'claude-sonnet-4-6',
+        routingTier: 'standard',
+      });
     });
 
     it('defaults payload to empty when not provided', async () => {
@@ -1164,7 +1190,13 @@ describe('LocalWorkerPool', () => {
         agentRunId: 'run-1',
       });
 
-      expect(harness.lastStartPayload).toEqual({});
+      expect(harness.lastStartTaskRun).toEqual({
+        kind: 'task',
+        task: expect.objectContaining({ id: 't-task-1' }),
+        payload: {},
+        model: 'claude-sonnet-4-6',
+        routingTier: 'standard',
+      });
     });
 
     it('tracks the task in live runs after dispatch', async () => {
@@ -1793,7 +1825,6 @@ describe('WorkerRuntime.handleMessage', () => {
     const transport = createTransportMock();
     const sessionStore = createSessionStoreMock();
     const runtime = new WorkerRuntime(transport, sessionStore, {
-      modelId: 'claude-sonnet-4-20250514',
       projectRoot: '/tmp/project',
     });
     const agent = createAgentStub();
@@ -1840,7 +1871,6 @@ describe('WorkerRuntime.handleMessage', () => {
       sessionId = 'sess-1',
     ) {
       const runtime = new WorkerRuntime(transport, sessionStore, {
-        modelId: 'claude-sonnet-4-20250514',
         projectRoot: '/tmp/project',
       });
       const agent = createAgentStub();
@@ -1991,7 +2021,6 @@ describe('WorkerRuntime.handleMessage', () => {
         bridge: IpcBridgeLike;
       } => {
         const runtime = new WorkerRuntime(transport, sessionStore, {
-          modelId: 'claude-sonnet-4-20250514',
           projectRoot: '/tmp/project',
         });
         const agent = createAgentStub();
@@ -2055,7 +2084,6 @@ describe('WorkerRuntime.handleMessage', () => {
         bridge: IpcBridgeLike;
       } => {
         const runtime = new WorkerRuntime(transport, sessionStore, {
-          modelId: 'claude-sonnet-4-20250514',
           projectRoot: '/tmp/project',
         });
         const agent = createAgentStub();
@@ -2112,7 +2140,6 @@ describe('WorkerRuntime.handleMessage', () => {
       const transport = createTransportMock();
       const sessionStore = createSessionStoreMock();
       const runtime = new WorkerRuntime(transport, sessionStore, {
-        modelId: 'claude-sonnet-4-20250514',
         projectRoot: '/tmp/project',
       });
       const agent = createAgentStub();
@@ -2184,7 +2211,6 @@ describe('WorkerRuntime.handleMessage', () => {
       const transport = createTransportMock();
       const sessionStore = createSessionStoreMock();
       const runtime = new WorkerRuntime(transport, sessionStore, {
-        modelId: 'claude-sonnet-4-20250514',
         projectRoot: '/tmp/project',
       });
       const agent = createAgentStub();
@@ -2260,7 +2286,6 @@ describe('WorkerRuntime.handleMessage', () => {
       const transport = createTransportMock();
       const sessionStore = createSessionStoreMock();
       const runtime = new WorkerRuntime(transport, sessionStore, {
-        modelId: 'claude-sonnet-4-20250514',
         projectRoot: '/tmp/project',
       });
       const agent = createAgentStub();
@@ -2307,7 +2332,6 @@ describe('WorkerRuntime.handleMessage', () => {
       const transport = createTransportMock();
       const sessionStore = createSessionStoreMock();
       const runtime = new WorkerRuntime(transport, sessionStore, {
-        modelId: 'claude-sonnet-4-20250514',
         projectRoot: '/tmp/project',
       });
       const agent = createAgentStub();
@@ -2349,7 +2373,6 @@ describe('WorkerRuntime.handleMessage', () => {
     const transport = createTransportMock();
     const sessionStore = createSessionStoreMock();
     const runtime = new WorkerRuntime(transport, sessionStore, {
-      modelId: 'claude-sonnet-4-20250514',
       projectRoot: '/tmp/project',
     });
     const agent = createAgentStub();
@@ -2373,7 +2396,6 @@ describe('WorkerRuntime.handleMessage', () => {
     const transport = createTransportMock();
     const sessionStore = createSessionStoreMock();
     const runtime = new WorkerRuntime(transport, sessionStore, {
-      modelId: 'claude-sonnet-4-20250514',
       projectRoot: '/tmp/project',
     });
     const agent = createAgentStub();
@@ -2405,7 +2427,6 @@ describe('WorkerRuntime.handleMessage', () => {
     const transport = createTransportMock();
     const sessionStore = createSessionStoreMock();
     const runtime = new WorkerRuntime(transport, sessionStore, {
-      modelId: 'claude-sonnet-4-20250514',
       projectRoot: '/tmp/project',
     });
     const agent = createAgentStub();
@@ -2430,7 +2451,6 @@ describe('WorkerRuntime.handleMessage', () => {
     const transport = createTransportMock();
     const sessionStore = createSessionStoreMock();
     const runtime = new WorkerRuntime(transport, sessionStore, {
-      modelId: 'claude-sonnet-4-20250514',
       projectRoot: '/tmp/project',
     });
 
@@ -2479,7 +2499,6 @@ describe('WorkerRuntime.handleMessage', () => {
     const transport = createTransportMock();
     const sessionStore = createSessionStoreMock();
     const runtime = new WorkerRuntime(transport, sessionStore, {
-      modelId: 'claude-sonnet-4-20250514',
       projectRoot: '/tmp/project',
     });
 
@@ -2534,7 +2553,6 @@ describe('WorkerRuntime.handleMessage', () => {
     const transport = createTransportMock();
     const sessionStore = createSessionStoreMock();
     const runtime = new WorkerRuntime(transport, sessionStore, {
-      modelId: 'claude-sonnet-4-20250514',
       projectRoot: '/tmp/project',
     });
     const agent = createAgentStub();

@@ -5,6 +5,7 @@ import type {
   FeaturePhaseResult,
   GitConflictContext,
   HarnessKind,
+  RoutingTier,
   Task,
   TaskId,
   TaskResult,
@@ -72,13 +73,15 @@ export type PhaseOutput =
  * tiny in A.7 because the new backend seam only needs to prove dispatch and
  * result synthesis; real agent wiring lands in later commits.
  */
-export type RunPayload =
-  | {
-      kind: 'task';
-      task: Task;
-      payload: TaskPayload;
-    }
-  | FeaturePhaseRunPayload;
+export type TaskRunPayload = {
+  kind: 'task';
+  task: Task;
+  payload: TaskPayload;
+  model: string;
+  routingTier: RoutingTier;
+};
+
+export type RunPayload = TaskRunPayload | FeaturePhaseRunPayload;
 
 /**
  * Scope-aware dispatch outcome. Covers both async subprocess dispatches
@@ -342,6 +345,8 @@ export type OrchestratorToWorkerMessage =
       dispatch: TaskRuntimeDispatch;
       task: Task;
       payload: TaskPayload;
+      model: string;
+      routingTier: RoutingTier;
     }
   | {
       type: 'steer';

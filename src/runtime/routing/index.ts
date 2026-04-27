@@ -2,6 +2,7 @@ import type {
   BudgetAction,
   BudgetConfig,
   BudgetState,
+  GvcConfig,
   ModelRoutingConfig,
   RoutingTier,
 } from '@core/types/index';
@@ -14,6 +15,26 @@ export interface ModelDescriptor {
 export interface RouteModelOptions {
   failures?: number;
   budgetWarned?: boolean;
+}
+
+const DEFAULT_MODEL_ID = 'claude-sonnet-4-6';
+
+export function routingConfigOrDefault(config: GvcConfig): ModelRoutingConfig {
+  const fallbackModel = config.modelRouting?.ceiling ?? DEFAULT_MODEL_ID;
+
+  return (
+    config.modelRouting ?? {
+      enabled: false,
+      ceiling: fallbackModel,
+      tiers: {
+        heavy: fallbackModel,
+        standard: fallbackModel,
+        light: fallbackModel,
+      },
+      escalateOnFailure: false,
+      budgetPressure: false,
+    }
+  );
 }
 
 export class ModelRouter {

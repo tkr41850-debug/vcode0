@@ -190,6 +190,7 @@ export async function composeApplication(): Promise<GvcApplication> {
       schedulerRef.current?.enqueue({ type: 'worker_message', message });
     },
     new DiscussFeaturePhaseBackend(graph, agents, verification, sessionStore),
+    config,
   );
   const worktree = new GitWorktreeProvisioner(projectRoot);
   const ports: OrchestratorPorts = {

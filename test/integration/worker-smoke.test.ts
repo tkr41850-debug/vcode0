@@ -47,13 +47,12 @@ describe('worker smoke (faux provider + in-process harness)', () => {
     faux = createFauxProvider({
       api: 'anthropic-messages',
       provider: 'anthropic',
-      models: [{ id: 'claude-sonnet-4-20250514' }],
+      models: [{ id: 'claude-sonnet-4-6' }],
     });
     faux.setResponses([fauxAssistantMessage(fauxText('hello from faux'))]);
 
     sessionStore = new InMemorySessionStore();
     harness = new InProcessHarness(sessionStore, {
-      modelId: 'claude-sonnet-4-20250514',
       projectRoot: os.tmpdir(),
     });
 
@@ -104,7 +103,13 @@ describe('worker smoke (faux provider + in-process harness)', () => {
     const result = await pool.dispatchRun(
       { kind: 'task', taskId: task.id, featureId: task.featureId },
       { mode: 'start', agentRunId: 'run-dispatch-run' },
-      { kind: 'task', task, payload: {} },
+      {
+        kind: 'task',
+        task,
+        payload: {},
+        model: 'claude-sonnet-4-6',
+        routingTier: 'standard',
+      },
     );
 
     expect(result.kind).toBe('started');

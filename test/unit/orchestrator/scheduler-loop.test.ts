@@ -817,6 +817,8 @@ describe('SchedulerLoop', () => {
       expect.objectContaining({
         kind: 'task',
         task: expect.objectContaining({ id: 't-1' }),
+        model: 'claude-sonnet-4-6',
+        routingTier: 'standard',
       }),
     );
     expect(updateAgentRun).toHaveBeenCalledWith('run-task:t-1', {
@@ -877,6 +879,8 @@ describe('SchedulerLoop', () => {
       expect.objectContaining({
         kind: 'task',
         task: expect.objectContaining({ id: 't-1' }),
+        model: 'claude-sonnet-4-6',
+        routingTier: 'standard',
       }),
     );
     expect(updateAgentRun).toHaveBeenCalledWith('run-task:t-1', {
@@ -937,6 +941,8 @@ describe('SchedulerLoop', () => {
       expect.objectContaining({
         kind: 'task',
         task: expect.objectContaining({ id: 't-1' }),
+        model: 'claude-sonnet-4-6',
+        routingTier: 'standard',
       }),
     );
     expect(dispatchRun).toHaveBeenNthCalledWith(
@@ -953,6 +959,8 @@ describe('SchedulerLoop', () => {
       expect.objectContaining({
         kind: 'task',
         task: expect.objectContaining({ id: 't-1' }),
+        model: 'claude-sonnet-4-6',
+        routingTier: 'standard',
       }),
     );
     expect(updateAgentRun).toHaveBeenCalledWith('run-task:t-1', {
@@ -995,6 +1003,8 @@ describe('SchedulerLoop', () => {
       expect.objectContaining({
         kind: 'task',
         task: expect.objectContaining({ id: 't-1' }),
+        model: 'claude-sonnet-4-6',
+        routingTier: 'standard',
       }),
     );
     expect(updateAgentRun).toHaveBeenCalledWith('run-task:t-1', {
@@ -1054,6 +1064,8 @@ describe('SchedulerLoop', () => {
       expect.objectContaining({
         kind: 'task',
         task: expect.objectContaining({ id: 't-1' }),
+        model: 'claude-sonnet-4-6',
+        routingTier: 'standard',
       }),
     );
   });
@@ -4607,6 +4619,8 @@ describe('SchedulerLoop', () => {
       expect.objectContaining({
         kind: 'task',
         task: expect.objectContaining({ id: 't-1' }),
+        model: 'claude-sonnet-4-6',
+        routingTier: 'standard',
       }),
     );
   });

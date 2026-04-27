@@ -1,8 +1,7 @@
-import type { Task } from '@core/types/index';
-import type { TaskPayload } from '@runtime/context/index';
 import type {
   OrchestratorToWorkerMessage,
   ResumableTaskExecutionRunRef,
+  TaskRunPayload,
   TaskRuntimeDispatch,
   WorkerToOrchestratorMessage,
 } from '@runtime/contracts';
@@ -45,31 +44,26 @@ export class InProcessHarness implements SessionHarness {
     private readonly config: InProcessHarnessConfig,
   ) {}
 
-  start(
-    task: Task,
-    payload: TaskPayload,
-    agentRunId: string,
-  ): Promise<SessionHandle> {
+  start(taskRun: TaskRunPayload, agentRunId: string): Promise<SessionHandle> {
     const sessionId = agentRunId;
     const dispatch: TaskRuntimeDispatch = {
       mode: 'start',
       agentRunId,
     };
-    const handle = this.spawnRuntime(sessionId, task, payload, dispatch);
+    const handle = this.spawnRuntime(sessionId, taskRun, dispatch);
     return Promise.resolve(handle);
   }
 
   resume(
-    task: Task,
+    taskRun: TaskRunPayload,
     run: ResumableTaskExecutionRunRef,
-    payload: TaskPayload = {},
   ): Promise<ResumeSessionResult> {
     const dispatch: TaskRuntimeDispatch = {
       mode: 'resume',
       agentRunId: run.agentRunId,
       sessionId: run.sessionId,
     };
-    const handle = this.spawnRuntime(run.sessionId, task, payload, dispatch);
+    const handle = this.spawnRuntime(run.sessionId, taskRun, dispatch);
     return Promise.resolve({ kind: 'resumed', handle });
   }
 
@@ -81,8 +75,7 @@ export class InProcessHarness implements SessionHarness {
 
   private spawnRuntime(
     sessionId: string,
-    task: Task,
-    payload: TaskPayload,
+    taskRun: TaskRunPayload,
     dispatch: TaskRuntimeDispatch,
   ): SessionHandle {
     const { orchestrator, worker } = createLoopbackTransportPair();
@@ -111,7 +104,7 @@ export class InProcessHarness implements SessionHarness {
     // transport buffers pre-registration sends anyway, but deferring is a
     // cheap belt-and-braces guarantee.
     const done = Promise.resolve()
-      .then(() => runtime.run(task, payload, dispatch))
+      .then(() => runtime.run(taskRun, dispatch))
       .catch((err: unknown) => {
         // Mirror `entry.ts`: convert unexpected throws into an `error` IPC
         // frame so the caller's completion handler still fires.
@@ -123,7 +116,7 @@ export class InProcessHarness implements SessionHarness {
               : 'unknown error';
         worker.send({
           type: 'error',
-          taskId: task.id,
+          taskId: taskRun.task.id,
           agentRunId: dispatch.agentRunId,
           error: `in-process worker crashed: ${message}`,
         });
@@ -140,14 +133,14 @@ export class InProcessHarness implements SessionHarness {
       abort: () => {
         orchestrator.send({
           type: 'abort',
-          taskId: task.id,
+          taskId: taskRun.task.id,
           agentRunId: dispatch.agentRunId,
         });
       },
       sendInput: (text: string) => {
         orchestrator.send({
           type: 'manual_input',
-          taskId: task.id,
+          taskId: taskRun.task.id,
           agentRunId: dispatch.agentRunId,
           text,
         });

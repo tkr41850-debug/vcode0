@@ -46,7 +46,7 @@ describe('claim_lock prehook (faux provider + in-process harness)', () => {
     faux = createFauxProvider({
       api: 'anthropic-messages',
       provider: 'anthropic',
-      models: [{ id: 'claude-sonnet-4-20250514' }],
+      models: [{ id: 'claude-sonnet-4-6' }],
     });
 
     workdir = await fs.mkdtemp(path.join(os.tmpdir(), 'claim-lock-int-'));
@@ -54,7 +54,6 @@ describe('claim_lock prehook (faux provider + in-process harness)', () => {
 
     sessionStore = new InMemorySessionStore();
     harness = new InProcessHarness(sessionStore, {
-      modelId: 'claude-sonnet-4-20250514',
       projectRoot: workdir,
     });
 
