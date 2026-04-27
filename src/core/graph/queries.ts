@@ -78,13 +78,7 @@ export function readyTasks(graph: MutableGraphInternals): Task[] {
     if (feature === undefined || feature.collabControl === 'cancelled') {
       continue;
     }
-    if (
-      feature.runtimeBlockedByFeatureId !== undefined &&
-      !(
-        feature.workControl === 'executing_repair' &&
-        task.repairSource === 'integration'
-      )
-    ) {
+    if (feature.runtimeBlockedByFeatureId !== undefined) {
       continue;
     }
     let allDepsDone = true;

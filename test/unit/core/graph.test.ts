@@ -800,7 +800,7 @@ describe('InMemoryFeatureGraph', () => {
     expect(g.readyTasks()).toHaveLength(0);
   });
 
-  it('readyTasks includes integration repair tasks on runtime-blocked features', () => {
+  it('readyTasks excludes integration repair tasks on runtime-blocked features', () => {
     const g = createGraphWithTask({ repairSource: 'integration' });
     updateTask(g, 't-1', { status: 'ready' });
     updateFeature(g, 'f-1', {
@@ -809,8 +809,7 @@ describe('InMemoryFeatureGraph', () => {
     });
 
     const ready = g.readyTasks();
-    expect(ready).toHaveLength(1);
-    expect(ready[0]?.id).toBe('t-1');
+    expect(ready).toHaveLength(0);
   });
 
   it('readyTasks excludes tasks that are already running or done', () => {

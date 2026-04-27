@@ -118,7 +118,6 @@ export function deriveFeatureUnitStatus(
     feature.workControl === 'verifying' ||
     feature.workControl === 'awaiting_merge' ||
     feature.workControl === 'summarizing' ||
-    feature.workControl === 'executing_repair' ||
     feature.workControl === 'replanning' ||
     feature.collabControl === 'branch_open' ||
     feature.collabControl === 'merge_queued' ||

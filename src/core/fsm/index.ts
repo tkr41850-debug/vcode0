@@ -8,12 +8,6 @@ import type {
 
 // ── Constants ───────────────────────────────────────────────────────────
 
-/**
- * Maximum repair attempts before escalating to replan.
- * See feature candidate: extended-repair-profiles.md for profile-aware tuning.
- */
-export const MAX_REPAIR_ATTEMPTS = 1;
-
 // ── Result type ─────────────────────────────────────────────────────────
 
 export type TransitionResult =
@@ -51,8 +45,8 @@ function nextPhase(
   return PHASE_ORDER[idx + 1];
 }
 
-// Phases where failure triggers the repair→replan escalation ladder.
-const REPAIRABLE_PHASES = new Set<FeatureWorkControl>([
+// Phases where failure routes to replanning under current policy.
+const REPLANNABLE_FAILURE_PHASES = new Set<FeatureWorkControl>([
   'executing',
   'ci_check',
   'verifying',
@@ -65,10 +59,8 @@ const FAILURE_STATUSES = new Set<UnitStatus>(['failed']);
  * Validates a workControl transition given the current status and collabControl.
  *
  * Caller responsibilities (this guard validates structural legality only):
- * - Repair attempt counting: check attempts < MAX_REPAIR_ATTEMPTS before
- *   proposing a transition to executing_repair.
  * - Replan cycle tracking: after replanning→executing, a subsequent failure
- *   should be a hard stop (surface to user), not another repair/replan cycle.
+ *   should be a hard stop (surface to user), not another replan cycle.
  *   The FSM has no history — the caller must enforce the one-replan limit.
  */
 export function validateFeatureWorkTransition(
@@ -129,41 +121,11 @@ export function validateFeatureWorkTransition(
     return { valid: true };
   }
 
-  // Failure → repair (caller checks attempt count)
-  if (
-    proposed === 'executing_repair' &&
-    REPAIRABLE_PHASES.has(current) &&
-    FAILURE_STATUSES.has(status)
-  ) {
-    return { valid: true };
-  }
-
-  // Repair succeeded → return to executing or ci_check.
-  // Repair always re-enters through ci_check (not verifying directly),
-  // because CI must re-validate after any code change. If the original
-  // failure was in executing, return to executing to finish remaining work.
-  if (
-    current === 'executing_repair' &&
-    (proposed === 'executing' || proposed === 'ci_check') &&
-    status === 'done'
-  ) {
-    return { valid: true };
-  }
-
-  // Repair failed → escalate to replan
-  if (
-    current === 'executing_repair' &&
-    proposed === 'replanning' &&
-    FAILURE_STATUSES.has(status)
-  ) {
-    return { valid: true };
-  }
-
   // Verify-shaped failure (verify / ci_check / rebase) → replanner decides fixes.
   // Includes rebase-during-executing (downstream blocked feature gets
   // redirected when upstream's merge bumps main).
   if (
-    REPAIRABLE_PHASES.has(current) &&
+    REPLANNABLE_FAILURE_PHASES.has(current) &&
     proposed === 'replanning' &&
     FAILURE_STATUSES.has(status)
   ) {

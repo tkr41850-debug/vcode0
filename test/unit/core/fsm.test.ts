@@ -31,45 +31,11 @@ describe('validateFeatureWorkTransition', () => {
     ['executing', 'executing_repair', 'failed', 'branch_open'],
     ['ci_check', 'executing_repair', 'failed', 'branch_open'],
     ['verifying', 'executing_repair', 'failed', 'branch_open'],
-  ] as const)('failure → repair: %s -> %s (status=%s)', (from, to, status, collab) => {
-    expect(validateFeatureWorkTransition(from, to, status, collab)).toEqual({
-      valid: true,
-    });
-  });
-
-  it.each([
-    ['executing_repair', 'executing', 'done', 'branch_open'],
-    ['executing_repair', 'ci_check', 'done', 'branch_open'],
-  ] as const)('repair succeeded → return: %s -> %s (status=%s)', (from, to, status, collab) => {
-    expect(validateFeatureWorkTransition(from, to, status, collab)).toEqual({
-      valid: true,
-    });
-  });
-
-  it('repair cannot skip ci_check and return directly to verifying', () => {
-    expect(
-      validateFeatureWorkTransition(
-        'executing_repair',
-        'verifying',
-        'done',
-        'branch_open',
-      ),
-    ).toEqual({
-      valid: false,
-      reason:
-        'illegal workControl transition: executing_repair(done) → verifying',
-    });
-  });
-
-  it('repair failed → replan', () => {
-    expect(
-      validateFeatureWorkTransition(
-        'executing_repair',
-        'replanning',
-        'failed',
-        'branch_open',
-      ),
-    ).toEqual({ valid: true });
+  ] as const)('rejects removed repair phase target: %s -> %s (status=%s)', (from, to, status, collab) => {
+    expectRejected(
+      validateFeatureWorkTransition(from, to, status, collab),
+      'executing_repair',
+    );
   });
 
   it('replan succeeded → execute', () => {
@@ -177,15 +143,15 @@ describe('validateFeatureWorkTransition', () => {
     );
   });
 
-  it('rejects repair from non-repairable phase', () => {
-    expectRejected(
+  it('verify-shaped failure still routes to replanning', () => {
+    expect(
       validateFeatureWorkTransition(
-        'discussing',
-        'executing_repair',
+        'verifying',
+        'replanning',
         'failed',
         'branch_open',
       ),
-    );
+    ).toEqual({ valid: true });
   });
 
   it('replanning/failed is a dead end', () => {
