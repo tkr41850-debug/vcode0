@@ -115,14 +115,13 @@ Each feature owns exactly one long-lived integration branch.
    then task-local agent reconciliation with injected conflict
    context if git cannot resolve cleanly.
 
-### Integration Executor: In-Process Subprocess
+### Integration Executor: Inline Coordinator
 
-The orchestrator runs a dedicated **integration-worker subprocess**
-per merge-train cycle. This is distinct from task workers and
-distinct from the tick-synchronous cross-feature rebase path used
-during task execution — integration runs asynchronously so
-long-running post-rebase `ci_check` does not block the scheduler
-loop.
+The orchestrator currently runs integration inline in the scheduler
+flow through `IntegrationCoordinator`. This is distinct from task
+workers and distinct from the tick-synchronous cross-feature rebase
+path used during task execution. The async subprocess variant remains a
+deferred design.
 
 Canonical sequence inside the executor:
 
@@ -130,32 +129,32 @@ Canonical sequence inside the executor:
 awaiting_merge → merge_queued → integrating
   ↓
   write integration marker row (expectedParentSha, featureBranchPreIntegrationSha,
-                                config_snapshot of verification.feature, intent='integrate')
+                                config_snapshot of current verification config, intent='integrate')
   ↓
   git rebase onto latest main   — fail → eject, reroute to replanning with source:'rebase'
   ↓
   post-rebase ci_check          — fail → eject, reroute to replanning with
                                          source:'ci_check', phase:'post_rebase'
   ↓
-  git merge --no-ff --force-with-lease=<expectedParentSha>
+  verify `main` still equals expectedParentSha, then git merge --no-ff
   ↓
-  atomic DB tx: clear marker + set mainMergeSha/branchHeadSha +
-                collabControl='merged' + workControl='summarizing'
+  persist mainMergeSha/branchHeadSha, clear marker, mark collabControl='merged'
   ↓
-merged → summarizing → work_complete
+merged → later summarizing/work_complete flow
 ```
 
-Re-enqueue after eject uses `git rebase --onto <newMain>
-<featureBranchPreIntegrationSha> HEAD` so the stale first-rebase
-layer drops; git `rerere` is enabled as a backstop.
+Current re-enqueue path retries integration from the normal queue after
+replanning or operator action. The `rebase --onto ...` retry shape and
+explicit `rerere` handling remain deferred design notes, not current
+baseline behavior.
 
 Crash between `git merge` and the clearing DB tx is resolved by the
 startup reconciler treating git refs as authoritative
 (see [verification-and-recovery.md](../operations/verification-and-recovery.md)).
 
-Integration-worker IPC carries progress and result frames for each
-sub-phase (rebase, ci_check, merge); full frame schema lives with
-the executor implementation.
+Current inline coordinator does not use a separate integration-worker
+IPC channel. If the deferred subprocess variant lands later, that
+executor will define its own progress/result frame schema.
 
 ## IPC: NDJSON over stdio (swappable)
 
@@ -171,6 +170,14 @@ type TaskRuntimeDispatch =
   | { mode: "start"; agentRunId: string }
   | { mode: "resume"; agentRunId: string; sessionId: string };
 
+interface TaskRunPayload {
+  kind: "task";
+  task: Task;
+  payload: TaskPayload;
+  model: string;
+  routingTier: RoutingTier;
+}
+
 type RuntimeSteeringDirective =
   | { kind: "sync_recommended"; timing: "next_checkpoint" | "immediate" }
   | { kind: "sync_required"; timing: "next_checkpoint" | "immediate" }
@@ -183,6 +190,7 @@ type RuntimeSteeringDirective =
 interface RuntimeUsageDelta {
   provider: string;
   model: string;
+  llmCalls?: number;
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens?: number;
@@ -223,11 +231,18 @@ type WorkerToOrchestratorMessage =
       error: string;
       usage?: RuntimeUsageDelta;
     }
-  | { type: "request_help"; taskId: string; agentRunId: string; query: string }
+  | {
+      type: "request_help";
+      taskId: string;
+      agentRunId: string;
+      toolCallId: string;
+      query: string;
+    }
   | {
       type: "request_approval";
       taskId: string;
       agentRunId: string;
+      toolCallId: string;
       payload: ApprovalPayload;
     }
   | {
@@ -253,6 +268,8 @@ type OrchestratorToWorkerMessage =
       dispatch: TaskRuntimeDispatch;
       task: Task;
       payload: TaskPayload;
+      model: string;
+      routingTier: RoutingTier;
     }
   | {
       type: "steer";
@@ -278,12 +295,14 @@ type OrchestratorToWorkerMessage =
       type: "help_response";
       taskId: string;
       agentRunId: string;
+      toolCallId: string;
       response: HelpResponse;
     }
   | {
       type: "approval_decision";
       taskId: string;
       agentRunId: string;
+      toolCallId: string;
       decision: ApprovalDecision;
     }
   | { type: "manual_input"; taskId: string; agentRunId: string; text: string }
@@ -368,10 +387,10 @@ dispatch, runtime reads those columns and packages them into a
 `TaskPayload` that rides the `run` IPC frame. The worker system
 prompt is rendered from this payload.
 
-Resume dispatch does not rebuild payload state — session history
-already carries the task's working context. Runtime passes an empty
-payload on resume; the planner-baked fields remain on the Task row
-if anything later needs them.
+Resume dispatch rebuilds the same `TaskRunPayload` shape,
+including planner-baked `payload`, routed `model`, and
+`routingTier`; the resumed worker restores conversation state from
+session/checkpoint persistence rather than from an empty payload.
 
 ```typescript
 interface TaskPayload {
@@ -401,13 +420,19 @@ them for task workers.
 ## Crash Recovery
 
 On startup, gvc0 scans persisted `agent_runs` for orphaned work
-and recovers both task execution runs and feature-phase runs.
-Task runs resume from `sessionId` when possible or reset to `ready`;
-feature-phase runs redispatch through the same
-`RuntimePort.dispatchRun(...)` path and apply recovered results inline.
-Feature branches remain authoritative across restarts,
-and resumed task worktrees rebase onto the current HEAD of the
-owning feature branch before continuing.
+and recovers both task execution runs and feature-phase runs through
+the shared `RuntimePort.dispatchRun(...)` surface.
+For local pi-sdk runs, startup first checks persisted `workerPid` +
+`workerBootEpoch`; if the pid belongs to an older orchestrator boot,
+recovery reads `/proc/<pid>/environ` markers to confirm it still
+belongs to this project and `agentRunId`, then kills that stale worker
+before resuming or redispatching. Before task resume, recovery writes a
+`RECOVERY_REBASE` marker file into the task worktree that points at the
+current feature branch; current recovery does not perform the sync
+inline. Task runs then resume from `sessionId` when possible or reset to
+`ready`. Feature-phase runs redispatch through the same scope-aware path
+and apply recovered inline results or recovered proposal-wait state as
+needed.
 The baseline uses `PiSdkHarness` only;
 `session_id` is an orchestrator-owned opaque reference passed
 back to the harness, and a future external session service may
@@ -438,6 +463,9 @@ interface SessionExitInfo {
 
 interface SessionHandle {
   sessionId: string;
+  harnessKind?: HarnessKind;
+  workerPid?: number;
+  workerBootEpoch?: number;
   abort(): void;
   sendInput(text: string): Promise<void>;
   send(message: OrchestratorToWorkerMessage): void;
@@ -456,9 +484,12 @@ type ResumeSessionResult =
 
 interface SessionHarness {
   /** Start a new session for a task */
-  start(task: Task, payload: TaskPayload, agentRunId: string): Promise<SessionHandle>;
+  start(taskRun: TaskRunPayload, agentRunId: string): Promise<SessionHandle>;
   /** Resume from authoritative persisted run/session state */
-  resume(task: Task, run: ResumableTaskExecutionRunRef): Promise<ResumeSessionResult>;
+  resume(
+    taskRun: TaskRunPayload,
+    run: ResumableTaskExecutionRunRef,
+  ): Promise<ResumeSessionResult>;
 }
 
 // Baseline implementation
@@ -480,7 +511,36 @@ into every `OrchestratorToWorkerMessage` emitted on behalf of
 the `SessionHandle` (`abort`, `manual_input`, `run`). Backend is
 swappable, but the IDs on the wire are real.
 
-A `ClaudeCodeHarness` that wraps Claude Code sessions as worker backends is a [feature candidate](./feature-candidates/claude-code-harness.md), not part of the baseline.
+A `ClaudeCodeHarness` exists in the type/config surface but remains a future runtime backend; baseline dispatch/recovery still defaults to `PiSdkHarness`.
+
+Config surface already includes task model routing plus harness selection:
+
+```jsonc
+{
+  "tokenProfile": "balanced",
+  "modelRouting": {
+    "enabled": false,
+    "ceiling": "claude-sonnet-4-6",
+    "tiers": {
+      "heavy": "claude-sonnet-4-6",
+      "standard": "claude-sonnet-4-6",
+      "light": "claude-sonnet-4-6"
+    },
+    "escalateOnFailure": false,
+    "budgetPressure": false
+  },
+  "harness": {
+    "kind": "pi-sdk",
+    "claudeCode": {
+      "binary": "claude",
+      "settings": ".claude/settings.json",
+      "mcpServerPort": 0
+    }
+  }
+}
+```
+
+The `claudeCode` subsection parses today even though runtime wiring for that harness lands in a later phase.
 
 Session IDs are stored as orchestrator-owned opaque references.
 `agent_runs.session_id` is the authoritative resumable pointer
@@ -508,44 +568,21 @@ On startup:
 
 ```typescript
 async function recoverOrphanedRuns(store: Store, runtime: RuntimePort) {
-  const runs = await store.listAgentRuns({ runStatus: "running" });
+  for (const run of store.listAgentRuns()) {
+    if (run.runStatus === "retry_await") continue;
+    await killStaleWorkerIfNeeded(run); // checks workerPid + workerBootEpoch + /proc markers
 
-  for (const run of runs) {
     if (run.scopeType === "task") {
-      if (run.sessionId) {
-        await runtime.dispatchRun(
-          { kind: "task", taskId: run.scopeId, featureId: task.featureId },
-          {
-            mode: "resume",
-            agentRunId: run.id,
-            sessionId: run.sessionId,
-          },
-          { kind: "task", task, payload },
-        );
-        continue;
-      }
-
-      await store.updateAgentRun(run.id, {
-        runStatus: "ready",
-        owner: "system",
-      });
+      await runtime.dispatchRun(taskScope, taskDispatch, taskRunPayload);
       continue;
     }
 
-    await runtime.dispatchRun(
-      { kind: "feature_phase", featureId: run.scopeId, phase: run.phase },
-      run.sessionId === undefined
-        ? { mode: "start", agentRunId: run.id }
-        : {
-            mode: "resume",
-            agentRunId: run.id,
-            sessionId: run.sessionId,
-          },
-      {
-        kind: "feature_phase",
-        ...(run.phase === "replan" ? { replanReason } : {}),
-      },
+    const result = await runtime.dispatchRun(
+      featurePhaseScope,
+      featurePhaseDispatch,
+      featurePhasePayload,
     );
+    applyRecoveredFeaturePhaseResult(result);
   }
 }
 ```

@@ -13,7 +13,7 @@ A task becoming **stuck** is a work-control problem. A task or feature entering 
 
 ## Retry: Exponential Backoff up to 1 Week
 
-Run-level retry is handled by the orchestrator for transient failures only. Task execution runs and feature-phase runs share the same run/session model and backoff concepts when a session crashes or the provider fails transiently. Current baseline wiring persists both task and feature-phase message history through shared session-store backing under `.gvc0/sessions/`, but startup orphan recovery is currently task-run focused rather than a full feature-phase recovery pass. Deterministic verification failures do not use retry backoff; they create repair work or return the run to normal execution flow instead.
+Run-level retry is handled by the orchestrator for transient failures only. Task execution runs and feature-phase runs share the same run/session model and backoff concepts when a session crashes or the provider fails transiently. Current baseline wiring persists both task and feature-phase message history through shared session-store backing under `.gvc0/sessions/`, and startup orphan recovery handles both scopes through the shared `dispatchRun(...)` path. For local pi-sdk runs, recovery checks persisted `workerPid` + `workerBootEpoch`, confirms ownership via `/proc/<pid>/environ` markers, kills stale workers from older orchestrator boots, then resumes or redispatches. Deterministic verification failures do not use retry backoff; they create repair work or return the run to normal execution flow instead.
 
 ```typescript
 interface RetryPolicy {
@@ -52,14 +52,14 @@ Current code separates worker closeout from feature-level verification.
 - In the worker runtime, terminal results carry `completionKind: 'submitted' | 'implicit'`. The orchestrator treats only `completionKind === 'submitted'` as landed task work and uses that to mark the task merged into the feature branch.
 - Feature-level shell verification runs in `ci_check` on the feature worktree — once pre-verify, then again post-rebase inside the integration executor on top of the rebased branch.
 - Agent-level semantic review runs later in `verifying`.
-- The integration executor runs rebase → post-rebase `ci_check` → `git merge --no-ff --force-with-lease` in sequence; both pre-verify and post-rebase `ci_check` reuse `verification.feature`.
+- The integration executor runs rebase → post-rebase `ci_check` → verify `main` still matches `expectedParentSha` → `git merge --no-ff`; both pre-verify and post-rebase `ci_check` reuse `verification.feature`.
 
 ### Verification Config
 
 Verification layers are configured as editable command lists in `.gvc0/config.json`. The commands shown below are examples only; actual projects may use different tools and ecosystems (`npm`, `cargo`, `go test`, `pytest`, `mix`, etc.).
 
 Current wiring:
-- `verification.feature` is executed during pre-verify `ci_check` and during post-rebase `ci_check` inside the integration executor. The integration snapshot captures `verification.feature` at integration begin so both `ci_check` runs within one integration cycle use identical commands even if config is edited mid-integration.
+- `verification.feature` is executed during pre-verify `ci_check` and during post-rebase `ci_check` inside the integration executor. The integration marker stores a JSON snapshot of the current verification config, but current post-rebase execution still rereads live config through `VerificationService`.
 - `verification.task` is executed as the task-level lightweight check.
 
 ```jsonc
@@ -87,7 +87,7 @@ Current wiring:
 }
 ```
 
-Feature checks run in the feature branch during `ci_check` and are the heavy branch-level gate before spec review. `verifying` is an agent-level review that checks whether the feature branch meets the feature spec. There is no separate `verification.mergeTrain` layer — post-rebase `ci_check` reuses `verification.feature` from the integration snapshot. Empty effective check lists are advisory-only: the phase still passes, but the orchestrator emits a warning because verification ran without configured commands (deduped per integration cycle — see [Warnings](./warnings.md)). Timeouts are configurable per verification layer; the 60s / 600s values shown above are baseline examples for local-machine workflows. Support for substantially longer-running verification windows is deferred. See [Feature Candidate: Long Verification Timeouts](../feature-candidates/long-verification-timeouts.md). Slow-check warnings and feature-churn warnings are described in [Warnings](./warnings.md). Upstream sync recommendation and conflict escalation behavior are described in [Conflict Coordination](./conflict-coordination.md).
+Feature checks run in the feature branch during `ci_check` and are the heavy branch-level gate before spec review. `verifying` is an agent-level review that checks whether the feature branch meets the feature spec. There is no separate `verification.mergeTrain` layer — post-rebase `ci_check` currently reruns the same `verification.feature` layer via `VerificationService`. Empty effective check lists are advisory-only: the phase still passes, but the orchestrator emits a warning because verification ran without configured commands (deduped per integration cycle — see [Warnings](./warnings.md)). Timeouts are configurable per verification layer; the 60s / 600s values shown above are baseline examples for local-machine workflows. Support for substantially longer-running verification windows is deferred. See [Feature Candidate: Long Verification Timeouts](../feature-candidates/long-verification-timeouts.md). Slow-check warnings and feature-churn warnings are described in [Warnings](./warnings.md). Upstream sync recommendation and conflict escalation behavior are described in [Conflict Coordination](./conflict-coordination.md).
 
 ### Unified Failure Routing to Replanning
 
@@ -117,7 +117,7 @@ If rebase fails during integration:
 1. Eject from the merge queue and move feature work control to `replanning`.
 2. Persist `VerifyIssue[]` with `source: 'rebase'` and `conflictedFiles` onto `features.verify_issues`.
 3. The replanner proposes reconciliation tasks that prefer merging upstream changes over discarding them.
-4. On re-enqueue, rebase uses `git rebase --onto <newMain> <preRebaseFeatureSha> HEAD` to drop the stale first-rebase layer. `rerere` is enabled as a backstop.
+4. On re-enqueue, the feature returns through the normal queue after replanning or operator action. More specialized `rebase --onto ...` retry handling remains deferred.
 
 ### Typed `VerifyIssue` Shape
 
@@ -140,10 +140,10 @@ Task completion does not land work on `main` directly. Instead:
 4. If `verifying` passes, feature work control becomes `awaiting_merge`.
 5. Only then may collaboration control become `merge_queued`.
 6. The merge train serializes feature-branch integration into `main` through the in-process integration executor (see [worker-model.md](../architecture/worker-model.md) for the subprocess and IPC shape).
-7. The integration executor: writes the integration marker row (snapshotting `verification.feature`), rebases the feature branch onto latest `main`, runs post-rebase `ci_check`, merges with `git merge --no-ff --force-with-lease=<expectedParentSha>`, then atomically clears the marker and commits the DB transition.
-8. On success, collaboration control becomes `merged` and feature work control moves to `summarizing` — or directly to `work_complete` in budget mode.
-9. On any integration failure (rebase conflict, post-rebase `ci_check` fail), the executor ejects the feature from the queue and reroutes to `replanning` with a typed `VerifyIssue[]` payload (see Unified Failure Routing above). No repair task is created directly.
-10. After approved replan tasks land, the feature returns through `ci_check` and `verifying`, and may re-enter the merge queue on pass. Re-enqueue rebase uses `git rebase --onto <newMain> <preRebaseFeatureSha> HEAD` so the stale first-rebase layer drops.
+7. The integration executor: writes the integration marker row (including a JSON snapshot of current verification config), rebases the feature branch onto latest `main`, runs post-rebase `ci_check`, verifies `main` still matches `expectedParentSha`, merges with `git merge --no-ff`, then persists merge SHAs, clears the marker, and marks collaboration control `merged`.
+8. On success, summarization/work-complete flow continues later from the normal post-merge lifecycle.
+9. On any integration failure (rebase conflict, post-rebase `ci_check` fail, or `main` moving underfoot), the executor ejects the feature from the queue and reroutes to `replanning` with a typed `VerifyIssue[]` payload (see Unified Failure Routing above). No repair task is created directly.
+10. After approved replan tasks land, the feature returns through `ci_check` and `verifying`, and may re-enter the merge queue on pass.
 
 Crash recovery between `git merge` and the clearing DB transaction is handled by a startup reconciler that treats git refs as authoritative. See [Integration Crash Recovery](#integration-crash-recovery) below (lands with the executor).
 
@@ -170,28 +170,21 @@ Integration-time rebase failure of the currently-integrating feature (the execut
 
 ## Integration Crash Recovery
 
-The integration executor writes a singleton marker row (`integration_state`) at the start of each cycle capturing `expectedParentSha`, `featureBranchPreIntegrationSha`, and a snapshot of `verification.feature`. The success path clears the marker atomically with the DB transition to `merged` + `summarizing`. A crash between `git merge` and this clearing transaction leaves the marker present while `main` already points at the merge commit.
+The integration executor writes a singleton marker row (`integration_state`) at the start of each cycle capturing `expectedParentSha`, `featureBranchPreIntegrationSha`, and a JSON snapshot of current verification config. The success path later persists merge SHAs, clears the marker, and marks collaboration control `merged` in separate steps. A crash between `git merge` and that cleanup can leave the marker present while `main` already points at the merge commit.
 
 At startup, before the scheduler loop begins, the reconciler compares the marker row against actual git refs. Git refs are authoritative:
 
 1. **No marker + `main` unchanged since previous run** — clean resume, no action.
 2. **No marker + `main` at an unknown SHA** — an external push landed while the orchestrator was down. Halt the merge train, emit a warning, require operator confirmation before resuming.
 3. **Marker present + `main` == `expectedParentSha`** — `git merge` never ran. Clear marker and retry integration from scratch.
-4. **Marker present + `main` at a valid merge commit (parent 1 == `expectedParentSha`, parent 2 == feature branch tip)** — `git merge` succeeded but the DB transaction crashed. Complete the DB transition from the marker (set `mainMergeSha`, `branchHeadSha`, flip `collabControl=merged`, `workControl=summarizing`) and clear the marker.
+4. **Marker present + `main` at a valid merge commit (parent 1 == `expectedParentSha`, parent 2 == post-rebase feature tip)** — `git merge` succeeded but cleanup crashed. Complete the remaining persistence updates from the marker (set `mainMergeSha`, `branchHeadSha`, flip `collabControl=merged`) and clear the marker.
 5. **Marker present + any other `main` state** — state is ambiguous. Halt the merge train and require manual intervention.
 
 The reconciler must be idempotent — a second invocation on the same state is a no-op.
 
 ## Hard Cancellation
 
-Hard cancellation mid-integration follows the same marker-row contract:
-
-1. Atomically flip marker `intent` from `'integrate'` to `'cancel'` in the same DB transaction that marks the feature as cancelled.
-2. Kill the integration-worker subprocess.
-3. Reset the feature branch to `featureBranchPreIntegrationSha` to undo any rebase commits added during the cycle.
-4. Clear the marker row.
-
-Graceful mid-integration cancellation (waiting for the worker to finish its current sub-step) is a deferred feature — see [Feature Candidate: Graceful Integration Cancellation](../feature-candidates/graceful-integration-cancellation.md).
+Hard mid-integration cancellation is not implemented in the current inline coordinator. The intended marker-row contract and branch-reset behavior remain deferred design, alongside graceful mid-integration cancellation. See [Feature Candidate: Graceful Integration Cancellation](../feature-candidates/graceful-integration-cancellation.md).
 
 ## Stuck Detection
 

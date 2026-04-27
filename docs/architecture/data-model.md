@@ -194,12 +194,15 @@ type VerifyIssue =
 
 interface IntegrationState {
   featureId: FeatureId;                    // singleton: only one integration in-flight
-  expectedParentSha: string;               // main's sha when rebase began (force-with-lease anchor)
-  featureBranchPreIntegrationSha: string;  // feature branch sha before rebase (used for --onto on re-enqueue)
-  configSnapshot: string;                  // JSON snapshot of verification.feature at integration begin
+  expectedParentSha: string;               // main's sha when rebase began; checked again before merge
+  featureBranchPreIntegrationSha: string;  // feature branch sha before rebase
+  featureBranchPostRebaseSha?: string;     // feature branch sha after rebase, before merge; used by startup reconciliation
+  configSnapshot: string;                  // JSON snapshot of current verification config
   intent: 'integrate' | 'cancel';
   startedAt: number;
 }
+
+type AgentRunHarnessKind = "pi-sdk" | "claude-code";
 
 interface BaseAgentRun {
   id: string;
@@ -208,7 +211,12 @@ interface BaseAgentRun {
   owner: RunOwner;
   attention: RunAttention;
   sessionId?: string;
+  harnessKind?: AgentRunHarnessKind;   // runtime backend that owns the resumable session
+  workerPid?: number;                  // last local worker pid reported by the harness
+  workerBootEpoch?: number;            // orchestrator boot epoch that observed workerPid
+  harnessMetaJson?: string;            // optional harness-specific recovery blob
   payloadJson?: string;
+  tokenUsage?: TokenUsageAggregate;    // normalized usage for this run row
   restartCount: number;
   maxRetries: number;
   retryAt?: number;
