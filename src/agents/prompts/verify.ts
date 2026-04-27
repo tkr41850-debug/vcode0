@@ -41,7 +41,7 @@ Output should use \`submitVerify(...)\` exactly once after all issues raised, an
 - verification result: pass or replan needed
 - evidence for each success criterion
 - missing proof or failed checks
-- concise repair focus when verdict is replan_needed
+- concise replan focus when verdict is replan_needed
 
 Do not:
 - devolve into generic style review

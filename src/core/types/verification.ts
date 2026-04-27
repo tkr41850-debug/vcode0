@@ -23,7 +23,7 @@ export interface VerificationSummary {
   failedChecks?: string[];
   outcome?: VerificationOutcome;
   criteriaEvidence?: VerificationCriterionEvidence[];
-  repairFocus?: string[];
+  replanFocus?: string[];
   issues?: VerifyIssue[];
 }
 

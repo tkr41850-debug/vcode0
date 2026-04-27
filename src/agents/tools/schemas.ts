@@ -174,7 +174,7 @@ export const featurePhaseToolParameters = {
     summary: Type.String(),
     failedChecks: Type.Optional(Type.Array(Type.String())),
     criteriaEvidence: Type.Optional(Type.Array(verificationCriterionSchema)),
-    repairFocus: Type.Optional(Type.Array(Type.String())),
+    replanFocus: Type.Optional(Type.Array(Type.String())),
   }),
   raiseIssue: Type.Object({
     severity: Type.Union([

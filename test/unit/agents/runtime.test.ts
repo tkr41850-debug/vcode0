@@ -434,7 +434,7 @@ describe('FeaturePhaseOrchestrator', () => {
             summary: 'Repair needed: missing proof for success criteria.',
             failedChecks: ['missing proof for success criteria'],
             criteriaEvidence,
-            repairFocus: ['prove integrated behavior'],
+            replanFocus: ['prove integrated behavior'],
           }),
         ],
         { stopReason: 'toolUse' },
@@ -454,7 +454,7 @@ describe('FeaturePhaseOrchestrator', () => {
       summary: 'Repair needed: missing proof for success criteria.',
       failedChecks: ['missing proof for success criteria'],
       criteriaEvidence,
-      repairFocus: ['prove integrated behavior'],
+      replanFocus: ['prove integrated behavior'],
     });
     const storedRun = store.getAgentRun(run.id);
     expect(storedRun?.sessionId).toBe(run.id);

@@ -164,8 +164,8 @@ export class DefaultFeaturePhaseToolHost {
       outcome === 'replan_needed'
         ? args.failedChecks && args.failedChecks.length > 0
           ? args.failedChecks
-          : args.repairFocus && args.repairFocus.length > 0
-            ? args.repairFocus
+          : args.replanFocus && args.replanFocus.length > 0
+            ? args.replanFocus
             : hasBlocking
               ? blockingIssues.map((issue) => issue.description)
               : [args.summary]
@@ -181,8 +181,8 @@ export class DefaultFeaturePhaseToolHost {
       args.criteriaEvidence.length > 0
         ? { criteriaEvidence: args.criteriaEvidence }
         : {}),
-      ...(args.repairFocus !== undefined && args.repairFocus.length > 0
-        ? { repairFocus: args.repairFocus }
+      ...(args.replanFocus !== undefined && args.replanFocus.length > 0
+        ? { replanFocus: args.replanFocus }
         : {}),
       ...(hasIssues ? { issues: [...this.verifyIssues] } : {}),
     };

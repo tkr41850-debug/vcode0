@@ -124,7 +124,7 @@ export interface SubmitVerifyOptions {
   summary: string;
   failedChecks?: string[];
   criteriaEvidence?: VerificationCriterionEvidence[];
-  repairFocus?: string[];
+  replanFocus?: string[];
 }
 
 export interface RaiseIssueOptions {

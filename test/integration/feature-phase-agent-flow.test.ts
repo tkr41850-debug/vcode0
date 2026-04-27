@@ -696,7 +696,7 @@ describe('feature-phase agent flow', () => {
             outcome: 'replan_needed',
             summary: 'Repair needed: integrated flow not proven.',
             failedChecks: ['integrated flow not proven'],
-            repairFocus: ['add proof for integrated flow'],
+            replanFocus: ['add proof for integrated flow'],
           }),
         ],
         { stopReason: 'toolUse' },
