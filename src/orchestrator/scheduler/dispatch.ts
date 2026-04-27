@@ -17,7 +17,10 @@ import type {
   TaskAgentRun,
 } from '@core/types/index';
 import type { OrchestratorPorts } from '@orchestrator/ports/index';
-import { isProposalPhase } from '@orchestrator/proposals/index';
+import {
+  isProposalPhase,
+  serializeStoredProposalPayload,
+} from '@orchestrator/proposals/index';
 import { buildTaskPayload } from '@runtime/context/index';
 import type {
   DispatchRunResult,
@@ -535,7 +538,13 @@ async function synthesizeFeaturePhaseDispatchResult(params: {
       params.ports,
       params.run,
       params.result,
-      JSON.stringify(params.result.output.result.proposal),
+      serializeStoredProposalPayload({
+        proposal: params.result.output.result.proposal,
+        recovery: {
+          phaseSummary: params.result.output.result.summary,
+          phaseDetails: params.result.output.result.details,
+        },
+      }),
     );
     params.ports.store.appendEvent({
       eventType: 'feature_phase_completed',

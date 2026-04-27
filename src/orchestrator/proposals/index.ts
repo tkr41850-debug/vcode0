@@ -5,9 +5,37 @@ import {
   isGraphProposal,
   type ProposalApplyResult,
 } from '@core/proposals/index';
-import type { AgentRunPhase, FeatureId, Task } from '@core/types/index';
+import type {
+  AgentRunPhase,
+  FeatureId,
+  ProposalPhaseDetails,
+  Task,
+} from '@core/types/index';
 
 export type ProposalPhase = Extract<AgentRunPhase, 'plan' | 'replan'>;
+
+export type ProposalRecoveryDecision =
+  | {
+      kind: 'approved';
+      summary: string;
+      extra: Record<string, unknown>;
+      cancelled?: boolean;
+      cancelReason?: 'empty_proposal';
+    }
+  | {
+      kind: 'rejected';
+      comment?: string;
+    }
+  | {
+      kind: 'apply_failed';
+      error: string;
+    };
+
+export interface ProposalRecoveryMeta {
+  phaseSummary?: string;
+  phaseDetails?: ProposalPhaseDetails;
+  decision?: ProposalRecoveryDecision;
+}
 
 export function isProposalPhase(phase: AgentRunPhase): phase is ProposalPhase {
   return phase === 'plan' || phase === 'replan';
@@ -17,21 +45,44 @@ export function parseGraphProposalPayload(
   payloadJson?: string,
   expectedMode?: GraphProposal['mode'],
 ): GraphProposal {
+  return parseStoredProposalPayload(payloadJson, expectedMode).proposal;
+}
+
+export function parseStoredProposalPayload(
+  payloadJson?: string,
+  expectedMode?: GraphProposal['mode'],
+): { proposal: GraphProposal; recovery?: ProposalRecoveryMeta } {
   if (payloadJson === undefined) {
     throw new Error('proposal payload missing from agent run');
   }
 
   const parsed = JSON.parse(payloadJson) as unknown;
-  if (!isGraphProposal(parsed)) {
+  if (isGraphProposal(parsed)) {
+    if (expectedMode !== undefined && parsed.mode !== expectedMode) {
+      throw new Error(
+        `proposal payload mode mismatch: expected "${expectedMode}", got "${parsed.mode}"`,
+      );
+    }
+    return { proposal: parsed };
+  }
+
+  if (typeof parsed !== 'object' || parsed === null) {
     throw new Error('invalid proposal payload');
   }
-  if (expectedMode !== undefined && parsed.mode !== expectedMode) {
+
+  const record = parsed as Record<string, unknown>;
+  const proposal = record.proposal;
+  if (!isGraphProposal(proposal)) {
+    throw new Error('invalid proposal payload');
+  }
+  if (expectedMode !== undefined && proposal.mode !== expectedMode) {
     throw new Error(
-      `proposal payload mode mismatch: expected "${expectedMode}", got "${parsed.mode}"`,
+      `proposal payload mode mismatch: expected "${expectedMode}", got "${proposal.mode}"`,
     );
   }
 
-  return parsed;
+  const recovery = readProposalRecoveryMeta(record.recovery);
+  return { proposal, ...(recovery !== undefined ? { recovery } : {}) };
 }
 
 export interface ProposalApprovalOutcome {
@@ -184,4 +235,109 @@ export function rootTasksForFeature(
       (task) => task.featureId === featureId && task.dependsOn.length === 0,
     )
     .sort((a, b) => a.orderInFeature - b.orderInFeature);
+}
+
+export function serializeStoredProposalPayload(input: {
+  proposal: GraphProposal;
+  recovery?: ProposalRecoveryMeta;
+}): string {
+  return JSON.stringify({
+    proposal: input.proposal,
+    ...(input.recovery !== undefined ? { recovery: input.recovery } : {}),
+  });
+}
+
+function readProposalRecoveryMeta(
+  value: unknown,
+): ProposalRecoveryMeta | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  const recovery: ProposalRecoveryMeta = {};
+
+  if (typeof record.phaseSummary === 'string') {
+    recovery.phaseSummary = record.phaseSummary;
+  }
+  if (isProposalPhaseDetails(record.phaseDetails)) {
+    recovery.phaseDetails = record.phaseDetails;
+  }
+  const decision = readProposalRecoveryDecision(record.decision);
+  if (decision !== undefined) {
+    recovery.decision = decision;
+  }
+
+  return Object.keys(recovery).length > 0 ? recovery : undefined;
+}
+
+function readProposalRecoveryDecision(
+  value: unknown,
+): ProposalRecoveryDecision | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+
+  if (record.kind === 'approved') {
+    if (typeof record.summary !== 'string' || !isRecord(record.extra)) {
+      return undefined;
+    }
+    const decision: ProposalRecoveryDecision = {
+      kind: 'approved',
+      summary: record.summary,
+      extra: record.extra,
+    };
+    if (record.cancelled === true) {
+      decision.cancelled = true;
+    }
+    if (record.cancelReason === 'empty_proposal') {
+      decision.cancelReason = 'empty_proposal';
+    }
+    return decision;
+  }
+
+  if (record.kind === 'rejected') {
+    return {
+      kind: 'rejected',
+      ...(typeof record.comment === 'string'
+        ? { comment: record.comment }
+        : {}),
+    };
+  }
+
+  if (record.kind === 'apply_failed' && typeof record.error === 'string') {
+    return {
+      kind: 'apply_failed',
+      error: record.error,
+    };
+  }
+
+  return undefined;
+}
+
+function isProposalPhaseDetails(value: unknown): value is ProposalPhaseDetails {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.summary === 'string' &&
+    typeof record.chosenApproach === 'string' &&
+    stringArray(record.keyConstraints) &&
+    stringArray(record.decompositionRationale) &&
+    stringArray(record.orderingRationale) &&
+    stringArray(record.verificationExpectations) &&
+    stringArray(record.risksTradeoffs) &&
+    stringArray(record.assumptions)
+  );
+}
+
+function stringArray(value: unknown): value is string[] {
+  return (
+    Array.isArray(value) && value.every((entry) => typeof entry === 'string')
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

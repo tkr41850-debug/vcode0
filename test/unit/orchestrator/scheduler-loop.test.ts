@@ -27,6 +27,10 @@ import type {
   UiPort,
 } from '@orchestrator/ports/index';
 import {
+  parseStoredProposalPayload,
+  serializeStoredProposalPayload,
+} from '@orchestrator/proposals/index';
+import {
   type SchedulerEvent,
   SchedulerLoop,
 } from '@orchestrator/scheduler/index';
@@ -1860,15 +1864,26 @@ describe('SchedulerLoop', () => {
       { mode: 'start', agentRunId: 'run-feature:f-1:plan' },
       { kind: 'feature_phase' },
     );
-    expect(updateAgentRun).toHaveBeenCalledWith('run-feature:f-1:plan', {
-      runStatus: 'await_approval',
-      owner: 'manual',
-      sessionId: 'run-feature:f-1:plan',
-      harnessKind: 'pi-sdk',
-      workerPid: 4321,
-      workerBootEpoch: 1_717_171_717,
-      payloadJson: JSON.stringify(makeProposal('plan')),
-      restartCount: 0,
+    expect(updateAgentRun).toHaveBeenCalledWith(
+      'run-feature:f-1:plan',
+      expect.objectContaining({
+        runStatus: 'await_approval',
+        owner: 'manual',
+        sessionId: 'run-feature:f-1:plan',
+        harnessKind: 'pi-sdk',
+        workerPid: 4321,
+        workerBootEpoch: 1_717_171_717,
+        restartCount: 0,
+      }),
+    );
+    const storedPlan = parseStoredProposalPayload(
+      ports.store.getAgentRun('run-feature:f-1:plan')?.payloadJson,
+      'plan',
+    );
+    expect(storedPlan.proposal).toEqual(makeProposal('plan'));
+    expect(storedPlan.recovery).toMatchObject({
+      phaseSummary: 'ok',
+      phaseDetails: proposalDetails,
     });
   });
 
@@ -1965,15 +1980,26 @@ describe('SchedulerLoop', () => {
       },
       { kind: 'feature_phase' },
     );
-    expect(updateAgentRun).toHaveBeenCalledWith('run-feature:f-1:plan', {
-      runStatus: 'await_approval',
-      owner: 'manual',
-      sessionId: 'sess-fresh',
-      harnessKind: 'pi-sdk',
-      workerPid: 4321,
-      workerBootEpoch: 1_717_171_717,
-      payloadJson: JSON.stringify(makeProposal('plan')),
-      restartCount: 2,
+    expect(updateAgentRun).toHaveBeenCalledWith(
+      'run-feature:f-1:plan',
+      expect.objectContaining({
+        runStatus: 'await_approval',
+        owner: 'manual',
+        sessionId: 'sess-fresh',
+        harnessKind: 'pi-sdk',
+        workerPid: 4321,
+        workerBootEpoch: 1_717_171_717,
+        restartCount: 2,
+      }),
+    );
+    const restartedPlan = parseStoredProposalPayload(
+      ports.store.getAgentRun('run-feature:f-1:plan')?.payloadJson,
+      'plan',
+    );
+    expect(restartedPlan.proposal).toEqual(makeProposal('plan'));
+    expect(restartedPlan.recovery).toMatchObject({
+      phaseSummary: 'ok',
+      phaseDetails: proposalDetails,
     });
   });
 
@@ -2427,7 +2453,9 @@ describe('SchedulerLoop', () => {
       makeFeaturePhaseRun('plan', {
         runStatus: 'await_approval',
         owner: 'manual',
-        payloadJson: JSON.stringify(makeProposal('plan')),
+        payloadJson: serializeStoredProposalPayload({
+          proposal: makeProposal('plan'),
+        }),
       }),
     );
 
@@ -2455,10 +2483,27 @@ describe('SchedulerLoop', () => {
     expect(graph.tasks.get('t-2')).toEqual(
       expect.objectContaining({ status: 'pending', dependsOn: ['t-1'] }),
     );
-    expect(updateAgentRun).toHaveBeenCalledWith('run-feature:f-1:plan', {
-      runStatus: 'completed',
-      owner: 'system',
-      payloadJson: JSON.stringify(makeProposal('plan')),
+    expect(updateAgentRun).toHaveBeenCalledWith(
+      'run-feature:f-1:plan',
+      expect.objectContaining({
+        runStatus: 'completed',
+        owner: 'system',
+      }),
+    );
+    const approvedPlan = parseStoredProposalPayload(
+      ports.store.getAgentRun('run-feature:f-1:plan')?.payloadJson,
+      'plan',
+    );
+    expect(approvedPlan.proposal).toEqual(makeProposal('plan'));
+    expect(approvedPlan.recovery?.decision).toMatchObject({
+      kind: 'approved',
+      summary: '3 applied, 0 skipped, 0 warnings',
+      extra: {
+        mode: 'plan',
+        appliedCount: 3,
+        skippedCount: 0,
+        warningCount: 0,
+      },
     });
     expect(appendEvent).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -2488,7 +2533,9 @@ describe('SchedulerLoop', () => {
         runStatus: 'await_approval',
         owner: 'manual',
         sessionId: 'sess-1',
-        payloadJson: JSON.stringify(makeProposal('plan')),
+        payloadJson: serializeStoredProposalPayload({
+          proposal: makeProposal('plan'),
+        }),
       }),
     );
 
@@ -2511,11 +2558,22 @@ describe('SchedulerLoop', () => {
       }),
     );
     expect(graph.tasks.size).toBe(0);
-    expect(updateAgentRun).toHaveBeenCalledWith('run-feature:f-1:plan', {
-      runStatus: 'completed',
-      owner: 'manual',
-      sessionId: 'sess-1',
-      payloadJson: JSON.stringify(makeProposal('plan')),
+    expect(updateAgentRun).toHaveBeenCalledWith(
+      'run-feature:f-1:plan',
+      expect.objectContaining({
+        runStatus: 'completed',
+        owner: 'manual',
+        sessionId: 'sess-1',
+      }),
+    );
+    const rejectedPlan = parseStoredProposalPayload(
+      ports.store.getAgentRun('run-feature:f-1:plan')?.payloadJson,
+      'plan',
+    );
+    expect(rejectedPlan.proposal).toEqual(makeProposal('plan'));
+    expect(rejectedPlan.recovery?.decision).toMatchObject({
+      kind: 'rejected',
+      comment: 'not now',
     });
     expect(appendEvent).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -2655,7 +2713,9 @@ describe('SchedulerLoop', () => {
       makeFeaturePhaseRun('replan', {
         runStatus: 'await_approval',
         owner: 'manual',
-        payloadJson: JSON.stringify(makeProposal('replan')),
+        payloadJson: serializeStoredProposalPayload({
+          proposal: makeProposal('replan'),
+        }),
       }),
     );
 
@@ -2686,10 +2746,27 @@ describe('SchedulerLoop', () => {
     expect(graph.tasks.get('t-2')).toEqual(
       expect.objectContaining({ status: 'pending', dependsOn: ['t-1'] }),
     );
-    expect(updateAgentRun).toHaveBeenCalledWith('run-feature:f-1:replan', {
-      runStatus: 'completed',
-      owner: 'system',
-      payloadJson: JSON.stringify(makeProposal('replan')),
+    expect(updateAgentRun).toHaveBeenCalledWith(
+      'run-feature:f-1:replan',
+      expect.objectContaining({
+        runStatus: 'completed',
+        owner: 'system',
+      }),
+    );
+    const approvedReplan = parseStoredProposalPayload(
+      ports.store.getAgentRun('run-feature:f-1:replan')?.payloadJson,
+      'replan',
+    );
+    expect(approvedReplan.proposal).toEqual(makeProposal('replan'));
+    expect(approvedReplan.recovery?.decision).toMatchObject({
+      kind: 'approved',
+      summary: '3 applied, 0 skipped, 0 warnings',
+      extra: {
+        mode: 'replan',
+        appliedCount: 3,
+        skippedCount: 0,
+        warningCount: 0,
+      },
     });
 
     loop.setAutoExecutionEnabled(true);
@@ -2771,7 +2848,7 @@ describe('SchedulerLoop', () => {
       makeFeaturePhaseRun('plan', {
         runStatus: 'await_approval',
         owner: 'manual',
-        payloadJson: JSON.stringify(noOpProposal),
+        payloadJson: serializeStoredProposalPayload({ proposal: noOpProposal }),
       }),
     );
 
@@ -2792,10 +2869,22 @@ describe('SchedulerLoop', () => {
       }),
     );
     expect(graph.tasks.size).toBe(0);
-    expect(updateAgentRun).toHaveBeenCalledWith('run-feature:f-1:plan', {
-      runStatus: 'completed',
-      owner: 'system',
-      payloadJson: JSON.stringify(noOpProposal),
+    expect(updateAgentRun).toHaveBeenCalledWith(
+      'run-feature:f-1:plan',
+      expect.objectContaining({
+        runStatus: 'completed',
+        owner: 'system',
+      }),
+    );
+    const cancelledPlan = parseStoredProposalPayload(
+      ports.store.getAgentRun('run-feature:f-1:plan')?.payloadJson,
+      'plan',
+    );
+    expect(cancelledPlan.proposal).toEqual(noOpProposal);
+    expect(cancelledPlan.recovery?.decision).toMatchObject({
+      kind: 'approved',
+      cancelled: true,
+      cancelReason: 'empty_proposal',
     });
     expect(appendEvent).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -2839,7 +2928,9 @@ describe('SchedulerLoop', () => {
       makeFeaturePhaseRun('plan', {
         runStatus: 'await_approval',
         owner: 'manual',
-        payloadJson: JSON.stringify(siblingFeatureProposal),
+        payloadJson: serializeStoredProposalPayload({
+          proposal: siblingFeatureProposal,
+        }),
       }),
     );
 
@@ -2869,10 +2960,22 @@ describe('SchedulerLoop', () => {
       }),
     );
     expect(graph.tasks.size).toBe(0);
-    expect(updateAgentRun).toHaveBeenCalledWith('run-feature:f-1:plan', {
-      runStatus: 'completed',
-      owner: 'system',
-      payloadJson: JSON.stringify(siblingFeatureProposal),
+    expect(updateAgentRun).toHaveBeenCalledWith(
+      'run-feature:f-1:plan',
+      expect.objectContaining({
+        runStatus: 'completed',
+        owner: 'system',
+      }),
+    );
+    const siblingPlan = parseStoredProposalPayload(
+      ports.store.getAgentRun('run-feature:f-1:plan')?.payloadJson,
+      'plan',
+    );
+    expect(siblingPlan.proposal).toEqual(siblingFeatureProposal);
+    expect(siblingPlan.recovery?.decision).toMatchObject({
+      kind: 'approved',
+      cancelled: true,
+      cancelReason: 'empty_proposal',
     });
     expect(appendEvent).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -2905,10 +3008,12 @@ describe('SchedulerLoop', () => {
         runStatus: 'await_approval',
         owner: 'manual',
         payloadJson: JSON.stringify({
-          version: 1,
-          mode: 'plan',
-          aliases: {},
-          ops: [{ kind: 'drop_database' }],
+          proposal: {
+            version: 1,
+            mode: 'plan',
+            aliases: {},
+            ops: [{ kind: 'drop_database' }],
+          },
         }),
       }),
     );

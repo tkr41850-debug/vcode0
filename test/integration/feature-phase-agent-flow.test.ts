@@ -15,6 +15,10 @@ import type {
   Task,
 } from '@core/types/index';
 import type { OrchestratorPorts, UiPort } from '@orchestrator/ports/index';
+import {
+  parseStoredProposalPayload,
+  serializeStoredProposalPayload,
+} from '@orchestrator/proposals/index';
 import { SchedulerLoop } from '@orchestrator/scheduler/index';
 import { VerificationService } from '@orchestrator/services/index';
 import {
@@ -535,7 +539,8 @@ describe('feature-phase agent flow', () => {
       }),
     );
     expect(run?.payloadJson).toBeDefined();
-    expect(JSON.parse(run?.payloadJson ?? '{}')).toEqual(
+    const storedPlan = parseStoredProposalPayload(run?.payloadJson, 'plan');
+    expect(storedPlan.proposal).toEqual(
       expect.objectContaining({
         mode: 'plan',
         ops: [
@@ -940,12 +945,9 @@ describe('feature-phase agent flow', () => {
       }),
     );
     expect(run?.payloadJson).toBeDefined();
-    const payload = JSON.parse(run?.payloadJson ?? '{}') as {
-      mode?: string;
-      ops?: Array<Record<string, unknown>>;
-    };
-    expect(payload.mode).toBe('replan');
-    expect(payload.ops).toEqual(
+    const payload = parseStoredProposalPayload(run?.payloadJson, 'replan');
+    expect(payload.proposal.mode).toBe('replan');
+    expect(payload.proposal.ops).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           kind: 'edit_task',
@@ -1002,7 +1004,9 @@ describe('feature-phase agent flow', () => {
       createFeaturePhaseRun('replan', {
         runStatus: 'await_approval',
         owner: 'manual',
-        payloadJson: JSON.stringify(makeProposal('replan')),
+        payloadJson: serializeStoredProposalPayload({
+          proposal: makeProposal('replan'),
+        }),
       }),
     );
 
@@ -1044,9 +1048,13 @@ describe('feature-phase agent flow', () => {
       expect.objectContaining({
         runStatus: 'completed',
         owner: 'system',
-        payloadJson: JSON.stringify(makeProposal('replan')),
       }),
     );
+    const storedCompletedReplan = parseStoredProposalPayload(
+      store.getAgentRun('run-feature:f-1:replan')?.payloadJson,
+      'replan',
+    );
+    expect(storedCompletedReplan.proposal).toEqual(makeProposal('replan'));
     const proposalAppliedEvent = findEvent(
       store.listEvents({ entityId: 'f-1' }),
       'proposal_applied',

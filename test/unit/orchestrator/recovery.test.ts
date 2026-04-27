@@ -8,6 +8,7 @@ import type {
   AgentRun,
   FeaturePhaseAgentRun,
   TaskAgentRun,
+  VerifyIssue,
 } from '@core/types/index';
 import type {
   AgentRunPatch,
@@ -15,6 +16,7 @@ import type {
   Store,
   UiPort,
 } from '@orchestrator/ports/index';
+import { serializeStoredProposalPayload } from '@orchestrator/proposals/index';
 import { RecoveryService } from '@orchestrator/services/index';
 import type {
   DispatchRunResult,
@@ -26,6 +28,58 @@ import type {
 import { CURRENT_ORCHESTRATOR_BOOT_EPOCH } from '@runtime/harness/index';
 import { describe, expect, it, vi } from 'vitest';
 import { InMemorySessionStore } from '../../integration/harness/in-memory-session-store.js';
+
+const DISCUSS_DETAILS = {
+  intent: 'Clarify recovery completion behavior',
+  successCriteria: ['Recovered discuss events preserve audit history'],
+  constraints: ['Keep the patch narrow'],
+  risks: ['Restart recovery could drop feature output'],
+  externalIntegrations: ['SQLite event store'],
+  antiGoals: ['Broad recovery refactors'],
+  openQuestions: ['Should summarize persist extra too?'],
+};
+
+const RESEARCH_DETAILS = {
+  existingBehavior: 'Recovery resumes feature phases inline after restart.',
+  essentialFiles: [
+    {
+      path: 'src/orchestrator/services/recovery-service.ts',
+      responsibility: 'Recovers running feature-phase runs',
+    },
+  ],
+  reusePatterns: ['Mirror scheduler completion side effects during recovery'],
+  riskyBoundaries: ['Recovered completions can skip audit/event persistence'],
+  proofsNeeded: ['Regression tests for appended events and persisted outputs'],
+  verificationSurfaces: ['test/unit/orchestrator/recovery.test.ts'],
+  planningNotes: ['Reuse persistPhaseOutputToFeature'],
+};
+
+const VERIFY_ISSUES: VerifyIssue[] = [
+  {
+    source: 'verify',
+    id: 'verify-1',
+    severity: 'nit',
+    description: 'Retain recovered verify issues on the feature record',
+    location: 'src/orchestrator/services/recovery-service.ts',
+    suggestedFix: 'Persist verify issues before advancing the feature phase',
+  },
+];
+
+const PLAN_DETAILS = {
+  summary: 'plan summary',
+  chosenApproach: 'use recovery path',
+  keyConstraints: [],
+  decompositionRationale: [],
+  orderingRationale: [],
+  verificationExpectations: [],
+  risksTradeoffs: [],
+  assumptions: [],
+};
+
+const SUMMARIZE_DETAILS = {
+  keyOutcomes: ['Recovered summarize keeps metadata'],
+  followUps: ['Keep event parity across restart paths'],
+};
 
 function makeTaskRun(overrides: Partial<TaskAgentRun> = {}): TaskAgentRun {
   return {
@@ -205,6 +259,7 @@ function createRuntimeMock(): RuntimePort & {
               ok: true,
               outcome: 'pass',
               summary: 'verify ok',
+              issues: VERIFY_ISSUES,
             },
           },
         } satisfies DispatchRunResult);
@@ -237,6 +292,8 @@ function createRuntimeMock(): RuntimePort & {
           phase: scope.phase,
           result: {
             summary: `${scope.phase} summary`,
+            ...(scope.phase === 'discuss' ? { extra: DISCUSS_DETAILS } : {}),
+            ...(scope.phase === 'research' ? { extra: RESEARCH_DETAILS } : {}),
           },
         },
       } satisfies DispatchRunResult);
@@ -337,9 +394,17 @@ function createRuntimeMock(): RuntimePort & {
   };
 }
 
-function createPorts(runs: AgentRun[]): {
+function createPorts(
+  runs: AgentRun[],
+  options?: {
+    listEvents?: Store['listEvents'];
+  },
+): {
   ports: OrchestratorPorts;
-  store: Store & { updateAgentRun: ReturnType<typeof vi.fn> };
+  store: Store & {
+    updateAgentRun: ReturnType<typeof vi.fn>;
+    listEvents: ReturnType<typeof vi.fn>;
+  };
   runtime: RuntimePort & {
     dispatchTask: ReturnType<typeof vi.fn>;
     resumeTask: ReturnType<typeof vi.fn>;
@@ -364,7 +429,11 @@ function createPorts(runs: AgentRun[]): {
 
   const store = createStoreMock(runs) as Store & {
     updateAgentRun: ReturnType<typeof vi.fn>;
+    listEvents: ReturnType<typeof vi.fn>;
   };
+  if (options?.listEvents !== undefined) {
+    store.listEvents = vi.fn(options.listEvents);
+  }
   const runtime = createRuntimeMock();
   const ui: UiPort = {
     show: vi.fn(async () => {}),
@@ -1156,7 +1225,745 @@ describe('RecoveryService', () => {
     );
   });
 
-  it('falls back to start for non-resumable feature-phase runs and still completes the phase', async () => {
+  it('recovers running feature-phase discuss runs through dispatchRun, appends event, and persists discuss output', async () => {
+    const run = makeFeaturePhaseRun({
+      id: 'run-feature:f-1:discuss',
+      phase: 'discuss',
+      runStatus: 'running',
+      sessionId: 'sess-feature-1',
+    });
+    const { ports, runtime, store, graph } = createPorts([run]);
+    const service = new RecoveryService(ports, graph);
+
+    await service.recoverOrphanedRuns();
+
+    expect(runtime.dispatchRun).toHaveBeenCalledWith(
+      {
+        kind: 'feature_phase',
+        featureId: 'f-1',
+        phase: 'discuss',
+      },
+      {
+        mode: 'resume',
+        agentRunId: run.id,
+        sessionId: 'sess-feature-1',
+      },
+      { kind: 'feature_phase' },
+    );
+    expect(store.appendEvent).toHaveBeenCalledWith({
+      eventType: 'feature_phase_completed',
+      entityId: 'f-1',
+      timestamp: expect.any(Number),
+      payload: {
+        phase: 'discuss',
+        summary: 'discuss summary',
+        sessionId: 'sess-feature-1',
+        extra: {
+          summary: 'discuss summary',
+          ...DISCUSS_DETAILS,
+        },
+      },
+    });
+    expect(store.updateAgentRun).toHaveBeenCalledWith(run.id, {
+      sessionId: 'sess-feature-1',
+      harnessKind: 'pi-sdk',
+      workerPid: 4321,
+      workerBootEpoch: 1_717_171_717,
+      restartCount: 1,
+    });
+    expect(store.updateAgentRun).toHaveBeenCalledWith(run.id, {
+      runStatus: 'completed',
+      owner: 'system',
+    });
+    expect(graph.features.get('f-1')).toEqual(
+      expect.objectContaining({
+        workControl: 'researching',
+        status: 'pending',
+        discussOutput: expect.stringContaining(
+          '**Intent**: Clarify recovery completion behavior',
+        ),
+      }),
+    );
+  });
+
+  it('recovers running feature-phase research runs, appends event, and persists research output', async () => {
+    const run = makeFeaturePhaseRun({
+      id: 'run-feature:f-1:research',
+      phase: 'research',
+      runStatus: 'running',
+      sessionId: 'sess-feature-research',
+    });
+    const { ports, store, graph } = createPorts([run]);
+    const feature = graph.features.get('f-1');
+    assert(feature !== undefined, 'missing feature fixture');
+    graph.features.set('f-1', {
+      ...feature,
+      status: 'pending',
+      workControl: 'researching',
+    });
+    const service = new RecoveryService(ports, graph);
+
+    await service.recoverOrphanedRuns();
+
+    expect(store.appendEvent).toHaveBeenCalledWith({
+      eventType: 'feature_phase_completed',
+      entityId: 'f-1',
+      timestamp: expect.any(Number),
+      payload: {
+        phase: 'research',
+        summary: 'research summary',
+        sessionId: 'sess-feature-research',
+        extra: {
+          summary: 'research summary',
+          ...RESEARCH_DETAILS,
+        },
+      },
+    });
+    expect(store.updateAgentRun).toHaveBeenCalledWith(run.id, {
+      runStatus: 'completed',
+      owner: 'system',
+    });
+    expect(graph.features.get('f-1')).toEqual(
+      expect.objectContaining({
+        workControl: 'planning',
+        status: 'pending',
+        researchOutput: expect.stringContaining(
+          '**Existing Behavior**: Recovery resumes feature phases inline after restart.',
+        ),
+      }),
+    );
+  });
+
+  it('recovers running plan runs, appends completion audit, and preserves approval wait', async () => {
+    const run = makeFeaturePhaseRun({
+      id: 'run-feature:f-1:plan',
+      phase: 'plan',
+      runStatus: 'running',
+      sessionId: 'sess-feature-plan',
+    });
+    const { ports, store, graph } = createPorts([run]);
+    const feature = graph.features.get('f-1');
+    assert(feature !== undefined, 'missing feature fixture');
+    graph.features.set('f-1', {
+      ...feature,
+      status: 'pending',
+      workControl: 'planning',
+    });
+    const service = new RecoveryService(ports, graph);
+
+    await service.recoverOrphanedRuns();
+
+    expect(store.appendEvent).toHaveBeenCalledWith({
+      eventType: 'feature_phase_completed',
+      entityId: 'f-1',
+      timestamp: expect.any(Number),
+      payload: {
+        phase: 'plan',
+        summary: 'plan summary',
+        sessionId: 'sess-feature-plan',
+        extra: PLAN_DETAILS,
+      },
+    });
+    expect(store.updateAgentRun).toHaveBeenCalledWith(run.id, {
+      runStatus: 'await_approval',
+      owner: 'manual',
+      harnessKind: 'pi-sdk',
+      workerPid: 4321,
+      workerBootEpoch: 1_717_171_717,
+      payloadJson: serializeStoredProposalPayload({
+        proposal: {
+          version: 1,
+          mode: 'plan',
+          aliases: {},
+          ops: [],
+        },
+        recovery: {
+          phaseSummary: 'plan summary',
+          phaseDetails: PLAN_DETAILS,
+        },
+      }),
+    });
+  });
+
+  it('falls back to start for recovered ci_check completion, appends event, and emits empty-check warning once', async () => {
+    const run = makeFeaturePhaseRun({
+      id: 'run-feature:f-1:ci_check',
+      phase: 'ci_check',
+      runStatus: 'running',
+      sessionId: 'sess-feature-ci',
+    });
+    const { ports, runtime, store, graph } = createPorts([run]);
+    const feature = graph.features.get('f-1');
+    assert(feature !== undefined, 'missing feature fixture');
+    graph.features.set('f-1', {
+      ...feature,
+      status: 'pending',
+      workControl: 'ci_check',
+      collabControl: 'branch_open',
+    });
+    const service = new RecoveryService(ports, graph);
+
+    await service.recoverOrphanedRuns();
+
+    expect(runtime.dispatchRun).toHaveBeenNthCalledWith(
+      1,
+      {
+        kind: 'feature_phase',
+        featureId: 'f-1',
+        phase: 'ci_check',
+      },
+      {
+        mode: 'resume',
+        agentRunId: run.id,
+        sessionId: 'sess-feature-ci',
+      },
+      { kind: 'feature_phase' },
+    );
+    expect(runtime.dispatchRun).toHaveBeenNthCalledWith(
+      2,
+      {
+        kind: 'feature_phase',
+        featureId: 'f-1',
+        phase: 'ci_check',
+      },
+      {
+        mode: 'start',
+        agentRunId: run.id,
+      },
+      { kind: 'feature_phase' },
+    );
+    expect(store.appendEvent).toHaveBeenCalledWith({
+      eventType: 'feature_phase_completed',
+      entityId: 'f-1',
+      timestamp: expect.any(Number),
+      payload: {
+        phase: 'ci_check',
+        summary: 'ci_check ok',
+        sessionId: 'sess-feature-started',
+        extra: {
+          ok: true,
+          outcome: 'pass',
+          summary: 'ci_check ok',
+        },
+      },
+    });
+    expect(store.appendEvent).toHaveBeenCalledWith({
+      eventType: 'warning_emitted',
+      entityId: 'f-1',
+      timestamp: expect.any(Number),
+      payload: {
+        category: 'empty_verification_checks',
+        message:
+          'verification.feature.checks empty; ci_check running without configured checks',
+        extra: { layer: 'feature' },
+      },
+    });
+    expect(graph.features.get('f-1')).toEqual(
+      expect.objectContaining({
+        workControl: 'verifying',
+        status: 'pending',
+      }),
+    );
+  });
+
+  it('recovers running summarize runs and keeps summarize event metadata', async () => {
+    const run = makeFeaturePhaseRun({
+      id: 'run-feature:f-1:summarize',
+      phase: 'summarize',
+      runStatus: 'running',
+      sessionId: 'sess-feature-summarize',
+    });
+    const { ports, store, graph } = createPorts([run]);
+    const feature = graph.features.get('f-1');
+    assert(feature !== undefined, 'missing feature fixture');
+    graph.features.set('f-1', {
+      ...feature,
+      status: 'pending',
+      workControl: 'summarizing',
+    });
+    const runtime = ports.runtime as ReturnType<typeof createRuntimeMock>;
+    runtime.dispatchRun.mockImplementationOnce((_scope, dispatch) =>
+      Promise.resolve({
+        kind: 'completed_inline',
+        agentRunId: dispatch.agentRunId,
+        sessionId:
+          dispatch.mode === 'resume'
+            ? (dispatch.sessionId ?? 'sess-feature-summarize')
+            : 'sess-feature-started',
+        ...runtimeDispatchMetadata,
+        output: {
+          kind: 'text_phase',
+          phase: 'summarize',
+          result: {
+            summary: 'summarize summary',
+            extra: SUMMARIZE_DETAILS,
+          },
+        },
+      } satisfies DispatchRunResult),
+    );
+    const service = new RecoveryService(ports, graph);
+
+    await service.recoverOrphanedRuns();
+
+    expect(store.appendEvent).toHaveBeenCalledWith({
+      eventType: 'feature_phase_completed',
+      entityId: 'f-1',
+      timestamp: expect.any(Number),
+      payload: {
+        phase: 'summarize',
+        summary: 'summarize summary',
+        sessionId: 'sess-feature-summarize',
+        extra: {
+          summary: 'summarize summary',
+          ...SUMMARIZE_DETAILS,
+        },
+      },
+    });
+    expect(graph.features.get('f-1')).toEqual(
+      expect.objectContaining({
+        workControl: 'work_complete',
+        status: 'done',
+        summary: 'summarize summary',
+      }),
+    );
+  });
+
+  it('backfills missing completion audit for await_approval plan runs without redispatching', async () => {
+    const run = makeFeaturePhaseRun({
+      id: 'run-feature:f-1:plan:awaiting-approval',
+      phase: 'plan',
+      runStatus: 'await_approval',
+      owner: 'manual',
+      sessionId: 'sess-feature-plan',
+      payloadJson: serializeStoredProposalPayload({
+        proposal: {
+          version: 1,
+          mode: 'plan',
+          aliases: {},
+          ops: [],
+        },
+        recovery: {
+          phaseSummary: 'plan summary',
+          phaseDetails: PLAN_DETAILS,
+        },
+      }),
+    });
+    const { ports, runtime, store, graph } = createPorts([run]);
+    const feature = graph.features.get('f-1');
+    assert(feature !== undefined, 'missing feature fixture');
+    graph.features.set('f-1', {
+      ...feature,
+      status: 'pending',
+      workControl: 'planning',
+    });
+    const service = new RecoveryService(ports, graph);
+
+    await service.recoverOrphanedRuns();
+
+    expect(runtime.dispatchRun).not.toHaveBeenCalled();
+    expect(store.appendEvent).toHaveBeenCalledWith({
+      eventType: 'feature_phase_completed',
+      entityId: 'f-1',
+      timestamp: expect.any(Number),
+      payload: {
+        phase: 'plan',
+        summary: 'plan summary',
+        sessionId: 'sess-feature-plan',
+        extra: PLAN_DETAILS,
+      },
+    });
+    expect(store.updateAgentRun).not.toHaveBeenCalled();
+  });
+
+  it('replays stored completed summarize runs when completion audit is missing', async () => {
+    const run = makeFeaturePhaseRun({
+      id: 'run-feature:f-1:summarize:completed',
+      phase: 'summarize',
+      runStatus: 'completed',
+      owner: 'system',
+      sessionId: 'sess-feature-summarize',
+    });
+    const { ports, store, graph } = createPorts([run]);
+    const feature = graph.features.get('f-1');
+    assert(feature !== undefined, 'missing feature fixture');
+    graph.features.set('f-1', {
+      ...feature,
+      status: 'pending',
+      workControl: 'summarizing',
+    });
+    const runtime = ports.runtime as ReturnType<typeof createRuntimeMock>;
+    runtime.dispatchRun.mockImplementationOnce((_scope, dispatch) =>
+      Promise.resolve({
+        kind: 'completed_inline',
+        agentRunId: dispatch.agentRunId,
+        sessionId:
+          dispatch.mode === 'resume'
+            ? (dispatch.sessionId ?? 'sess-feature-summarize')
+            : 'sess-feature-started',
+        ...runtimeDispatchMetadata,
+        output: {
+          kind: 'text_phase',
+          phase: 'summarize',
+          result: {
+            summary: 'summarize summary',
+            extra: SUMMARIZE_DETAILS,
+          },
+        },
+      } satisfies DispatchRunResult),
+    );
+    const service = new RecoveryService(ports, graph);
+
+    await service.recoverOrphanedRuns();
+
+    expect(store.appendEvent).toHaveBeenCalledWith({
+      eventType: 'feature_phase_completed',
+      entityId: 'f-1',
+      timestamp: expect.any(Number),
+      payload: {
+        phase: 'summarize',
+        summary: 'summarize summary',
+        sessionId: 'sess-feature-summarize',
+        extra: {
+          summary: 'summarize summary',
+          ...SUMMARIZE_DETAILS,
+        },
+      },
+    });
+    expect(graph.features.get('f-1')).toEqual(
+      expect.objectContaining({
+        workControl: 'work_complete',
+        status: 'done',
+        summary: 'summarize summary',
+      }),
+    );
+  });
+
+  it('replays summarize side effects even when completion event already exists', async () => {
+    const run = makeFeaturePhaseRun({
+      id: 'run-feature:f-1:summarize:event-exists',
+      phase: 'summarize',
+      runStatus: 'completed',
+      owner: 'system',
+      sessionId: 'sess-feature-summarize',
+    });
+    const listEvents = vi.fn(
+      (query?: { eventType?: string; entityId?: string }) =>
+        query?.eventType === 'feature_phase_completed'
+          ? [
+              {
+                eventType: 'feature_phase_completed',
+                entityId: 'f-1',
+                timestamp: 123,
+                payload: {
+                  phase: 'summarize',
+                  summary: 'summarize summary',
+                  sessionId: 'sess-feature-summarize',
+                },
+              },
+            ]
+          : [],
+    );
+    const { ports, store, graph } = createPorts([run], { listEvents });
+    const feature = graph.features.get('f-1');
+    assert(feature !== undefined, 'missing feature fixture');
+    graph.features.set('f-1', {
+      ...feature,
+      status: 'pending',
+      workControl: 'summarizing',
+    });
+    const runtime = ports.runtime as ReturnType<typeof createRuntimeMock>;
+    runtime.dispatchRun.mockImplementationOnce((_scope, dispatch) =>
+      Promise.resolve({
+        kind: 'completed_inline',
+        agentRunId: dispatch.agentRunId,
+        sessionId:
+          dispatch.mode === 'resume'
+            ? (dispatch.sessionId ?? 'sess-feature-summarize')
+            : 'sess-feature-started',
+        ...runtimeDispatchMetadata,
+        output: {
+          kind: 'text_phase',
+          phase: 'summarize',
+          result: {
+            summary: 'summarize summary',
+            extra: SUMMARIZE_DETAILS,
+          },
+        },
+      } satisfies DispatchRunResult),
+    );
+    const service = new RecoveryService(ports, graph);
+
+    await service.recoverOrphanedRuns();
+
+    expect(store.appendEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ eventType: 'feature_phase_completed' }),
+    );
+    expect(graph.features.get('f-1')).toEqual(
+      expect.objectContaining({
+        workControl: 'work_complete',
+        status: 'done',
+        summary: 'summarize summary',
+      }),
+    );
+  });
+
+  it('does not redispatch await_approval plan runs when completion event already exists', async () => {
+    const run = makeFeaturePhaseRun({
+      id: 'run-feature:f-1:plan:event-exists',
+      phase: 'plan',
+      runStatus: 'await_approval',
+      owner: 'manual',
+      sessionId: 'sess-feature-plan',
+      payloadJson: serializeStoredProposalPayload({
+        proposal: {
+          version: 1,
+          mode: 'plan',
+          aliases: {},
+          ops: [],
+        },
+        recovery: {
+          phaseSummary: 'plan summary',
+          phaseDetails: PLAN_DETAILS,
+        },
+      }),
+    });
+    const listEvents = vi.fn(
+      (query?: { eventType?: string; entityId?: string }) =>
+        query?.eventType === 'feature_phase_completed'
+          ? [
+              {
+                eventType: 'feature_phase_completed',
+                entityId: 'f-1',
+                timestamp: 123,
+                payload: {
+                  phase: 'plan',
+                  summary: 'plan summary',
+                  sessionId: 'sess-feature-plan',
+                  extra: PLAN_DETAILS,
+                },
+              },
+            ]
+          : [],
+    );
+    const { ports, runtime, graph } = createPorts([run], { listEvents });
+    const service = new RecoveryService(ports, graph);
+
+    await service.recoverOrphanedRuns();
+
+    expect(runtime.dispatchRun).not.toHaveBeenCalled();
+  });
+
+  it('replays missing proposal_applied event for completed plan runs from stored recovery payload', async () => {
+    const run = makeFeaturePhaseRun({
+      id: 'run-feature:f-1:plan:completed',
+      phase: 'plan',
+      runStatus: 'completed',
+      owner: 'system',
+      sessionId: 'sess-feature-plan-completed',
+      payloadJson: serializeStoredProposalPayload({
+        proposal: {
+          version: 1,
+          mode: 'plan',
+          aliases: {},
+          ops: [],
+        },
+        recovery: {
+          phaseSummary: 'plan summary',
+          phaseDetails: PLAN_DETAILS,
+          decision: {
+            kind: 'approved',
+            summary: '0 applied, 0 skipped, 0 warnings',
+            extra: {
+              mode: 'plan',
+              appliedCount: 0,
+              skippedCount: 0,
+              warningCount: 0,
+            },
+          },
+        },
+      }),
+    });
+    const { ports, runtime, store, graph } = createPorts([run]);
+    const feature = graph.features.get('f-1');
+    assert(feature !== undefined, 'missing feature fixture');
+    graph.features.set('f-1', {
+      ...feature,
+      status: 'pending',
+      workControl: 'executing',
+      collabControl: 'branch_open',
+    });
+    const service = new RecoveryService(ports, graph);
+
+    await service.recoverOrphanedRuns();
+
+    expect(runtime.dispatchRun).not.toHaveBeenCalled();
+    expect(store.appendEvent).toHaveBeenCalledWith({
+      eventType: 'proposal_applied',
+      entityId: 'f-1',
+      timestamp: expect.any(Number),
+      payload: {
+        phase: 'plan',
+        summary: '0 applied, 0 skipped, 0 warnings',
+        mode: 'plan',
+        appliedCount: 0,
+        skippedCount: 0,
+        warningCount: 0,
+      },
+    });
+    expect(store.updateAgentRun).not.toHaveBeenCalledWith(
+      run.id,
+      expect.objectContaining({ runStatus: 'await_approval' }),
+    );
+  });
+
+  it('does not duplicate proposal_applied event for completed plan runs when it already exists', async () => {
+    const run = makeFeaturePhaseRun({
+      id: 'run-feature:f-1:plan:completed:event-exists',
+      phase: 'plan',
+      runStatus: 'completed',
+      owner: 'system',
+      sessionId: 'sess-feature-plan-completed',
+      payloadJson: serializeStoredProposalPayload({
+        proposal: {
+          version: 1,
+          mode: 'plan',
+          aliases: {},
+          ops: [],
+        },
+        recovery: {
+          phaseSummary: 'plan summary',
+          phaseDetails: PLAN_DETAILS,
+          decision: {
+            kind: 'approved',
+            summary: '0 applied, 0 skipped, 0 warnings',
+            extra: {
+              mode: 'plan',
+              appliedCount: 0,
+              skippedCount: 0,
+              warningCount: 0,
+            },
+          },
+        },
+      }),
+    });
+    const listEvents = vi.fn(
+      (query?: { eventType?: string; entityId?: string }) =>
+        query?.entityId === 'f-1'
+          ? [
+              {
+                eventType: 'proposal_applied',
+                entityId: 'f-1',
+                timestamp: 123,
+                payload: {
+                  phase: 'plan',
+                  summary: '0 applied, 0 skipped, 0 warnings',
+                },
+              },
+            ]
+          : [],
+    );
+    const { ports, runtime, store, graph } = createPorts([run], { listEvents });
+    const feature = graph.features.get('f-1');
+    assert(feature !== undefined, 'missing feature fixture');
+    graph.features.set('f-1', {
+      ...feature,
+      status: 'pending',
+      workControl: 'executing',
+      collabControl: 'branch_open',
+    });
+    const service = new RecoveryService(ports, graph);
+
+    await service.recoverOrphanedRuns();
+
+    expect(runtime.dispatchRun).not.toHaveBeenCalled();
+    expect(store.appendEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ eventType: 'proposal_applied' }),
+    );
+  });
+
+  it('replays missing proposal_rejected event for completed plan runs from stored recovery payload', async () => {
+    const run = makeFeaturePhaseRun({
+      id: 'run-feature:f-1:plan:completed:rejected',
+      phase: 'plan',
+      runStatus: 'completed',
+      owner: 'manual',
+      sessionId: 'sess-feature-plan-rejected',
+      payloadJson: serializeStoredProposalPayload({
+        proposal: {
+          version: 1,
+          mode: 'plan',
+          aliases: {},
+          ops: [],
+        },
+        recovery: {
+          phaseSummary: 'plan summary',
+          phaseDetails: PLAN_DETAILS,
+          decision: {
+            kind: 'rejected',
+            comment: 'need tighter scope',
+          },
+        },
+      }),
+    });
+    const { ports, runtime, store, graph } = createPorts([run]);
+    const service = new RecoveryService(ports, graph);
+
+    await service.recoverOrphanedRuns();
+
+    expect(runtime.dispatchRun).not.toHaveBeenCalled();
+    expect(store.appendEvent).toHaveBeenCalledWith({
+      eventType: 'proposal_rejected',
+      entityId: 'f-1',
+      timestamp: expect.any(Number),
+      payload: {
+        phase: 'plan',
+        comment: 'need tighter scope',
+      },
+    });
+  });
+
+  it('replays missing proposal_apply_failed event for completed plan runs from stored recovery payload', async () => {
+    const run = makeFeaturePhaseRun({
+      id: 'run-feature:f-1:plan:completed:apply-failed',
+      phase: 'plan',
+      runStatus: 'completed',
+      owner: 'manual',
+      sessionId: 'sess-feature-plan-apply-failed',
+      payloadJson: serializeStoredProposalPayload({
+        proposal: {
+          version: 1,
+          mode: 'plan',
+          aliases: {},
+          ops: [],
+        },
+        recovery: {
+          phaseSummary: 'plan summary',
+          phaseDetails: PLAN_DETAILS,
+          decision: {
+            kind: 'apply_failed',
+            error: 'invalid proposal payload',
+          },
+        },
+      }),
+    });
+    const { ports, runtime, store, graph } = createPorts([run]);
+    const service = new RecoveryService(ports, graph);
+
+    await service.recoverOrphanedRuns();
+
+    expect(runtime.dispatchRun).not.toHaveBeenCalled();
+    expect(store.appendEvent).toHaveBeenCalledWith({
+      eventType: 'proposal_apply_failed',
+      entityId: 'f-1',
+      timestamp: expect.any(Number),
+      payload: {
+        phase: 'plan',
+        error: 'invalid proposal payload',
+      },
+    });
+  });
+
+  it('falls back to start for recovered verify completion, appends event, and persists issues', async () => {
     const run = makeFeaturePhaseRun({
       id: 'run-feature:f-1:verify',
       phase: 'verify',
@@ -1203,6 +2010,22 @@ describe('RecoveryService', () => {
       },
       { kind: 'feature_phase' },
     );
+    expect(store.appendEvent).toHaveBeenCalledWith({
+      eventType: 'feature_phase_completed',
+      entityId: 'f-1',
+      timestamp: expect.any(Number),
+      payload: {
+        phase: 'verify',
+        summary: 'verify ok',
+        sessionId: 'sess-feature-started',
+        extra: {
+          ok: true,
+          outcome: 'pass',
+          summary: 'verify ok',
+          issues: VERIFY_ISSUES,
+        },
+      },
+    });
     expect(store.updateAgentRun).toHaveBeenCalledWith(run.id, {
       sessionId: 'sess-feature-started',
       harnessKind: 'pi-sdk',
@@ -1219,6 +2042,7 @@ describe('RecoveryService', () => {
         workControl: 'awaiting_merge',
         status: 'pending',
         collabControl: 'merge_queued',
+        verifyIssues: VERIFY_ISSUES,
       }),
     );
   });

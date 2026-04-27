@@ -6,7 +6,8 @@ import type { FeatureLifecycleCoordinator } from '@orchestrator/features/index';
 import type { OrchestratorPorts } from '@orchestrator/ports/index';
 import {
   approveFeatureProposal,
-  parseGraphProposalPayload,
+  parseStoredProposalPayload,
+  serializeStoredProposalPayload,
   summarizeProposalApply,
 } from '@orchestrator/proposals/index';
 import type { SummaryCoordinator } from '@orchestrator/summaries/index';
@@ -195,21 +196,54 @@ export async function handleSchedulerEvent(params: {
 
     if (event.decision === 'approved') {
       try {
-        const proposal = parseGraphProposalPayload(
-          run.payloadJson,
-          event.phase,
-        );
+        const stored = parseStoredProposalPayload(run.payloadJson, event.phase);
         const outcome = approveFeatureProposal(
           graph,
           event.featureId,
           event.phase,
-          proposal,
+          stored.proposal,
         );
+        const appliedSummary = outcome.result.summary;
+        const appliedExtra = summarizeProposalApply(outcome.result);
         completeTaskRun(
           ports,
           run,
           'system',
-          run.payloadJson !== undefined ? { payloadJson: run.payloadJson } : {},
+          run.payloadJson !== undefined
+            ? {
+                payloadJson: serializeStoredProposalPayload({
+                  proposal: stored.proposal,
+                  ...(stored.recovery !== undefined
+                    ? {
+                        recovery: {
+                          ...stored.recovery,
+                          decision: {
+                            kind: 'approved',
+                            summary: appliedSummary,
+                            extra: appliedExtra,
+                            ...(outcome.cancelled ? { cancelled: true } : {}),
+                            ...(outcome.cancelReason !== undefined
+                              ? { cancelReason: outcome.cancelReason }
+                              : {}),
+                          },
+                        },
+                      }
+                    : {
+                        recovery: {
+                          decision: {
+                            kind: 'approved',
+                            summary: appliedSummary,
+                            extra: appliedExtra,
+                            ...(outcome.cancelled ? { cancelled: true } : {}),
+                            ...(outcome.cancelReason !== undefined
+                              ? { cancelReason: outcome.cancelReason }
+                              : {}),
+                          },
+                        },
+                      }),
+                }),
+              }
+            : {},
         );
         ports.store.appendEvent({
           eventType: 'proposal_applied',
@@ -217,8 +251,8 @@ export async function handleSchedulerEvent(params: {
           timestamp: Date.now(),
           payload: {
             phase: event.phase,
-            summary: outcome.result.summary,
-            ...summarizeProposalApply(outcome.result),
+            summary: appliedSummary,
+            ...appliedExtra,
           },
         });
         if (outcome.cancelled) {
@@ -233,11 +267,52 @@ export async function handleSchedulerEvent(params: {
           });
         }
       } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        const stored =
+          run.payloadJson !== undefined
+            ? (() => {
+                try {
+                  return parseStoredProposalPayload(
+                    run.payloadJson,
+                    event.phase,
+                  );
+                } catch {
+                  return undefined;
+                }
+              })()
+            : undefined;
         completeTaskRun(
           ports,
           run,
           'manual',
-          run.payloadJson !== undefined ? { payloadJson: run.payloadJson } : {},
+          stored !== undefined
+            ? {
+                payloadJson: serializeStoredProposalPayload({
+                  proposal: stored.proposal,
+                  ...(stored.recovery !== undefined
+                    ? {
+                        recovery: {
+                          ...stored.recovery,
+                          decision: {
+                            kind: 'apply_failed',
+                            error: errorMessage,
+                          },
+                        },
+                      }
+                    : {
+                        recovery: {
+                          decision: {
+                            kind: 'apply_failed',
+                            error: errorMessage,
+                          },
+                        },
+                      }),
+                }),
+              }
+            : run.payloadJson !== undefined
+              ? { payloadJson: run.payloadJson }
+              : {},
         );
         ports.store.appendEvent({
           eventType: 'proposal_apply_failed',
@@ -245,18 +320,58 @@ export async function handleSchedulerEvent(params: {
           timestamp: Date.now(),
           payload: {
             phase: event.phase,
-            error: error instanceof Error ? error.message : String(error),
+            error: errorMessage,
           },
         });
       }
       return;
     }
 
+    const stored =
+      run.payloadJson !== undefined
+        ? (() => {
+            try {
+              return parseStoredProposalPayload(run.payloadJson, event.phase);
+            } catch {
+              return undefined;
+            }
+          })()
+        : undefined;
     completeTaskRun(
       ports,
       run,
       'manual',
-      run.payloadJson !== undefined ? { payloadJson: run.payloadJson } : {},
+      stored !== undefined
+        ? {
+            payloadJson: serializeStoredProposalPayload({
+              proposal: stored.proposal,
+              ...(stored.recovery !== undefined
+                ? {
+                    recovery: {
+                      ...stored.recovery,
+                      decision: {
+                        kind: 'rejected',
+                        ...(event.comment !== undefined
+                          ? { comment: event.comment }
+                          : {}),
+                      },
+                    },
+                  }
+                : {
+                    recovery: {
+                      decision: {
+                        kind: 'rejected',
+                        ...(event.comment !== undefined
+                          ? { comment: event.comment }
+                          : {}),
+                      },
+                    },
+                  }),
+            }),
+          }
+        : run.payloadJson !== undefined
+          ? { payloadJson: run.payloadJson }
+          : {},
     );
     ports.store.appendEvent({
       eventType: 'proposal_rejected',

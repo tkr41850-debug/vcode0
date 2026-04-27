@@ -1,17 +1,25 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-
+import { persistPhaseOutputToFeature } from '@agents';
 import type { FeatureGraph } from '@core/graph/index';
 import { resolveTaskWorktreeBranch, worktreePath } from '@core/naming/index';
 import type {
   AgentRunPhase,
+  EventRecord,
   Feature,
   FeaturePhaseAgentRun,
+  ProposalPhaseDetails,
   Task,
   TaskAgentRun,
 } from '@core/types/index';
+import { createEmptyVerificationChecksWarning } from '@core/warnings/index';
 import { FeatureLifecycleCoordinator } from '@orchestrator/features/index';
 import type { OrchestratorPorts } from '@orchestrator/ports/index';
+import {
+  isProposalPhase,
+  parseStoredProposalPayload,
+  serializeStoredProposalPayload,
+} from '@orchestrator/proposals/index';
 import {
   deriveReplanReason,
   taskDispatchForRun,
@@ -81,7 +89,10 @@ export class RecoveryService {
       if (run.runStatus === 'running') {
         this.resetTaskRunToReady(run, { preserveSession: true });
       }
-      if (run.runStatus === 'await_response' || run.runStatus === 'await_approval') {
+      if (
+        run.runStatus === 'await_response' ||
+        run.runStatus === 'await_approval'
+      ) {
         this.resetTaskRunToReady(run, {
           clearPayload: true,
           preserveSession: true,
@@ -97,7 +108,10 @@ export class RecoveryService {
       }
     }
 
-    if (run.runStatus === 'await_response' || run.runStatus === 'await_approval') {
+    if (
+      run.runStatus === 'await_response' ||
+      run.runStatus === 'await_approval'
+    ) {
       this.resetTaskRunToReady(run, { clearPayload: true });
       return;
     }
@@ -171,45 +185,83 @@ export class RecoveryService {
   private async recoverFeaturePhaseRun(
     run: FeaturePhaseAgentRun,
   ): Promise<void> {
-    if (run.runStatus !== 'running') {
-      return;
-    }
-
     const feature = this.graph.features.get(run.scopeId);
     if (feature === undefined) {
       return;
     }
 
-    await this.killStaleWorkerIfNeeded(run);
+    if (run.runStatus === 'running') {
+      await this.killStaleWorkerIfNeeded(run);
+
+      if (feature.collabControl === 'cancelled') {
+        this.ports.store.updateAgentRun(run.id, {
+          runStatus: 'cancelled',
+          owner: 'system',
+          ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
+        });
+        return;
+      }
+
+      const result = await this.dispatchFeaturePhaseRun(feature, run);
+      if (result.kind === 'not_resumable') {
+        return;
+      }
+
+      this.storeRecoveredFeaturePhaseDispatch(run, result);
+      this.applyRecoveredFeaturePhaseResult(feature, run, result);
+      return;
+    }
 
     if (feature.collabControl === 'cancelled') {
-      this.ports.store.updateAgentRun(run.id, {
-        runStatus: 'cancelled',
-        owner: 'system',
-        ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
-      });
+      if (run.runStatus !== 'completed' && run.runStatus !== 'cancelled') {
+        this.ports.store.updateAgentRun(run.id, {
+          runStatus: 'cancelled',
+          owner: 'system',
+          ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
+        });
+      }
       return;
     }
 
-    const result = await this.dispatchFeaturePhaseRun(feature, run);
-    if (result.kind === 'not_resumable') {
+    const completionEvent = this.findFeaturePhaseCompletionEvent(
+      feature.id,
+      run.phase,
+      run.sessionId,
+    );
+    if (run.phase === 'plan' || run.phase === 'replan') {
+      if (run.runStatus === 'await_approval' && completionEvent === undefined) {
+        this.backfillStoredProposalCompletion(run);
+      }
+      if (run.runStatus === 'completed') {
+        this.replayStoredProposalDecision(
+          feature.id,
+          run.phase,
+          run.payloadJson,
+        );
+      }
+      return;
+    }
+    if (this.shouldReplayStoredFeaturePhaseSideEffects(feature, run)) {
+      if (completionEvent !== undefined) {
+        this.replayStoredFeaturePhaseCompletion(
+          feature,
+          run.phase,
+          completionEvent,
+        );
+        return;
+      }
+
+      const result = await this.dispatchFeaturePhaseRun(feature, run);
+      if (result.kind === 'not_resumable') {
+        return;
+      }
+
+      this.storeRecoveredFeaturePhaseDispatch(run, result);
+      this.applyRecoveredFeaturePhaseResult(feature, run, result);
       return;
     }
 
-    this.ports.store.updateAgentRun(run.id, {
-      sessionId: result.sessionId,
-      ...(result.harnessKind !== undefined
-        ? { harnessKind: result.harnessKind }
-        : {}),
-      ...(result.workerPid !== undefined
-        ? { workerPid: result.workerPid }
-        : {}),
-      ...(result.workerBootEpoch !== undefined
-        ? { workerBootEpoch: result.workerBootEpoch }
-        : {}),
-      restartCount: run.restartCount + 1,
-    });
-    this.applyRecoveredFeaturePhaseResult(feature, run, result);
+    return;
   }
 
   private async dispatchFeaturePhaseRun(
@@ -259,9 +311,12 @@ export class RecoveryService {
     result: Exclude<DispatchRunResult, { kind: 'not_resumable' }>,
   ): void {
     if (result.kind === 'awaiting_approval') {
-      if (result.output.kind !== 'proposal') {
+      if (
+        result.output.kind !== 'proposal' ||
+        result.output.phase !== run.phase
+      ) {
         throw new Error(
-          `recoverOrphanedRuns: ${run.phase} expected proposal output, got '${result.output.kind}'`,
+          `recoverOrphanedRuns: ${run.phase} expected proposal/${run.phase} output, got '${result.output.kind}'`,
         );
       }
       this.ports.store.updateAgentRun(run.id, {
@@ -276,8 +331,21 @@ export class RecoveryService {
         ...(result.workerBootEpoch !== undefined
           ? { workerBootEpoch: result.workerBootEpoch }
           : {}),
-        payloadJson: JSON.stringify(result.output.result.proposal),
+        payloadJson: serializeStoredProposalPayload({
+          proposal: result.output.result.proposal,
+          recovery: {
+            phaseSummary: result.output.result.summary,
+            phaseDetails: result.output.result.details,
+          },
+        }),
       });
+      this.recordRecoveredFeaturePhaseCompletion(
+        feature.id,
+        run.phase,
+        result.output.result.summary,
+        result.output.result.details,
+        result.sessionId,
+      );
       return;
     }
 
@@ -287,17 +355,23 @@ export class RecoveryService {
       );
     }
 
-    this.completeRecoveredFeaturePhase(feature, run.phase, result.output);
     this.ports.store.updateAgentRun(run.id, {
       runStatus: 'completed',
       owner: 'system',
     });
+    this.completeRecoveredFeaturePhase(
+      feature,
+      run.phase,
+      result.output,
+      result.sessionId,
+    );
   }
 
   private completeRecoveredFeaturePhase(
     feature: Feature,
     phase: AgentRunPhase,
     output: PhaseOutput,
+    sessionId?: string,
   ): void {
     const summaries = new SummaryCoordinator(
       this.graph,
@@ -311,6 +385,13 @@ export class RecoveryService {
           `recoverOrphanedRuns: summarize expected text_phase/summarize output, got '${output.kind}'`,
         );
       }
+      this.recordRecoveredFeaturePhaseCompletion(
+        feature.id,
+        phase,
+        output.result.summary,
+        mergeSummaryExtra(output.result.summary, output.result.extra),
+        sessionId,
+      );
       summaries.completeSummary(feature.id, output.result.summary);
       return;
     }
@@ -321,6 +402,14 @@ export class RecoveryService {
           `recoverOrphanedRuns: ci_check expected ci_check output, got '${output.kind}'`,
         );
       }
+      this.recordRecoveredFeaturePhaseCompletion(
+        feature.id,
+        phase,
+        output.verification.summary ?? '',
+        output.verification,
+        sessionId,
+      );
+      this.emitRecoveredEmptyVerificationChecksWarning(feature.id, 'feature');
       features.completePhase(feature.id, phase, output.verification);
       return;
     }
@@ -331,6 +420,13 @@ export class RecoveryService {
           `recoverOrphanedRuns: verify expected verification output, got '${output.kind}'`,
         );
       }
+      this.recordRecoveredFeaturePhaseCompletion(
+        feature.id,
+        phase,
+        output.verification.summary ?? '',
+        output.verification,
+        sessionId,
+      );
       features.completePhase(feature.id, phase, output.verification);
       return;
     }
@@ -341,11 +437,328 @@ export class RecoveryService {
           `recoverOrphanedRuns: ${phase} expected text_phase/${phase} output, got '${output.kind}'`,
         );
       }
+      this.recordRecoveredFeaturePhaseCompletion(
+        feature.id,
+        phase,
+        output.result.summary,
+        mergeSummaryExtra(output.result.summary, output.result.extra),
+        sessionId,
+      );
       features.completePhase(feature.id, phase);
       return;
     }
 
     throw new Error(`recoverOrphanedRuns: phase '${phase}' is not recoverable`);
+  }
+
+  private storeRecoveredFeaturePhaseDispatch(
+    run: FeaturePhaseAgentRun,
+    result: Exclude<DispatchRunResult, { kind: 'not_resumable' }>,
+  ): void {
+    this.ports.store.updateAgentRun(run.id, {
+      sessionId: result.sessionId,
+      ...(result.harnessKind !== undefined
+        ? { harnessKind: result.harnessKind }
+        : {}),
+      ...(result.workerPid !== undefined
+        ? { workerPid: result.workerPid }
+        : {}),
+      ...(result.workerBootEpoch !== undefined
+        ? { workerBootEpoch: result.workerBootEpoch }
+        : {}),
+      restartCount: run.restartCount + 1,
+    });
+  }
+
+  private recordRecoveredFeaturePhaseCompletion(
+    featureId: Feature['id'],
+    phase: AgentRunPhase,
+    summary: string,
+    extra?: unknown,
+    sessionId?: string,
+  ): void {
+    if (!this.hasFeaturePhaseCompletionEvent(featureId, phase, sessionId)) {
+      this.ports.store.appendEvent({
+        eventType: 'feature_phase_completed',
+        entityId: featureId,
+        timestamp: Date.now(),
+        payload: {
+          phase,
+          summary,
+          ...(sessionId !== undefined ? { sessionId } : {}),
+          ...(extra !== undefined ? { extra } : {}),
+        },
+      });
+    }
+    if (extra !== undefined) {
+      persistPhaseOutputToFeature(this.graph, featureId, phase, extra);
+    }
+  }
+
+  private backfillStoredProposalCompletion(run: FeaturePhaseAgentRun): void {
+    if (!isProposalPhase(run.phase)) {
+      return;
+    }
+    const stored = readStoredProposalRecovery(run.payloadJson, run.phase);
+    if (
+      stored?.phaseSummary === undefined ||
+      stored.phaseDetails === undefined
+    ) {
+      return;
+    }
+
+    this.recordRecoveredFeaturePhaseCompletion(
+      run.scopeId,
+      run.phase,
+      stored.phaseSummary,
+      stored.phaseDetails,
+      run.sessionId,
+    );
+  }
+
+  private replayStoredProposalDecision(
+    featureId: Feature['id'],
+    phase: Extract<AgentRunPhase, 'plan' | 'replan'>,
+    payloadJson?: string,
+  ): void {
+    const stored = readStoredProposalRecovery(payloadJson, phase);
+    const decision = stored?.decision;
+    if (decision === undefined) {
+      return;
+    }
+
+    if (decision.kind === 'approved') {
+      const hasAppliedEvent = this.ports.store
+        .listEvents({ entityId: featureId })
+        .some(
+          (event) =>
+            event.eventType === 'proposal_applied' &&
+            event.payload?.phase === phase,
+        );
+      if (!hasAppliedEvent) {
+        this.ports.store.appendEvent({
+          eventType: 'proposal_applied',
+          entityId: featureId,
+          timestamp: Date.now(),
+          payload: {
+            phase,
+            summary: decision.summary,
+            ...decision.extra,
+          },
+        });
+      }
+      if (decision.cancelled === true) {
+        const hasCancelledEvent = this.ports.store
+          .listEvents({ entityId: featureId })
+          .some(
+            (event) =>
+              event.eventType === 'feature_cancelled_empty_proposal' &&
+              event.payload?.phase === phase,
+          );
+        if (!hasCancelledEvent) {
+          this.ports.store.appendEvent({
+            eventType: 'feature_cancelled_empty_proposal',
+            entityId: featureId,
+            timestamp: Date.now(),
+            payload: {
+              phase,
+              reason: decision.cancelReason ?? 'empty_proposal',
+            },
+          });
+        }
+      }
+      return;
+    }
+
+    if (decision.kind === 'rejected') {
+      const hasRejectedEvent = this.ports.store
+        .listEvents({ entityId: featureId })
+        .some(
+          (event) =>
+            event.eventType === 'proposal_rejected' &&
+            event.payload?.phase === phase,
+        );
+      if (!hasRejectedEvent) {
+        this.ports.store.appendEvent({
+          eventType: 'proposal_rejected',
+          entityId: featureId,
+          timestamp: Date.now(),
+          payload: {
+            phase,
+            ...(decision.comment !== undefined
+              ? { comment: decision.comment }
+              : {}),
+          },
+        });
+      }
+      return;
+    }
+
+    const hasFailedEvent = this.ports.store
+      .listEvents({ entityId: featureId })
+      .some(
+        (event) =>
+          event.eventType === 'proposal_apply_failed' &&
+          event.payload?.phase === phase,
+      );
+    if (!hasFailedEvent) {
+      this.ports.store.appendEvent({
+        eventType: 'proposal_apply_failed',
+        entityId: featureId,
+        timestamp: Date.now(),
+        payload: {
+          phase,
+          error: decision.error,
+        },
+      });
+    }
+  }
+
+  private hasFeaturePhaseCompletionEvent(
+    featureId: Feature['id'],
+    phase: AgentRunPhase,
+    sessionId?: string,
+  ): boolean {
+    return (
+      this.findFeaturePhaseCompletionEvent(featureId, phase, sessionId) !==
+      undefined
+    );
+  }
+
+  private findFeaturePhaseCompletionEvent(
+    featureId: Feature['id'],
+    phase: AgentRunPhase,
+    sessionId?: string,
+  ): EventRecord | undefined {
+    return this.listFeaturePhaseCompletionEvents(featureId, phase).find(
+      (event) =>
+        sessionId === undefined ? true : event.payload?.sessionId === sessionId,
+    );
+  }
+
+  private listFeaturePhaseCompletionEvents(
+    featureId: Feature['id'],
+    phase: AgentRunPhase,
+  ): EventRecord[] {
+    return this.ports.store
+      .listEvents({ eventType: 'feature_phase_completed', entityId: featureId })
+      .filter((event) => event.payload?.phase === phase);
+  }
+
+  private shouldReplayStoredFeaturePhaseSideEffects(
+    feature: Feature,
+    run: FeaturePhaseAgentRun,
+  ): boolean {
+    if (run.runStatus !== 'completed') {
+      return false;
+    }
+    if (run.phase === 'plan' || run.phase === 'replan') {
+      return false;
+    }
+
+    if (run.phase === 'discuss') {
+      return feature.workControl === 'discussing';
+    }
+    if (run.phase === 'research') {
+      return feature.workControl === 'researching';
+    }
+    if (run.phase === 'ci_check') {
+      return feature.workControl === 'ci_check';
+    }
+    if (run.phase === 'verify') {
+      return feature.workControl === 'verifying';
+    }
+    if (run.phase === 'summarize') {
+      return feature.workControl === 'summarizing';
+    }
+
+    return false;
+  }
+
+  private replayStoredFeaturePhaseCompletion(
+    feature: Feature,
+    phase: AgentRunPhase,
+    event: EventRecord,
+  ): void {
+    const extra = event.payload?.extra;
+    const features = new FeatureLifecycleCoordinator(this.graph);
+    const summaries = new SummaryCoordinator(
+      this.graph,
+      this.ports.config.tokenProfile,
+    );
+
+    if (extra !== undefined) {
+      persistPhaseOutputToFeature(this.graph, feature.id, phase, extra);
+    }
+
+    if (phase === 'summarize') {
+      const summary = event.payload?.summary;
+      if (typeof summary !== 'string') {
+        return;
+      }
+      summaries.completeSummary(feature.id, summary);
+      return;
+    }
+
+    if (phase === 'ci_check') {
+      this.emitRecoveredEmptyVerificationChecksWarning(feature.id, 'feature');
+      if (isVerificationSummary(extra)) {
+        features.completePhase(feature.id, phase, extra);
+      }
+      return;
+    }
+
+    if (phase === 'verify') {
+      if (isVerificationSummary(extra)) {
+        features.completePhase(feature.id, phase, extra);
+      }
+      return;
+    }
+
+    if (phase === 'discuss' || phase === 'research') {
+      features.completePhase(feature.id, phase);
+    }
+  }
+
+  private emitRecoveredEmptyVerificationChecksWarning(
+    featureId: Feature['id'],
+    layer: 'feature' | 'task',
+  ): void {
+    const checks =
+      layer === 'feature'
+        ? (this.ports.config.verification?.feature?.checks ?? [])
+        : (this.ports.config.verification?.task?.checks ?? []);
+    if (checks.length > 0) {
+      return;
+    }
+
+    const alreadyLogged = this.ports.store
+      .listEvents({ eventType: 'warning_emitted', entityId: featureId })
+      .some((event) => {
+        const extra = event.payload?.extra;
+        return (
+          event.payload?.category === 'empty_verification_checks' &&
+          typeof extra === 'object' &&
+          extra !== null &&
+          'layer' in extra &&
+          extra.layer === layer
+        );
+      });
+    if (alreadyLogged) {
+      return;
+    }
+
+    const warning = createEmptyVerificationChecksWarning(featureId, layer);
+    this.ports.store.appendEvent({
+      eventType: 'warning_emitted',
+      entityId: featureId,
+      timestamp: warning.occurredAt,
+      payload: {
+        category: warning.category,
+        message: warning.message,
+        ...(warning.payload !== undefined ? { extra: warning.payload } : {}),
+      },
+    });
   }
 
   private async rebaseTaskWorktree(task: Task): Promise<void> {
@@ -447,6 +860,75 @@ function shouldResumeTaskRun(run: TaskAgentRun): boolean {
     run.runStatus === 'await_response' ||
     run.runStatus === 'await_approval'
   );
+}
+
+function readStoredProposalRecovery(
+  payloadJson: string | undefined,
+  phase: 'plan' | 'replan',
+):
+  | {
+      proposalJson: string;
+      phaseSummary?: string;
+      phaseDetails?: ProposalPhaseDetails;
+      decision?:
+        | {
+            kind: 'approved';
+            summary: string;
+            extra: Record<string, unknown>;
+            cancelled?: boolean;
+            cancelReason?: 'empty_proposal';
+          }
+        | {
+            kind: 'rejected';
+            comment?: string;
+          }
+        | {
+            kind: 'apply_failed';
+            error: string;
+          };
+    }
+  | undefined {
+  if (payloadJson === undefined) {
+    return undefined;
+  }
+
+  const stored = parseStoredProposalPayload(payloadJson, phase);
+  return {
+    proposalJson: serializeStoredProposalPayload({
+      proposal: stored.proposal,
+      ...(stored.recovery !== undefined ? { recovery: stored.recovery } : {}),
+    }),
+    ...(stored.recovery?.phaseSummary !== undefined
+      ? { phaseSummary: stored.recovery.phaseSummary }
+      : {}),
+    ...(stored.recovery?.phaseDetails !== undefined
+      ? { phaseDetails: stored.recovery.phaseDetails }
+      : {}),
+    ...(stored.recovery?.decision !== undefined
+      ? { decision: stored.recovery.decision }
+      : {}),
+  };
+}
+
+function mergeSummaryExtra(summary: string, extra: unknown): unknown {
+  if (extra === undefined) {
+    return undefined;
+  }
+  if (typeof extra === 'object' && extra !== null && !Array.isArray(extra)) {
+    return {
+      summary,
+      ...(extra as Record<string, unknown>),
+    };
+  }
+  return extra;
+}
+
+function isVerificationSummary(
+  extra: unknown,
+): extra is NonNullable<
+  PhaseOutput extends { verification: infer T } ? T : never
+> {
+  return typeof extra === 'object' && extra !== null && 'ok' in extra;
 }
 
 function featurePhaseDispatchForRun(
