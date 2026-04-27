@@ -773,7 +773,7 @@ function readFailedVerificationSummary(
     return undefined;
   }
   const record = extra as Record<string, unknown>;
-  if (record.ok === false || record.outcome === 'repair_needed') {
+  if (record.ok === false || record.outcome === 'replan_needed') {
     return readEventSummary(event);
   }
   return undefined;

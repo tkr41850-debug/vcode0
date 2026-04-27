@@ -120,7 +120,7 @@ export interface SubmitSummarizeOptions extends SummarizePhaseDetails {
 }
 
 export interface SubmitVerifyOptions {
-  outcome: 'pass' | 'repair_needed';
+  outcome: 'pass' | 'replan_needed';
   summary: string;
   failedChecks?: string[];
   criteriaEvidence?: VerificationCriterionEvidence[];

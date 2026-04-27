@@ -693,7 +693,7 @@ describe('feature-phase agent flow', () => {
         [
           fauxToolCall('listFeatureEvents', { phase: 'ci_check' }),
           fauxToolCall('submitVerify', {
-            outcome: 'repair_needed',
+            outcome: 'replan_needed',
             summary: 'Repair needed: integrated flow not proven.',
             failedChecks: ['integrated flow not proven'],
             repairFocus: ['add proof for integrated flow'],
@@ -738,7 +738,7 @@ describe('feature-phase agent flow', () => {
       phase: 'verify',
       summary: 'Repair needed: integrated flow not proven.',
       extra: {
-        outcome: 'repair_needed',
+        outcome: 'replan_needed',
         failedChecks: ['integrated flow not proven'],
       },
     });
@@ -930,7 +930,7 @@ describe('feature-phase agent flow', () => {
       ],
     });
     appendFeaturePhaseEvent(store, 'f-1', 'verify', 'Repair needed.', {
-      outcome: 'repair_needed',
+      outcome: 'replan_needed',
       failedChecks: ['integrated flow not proven'],
     });
 

@@ -159,9 +159,9 @@ export class DefaultFeaturePhaseToolHost {
     );
     const hasBlocking = blockingIssues.length > 0;
     const ok = args.outcome === 'pass' && !hasBlocking;
-    const outcome: 'pass' | 'repair_needed' = ok ? 'pass' : 'repair_needed';
+    const outcome: 'pass' | 'replan_needed' = ok ? 'pass' : 'replan_needed';
     const fallbackFailedChecks =
-      outcome === 'repair_needed'
+      outcome === 'replan_needed'
         ? args.failedChecks && args.failedChecks.length > 0
           ? args.failedChecks
           : args.repairFocus && args.repairFocus.length > 0

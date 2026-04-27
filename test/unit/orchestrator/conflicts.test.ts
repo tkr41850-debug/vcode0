@@ -1230,7 +1230,7 @@ describe('ConflictCoordinator', () => {
     );
   }, 20000);
 
-  it('aborts failed secondary feature rebase before reporting repair_needed', async () => {
+  it('aborts failed secondary feature rebase before reporting replan_needed', async () => {
     const root = getTmpDir();
     const ports = createPorts(root);
     const graph = createGraph();
@@ -1275,7 +1275,7 @@ describe('ConflictCoordinator', () => {
       {
         featureId: secondary.id,
         blockedByFeatureId: primary.id,
-        kind: 'repair_needed',
+        kind: 'replan_needed',
         conflictedFiles: ['src/a.ts'],
       },
     ]);

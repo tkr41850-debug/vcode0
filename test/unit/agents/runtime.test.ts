@@ -430,7 +430,7 @@ describe('FeaturePhaseOrchestrator', () => {
         [
           fauxToolCall('listFeatureEvents', { phase: 'ci_check' }),
           fauxToolCall('submitVerify', {
-            outcome: 'repair_needed',
+            outcome: 'replan_needed',
             summary: 'Repair needed: missing proof for success criteria.',
             failedChecks: ['missing proof for success criteria'],
             criteriaEvidence,
@@ -450,7 +450,7 @@ describe('FeaturePhaseOrchestrator', () => {
 
     expect(result).toEqual({
       ok: false,
-      outcome: 'repair_needed',
+      outcome: 'replan_needed',
       summary: 'Repair needed: missing proof for success criteria.',
       failedChecks: ['missing proof for success criteria'],
       criteriaEvidence,

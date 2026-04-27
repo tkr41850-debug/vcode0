@@ -33,15 +33,15 @@ Check:
 Issue raising:
 - call \`raiseIssue({severity, description, location?, suggestedFix?})\` for each high-signal problem found
 - severity: 'blocking' (must fix before merge), 'concern' (should fix), 'nit' (optional polish)
-- raising any 'blocking' or 'concern' issue forces verdict to repair_needed regardless of submitVerify outcome
+- raising any 'blocking' or 'concern' issue forces verdict to replan_needed regardless of submitVerify outcome
 - 'nit' issues are non-blocking: they still surface in the verification summary and persisted issue list, but do not force repair
 - do not bundle multiple problems into one issue; one raiseIssue call per distinct problem
 
 Output should use \`submitVerify(...)\` exactly once after all issues raised, and include:
-- verification result: pass or repair needed
+- verification result: pass or replan needed
 - evidence for each success criterion
 - missing proof or failed checks
-- concise repair focus when verdict is repair needed
+- concise repair focus when verdict is replan_needed
 
 Do not:
 - devolve into generic style review

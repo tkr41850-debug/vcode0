@@ -242,7 +242,7 @@ function createRuntimeMock(order: string[]): RuntimePort & {
             kind: 'verification' as const,
             verification: {
               ok: false,
-              outcome: 'repair_needed' as const,
+              outcome: 'replan_needed' as const,
               summary: 'verify failed',
               failedChecks: ['proof missing'],
             },
@@ -2265,7 +2265,7 @@ describe('SchedulerLoop', () => {
           summary: 'verify failed',
           sessionId: 'run-feature:f-1:verify',
           extra: expect.objectContaining({
-            outcome: 'repair_needed',
+            outcome: 'replan_needed',
             failedChecks: ['proof missing'],
           }),
         }),
@@ -4711,7 +4711,7 @@ describe('SchedulerLoop', () => {
         payload: {
           phase: 'verify',
           summary: `verify failure ${i}`,
-          extra: { ok: false, outcome: 'repair_needed' },
+          extra: { ok: false, outcome: 'replan_needed' },
         },
       });
     }
@@ -4767,7 +4767,7 @@ describe('SchedulerLoop', () => {
         payload: {
           phase: 'verify',
           summary: `verify failure ${i}`,
-          extra: { ok: false, outcome: 'repair_needed' },
+          extra: { ok: false, outcome: 'replan_needed' },
         },
       });
     }
@@ -4787,7 +4787,7 @@ describe('SchedulerLoop', () => {
       payload: {
         phase: 'verify',
         summary: 'verify failure after replan',
-        extra: { ok: false, outcome: 'repair_needed' },
+        extra: { ok: false, outcome: 'replan_needed' },
       },
     });
 

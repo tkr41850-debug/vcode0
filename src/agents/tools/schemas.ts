@@ -170,7 +170,7 @@ export const featurePhaseToolParameters = {
   submitResearch: researchSubmitSchema,
   submitSummarize: summarizeSubmitSchema,
   submitVerify: Type.Object({
-    outcome: Type.Union([Type.Literal('pass'), Type.Literal('repair_needed')]),
+    outcome: Type.Union([Type.Literal('pass'), Type.Literal('replan_needed')]),
     summary: Type.String(),
     failedChecks: Type.Optional(Type.Array(Type.String())),
     criteriaEvidence: Type.Optional(Type.Array(verificationCriterionSchema)),

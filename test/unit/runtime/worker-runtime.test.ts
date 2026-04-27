@@ -783,7 +783,7 @@ describe('LocalWorkerPool', () => {
       const sessionStore = new InMemorySessionStore();
       const verification: VerificationSummary = {
         ok: false,
-        outcome: 'repair_needed',
+        outcome: 'replan_needed',
         summary: 'repair needed',
         failedChecks: ['proof missing'],
       };

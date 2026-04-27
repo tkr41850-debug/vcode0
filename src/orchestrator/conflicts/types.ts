@@ -18,7 +18,7 @@ export interface OverlapIncident {
 export interface CrossFeatureReleaseResult {
   featureId: FeatureId;
   blockedByFeatureId: FeatureId;
-  kind: 'resumed' | 'repair_needed' | 'blocked';
+  kind: 'resumed' | 'replan_needed' | 'blocked';
   conflictedFiles?: string[];
   summary?: string;
 }
@@ -35,7 +35,7 @@ export type CrossFeatureReconcileResolution =
   | { kind: 'resumed' }
   | { kind: 'blocked'; summary?: string }
   | {
-      kind: 'repair_needed';
+      kind: 'replan_needed';
       conflictedFiles: string[];
       summary?: string;
     };

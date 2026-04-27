@@ -77,7 +77,7 @@ describe('createFeaturePhaseToolHost', () => {
     });
   });
 
-  it('submitVerify forces repair_needed when a blocking issue exists', () => {
+  it('submitVerify forces replan_needed when a blocking issue exists', () => {
     const graph = createGraphWithFeature();
     const host = createFeaturePhaseToolHost('f-1', graph, new InMemoryStore());
 
@@ -92,13 +92,13 @@ describe('createFeaturePhaseToolHost', () => {
     });
 
     expect(verdict.ok).toBe(false);
-    expect(verdict.outcome).toBe('repair_needed');
+    expect(verdict.outcome).toBe('replan_needed');
     expect(verdict.issues).toHaveLength(1);
     expect(verdict.issues?.[0]).toMatchObject({ severity: 'blocking' });
     expect(verdict.failedChecks).toEqual(['regression in login']);
   });
 
-  it('submitVerify forces repair_needed when a concern issue exists', () => {
+  it('submitVerify forces replan_needed when a concern issue exists', () => {
     const graph = createGraphWithFeature();
     const host = createFeaturePhaseToolHost('f-1', graph, new InMemoryStore());
 
@@ -113,7 +113,7 @@ describe('createFeaturePhaseToolHost', () => {
     });
 
     expect(verdict.ok).toBe(false);
-    expect(verdict.outcome).toBe('repair_needed');
+    expect(verdict.outcome).toBe('replan_needed');
     expect(verdict.issues).toHaveLength(1);
     expect(verdict.issues?.[0]).toMatchObject({ severity: 'concern' });
     expect(verdict.failedChecks).toEqual(['spec drift on retry policy']);
@@ -145,7 +145,7 @@ describe('createFeaturePhaseToolHost', () => {
     });
   });
 
-  it('submitVerify surfaces nits alongside blocking issues but forces repair_needed', () => {
+  it('submitVerify surfaces nits alongside blocking issues but forces replan_needed', () => {
     const graph = createGraphWithFeature();
     const host = createFeaturePhaseToolHost('f-1', graph, new InMemoryStore());
 
@@ -164,7 +164,7 @@ describe('createFeaturePhaseToolHost', () => {
     });
 
     expect(verdict.ok).toBe(false);
-    expect(verdict.outcome).toBe('repair_needed');
+    expect(verdict.outcome).toBe('replan_needed');
     expect(verdict.issues).toHaveLength(2);
     expect(verdict.issues?.map((issue) => issue.severity)).toEqual([
       'nit',

@@ -7,7 +7,7 @@ export interface DependencyOutputSummary {
   filesChanged: string[];
 }
 
-export type VerificationOutcome = 'pass' | 'repair_needed';
+export type VerificationOutcome = 'pass' | 'replan_needed';
 
 export type VerificationCriterionStatus = 'met' | 'missing' | 'failed';
 

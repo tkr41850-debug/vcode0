@@ -98,11 +98,11 @@ export async function releaseCrossFeatureOverlap(
       continue;
     }
 
-    if (resolution.kind === 'repair_needed') {
+    if (resolution.kind === 'replan_needed') {
       results.push({
         featureId: blockedFeatureId,
         blockedByFeatureId: primaryFeatureId,
-        kind: 'repair_needed',
+        kind: 'replan_needed',
         conflictedFiles: resolution.conflictedFiles,
         ...(resolution.summary !== undefined
           ? { summary: resolution.summary }
@@ -267,7 +267,7 @@ async function reconcileBlockedFeature(
   }
 
   return {
-    kind: 'repair_needed',
+    kind: 'replan_needed',
     conflictedFiles: rebase.conflictedFiles,
     ...(rebase.summary !== undefined ? { summary: rebase.summary } : {}),
   };

@@ -468,7 +468,7 @@ export async function handleSchedulerEvent(params: {
       event.featureId,
     );
     for (const release of releases) {
-      if (release.kind === 'repair_needed') {
+      if (release.kind === 'replan_needed') {
         const conflictedFiles = release.conflictedFiles ?? [];
         const description =
           conflictedFiles.length > 0

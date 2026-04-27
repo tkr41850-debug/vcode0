@@ -253,7 +253,7 @@ export function buildFeaturePhaseAgentToolset(
         execute: (_toolCallId: string, args: unknown) => {
           const result = host.submitVerify(args as SubmitVerifyOptions);
           return buildToolResult(
-            `Submitted verify verdict: ${result.outcome ?? (result.ok ? 'pass' : 'repair_needed')}.`,
+            `Submitted verify verdict: ${result.outcome ?? (result.ok ? 'pass' : 'replan_needed')}.`,
             result,
           );
         },

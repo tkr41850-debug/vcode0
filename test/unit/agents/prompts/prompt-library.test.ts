@@ -149,7 +149,7 @@ describe('promptLibrary', () => {
 
     expect(prompt).toContain("You are gvc0's feature verification agent.");
     expect(prompt).toContain('`submitVerify(...)` exactly once');
-    expect(prompt).toContain('pass or repair needed');
-    expect(prompt).not.toContain('replan needed');
+    expect(prompt).toContain('pass or replan needed');
+    expect(prompt).not.toContain('repair needed');
   });
 });
