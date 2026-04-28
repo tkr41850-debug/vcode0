@@ -32,10 +32,10 @@ Capture current responsibility split across orchestrator graph and adapter seams
 - Then it does so through `RuntimePort`
 - And runtime-owned IPC/control contract types stay on runtime boundary rather than orchestrator package
 
-### PiFeatureAgentRuntime owns feature-phase agent work
+### FeaturePhaseOrchestrator owns feature-phase agent work
 - Given system needs feature-level discuss, research, planning, verification, summary, or replanning work
 - When orchestrator dispatches that work
-- Then it uses `PiFeatureAgentRuntime` (wired into `OrchestratorPorts.agents`)
+- Then it uses `FeaturePhaseOrchestrator` routed through `RuntimePort.dispatchRun` with `scope: 'feature_phase'`
 - And those phases share same `agent_runs`/session plane as task execution rather than living in separate persistence model
 - And phase completion is reported through structured phase submit tools rather than trailing free-text summaries
 
@@ -54,7 +54,7 @@ Capture current responsibility split across orchestrator graph and adapter seams
 ### OrchestratorPorts is full coordination seam
 - Given runnable orchestrator is composed from external collaborators
 - When dependencies are provided
-- Then `OrchestratorPorts` supplies `store`, `runtime`, `agents`, `verification`, `ui`, and `config`
+- Then `OrchestratorPorts` supplies `store`, `runtime`, `sessionStore`, `verification`, `worktree`, `ui`, and `config`
 - And swapping implementations at that seam does not change orchestrator workflow contract
 
 ### Scheduler events are typed and processed serially

@@ -279,8 +279,9 @@ async function schedulerLoop(
       if (unit.kind === 'task') {
         // Look up or create the execution run record for this task
         // Build dispatch payload (start or resume) from run state
-        const dispatch: TaskRuntimeDispatch = { mode: 'start', agentRunId: run.id };
-        const result = await ports.runtime.dispatchTask(unit.task, dispatch);
+        const scope = { kind: 'task' as const, taskId: unit.task.id, featureId: unit.task.featureId };
+        const dispatch: RuntimeDispatch = { mode: 'start', agentRunId: run.id };
+        const result = await ports.runtime.dispatchRun(scope, dispatch, payload);
 
         if (result.kind === 'not_resumable') {
           // Fall back to fresh start on next tick

@@ -429,8 +429,6 @@ function markdownFromDiscuss(details: DiscussPhaseDetails): string {
   return sections.join('\n\n');
 }
 
-export { FeaturePhaseOrchestrator as PiFeatureAgentRuntime };
-
 function markdownFromResearch(details: ResearchPhaseDetails): string {
   const sections: string[] = [];
   if (details.existingBehavior.length > 0) {
