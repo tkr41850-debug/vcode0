@@ -17,7 +17,7 @@ Start with simple threshold-based warnings:
 - a secondary feature stays blocked too long behind a primary feature
 - global budget crosses its warning threshold
 
-These rules are intended to be cheap to implement and easy to interpret.
+These rules are intended to be cheap to implement and easy to interpret. See `emitWarningSignals` and `emitEmptyVerificationChecksWarning` in `src/orchestrator/scheduler/warnings.ts` (lines 22 and 96) for the scheduler warning emission implementation.
 
 ### Stage 2: Trend Detection
 
