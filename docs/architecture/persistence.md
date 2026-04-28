@@ -147,7 +147,7 @@ progress reporting, warnings, and runtime usage audit trails.
 - `004_feature_phase_outputs` — add `features.rough_draft`, `discuss_output`, `research_output`, `feature_objective`, `feature_dod`, `verify_issues`.
 - `005_task_planner_payload` — add `tasks.objective`, `scope`, `expected_files`, `references_json`, `outcome_verification`.
 - `006_rename_feature_ci_to_ci_check` — rewrites existing rows: `features.work_phase` and `agent_runs.phase` values `feature_ci` → `ci_check`, and `events.payload` JSON field `"phase":"feature_ci"` → `"phase":"ci_check"` via `REPLACE()`.
-- `007_merge_train_executor_state` — adds `features.main_merge_sha`, `features.branch_head_sha`, `tasks.branch_head_sha`; creates `integration_state` singleton table for the merge-train two-phase-commit marker. Pre-existing `features.verify_issues` rows upshift lazily to `source: 'verify'` on deserialization (no in-place backfill; pre-1.0 schema break accepted).
+- `007_merge_train_executor_state` — adds `features.main_merge_sha`, `features.branch_head_sha`, `tasks.branch_head_sha`; creates `integration_state` singleton table for the merge-train two-phase-commit marker. Pre-existing `features.verify_issues` rows upshift lazily to `source: 'verify'` on deserialization via `upshiftLegacyVerifyIssues` (src/persistence/codecs.ts:127) (no in-place backfill; pre-1.0 schema break accepted).
 - `008_integration_post_rebase_sha` — add `integration_state.feature_branch_post_rebase_sha` so startup reconciliation can match the rebased feature tip to the merge commit parent after a crash.
 - `009_agent_run_harness_metadata` — add `agent_runs.harness_kind`, `worker_pid`, `worker_boot_epoch`, and `harness_meta_json`; existing rows default `harness_kind` to `pi-sdk`.
 
