@@ -123,6 +123,8 @@ Overlap detection uses two layers:
 
 Additional reservation-level detection could be made push-based in the future. See [push-based conflict detection](../optimization-candidates/push-based-conflict-detection.md) for that optimization candidate.
 
+Two path-normalization helpers exist intentionally for different call sites: `normalizeReservedWritePath` (`src/orchestrator/scheduler/helpers.ts:6`) is used during reservation overlap detection in the scheduler, while `normalizeRepoRelativePath` (`src/orchestrator/conflicts/helpers.ts:8`) is used when normalizing file paths during conflict resolution (comparing suspended files against dominant task writes). Both implement identical normalization logic (backslash conversion and `./` stripping) but exist in separate modules because each call site's requirements evolved independently; keeping them distinct preserves module boundaries and makes call-site intent clear.
+
 ### State Transition Guards
 
 State transitions are validated by pure guard functions in `core/fsm/` before being applied. Guards check both axes (work-control and collab-control) together — for example, `executing → ci_check` must satisfy the feature composite guard. SQL constraint hardening may be added later as a safety net but does not replace the orchestrator guards.
