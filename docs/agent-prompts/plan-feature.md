@@ -44,6 +44,7 @@ When replanning:
 - if removing or substantially rewriting started work, explain why
 - prefer smallest change that restores coherent path to success
 - keep capability set same as planning; this is not weaker or separate mode
+- express feature restructuring by composing proposal tools (`addFeature`, `removeFeature`, `editFeature`, `addDependency`, `removeDependency`); there is no split/merge primitive
 
 Replan input — `VerifyIssue[]`:
 - each issue carries a `source` discriminator; branch decisions by source
