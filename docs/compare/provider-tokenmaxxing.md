@@ -2,7 +2,7 @@
 
 Two-axis research on **provider-level prompt and cache techniques** for token efficiency. Companion to [tokenmaxxing.md](./tokenmaxxing.md), which covered the broader landscape (model routing, output-format compression, Skeleton-of-Thought, RAG, etc.). This page is narrower: only what the LLM provider's API surface lets you do with prompt structure and caching.
 
-> **Revised after critical review (April 2026).** Four opus reviewers stress-tested the original draft; this version applies their corrections (token-minimum table, worked-example arithmetic, removal of an invented `x-session-affinity` header, paper-quoting accuracy on Lumer et al., reframed Cluster D, qualified folklore, fixed pi-sdk `streamFn` claim, etc.). Treat the document as carefully cross-checked but still snapshot-in-time — provider pricing and beta-flag eligibility move quickly.
+> **Revised after critical review (April 2026).** Four opus reviewers stress-tested the original draft and this version applies their corrections (token-minimum table, worked-example arithmetic, removal of an invented `x-session-affinity` header, paper-quoting accuracy on Lumer et al., qualified folklore, fixed pi-sdk `streamFn` claim, etc.). A second pass corrected the Cluster D framing — the original "literal per-request flat-fee billing is functionally extinct" claim was wrong; **Gemma 4 on the Gemini API has no per-token tier at all** (free with rate limits and free context caching), and every major provider runs a parallel non-per-token surface. Treat the document as carefully cross-checked but still snapshot-in-time — provider pricing and beta-flag eligibility move quickly.
 
 ## Two axes
 
@@ -342,29 +342,48 @@ Numbers are illustrative — verify against current provider pricing before usin
 
 ---
 
-## Cluster D — Per-request / quota-bounded billing axis
+## Cluster D — Non-per-token billing surfaces
 
-**Caveat upfront:** literal "flat fee per request, choose your model" billing is functionally extinct in 2026 — Cursor moved to a credit pool in June 2025 and GitHub Copilot moves to usage-based credits June 1, 2026. What remains in this axis is **quota-bounded billing**: rolling RPM + 5-hour TPM windows (Claude Code Max), seat tiers (Gemini Enterprise), and credit pools (Cursor). The advice below assumes that constraint, not literal per-request flat-fee.
+**Framing correction (April 2026):** the earlier draft claimed "literal per-request flat-fee billing is functionally extinct in 2026." That overstates. Per-token *is* the default for production paid frontier traffic, and GitHub Copilot's June 1, 2026 migration to AI Credits removes one of the largest remaining request-denominated paid surfaces — but every major provider operates a parallel rate-limited free or flat-fee surface, and at least one notable model (**Gemma 4 on the Gemini API**) has **no per-token tier at all** — only a free, rate-limited surface, with context caching also free.
 
-### Quota-bounded billing landscape (2026)
-- **Cursor**: credit pool since June 2025 — no longer literal request counting.
-- **Claude Code Pro/Max**: rolling RPM + 5-hour TPM windows. Closest to a live request-quota constraint in practice (but the bucket is denominated in tokens, not requests).
-- **GitHub Copilot**: usage-based credits as of June 1, 2026.
-- **Cline / Aider / Roo / Continue**: BYOK (token-billed via provider).
-- **Featherless.ai**: flat-rate unlimited-token tiers (open models only).
+### The non-per-token landscape splits three ways
+
+**1. Request-denominated** (meter is request count: RPM, RPD, monthly call quota)
+- **GitHub Models marketplace** (distinct from Copilot): high-tier models 10 RPM / 50 RPD; low-tier 15 RPM / 150 RPD; 8K input / 4K output per request. Free prototyping surface; opt into per-token to scale.
+- **GitHub Copilot Pro/Pro+**: still request-denominated through 2026-06-01, then migrates to AI Credits ($10 / $39 monthly).
+- **OpenRouter `:free` models**: 20 RPM, 50 RPD baseline (1000 RPD if any paid credits ever purchased). Llama 3.1/3.3 plus ~30 others.
+- **Cohere trial keys**: 1,000 calls/month flat + per-endpoint RPM caps. Non-commercial.
+
+**2. Token-quota with rate limits** (meter is tokens, but the quota is flat — no per-token cost)
+- **Gemini API free tier** (Gemini 2.5/3.x family): Flash-Lite ~15 RPM / 1000 RPD, Flash ~10 RPM / 250 RPD, Pro 5 RPM / 100 RPD, 250K TPM shared. Quotas were cut 50–80% on 2025-12-07. Implicit caching (~90% off) is on by default for 2.5+.
+- **Gemma 4 on Gemini API** — **no paid tier exists**. Free for input, output, and context caching. Rate-limited by the same Gemini API tier system. The single cleanest counter-example to "per-token has won."
+- **Mistral La Plateforme "Experiment"**: ~1B tokens/month free across open-weight + smaller commercial models.
+- **Groq free tier**: 30 RPM, 6K TPM, 14.4K RPD across Llama 3.3 70B, Llama 4 Scout, DeepSeek R1 Distill, Qwen QwQ, Mistral Saba.
+- **Cerebras Inference free**: 1M tokens/day, 30 RPM, 60–100K TPM, 8K ctx (some models 64K), Llama 3.3 70B / Qwen3 32B / Qwen3 235B / GPT-OSS 120B. No expiry.
+- **xAI Grok free**: 10 prompts / 2 hours.
+- **DeepSeek**: 5M trial tokens; no enforced per-user RPM cap in normal operation.
+
+**3. Concurrency-gated or wall-clock-billed** (denomination axes the doc previously missed)
+- **Featherless.ai**: $10 / $25 / $75 monthly tiers gated by **concurrency** (2 / unlimited / 8+ concurrent), not tokens or requests. Open models only.
+- **Hugging Face Inference Endpoints**: per-hour, per-minute granularity ($0.03–$80/hr by hardware), serverless scales to zero. Time-denominated.
+- **Cursor**: credit pool since June 2025 (token-priced under the hood, but the user surface is a flat monthly bucket).
+- **Claude Code Pro/Max**: rolling RPM + 5-hour TPM windows. Bucket is **token-denominated**, not request-denominated — important for output-length tradeoffs.
 - **Gemini Enterprise**: $30/user/month flat seat.
 
-### Mindset shift (per-token billing vs quota-bounded)
-| Dimension | Per-token billing | Quota-bounded (RPM/TPM) |
-|---|---|---|
-| Input tokens | Minimize aggressively | Minimize when token bucket binds; less critical when only RPM binds |
-| Output tokens | Minimize aggressively | Minimize against TPM bucket; only "maximize usefulness" if the bucket is request-denominated, which Claude Code Max's is **not** |
-| Retries | Expensive (N× tokens) | Doubly expensive (N× tokens **and** N× slots) |
-| Prompt verbosity | Cost | Cost on the TPM side |
-| Structured output | Helpful for parsing | Essential (parse failure burns a slot) |
-| Parallel tool calls | Saves tokens | Saves slots — primary lever |
-| Cache hits | Save money | Save time → throughput → more requests fit before the window binds |
-| Compaction | Avoid (extra request, extra tokens) | Enable server-side when available (no extra request; prevents overflow failures) |
+**4. BYOK code agents** (token-billed via provider, surface is just transport)
+- Cline / Aider / Roo / Continue: provider rules apply.
+
+### Mindset shift (which meter binds?)
+| Dimension | Per-token billing | Request-denominated | Token-quota free tier | Concurrency-gated |
+|---|---|---|---|---|
+| Input tokens | Minimize aggressively | Less critical (request count is the meter) | Minimize against monthly token quota | Indifferent — bucket is concurrency |
+| Output tokens | Minimize aggressively | Maximize usefulness — one slot regardless of length | Minimize against monthly token quota | Indifferent within session, but long outputs hold a concurrency slot longer |
+| Retries | Expensive (N× tokens) | Catastrophic (N× slots — burns the daily cap) | Catastrophic (N× tokens against quota) | Holds the slot longer |
+| Structured output | Helpful for parsing | Essential | Essential | Helpful |
+| Parallel tool calls | Saves tokens | Saves slots — primary lever | Saves time (rate-limit headroom) | Reduces concurrency-slot duration |
+| Cache hits | Save money | Save time → more slots fit before window binds | Save quota tokens | Save concurrency-slot wall-clock |
+| Compaction | Avoid (extra request, extra tokens) | Enable server-side (no extra slot) | Enable server-side (no extra tokens) | Reduce wall-clock |
+| Claude Code Max specifically | n/a | n/a — bucket is token-denominated | This is the live constraint for gvc0 | n/a |
 
 ### Provider-level levers (prompt + cache only)
 The same levers that help per-token also help quota-bounded — the difference is what they save (cost vs. throughput headroom), not which knobs to turn.
@@ -482,13 +501,25 @@ The same levers that help per-token also help quota-bounded — the difference i
 - [LiteLLM Issue #6229](https://github.com/BerriAI/litellm/issues/6229)
 - [OpenRouter Caching Guide](https://openrouter.ai/docs/guides/best-practices/prompt-caching)
 
-### Cluster D — Per-request
+### Cluster D — Non-per-token billing surfaces
 - [Cursor June 2025 Pricing](https://cursor.com/blog/june-2025-pricing)
 - [Claude Code Rate Limits — Northflank](https://northflank.com/blog/claude-rate-limits-claude-code-pricing-cost)
 - [Claude Max Plan](https://support.claude.com/en/articles/11049741-what-is-the-max-plan)
 - [GitHub Copilot Usage-Based Billing](https://github.blog/news-insights/company-news/github-copilot-is-moving-to-usage-based-billing/)
+- [GitHub Models Billing](https://docs.github.com/billing/managing-billing-for-your-products/about-billing-for-github-models)
 - [Anthropic Billing](https://support.anthropic.com/en/articles/8114526-how-will-i-be-billed)
 - [Token-Efficient Tool Use](https://docs.claude.com/en/docs/agents-and-tools/tool-use/token-efficient-tool-use)
+- [Gemini API Pricing (Gemma 4 free tier)](https://ai.google.dev/gemini-api/docs/pricing)
+- [Gemini API Rate Limits](https://ai.google.dev/gemini-api/docs/rate-limits)
+- [Mistral La Plateforme Tiers](https://docs.mistral.ai/deployment/ai-studio/tier)
+- [Cohere Rate Limits](https://docs.cohere.com/docs/rate-limits)
+- [Groq Rate Limits](https://console.groq.com/docs/rate-limits)
+- [Cerebras Rate Limits](https://inference-docs.cerebras.ai/support/rate-limits)
+- [OpenRouter API Limits](https://openrouter.ai/docs/api/reference/limits)
+- [xAI Rate Limits](https://docs.x.ai/developers/rate-limits)
+- [DeepSeek Pricing](https://api-docs.deepseek.com/quick_start/pricing)
+- [Featherless Plans](https://featherless.ai/docs/plans)
+- [HF Inference Endpoints Pricing](https://huggingface.co/docs/inference-endpoints/pricing)
 - [Stalled Streams Bug #43295](https://github.com/anthropics/claude-code/issues/43295)
 - [pi-agent-core architecture](https://deepwiki.com/badlogic/pi-mono/3-@mariozechnerpi-agent-core)
 - [pi-mono Issue #967: cacheRetention](https://github.com/badlogic/pi-mono/issues/967)
