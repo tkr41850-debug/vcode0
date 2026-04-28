@@ -8,6 +8,11 @@ Use these pages when you want contrast with the broader 2026 AI-coding-agent lan
 
 - [Landscape Overview](./OVERVIEW.md) — broad survey across ~19 products and frameworks scored against gvc0's 11 distinguishing axes; commodity-vs-unique analysis and follow-up recommendations.
 
+## Token economics
+
+- [Tokenmaxxing](./tokenmaxxing.md) — two-axis research (max useful output per request vs. min tokens for useful output) synthesized into top-10 ranked priorities and a suggested PR sequence for gvc0.
+- [Prompt Techniques Research](./prompt-techniques-research.md) — earlier survey of prompt techniques applicable to autonomous coding agents.
+
 ## Direct lineage
 
 - [Comparison with gsd-2](./gsd-2.md) — direct ancestor; gvc0 is its TypeScript remake.
