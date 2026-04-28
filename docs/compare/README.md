@@ -17,6 +17,10 @@ Use these pages when you want contrast with the broader 2026 AI-coding-agent lan
 - [Comparison with Overstory](./overstory.md) — closest architectural analogue (FIFO merge queue + 4-tier conflict resolution).
 - [Comparison with Factory.ai](./factory-ai.md) — closest enterprise-commercial competitor (coordinator + specialized droids).
 
+## Critical lenses
+
+- [Overstory STEELMAN applied to gvc0](./overstory-steelman.md) — stress-test review scoring 12 agent-swarm critiques against gvc0's design (real answers vs. partial vs. theater).
+
 ## Pipeline / framework alternatives
 
 - [Comparison with Wave](./wave.md) — pipeline-engine alternative.
