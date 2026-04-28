@@ -103,20 +103,20 @@ If `ci_check` fails (pre-verify or post-rebase):
 1. Keep the feature on the same feature branch.
 2. Move feature work control to `replanning`; persist `VerifyIssue[]` with `source: 'ci_check'` onto `features.verify_issues`.
 3. If the failure happened during integration (post-rebase), also eject the feature from the merge queue.
-4. The replanner proposes the next task set keyed off `checkName` + `command`; new or modified tasks land on the same feature branch.
+4. The replanner proposes follow-up graph changes keyed off `checkName` + `command`; new or modified tasks land on the same feature branch, and proposal-driven feature/dependency edits stay in the same approval flow.
 5. Return to `ci_check` after approved replan tasks land.
 
 If `verifying` finds that the code does not satisfy the feature spec:
 1. Keep the feature on the same feature branch.
 2. The verify agent emits typed `VerifyIssue[]` via the `raiseIssue` tool; the run's terminal payload carries the accumulated list and the orchestrator persists it onto `features.verify_issues` with `source: 'verify'`. A `verifier_issue_raised` event is written per call for audit.
 3. If the verify run emits no blocking/concern issues the feature moves to `awaiting_merge`; otherwise feature work control moves to `replanning`. `nit`-severity issues are non-blocking: they still land on `features.verify_issues` and surface in the verification summary, but do not force replanning. See [Verify Nit Task Pool](../feature-candidates/verify-nit-task-pool.md) for the eventual mechanism to route these into post-merge follow-up work.
-4. On approved replan, `verifyIssues` clears; new/modified tasks land on the same feature branch.
+4. On approved replan, new/modified tasks land on the same feature branch; persisted `verifyIssues` stay until later verification passes replace them.
 5. Return to `ci_check` after approved replan work lands.
 
 If rebase fails during integration:
 1. Eject from the merge queue and move feature work control to `replanning`.
 2. Persist `VerifyIssue[]` with `source: 'rebase'` and `conflictedFiles` onto `features.verify_issues`.
-3. The replanner proposes reconciliation tasks that prefer merging upstream changes over discarding them.
+3. The replanner proposes reconciliation changes that prefer merging upstream changes over discarding them, typically as new or edited tasks plus any needed dependency updates.
 4. On re-enqueue, the feature returns through the normal queue after replanning or operator action. More specialized `rebase --onto ...` retry handling remains deferred.
 
 ### Typed `VerifyIssue` Shape
@@ -203,7 +203,7 @@ When `maxConsecutiveFailures` is reached:
 4. User may attach directly, moving the run to `running` with `owner = "manual"`
 5. If the user exits without finishing, the run becomes `await_response` with `owner = "manual"`
 6. The operator may later trigger `release_to_scheduler` to return the run to scheduler-owned execution once manual intervention is complete. The run returns to `ready` with `owner = "system"` only if no unanswered `request_help()` query remains on `payload_json`; otherwise it stays `await_response` with manual ownership until the help query is answered.
-7. Alternatively, the user may move the feature into `replanning`; the replanner proposal enters `await_approval`, and if approved the original stuck task returns to `ready`
+7. Alternatively, the user may move the feature into `replanning`; the replanner proposal enters `await_approval`, and if approved it may edit tasks, add or remove features, or rewire dependencies. Original stuck task returns to `ready` only if approved proposal keeps it and its dependencies are still `done`.
 
 ## Help / Approval / Replanning
 
@@ -214,14 +214,16 @@ Manual drop-in interaction uses the same runtime control path: the orchestrator 
 Replanning is triggered when a feature enters the `replanning` phase, either after verify-shaped failure routing in the orchestrator or through the current TUI proposal/approval flow for a selected replanning feature.
 
 The replanner is a pi-sdk `Agent` with the same proposal-graph tools as the planner, plus read access to the current graph state and the failure context. It can:
-- Split the failed feature into smaller subfeatures
+- Add follow-on features and dependency rewires around retained started work
+- Remove not-yet-started future features when proposal rules allow it
+- Consolidate future work into retained features by editing metadata and rewiring dependencies
 - Add/remove/change dependencies
 - Edit task descriptions
-- Cancel the feature and add an alternative
+- Produce an empty approved proposal when recovery should stop instead of continue, which auto-cancels feature because no tasks remain
 
 Like planning, replanning operates on a temporary proposal graph rather than mutating the authoritative graph directly. Each tool call updates only the proposal graph and appends a tracked modification record so the resulting draft can be reviewed as both a graph snapshot and a mutation log.
 
-A replanning proposal is stored in `payload_json` and surfaced as `await_approval`. If the user approves it, the recorded graph mutation sequence is applied to the authoritative graph and the original stuck task returns to `ready` unless the approved plan explicitly replaces or cancels that task. If the user rejects it, the authoritative graph stays unchanged.
+A replanning proposal is stored in `payload_json` and surfaced as `await_approval`. If the user approves it, the recorded graph mutation sequence is applied to the authoritative graph and the original stuck task returns to `ready` unless the approved plan explicitly replaces or cancels that task; retained tasks still must satisfy dependency readiness before they dispatch again. If the user rejects it, the authoritative graph stays unchanged.
 
 ```typescript
 // Replanner prompt includes:

@@ -50,10 +50,10 @@ Capture work-control stuck detection and replanning behavior.
 - When the user approves it
 - Then the graph mutation is applied
 - And feature work control leaves the waiting-for-approval point and returns to normal schedulable flow
-- And the original stuck task returns to `ready` unless the approved proposal replaced or cancelled it
+- And the original stuck task returns to `ready` only if the approved proposal keeps it and its dependencies are still `done`
 
 ### Replanning mutates the feature graph
 - Given a feature entered `replanning`
 - When the replanner runs
-- Then it may split the feature, edit tasks, or adjust dependencies
+- Then it may add future features, remove not-yet-started features, edit tasks, or adjust dependencies
 - And the scheduler re-evaluates readiness after replanning

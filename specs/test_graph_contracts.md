@@ -19,10 +19,10 @@ Capture the contract of `FeatureGraph` as the authoritative mutable DAG surface 
 - And the graph remains in its previously valid state
 - And no partial dependency, task, or feature edits leak through
 
-### Readiness views return dispatchable work
+### Readiness views return graph-ready work
 - Given some features or tasks still have unresolved dependencies while others are clear to run
 - When `readyFeatures()` or `readyTasks()` is evaluated
-- Then each method returns only units currently dispatchable: graph dependencies satisfied, the unit is in a dispatchable state (for features: a pre/post-execution phase not owned by the merge train or conflict handling; for tasks: `status === 'ready'` and not suspended/conflicted), and the owning feature is not cancelled
+- Then each method returns only units whose graph state is ready: dependencies satisfied, owning feature not cancelled, and local lifecycle state eligible before later scheduler/run-state filtering
 - And those views update after graph mutations rather than remaining stale snapshots
 
 ### Graph metrics are derived by the scheduling module
@@ -45,7 +45,7 @@ Capture the contract of `FeatureGraph` as the authoritative mutable DAG surface 
 - And `clearQueuedMilestones()` removes explicit milestone steering without mutating the dependency graph or merge queue itself
 
 ### Feature and task mutation APIs preserve containment rules
-- Given a caller creates, edits, splits, merges, reorders, or removes graph units through `FeatureGraph`
+- Given a caller creates, edits, reorders, or removes graph units through `FeatureGraph`
 - When the mutation succeeds
 - Then feature-level changes preserve the feature DAG model
 - And task-level changes remain scoped to the owning feature rather than creating cross-feature task structure

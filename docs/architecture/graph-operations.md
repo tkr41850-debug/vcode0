@@ -13,8 +13,6 @@ See [ARCHITECTURE.md](../../ARCHITECTURE.md) for the high-level architecture ove
 | **createTask(featureId, description, deps?)** | Add a task to a feature with in-feature task deps only |
 | **addDependency(fromId, toId)** | Add a dependency edge (`feature → feature` or `task → task` within the same feature). Edge kind is inferred from typed prefixed ids (`f-*`, `t-*`). |
 | **removeDependency(fromId, toId)** | Remove a dependency edge |
-| **splitFeature(featureId, subfeatures)** | Split a feature while it is still pre-execution and pre-branch (`workControl` is `discussing`, `researching`, or `planning`, and `collabControl = none`). Planned tasks on the source feature are discarded, and downstream feature deps are rewritten to the terminal split children. See [in-flight split/merge](../feature-candidates/in-flight-split-merge.md) for the deferred in-flight variant. |
-| **mergeFeatures(featureIds, name)** | Merge multiple features while they are still pre-execution and pre-branch. Planned tasks on the source features are discarded, and downstream feature deps are rewritten to the retained merged feature. |
 | **cancelFeature(featureId, cascade?)** | **User-facing soft abort.** Mark as cancelled (`collabControl → cancelled`), clear feature runtime block metadata, cancel feature-scoped and task-scoped runs, abort in-flight task runs, preserve existing task suspension metadata for worktree context, and optionally cancel transitive dependents when `cascade=true`. Preserves the feature, its tasks, and worktrees so state remains inspectable and the decision is reversible. Wired from TUI (`x` / `/cancel`) through `cancelFeatureRunWork` in `src/compose.ts`. |
 | **removeFeature(featureId)** | **Destructive planner-only primitive.** Remove a feature, detach incoming feature deps, and remove its tasks and task deps. Reachable in production only through proposal approval; the proposal layer rejects the op when the feature has already started work or still has dependents (see `staleReasonForOp` in `src/core/proposals/index.ts`). The core mutation itself has no guard — the policy lives at the proposal boundary, not as an invariant in core, so any direct caller outside proposals must enforce the same check and coordinate runtime cleanup (worktrees, agent runs) itself. No user-facing kill path exists today; see [User Feature Kill](../feature-candidates/user-feature-kill.md) for the deferred candidate. |
 | **changeMilestone(featureId, newMilestoneId)** | Reassign a feature to a different milestone without changing dependency semantics |
@@ -41,6 +39,8 @@ Every mutation must preserve DAG invariants:
 - **Referential integrity** — no dangling dependency edges
 - **Status consistency** — can't add tasks to a cancelled/done feature
 
+Feature restructuring is proposal-driven, not a direct graph primitive. A planner that wants to split one feature into two proposes `remove_feature(original)` plus `add_feature(...)` replacements and dependency rewrites in same approval payload. A planner that wants to merge features keeps one retained feature, edits its metadata, removes superseded features, and rewires dependencies through proposal ops. See [in-flight split/merge](../feature-candidates/in-flight-split-merge.md) for deferred started-work variant.
+
 ```typescript
 interface FeatureGraph {
   readonly milestones: Map<MilestoneId, Milestone>;
@@ -51,8 +51,8 @@ interface FeatureGraph {
   snapshot(): GraphSnapshot;
 
   // Core queries
-  readyFeatures(): Feature[];           // dispatchable feature phases (pre/post execution, deps merged, not owned by merge-train/conflict)
-  readyTasks(): Task[];                 // dispatchable tasks (status=ready, deps done, not suspended/conflict, feature not cancelled)
+  readyFeatures(): Feature[];           // graph-ready feature phases before scheduler/run-state filtering
+  readyTasks(): Task[];                 // graph-ready tasks before scheduler/run-state filtering
   queuedMilestones(): Milestone[];      // ordered user steering queue
   isComplete(): boolean;                // all features completed and merged
   // Critical path lives in core/scheduling (buildCombinedGraph + computeGraphMetrics)
@@ -63,8 +63,6 @@ interface FeatureGraph {
   createTask(opts: CreateTaskOptions): Task;
   addDependency(opts: DependencyOptions): void;
   removeDependency(opts: DependencyOptions): void;
-  splitFeature(id: FeatureId, splits: SplitSpec[]): Feature[];   // pre-execution and pre-branch only; planned tasks are discarded
-  mergeFeatures(featureIds: FeatureId[], name: string): Feature;  // pre-execution and pre-branch only; planned tasks are discarded
   cancelFeature(featureId: FeatureId, cascade?: boolean): void;
   removeFeature(featureId: FeatureId): void;
   changeMilestone(featureId: FeatureId, newMilestoneId: MilestoneId): void;
@@ -90,7 +88,7 @@ interface FeatureGraph {
 
 ## Orchestrator Coordination Model
 
-> **Implementation status**: The coordination model below is partly architectural and partly already implemented. Current code includes the scheduler tick loop, combined-graph construction, graph metrics, ready-work prioritization, FSM transition validators, and baseline pre-execution `splitFeature()` / `mergeFeatures()` mutations. Future extensions called out explicitly as candidates remain deferred.
+> **Implementation status**: The coordination model below is partly architectural and partly already implemented. Current code includes the scheduler tick loop, combined-graph construction, graph metrics, ready-work prioritization, FSM transition validators, and proposal-driven graph restructuring through approval. Future extensions called out explicitly as candidates remain deferred.
 
 The orchestrator uses a **hybrid serial core with async feature phases** (Direction D). All state-mutating coordination flows through a single serial event queue, while feature-phase agent runs (planning, verifying, summarizing, replanning) execute asynchronously and post results back as events. Those feature phases are not a separate execution plane: architecturally they share the same run/session model as task execution (`agent_runs`, `session_id`, retry/backoff, help/approval/manual waits, and recovery), even if the current concrete runtime implementation reaches them through a different adapter surface.
 
@@ -330,16 +328,16 @@ Completed feature branches do not merge directly to `main`. Instead, merge-train
 The merge train protects `main` through a sequence of executor-enforced
 steps: pre-verify `ci_check` before queue entry, rebase onto latest
 `main` inside the integration executor, post-rebase `ci_check` against
-the rebased tip, and a final `git merge --no-ff
---force-with-lease=<expectedParentSha>` that aborts if `main` moved
-under us. The `--force-with-lease` guard closes the race between
-reading `main` for rebase and updating its ref at merge. A two-phase
-marker row plus a startup reconciler (git refs authoritative) handle
-crash windows between `git merge` and the DB transition — see
+the rebased tip, explicit validation that `main` still equals the
+stored expected SHA, and a final `git merge --no-ff` only after that
+check passes. The explicit main-SHA validation closes race between
+reading `main` for rebase and updating it at merge. A marker row plus
+startup reconciler (git refs authoritative) handle crash windows
+between `git merge` and DB transition — see
 [verification-and-recovery.md](../operations/verification-and-recovery.md).
 
-If any of rebase, post-rebase `ci_check`, or the `--force-with-lease`
-merge fails, the executor ejects the feature (`integrating →
+If any of rebase, post-rebase `ci_check`, or main-moved validation
+fails, the executor ejects the feature (`integrating →
 branch_open`, `mergeTrainReentryCount` increments) and routes the
 feature to `replanning` with a typed `VerifyIssue[]` payload. No
 repair task is created directly. `main` advances only after the
@@ -365,16 +363,14 @@ Queue rules:
    [Feature Candidate: Arbitrary Merge-Train Manual Ordering](../feature-candidates/arbitrary-merge-train-manual-ordering.md).
 5. The queue head moves into `integrating` through the in-process
    integration executor, which runs rebase → post-rebase `ci_check`
-   → `git merge --no-ff --force-with-lease` under a marker-row
-   transaction. Success atomically clears the marker and advances
+   → explicit main-SHA validation → `git merge --no-ff` under marker-row
+   protection. Success clears the marker and advances
    feature work control to `summarizing`.
 6. Cross-feature conflicts are surfaced here,
    not by task-level file resets.
    Reservation overlap only penalizes scheduling;
    runtime overlap uses the feature-pair coordination protocol
    described in [conflict coordination](../operations/conflict-coordination.md).
-7. Re-enqueue after eject uses
-   `git rebase --onto <newMain> <featureBranchPreIntegrationSha> HEAD`
-   so the stale first-rebase layer drops. `rerere` is enabled as a
-   backstop so recurrent conflicts resolve with the prior human
-   decision.
+7. Re-enqueue after eject returns through the normal queue after
+   replanning or operator action. More specialized `rebase --onto ...`
+   retry handling and explicit `rerere` support remain deferred.

@@ -2,7 +2,7 @@
 
 ## Goal
 
-Capture the replan loop when pre-queue `ci_check` or agent-level `verifying` fails before merge-queue entry. Both failure shapes route to `replanning` with persisted `VerifyIssue[]` so the replanner proposes the next task set.
+Capture the replan loop when pre-queue `ci_check` or agent-level `verifying` fails before merge-queue entry. Both failure shapes route to `replanning` with persisted `VerifyIssue[]` so the replanner proposes follow-up graph changes.
 
 ## Scenarios
 
@@ -14,7 +14,7 @@ Capture the replan loop when pre-queue `ci_check` or agent-level `verifying` fai
 - And the accumulated issues are persisted onto `features.verify_issues` with `source: 'ci_check'`
 - And feature work control moves to `replanning`
 - And the orchestrator does not directly create follow-up tasks outside replanning
-- And the replanner consumes `verifyIssues` and proposes the next task set
+- And the replanner consumes `verifyIssues` and proposes follow-up graph changes
 
 ### Feature verification failure routes through replanning
 - Given heavy feature CI has already passed
@@ -23,8 +23,8 @@ Capture the replan loop when pre-queue `ci_check` or agent-level `verifying` fai
 - Then the accumulated issues are persisted onto `features.verify_issues`
 - And feature work control moves to `replanning`
 - And the orchestrator does not directly create follow-up tasks for verify failures outside replanning
-- And the replanner consumes `verifyIssues` and proposes the next task set
-- And on approved replan, `verifyIssues` clears and new or modified tasks land on the same feature branch
+- And the replanner consumes `verifyIssues` and proposes follow-up graph changes
+- And on approved replan, new or modified tasks land on the same feature branch while persisted `verifyIssues` remain until later verification passes replace them
 
 ### Replan-driven work must land before ci_check reruns
 - Given an approved replan has added or modified tasks after a pre-queue verification failure
