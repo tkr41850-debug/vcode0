@@ -695,7 +695,7 @@ describe('InMemoryFeatureGraph', () => {
 
   it('readyFeatures excludes features in task-driven execution phases', () => {
     const g = createGraphWithFeature();
-    for (const wc of ['executing', 'executing_repair'] as const) {
+    for (const wc of ['executing'] as const) {
       updateFeature(g, 'f-1', { workControl: wc });
       expect(g.readyFeatures()).toHaveLength(0);
     }
@@ -798,18 +798,6 @@ describe('InMemoryFeatureGraph', () => {
     });
 
     expect(g.readyTasks()).toHaveLength(0);
-  });
-
-  it('readyTasks excludes integration repair tasks on runtime-blocked features', () => {
-    const g = createGraphWithTask({ repairSource: 'integration' });
-    updateTask(g, 't-1', { status: 'ready' });
-    updateFeature(g, 'f-1', {
-      runtimeBlockedByFeatureId: 'f-2',
-      workControl: 'executing_repair',
-    });
-
-    const ready = g.readyTasks();
-    expect(ready).toHaveLength(0);
   });
 
   it('readyTasks excludes tasks that are already running or done', () => {

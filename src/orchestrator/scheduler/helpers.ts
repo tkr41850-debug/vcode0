@@ -106,8 +106,6 @@ function workRank(featureWorkControl: Feature['workControl']): number {
       return 4;
     case 'ci_check':
       return 3;
-    case 'executing_repair':
-      return 2;
     case 'executing':
       return 1;
     case 'discussing':

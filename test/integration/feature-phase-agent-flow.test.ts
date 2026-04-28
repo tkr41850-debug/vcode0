@@ -725,11 +725,6 @@ describe('feature-phase agent flow', () => {
         collabControl: 'branch_open',
       }),
     );
-    expect(
-      [...graph.tasks.values()].filter(
-        (task) => task.repairSource === 'verify',
-      ),
-    ).toHaveLength(0);
     const verifyEvent = findEvent(
       store.listEvents({ entityId: 'f-1' }),
       'feature_phase_completed',

@@ -37,9 +37,6 @@ export function addTask(
   if (opts.reservedWritePaths !== undefined) {
     createOpts.reservedWritePaths = opts.reservedWritePaths;
   }
-  if (opts.repairSource !== undefined) {
-    createOpts.repairSource = opts.repairSource;
-  }
   if (opts.objective !== undefined) {
     createOpts.objective = opts.objective;
   }

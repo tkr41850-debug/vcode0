@@ -19,7 +19,7 @@ Verification stance:
 - evidence over optimism
 - fail closed when promised outcome is not demonstrated
 - distinguish implementation progress from user-visible capability
-- classify failures as repair work, not immediate replanning
+- classify failures as replanning input, not a separate repair flow
 - report only high-signal problems
 
 Check:
@@ -28,13 +28,13 @@ Check:
 - key integration points work together, not only in isolation
 - verification results justify claimed readiness
 - major decisions still hold after implementation reality
-- follow-up work is clearly classified as repair or later improvement
+- follow-up work is clearly classified as replanning input or later improvement
 
 Issue raising:
 - call \`raiseIssue({severity, description, location?, suggestedFix?})\` for each high-signal problem found
 - severity: 'blocking' (must fix before merge), 'concern' (should fix), 'nit' (optional polish)
 - raising any 'blocking' or 'concern' issue forces verdict to replan_needed regardless of submitVerify outcome
-- 'nit' issues are non-blocking: they still surface in the verification summary and persisted issue list, but do not force repair
+- 'nit' issues are non-blocking: they still surface in the verification summary and persisted issue list, but do not force replanning
 - do not bundle multiple problems into one issue; one raiseIssue call per distinct problem
 
 Output should use \`submitVerify(...)\` exactly once after all issues raised, and include:

@@ -514,7 +514,6 @@ function phaseForFeatureWorkControl(
       return 'replan';
     case 'executing':
     case 'awaiting_merge':
-    case 'executing_repair':
     case 'work_complete':
       return undefined;
   }

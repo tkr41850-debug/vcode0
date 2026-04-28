@@ -3547,10 +3547,6 @@ describe('SchedulerLoop', () => {
         collabControl: 'branch_open',
       }),
     );
-    const repairTasks = [...graph.tasks.values()].filter(
-      (task) => task.repairSource !== undefined,
-    );
-    expect(repairTasks).toHaveLength(0);
   });
 
   it('escalates repeated pre-queue verification failure to replanning', async () => {
@@ -3585,11 +3581,10 @@ describe('SchedulerLoop', () => {
           id: 't-1',
           featureId: 'f-1',
           orderInFeature: 0,
-          description: 'Repair feature verification issues: previous failure',
+          description: 'Previous verification follow-up work',
           dependsOn: [],
           status: 'done',
           collabControl: 'merged',
-          repairSource: 'verify',
         },
       ],
     });
@@ -4914,10 +4909,6 @@ describe('SchedulerLoop', () => {
         conflictedFiles: ['src/a.ts'],
       }),
     ]);
-    const repairTasks = [...graph.tasks.values()].filter(
-      (task) => task.featureId === 'f-2' && task.repairSource === 'integration',
-    );
-    expect(repairTasks).toHaveLength(0);
     expect(resumeTask).not.toHaveBeenCalled();
   }, 20000);
 
@@ -5164,10 +5155,6 @@ describe('SchedulerLoop', () => {
         severity: 'blocking',
       }),
     ]);
-    const repairTasks = [...graph.tasks.values()].filter(
-      (task) => task.featureId === 'f-2' && task.repairSource === 'integration',
-    );
-    expect(repairTasks).toHaveLength(0);
     expect(resumeTask).not.toHaveBeenCalled();
     expect(steerTask).not.toHaveBeenCalled();
   }, 20000);
@@ -5270,10 +5257,6 @@ describe('SchedulerLoop', () => {
         severity: 'blocking',
       }),
     ]);
-    const repairTasks = [...graph.tasks.values()].filter(
-      (task) => task.featureId === 'f-2' && task.repairSource === 'integration',
-    );
-    expect(repairTasks).toHaveLength(0);
     expect(resumeTask).not.toHaveBeenCalled();
   }, 20000);
 
@@ -5359,10 +5342,6 @@ describe('SchedulerLoop', () => {
         severity: 'blocking',
       }),
     ]);
-    const repairTasks = [...graph.tasks.values()].filter(
-      (task) => task.featureId === 'f-2' && task.repairSource === 'integration',
-    );
-    expect(repairTasks).toHaveLength(0);
     expect(resumeTask).not.toHaveBeenCalled();
   });
 

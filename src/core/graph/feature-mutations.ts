@@ -29,9 +29,8 @@ const PRE_EXECUTION_PHASE_RANK: Record<FeatureWorkControl, number> = {
   verifying: 5,
   awaiting_merge: 6,
   summarizing: 7,
-  executing_repair: 8,
-  replanning: 9,
-  work_complete: 10,
+  replanning: 8,
+  work_complete: 9,
 };
 
 interface NormalizedSplitSpec extends SplitSpec {

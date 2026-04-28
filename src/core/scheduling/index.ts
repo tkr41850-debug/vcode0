@@ -108,7 +108,6 @@ const PRE_EXECUTION_PHASES: ReadonlySet<FeatureWorkControl> = new Set([
 
 const EXECUTING_PHASES: ReadonlySet<FeatureWorkControl> = new Set([
   'executing',
-  'executing_repair',
 ]);
 
 const POST_EXECUTION_PHASES: ReadonlySet<FeatureWorkControl> = new Set([
@@ -137,7 +136,6 @@ function workControlToAgentRunPhase(wc: FeatureWorkControl): AgentRunPhase {
     case 'replanning':
       return 'replan';
     case 'executing':
-    case 'executing_repair':
       return 'execute';
     case 'ci_check':
       return 'ci_check';

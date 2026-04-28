@@ -6,7 +6,6 @@ import type {
   FeatureId,
   FeatureWorkControl,
   MilestoneId,
-  RepairSource,
   TaskCollabControl,
   TaskId,
   TaskStatus,
@@ -62,7 +61,6 @@ export interface Task {
   dependsOn: TaskId[];
   status: TaskStatus;
   collabControl: TaskCollabControl;
-  repairSource?: RepairSource;
   workerId?: string;
   worktreeBranch?: string;
   taskTestPolicy?: TestPolicy;

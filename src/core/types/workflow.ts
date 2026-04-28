@@ -17,7 +17,6 @@ export type FeatureWorkControl =
   | 'verifying'
   | 'awaiting_merge'
   | 'summarizing'
-  | 'executing_repair'
   | 'replanning'
   | 'work_complete';
 
@@ -49,8 +48,6 @@ export type TaskCollabControl =
 export type TestPolicy = 'loose' | 'strict';
 
 export type TaskWeight = 'trivial' | 'small' | 'medium' | 'heavy';
-
-export type RepairSource = 'ci_check' | 'verify' | 'integration';
 
 export type TaskSuspendReason =
   | 'same_feature_overlap'

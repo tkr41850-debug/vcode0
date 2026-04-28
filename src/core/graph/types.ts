@@ -5,7 +5,6 @@ import type {
   FeatureWorkControl,
   Milestone,
   MilestoneId,
-  RepairSource,
   Task,
   TaskCollabControl,
   TaskId,
@@ -43,7 +42,6 @@ export interface CreateTaskOptions {
   dependsOn?: TaskId[];
   weight?: TaskWeight;
   reservedWritePaths?: string[];
-  repairSource?: RepairSource;
   objective?: string;
   scope?: string;
   expectedFiles?: string[];
@@ -57,7 +55,6 @@ export interface AddTaskOptions {
   deps?: TaskId[];
   weight?: TaskWeight;
   reservedWritePaths?: string[];
-  repairSource?: RepairSource;
   objective?: string;
   scope?: string;
   expectedFiles?: string[];

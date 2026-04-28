@@ -8,12 +8,7 @@ import {
 } from '../../helpers/graph-builders.js';
 
 function makeGraph(opts: {
-  workControl?:
-    | 'executing'
-    | 'ci_check'
-    | 'verifying'
-    | 'awaiting_merge'
-    | 'executing_repair';
+  workControl?: 'executing' | 'ci_check' | 'verifying' | 'awaiting_merge';
   collabControl?: 'branch_open' | 'merge_queued' | 'integrating';
   verifyIssues?: VerifyIssue[];
   mergeTrainReentryCount?: number;

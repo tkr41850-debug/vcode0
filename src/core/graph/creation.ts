@@ -221,9 +221,6 @@ export function createTask(
   if (opts.reservedWritePaths !== undefined) {
     task.reservedWritePaths = opts.reservedWritePaths;
   }
-  if (opts.repairSource !== undefined) {
-    task.repairSource = opts.repairSource;
-  }
   if (opts.objective !== undefined) {
     task.objective = opts.objective;
   }

@@ -27,17 +27,6 @@ describe('validateFeatureWorkTransition', () => {
     });
   });
 
-  it.each([
-    ['executing', 'executing_repair', 'failed', 'branch_open'],
-    ['ci_check', 'executing_repair', 'failed', 'branch_open'],
-    ['verifying', 'executing_repair', 'failed', 'branch_open'],
-  ] as const)('rejects removed repair phase target: %s -> %s (status=%s)', (from, to, status, collab) => {
-    expectRejected(
-      validateFeatureWorkTransition(from, to, status, collab),
-      'executing_repair',
-    );
-  });
-
   it('replan succeeded → execute', () => {
     expect(
       validateFeatureWorkTransition(

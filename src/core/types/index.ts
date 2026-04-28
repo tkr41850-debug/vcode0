@@ -72,7 +72,6 @@ export type {
   FeatureId,
   FeatureWorkControl,
   MilestoneId,
-  RepairSource,
   TaskCollabControl,
   TaskId,
   TaskResumeReason,
