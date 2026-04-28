@@ -95,7 +95,7 @@ Each feature owns exactly one long-lived integration branch.
    `confirm()` is only a progress acknowledgement. The orchestrator treats
    terminal results with `completionKind === 'submitted'` as landed task work
    on the feature branch.
-4. After the last task or repair task lands, the feature runs
+4. After the last task lands, or after approved replan work lands, the feature runs
    `ci_check` on the feature branch (pre-verify),
    then agent-level `verifying`.
 5. If that path passes, feature work control becomes

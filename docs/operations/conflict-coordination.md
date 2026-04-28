@@ -18,7 +18,7 @@ Surface upstream updates early enough that agents can sync before stale assumpti
 2. **sync recommended** — steer at the next stable checkpoint; still no persisted state change
 3. **sync required** — pause or redirect into sync work before normal execution continues
 4. **conflict steer** — inject exact conflict context after automatic reconciliation fails
-5. **halted / no progress** — if repair stalls, escalate to targeted repair work, replanning, or user intervention
+5. **halted / no progress** — if follow-up work stalls, escalate to targeted replanning or user intervention
 
 Runtime delivery models that ladder with a typed steering directive:
 - `sync_recommended` with `timing: 'next_checkpoint' | 'immediate'`
@@ -78,7 +78,7 @@ Use when automatic sync or merge cannot safely finish the reconciliation.
 Typical triggers:
 
 - `ort` merge or similar auto-rebase fails
-- feature-branch repair work is required after integration-time overlap
+- feature-branch replanning is required after integration-time overlap
 - repeated attempts show no meaningful progress
 - more than 5 minutes pass after steering without meaningful activity
 
@@ -86,8 +86,8 @@ Action:
 
 - preserve real collaboration conflict state
 - for same-feature task conflicts, steer the existing task agent in the real conflicted worktree
-- for cross-feature integration failures, remove the feature from the merge train and create or steer repair work on the same feature branch
-- keep `await_response` reserved for actual human-help/manual-takeover cases rather than normal agent-directed repair
+- for cross-feature integration failures, remove the feature from the merge train and route follow-up work through replanning on the same feature branch
+- keep `await_response` reserved for actual human-help/manual-takeover cases rather than normal agent-directed replanning follow-up
 
 ## Coordination Protocols
 
@@ -148,7 +148,7 @@ After same-feature conflict steering begins:
 
 1. If the agent resolves the conflict and later passes normal task `submit()` verification, clear task collaboration control from `conflict` and continue the normal completion path.
 2. If the agent resolves merge markers but ordinary task verification still fails, treat that as normal task work rather than a continuing collaboration conflict.
-3. If the agent makes no meaningful progress, keep task collaboration control at `conflict` and escalate to targeted repair work, replanning, or user intervention.
+3. If the agent makes no meaningful progress, keep task collaboration control at `conflict` and escalate to targeted follow-up work, replanning, or user intervention.
 4. Treat conflict halting as a state-based rule, not a blind wall-clock timeout: only halt after at least 5 minutes have passed since steering began and there has been no meaningful activity during that window. Ongoing conflict-resolution progress should keep the task in the active conflict path.
 
 ### Cross-Feature Overlap
@@ -169,8 +169,8 @@ Cross-feature overlap is handled more conservatively than same-feature file lock
 7. If the secondary feature stays blocked for too long (`Date.now() - task.suspendedAt > threshold`), raise a warning via the existing warnings framework.
 8. After the primary feature merges into `main`, release handling rebases the blocked secondary feature branch onto updated `main` before any secondary task resumes.
 9. If the rebase succeeds, clear the runtime feature block, clear `blocked_by_feature_id` on affected tasks, and resume normal scheduling.
-10. If the feature-branch rebase fails, create integration repair work on the secondary feature branch. Tasks remain suspended until repair lands.
-11. If the rebase succeeds but suspended task worktrees still cannot be resumed cleanly, keep the feature blocked and route that failure into the same integration-repair path.
+10. If the feature-branch rebase fails, persist typed `VerifyIssue[]` on the secondary feature and route it to `replanning`. Tasks remain suspended until approved replan work lands.
+11. If the rebase succeeds but suspended task worktrees still cannot be resumed cleanly, keep the feature blocked and route that failure into the same replanning path.
 12. If rebase plus verification succeeds, continue normally; otherwise escalate to replanning.
 
 The baseline uses **per-feature blocking** (all secondary work paused) rather than per-task suspension (only overlapping tasks paused). This is simpler and safer — rebasing the feature branch with no active tasks avoids mid-flight worktree issues, and recovery on rebase failure is straightforward since no tasks need retroactive suspension. The parallelism cost is bounded because cross-feature overlap should be uncommon when reservation-based scheduling penalties are working. See [per-task cross-feature suspension](../feature-candidates/per-task-cross-feature-suspension.md) for the finer-grained alternative.
@@ -195,7 +195,7 @@ Deferred ranking signals:
 Baseline derived ranks:
 
 - `collabRank`: `integrating=3`, `merge_queued=2`, `branch_open=1`, `none=0`, `conflict=-1`, `merged=-2`, `cancelled=-2`
-- `workRank`: `awaiting_merge=5`, `verifying=4`, `ci_check=3`, `executing_repair=2`, `executing=1`, `planning|researching|discussing=0`, `replanning=-1`, `summarizing|work_complete=-1`
+- `workRank`: `awaiting_merge=5`, `verifying=4`, `ci_check=3`, `executing=1`, `planning|researching|discussing=0`, `replanning=-1`, `summarizing|work_complete=-1`
 
 ## Persistence Notes
 

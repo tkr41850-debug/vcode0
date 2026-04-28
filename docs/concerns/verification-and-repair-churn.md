@@ -1,8 +1,8 @@
-# Concern: Verification and Repair Churn
+# Concern: Verification and Replan Churn
 
 ## Concern
 
-The baseline execution path includes several expensive gates: task submit checks, feature CI, agent-level spec review in `verifying`, and merge-train verification after rebase. Failures can loop back into repair work and rerun those gates.
+The baseline execution path includes several expensive gates: task submit checks, feature CI, agent-level spec review in `verifying`, and merge-train verification after rebase. Failures can loop back into replanning and rerun those gates.
 
 ## Why to Watch
 
@@ -10,9 +10,9 @@ This may dominate runtime and token/cpu cost before the DAG scheduler's parallel
 
 ## What to Observe
 
-- repeated repair-task creation on the same feature
+- repeated replan cycles on the same feature
 - frequent ejection/re-entry from the merge train
-- long time spent in `ci_check`, `verifying`, or `executing_repair`
+- long time spent in `ci_check`, `verifying`, or `replanning`
 - repeated feature churn warnings
 - high verification-to-implementation time ratio
 

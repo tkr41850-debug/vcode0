@@ -39,8 +39,8 @@ driven through the headless `claude -p` CLI surface.
 - Then the harness uses `--fork-session` off the base session id
 - And the original session remains intact for reference
 
-### Claude Code repair work uses worker-owned sessions
-- Given a task or feature needs follow-up repair work after verification or merge-train failure
-- When the orchestrator schedules that repair
-- Then the repair runs in its own `claude -p` session with its own `--session-id`
+### Claude Code replan follow-up work uses worker-owned sessions
+- Given a task or feature needs follow-up replan-driven work after verification or merge-train failure
+- When the orchestrator schedules that work
+- Then the work runs in its own `claude -p` session with its own `--session-id`
 - And sandbox boundaries remain explicit per worker session

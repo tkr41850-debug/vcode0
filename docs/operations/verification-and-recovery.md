@@ -5,7 +5,7 @@ See [ARCHITECTURE.md](../../ARCHITECTURE.md) for the high-level architecture ove
 ## Work Control vs Collaboration Control
 
 This document uses two main state axes plus a run/session overlay:
-- **Work control** — planning and execution progress (`discussing`, `researching`, `planning`, `executing`, `ci_check`, `verifying`, `awaiting_merge`, `summarizing`, `executing_repair`, `replanning`, `work_complete`)
+- **Work control** — planning and execution progress (`discussing`, `researching`, `planning`, `executing`, `ci_check`, `verifying`, `awaiting_merge`, `summarizing`, `replanning`, `work_complete`)
 - **Collaboration control** — branch / merge / suspension / conflict coordination (`none`, `branch_open`, `merge_queued`, `integrating`, `merged`, task-level `suspended`, feature/task `conflict`)
 - **Run/session state** — retry windows, help/approval waits, and manual ownership on `agent_runs`
 
@@ -13,7 +13,7 @@ A task becoming **stuck** is a work-control problem. A task or feature entering 
 
 ## Retry: Exponential Backoff up to 1 Week
 
-Run-level retry is handled by the orchestrator for transient failures only. Task execution runs and feature-phase runs share the same run/session model and backoff concepts when a session crashes or the provider fails transiently. Current baseline wiring persists both task and feature-phase message history through shared session-store backing under `.gvc0/sessions/`, and startup orphan recovery handles both scopes through the shared `dispatchRun(...)` path. For local pi-sdk runs, recovery checks persisted `workerPid` + `workerBootEpoch`, confirms ownership via `/proc/<pid>/environ` markers, kills stale workers from older orchestrator boots, then resumes or redispatches. Deterministic verification failures do not use retry backoff; they create repair work or return the run to normal execution flow instead.
+Run-level retry is handled by the orchestrator for transient failures only. Task execution runs and feature-phase runs share the same run/session model and backoff concepts when a session crashes or the provider fails transiently. Current baseline wiring persists both task and feature-phase message history through shared session-store backing under `.gvc0/sessions/`, and startup orphan recovery handles both scopes through the shared `dispatchRun(...)` path. For local pi-sdk runs, recovery checks persisted `workerPid` + `workerBootEpoch`, confirms ownership via `/proc/<pid>/environ` markers, kills stale workers from older orchestrator boots, then resumes or redispatches. Deterministic verification failures do not use retry backoff; they route through replanning or return the run to normal execution flow instead.
 
 ```typescript
 interface RetryPolicy {
@@ -97,13 +97,13 @@ All verify-shaped failures route through `replanning` with a typed `VerifyIssue[
 - `source: 'ci_check'` — shell verification failed. `phase: 'feature'` for pre-verify, `phase: 'post_rebase'` for the in-executor run.
 - `source: 'rebase'` — rebasing the feature branch onto latest `main` conflicted during integration. The downstream blocked feature (not the just-merged one) receives these issues when cross-feature overlap release surfaces a conflict.
 
-A feature reaches `ci_check` after the last task or repair task lands on the feature branch. By default the branch should be green before the feature may leave `ci_check` and enter `verifying`, though a loose feature policy may relax that boundary.
+A feature reaches `ci_check` after the last task lands on the feature branch, or after approved replan work lands. By default the branch should be green before the feature may leave `ci_check` and enter `verifying`, though a loose feature policy may relax that boundary.
 
 If `ci_check` fails (pre-verify or post-rebase):
 1. Keep the feature on the same feature branch.
 2. Move feature work control to `replanning`; persist `VerifyIssue[]` with `source: 'ci_check'` onto `features.verify_issues`.
 3. If the failure happened during integration (post-rebase), also eject the feature from the merge queue.
-4. The replanner proposes the next task set keyed off `checkName` + `command`; new/repair tasks land on the same feature branch.
+4. The replanner proposes the next task set keyed off `checkName` + `command`; new or modified tasks land on the same feature branch.
 5. Return to `ci_check` after approved replan tasks land.
 
 If `verifying` finds that the code does not satisfy the feature spec:
@@ -111,7 +111,7 @@ If `verifying` finds that the code does not satisfy the feature spec:
 2. The verify agent emits typed `VerifyIssue[]` via the `raiseIssue` tool; the run's terminal payload carries the accumulated list and the orchestrator persists it onto `features.verify_issues` with `source: 'verify'`. A `verifier_issue_raised` event is written per call for audit.
 3. If the verify run emits no blocking/concern issues the feature moves to `awaiting_merge`; otherwise feature work control moves to `replanning`. `nit`-severity issues are non-blocking: they still land on `features.verify_issues` and surface in the verification summary, but do not force replanning. See [Verify Nit Task Pool](../feature-candidates/verify-nit-task-pool.md) for the eventual mechanism to route these into post-merge follow-up work.
 4. On approved replan, `verifyIssues` clears; new/modified tasks land on the same feature branch.
-5. Return to `ci_check` after repair tasks land.
+5. Return to `ci_check` after approved replan work lands.
 
 If rebase fails during integration:
 1. Eject from the merge queue and move feature work control to `replanning`.
@@ -135,7 +135,7 @@ See [Warnings](./warnings.md) for the per-source and aggregate replan-loop warni
 
 Task completion does not land work on `main` directly. Instead:
 1. The worker emits a terminal task result; only `completionKind === 'submitted'` is treated as landed task work on the feature branch.
-2. After the last task or repair task lands, the feature runs branch checks in `ci_check`.
+2. After the last task lands, or after approved replan work lands, the feature runs branch checks in `ci_check`.
 3. If `ci_check` passes, the feature runs agent-level spec review in `verifying`.
 4. If `verifying` passes, feature work control becomes `awaiting_merge`.
 5. Only then may collaboration control become `merge_queued`.
@@ -155,14 +155,14 @@ When a same-feature task enters collaboration-control `conflict` after auto-reba
 1. Steer the existing task agent in the real conflicted worktree.
 2. If the agent resolves the conflict and later lands the task normally, clear the task's `conflict` collaboration state and continue the normal task completion path.
 3. If the agent resolves the merge but still needs additional code changes, treat that as normal task work rather than a continuing collaboration conflict.
-4. If the agent makes no meaningful progress, keep the task in `conflict` and escalate to targeted repair work, replanning, or user intervention.
+4. If the agent makes no meaningful progress, keep the task in `conflict` and escalate to targeted follow-up work, replanning, or user intervention.
 
 ### Cross-Feature Integration Conflict
 
 Feature A merges successfully. After its merge, cross-feature overlap release may detect that a downstream feature B (still `branch_open` or `merge_queued`) now conflicts with the new `main`. The conflict is about **B**, not **A**:
 
 1. Feature A completes integration normally — it is already `merged`.
-2. The release loop produces `release.kind === 'repair_needed' | 'blocked'` records keyed by `release.featureId === B`.
+2. The release loop produces `release.kind === 'replan_needed' | 'blocked'` records keyed by `release.featureId === B`.
 3. Feature B's work control moves to `replanning` with a synthesized `VerifyIssue[]` of `source: 'rebase'` referencing the conflicted files. If B was already in the queue, it is ejected.
 4. Replanner proposes reconciliation work on B's feature branch. On approval, B returns through `ci_check` and `verifying` and may re-enter `merge_queued`.
 
@@ -211,7 +211,7 @@ Task execution runs and feature-phase runs may call `request_help(query)` when t
 
 Manual drop-in interaction uses the same runtime control path: the orchestrator forwards plain-text `manual_input`, and the worker may stream plain-text `assistant_output` back while the run remains under manual ownership. The operator returns the run to automatic execution by triggering `release_to_scheduler`, which clears manual ownership only when no unanswered `request_help()` state remains on the run. Approval requests likewise stay run-owned: a worker emits `request_approval`, the orchestrator persists the waiting state on `agent_runs`, and later sends a typed `approval_decision` such as `approved`, `approve_always` when supported, `reject`, or `discuss`.
 
-Replanning is triggered when a feature enters the `replanning` phase, either after repair escalation in the orchestrator or through the current TUI proposal/approval flow for a selected replanning feature.
+Replanning is triggered when a feature enters the `replanning` phase, either after verify-shaped failure routing in the orchestrator or through the current TUI proposal/approval flow for a selected replanning feature.
 
 The replanner is a pi-sdk `Agent` with the same proposal-graph tools as the planner, plus read access to the current graph state and the failure context. It can:
 - Split the failed feature into smaller subfeatures

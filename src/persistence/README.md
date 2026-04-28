@@ -19,6 +19,7 @@ It does not own domain invariants; those stay in [core](../core/README.md) and o
 - `PersistentFeatureGraph` owns milestone/feature/task/dependency persistence. `SqliteStore` owns run/event CRUD only.
 - Keep row types schema-shaped and persistence-local. Higher-level naming and lifecycle rules belong in `@core/*`.
 - When adding persisted fields, update the migration, row type, codec, and whichever graph/store write path owns that entity.
+- Current baseline treats legacy `executing_repair` feature work phases as unsupported vocabulary; older `.gvc0/state.db` files should be dropped or migrated before use.
 
 ## See also
 

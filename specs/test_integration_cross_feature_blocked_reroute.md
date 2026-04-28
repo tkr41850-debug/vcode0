@@ -10,7 +10,7 @@ Capture that after feature A merges successfully, a downstream feature B that no
 - Given feature A and feature B both modify the same file on different feature branches
 - And feature A is `integrating`, feature B is `branch_open` or `merge_queued`
 - When feature A integrates successfully and reaches `merged`
-- And cross-feature overlap release computes `release.kind === 'repair_needed' | 'blocked'` with `release.featureId === B`
+- And cross-feature overlap release computes `release.kind === 'replan_needed' | 'blocked'` with `release.featureId === B`
 - Then feature B's `workControl` moves to `replanning`
 - And `features.verify_issues` for B is set with one or more `source: 'rebase'` entries referencing the overlapping files
 - And if B was already `merge_queued`, it is ejected

@@ -24,8 +24,8 @@
 ```text
 Feature work:
   discussing → researching → planning → executing → ci_check → verifying → awaiting_merge
-                                                         ↘                ↘
-                                                          executing_repair ─→ ci_check
+                                                                 ↘
+                                                                  replanning
 
   awaiting_merge --(after collab reaches `merged`)--> summarizing ─→ work_complete
                                            \--(budget mode)--> work_complete

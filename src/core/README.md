@@ -9,7 +9,7 @@ It must stay free of concrete runtime, persistence, git, or TUI dependencies.
 
 - `types/` — canonical model types for milestones, features, tasks, runs, verification, config, and token usage.
 - `graph/` — `FeatureGraph` contract plus `InMemoryFeatureGraph`, with sibling modules for creation, dependency edits, feature/task/milestone mutations, usage rollups, validation, queries, and transitions.
-- `fsm/` — legal feature/task transition guards and policy constants like repair escalation.
+- `fsm/` — legal feature/task transition guards and lifecycle routing rules.
 - `scheduling/` — combined graph construction, metrics, and ready-work prioritization.
 - `merge-train/` — merge-queue ordering and integration coordination policy.
 - `proposals/`, `state/`, `naming/`, `warnings/` — proposal payloads, derived display state, branch/worktree names, and warning evaluation.

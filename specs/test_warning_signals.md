@@ -14,7 +14,7 @@ Capture the baseline warning system behavior for verification timing, feature ch
 
 ### Feature churn accumulates repeated recovery-loop signals
 - Given the same feature repeatedly fails pre-queue verification (`ci_check` or `verifying`) or merge-train verification
-- When repair tasks and queue ejections accumulate
+- When replan cycles and queue ejections accumulate
 - Then the orchestrator increments feature churn counters
 - And may emit a churn warning after the configured threshold is crossed
 

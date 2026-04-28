@@ -26,6 +26,6 @@ Capture how the in-process integration executor handles a `git rebase` conflict 
 
 ### Cross-feature rebase conflict is not confused with integration rebase
 - Given feature A merges successfully and sits `merged`
-- When cross-feature overlap release produces `release.kind === 'repair_needed'` for downstream feature B
+- When cross-feature overlap release produces `release.kind === 'replan_needed'` for downstream feature B
 - Then the `source: 'rebase'` `VerifyIssue[]` is persisted on feature B (`release.featureId`), not on feature A
 - And feature B routes to `replanning`; feature A remains `merged`

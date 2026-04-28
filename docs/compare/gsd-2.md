@@ -23,7 +23,7 @@ The main difference is that our **feature** is not just a planning unit; it is a
 | Context engineering / decisions register | Yes | `CODEBASE.md`, `KNOWLEDGE.md`, and `DECISIONS.md`. |
 | Git isolation | Yes, stronger | gsd-2 exposes milestone worktrees/branches; we use feature branches plus task worktrees and a merge train. |
 | Verification enforcement | Yes, stronger layering | We separate task, feature, and merge-train verification. |
-| Auto-fix retry loops | Yes | Task submit failures stay in the agent loop; feature/merge verification failures create repair work. |
+| Auto-fix retry loops | Yes | Task submit failures stay in the agent loop; feature/merge verification failures route through replanning. |
 | Crash recovery / resume | Yes | Resumption is documented at the task/worktree/session level. |
 | Budget / cost tracking | Yes | Budget ceilings and warning thresholds are documented. |
 | Model routing | Yes | Tiered routing with user ceiling and budget pressure exists. |

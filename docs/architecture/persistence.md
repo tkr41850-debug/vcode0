@@ -270,7 +270,8 @@ provider quirk into first-class columns.
 - `features.work_phase` stores the feature's GSD lifecycle state
   (`discussing`, `researching`, `planning`, `executing`,
   `ci_check`, `verifying`, `awaiting_merge`, `summarizing`,
-  `executing_repair`, `replanning`, `work_complete`).
+  `replanning`, `work_complete`).
+- Upgrade note: legacy persisted `executing_repair` values are outside the current vocabulary contract. Drop or migrate older `.gvc0/state.db` files before upgrading into this vocabulary set.
 - `tasks.status` stores the task's execution lifecycle state
   (`pending`, `ready`, `running`, `stuck`, `done`, etc.).
   It answers whether the DAG work item has started,

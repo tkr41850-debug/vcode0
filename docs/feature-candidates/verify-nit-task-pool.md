@@ -11,9 +11,9 @@ The verify agent raises typed `VerifyIssue[]` via `raiseIssue({severity, descrip
 Current routing:
 
 - `blocking` or `concern` → feature work control moves to `replanning`; the replanner consumes `verifyIssues` and proposes the next task set.
-- `nit` → non-blocking. Issue is persisted onto `features.verify_issues` and surfaced in the verification summary (returned by `submitVerify`), but does not force `repair_needed`. The feature can still move to `awaiting_merge`.
+- `nit` → non-blocking. Issue is persisted onto `features.verify_issues` and surfaced in the verification summary (returned by `submitVerify`), but does not force `replan_needed`. The feature can still move to `awaiting_merge`.
 
-Rationale: blocking merge on nits would either collapse the severity tier (every nit = repair cycle, so nits collapse to concerns) or pressure the verifier to suppress low-signal findings to unblock merge. Keeping nits non-blocking preserves the signal.
+Rationale: blocking merge on nits would either collapse the severity tier (every nit = replan cycle, so nits collapse to concerns) or pressure the verifier to suppress low-signal findings to unblock merge. Keeping nits non-blocking preserves the signal.
 
 ## Candidate
 

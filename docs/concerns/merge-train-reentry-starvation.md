@@ -6,7 +6,7 @@ The merge-train queue sorts by `mergeTrainReentryCount` descending as a secondar
 
 ## Why to Watch
 
-The re-entry-descending sort was chosen to prioritize repair work on features that have already invested effort in the queue. This is usually the right call — a feature that almost merged deserves another chance promptly. It becomes pathological when the re-entry cause is structural and the feature never stabilizes.
+The re-entry-descending sort was chosen to prioritize follow-up work on features that have already invested effort in the queue. This is usually the right call — a feature that almost merged deserves another chance promptly. It becomes pathological when the re-entry cause is structural and the feature never stabilizes.
 
 ## What to Observe
 
