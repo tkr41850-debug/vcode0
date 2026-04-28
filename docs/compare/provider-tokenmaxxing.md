@@ -2,6 +2,8 @@
 
 Two-axis research on **provider-level prompt and cache techniques** for token efficiency. Companion to [tokenmaxxing.md](./tokenmaxxing.md), which covered the broader landscape (model routing, output-format compression, Skeleton-of-Thought, RAG, etc.). This page is narrower: only what the LLM provider's API surface lets you do with prompt structure and caching.
 
+> **Revised after critical review (April 2026).** Four opus reviewers stress-tested the original draft; this version applies their corrections (token-minimum table, worked-example arithmetic, removal of an invented `x-session-affinity` header, paper-quoting accuracy on Lumer et al., reframed Cluster D, qualified folklore, fixed pi-sdk `streamFn` claim, etc.). Treat the document as carefully cross-checked but still snapshot-in-time — provider pricing and beta-flag eligibility move quickly.
+
 ## Two axes
 
 - **Per-request billing model**: caller pays a flat amount per request, cannot choose model. Goal: pack maximum useful output into one inference call. Examples in 2026: Claude Code Pro/Max rolling-window quotas, legacy Cursor request tiers.
@@ -30,15 +32,15 @@ Source: [Claude Code issue #46829](https://github.com/anthropics/claude-code/iss
 
 Previously caches were shared at the organization level. Now each workspace has its own cache backing store. Multi-environment deployments (dev/staging/prod under one org) lost cross-workspace cache reuse. Bedrock and Vertex AI retained organization-level isolation.
 
-### 3. The token minimum on Claude 4.x flagship models is 4096, not 1024
+### 3. The token minimum on Claude 4.x flagship models is up to 4096, not 1024
 
 | Model | Minimum cacheable tokens |
 |---|---|
-| Opus 4.7 / 4.6 / 4.5, Sonnet 4.6, Haiku 4.5 | 4096 |
-| Sonnet 4.5, Opus 4.1 / 4, Sonnet 4, Sonnet 3.7 | 1024 |
-| Haiku 3.5 | 2048 |
+| Mythos Preview, Opus 4.7 / 4.6 / 4.5, Haiku 4.5 | 4096 |
+| Sonnet 4.6, Haiku 3.5 | 2048 |
+| Sonnet 4.5, Opus 4 / 4.1, Sonnet 4, Sonnet 3.7 | 1024 |
 
-Below the minimum the API silently returns `cache_creation_input_tokens: 0` and `cache_read_input_tokens: 0` — no error, no warning. A worker harness with a 1500-token system prompt on Sonnet 4.6 pays full price every turn and never caches. Detect with usage-field instrumentation; never assume `cache_control` activates caching.
+Below the minimum the API silently returns `cache_creation_input_tokens: 0` and `cache_read_input_tokens: 0` — no error, no warning. A worker harness with a 1500-token system prompt on Opus 4.6 pays full price every turn and never caches. Detect with usage-field instrumentation; never assume `cache_control` activates caching.
 
 ### 4. The 20-block lookback ceiling is a hidden failure mode in long agent loops
 
@@ -46,15 +48,15 @@ Anthropic's prefix lookup walks backward at most 20 content blocks from each `ca
 
 ### 5. System-prompt-only caching wins for parallel ephemeral fleets
 
-The "Don't Break the Cache" paper (arXiv:2601.06007) measured 78–81% cost savings on Anthropic when caching *only* the system prompt for agents with session-specific tool results — vs. caching full conversation history, which often produces **negative** ROI because the prefix never matches across instances and you pay the write penalty every turn for zero reads. The intuition flips: full-history caching wins for one long session, system-only wins for many short ones. gvc0's worker fleet (process-per-task, isolated worktrees, different problems) is firmly in the system-only regime.
+The "Don't Break the Cache" paper (Lumer et al., arXiv:2601.06007, January 2026) measured **41–80% cost savings** across configurations on Anthropic when caching *only* the system prompt for agents with session-specific tool results. The headline 78–81% figure applies to a specific high-overlap subset; the broader range is what most workloads see. Caching full conversation history can show **increased latency and reduced savings** when prefixes don't repeat across instances (the paper does not claim "negative ROI" outright, but the savings collapse compared to system-only). The intuition flips: full-history caching wins for one long session, system-only wins for many short ones. gvc0's worker fleet (process-per-task, isolated worktrees, different problems) is firmly in the system-only regime.
 
 ### 6. Cache reads on Claude 4.x are excluded from ITPM
 
-`cache_read_input_tokens` does NOT count against input-tokens-per-minute limits on Claude 4.x and Sonnet 3.7. With 80% cache hit rate on a 50k-token context at Tier 4 ITPM (2M tokens/min), effective throughput rises to ~10M tokens/min — a 5x multiplier. **For a parallel-worker fleet this is the largest architectural lever available.** OpenAI does not offer this; cached tokens still count toward TPM at face value.
+`cache_read_input_tokens` does NOT count against input-tokens-per-minute limits on Claude 4.x and Sonnet 3.7. With 80% cache hit rate on a 50k-token context at Tier 4 ITPM (2M tokens/min), effective throughput rises to ~10M tokens/min — a 5x multiplier. **For a parallel-worker fleet this is the largest architectural lever available.** Other providers do not document a comparable carve-out; OpenAI's docs are ambiguous on whether cached tokens count toward TPM (treat as "they likely do" until proven otherwise).
 
 ### 7. Concurrent fan-out before warmup pays the write cost N times
 
-There's no cache-fill coalescing. If worker 1..N fire simultaneously with the same prefix and no warm entry, all N pay 1.25× or 2× write. Subsequent waves get reads. **Always send one sentinel call to warm the cache before fanning out the worker pool**, then keepalive every ~50 minutes against the 1h TTL.
+There's no cache-fill coalescing. If worker 1..N fire simultaneously with the same prefix and no warm entry, all N pay 1.25× or 2× write. Subsequent waves get reads. **Always send one sentinel call to warm the cache before fanning out the worker pool**, then keepalive at a comfortable margin under the TTL (the 50-min keepalive figure for 1h TTL is community folklore, not Anthropic-published guidance — adjust by measurement).
 
 ### 8. Batch API + 1h cache + warmup is the cheapest input regime available
 
@@ -86,7 +88,7 @@ Anthropic compiles JSON Schema into a grammar at first use (100–300ms), cached
 
 ### 15. `prompt_cache_key` on OpenAI throttles at ~15 RPM per key
 
-OpenAI's `prompt_cache_key` is a routing hint, not a cache key. Beyond ~15 requests/minute with the same key+prefix, overflow lands on additional backend hosts where there's no warm entry — hit rate degrades. For a high-throughput agent fleet sharing one prefix, this is a hard ceiling.
+OpenAI's `prompt_cache_key` is a routing hint, not a cache key. Beyond ~15 requests/minute with the same key+prefix, overflow lands on additional backend hosts where there's no warm entry — hit rate degrades. For a high-throughput agent fleet sharing one prefix, this is a soft ceiling: throughput keeps scaling, but cache-hit rate trends down past the threshold.
 
 ---
 
@@ -98,10 +100,10 @@ Distilled across all four clusters. Rank reflects expected savings × implementa
 Do not rely on the default. As of March 6, 2026, the default is 5m and that is wrong for any agent loop with intra-task gaps > 5 min. Two-line change with the largest blast radius.
 
 ### 2. Pre-warm the cache before worker fan-out
-In `@orchestrator/scheduler`, fire one blocking sentinel call with the canonical tools+system prefix before launching a wave of workers. Schedule a keepalive every 50 minutes. Without this, every concurrent worker in the first wave pays 1.25–2× write cost.
+In `@orchestrator/scheduler`, fire one blocking sentinel call with the canonical tools+system prefix before launching a wave of workers. Schedule a keepalive at a comfortable margin under TTL (e.g. 45–55 min for 1h TTL — exact figure is folklore, measure it). Without this, every concurrent worker in the first wave pays 1.25–2× write cost.
 
 ### 3. System-prompt-only caching for the worker harness
-Workers are short, parallel, and process distinct problems — system-only caching is the right regime per the arXiv paper (78–81% savings). Move all dynamic content (feature name, task ID, worktree path) **out of the system prompt** and into the first user message. Single anchor breakpoint at the end of the system prompt with `ttl: "1h"`.
+Workers are short, parallel, and process distinct problems — system-only caching is the right regime per the arXiv paper (41–80% savings range, 78–81% in the high-overlap subset). Move all dynamic content (feature name, task ID, worktree path) **out of the system prompt** and into the first user message. Single anchor breakpoint at the end of the system prompt with `ttl: "1h"`.
 
 ### 4. Freeze the tools array per worker class with a stability hash
 In `@agents/planner` and `@agents/replanner`, construct the tools array once at module init. Hash the serialized form. Assert identity on every API call and fail loudly on drift. Add a `tools-fingerprint` integration test in `test/integration/`.
@@ -113,7 +115,7 @@ Long-running agents need: anchor breakpoint (1h TTL) at end of system, trailing 
 Store `cache_creation_input_tokens`, `cache_read_input_tokens`, `input_tokens`, `output_tokens` (and split `ephemeral_5m` / `ephemeral_1h` when present) in the `agent_runs` row. Cost computation based only on `input_tokens` is wrong by orders of magnitude for cache-heavy workloads.
 
 ### 7. Below-minimum guard in context assembly
-Estimate prefix tokens before emitting `cache_control`. Skip the marker and log `WARN cache_below_minimum` when below threshold (4096 for Sonnet 4.6 / Opus / Haiku 4.5; 2048 for Haiku 3.5; 1024 for Sonnet 4.5). Silent no-ops are an invisible cost leak.
+Estimate prefix tokens before emitting `cache_control`. Skip the marker and log `WARN cache_below_minimum` when below threshold (4096 for Opus 4.7/4.6/4.5 / Haiku 4.5 / Mythos Preview; 2048 for Sonnet 4.6 / Haiku 3.5; 1024 for Sonnet 4.5 and earlier). Silent no-ops are an invisible cost leak.
 
 ### 8. Lock `budget_tokens` for thinking agents at session start
 For planner/replanner using extended thinking, decide `budget_tokens` once at session start and freeze it. Every change busts the message-level cache. Use Sonnet 4.6 or Opus 4.5+ (not Haiku) — Haiku strips thinking blocks on each non-tool-result turn, defeating cached-thinking reads.
@@ -121,7 +123,7 @@ For planner/replanner using extended thinking, decide `budget_tokens` once at se
 ### 9. Tool-result clearing via `transformContext` hook
 Wire a pi-sdk extension that drops tool-result bodies older than 5 turns, **only for results positioned after the system anchor breakpoint** (dropping content before the anchor would invalidate it). For file-heavy tasks this typically reduces per-turn tokens 40–70% without touching the cache.
 
-### 10. Track `task.weight` × `tools-fingerprint` × cache-hit-rate in TUI
+### 10. Track `tools-fingerprint` × cache-hit-rate per worker class in TUI
 Surface real-time cache hit rate per worker class. Alert when worker hit rate drops below 80% — single best canary for prefix mutation, tool-schema drift, or TTL expiry.
 
 ### 11. Structured outputs on all known-schema calls
@@ -130,8 +132,8 @@ Wrap every planner/replanner call that emits a known shape (DAG state, task plan
 ### 12. Verify `disable_parallel_tool_use` is never set unless required
 DAG-structured task work is naturally parallel. The default (parallel) is correct. Audit `@agents/*` for any code path that sets `disable_parallel_tool_use: true`.
 
-### 13. Hard-stop stream abort with no retry on task cancellation
-Documented Claude Code bug double-bills cancelled streams via auto-fallback. The IPC cancel path in `@runtime/` must signal workers to abort the stream without retrying. Never issue a non-streaming retry on stream abort.
+### 13. Verify no auto-fallback on cancellation in worker IPC path
+The double-billing pattern is a Claude Code product bug; pi-sdk's worker loop does **not** silently auto-retry as non-streaming on cancellation. Lower priority than presented, but worth a one-time audit of the IPC cancel path in `@runtime/` to confirm no future regression introduces fallback retries.
 
 ### 14. Direct provider clients for cache-critical paths
 Do not route Anthropic requests through LiteLLM (confirmed bug class strips `cache_control`). OpenRouter is acceptable for OpenAI/Gemini where caching is implicit, but bypass it for Anthropic.
@@ -148,12 +150,12 @@ Provider-portable abstraction: stable section, TTL preference, breakpoint positi
 
 1. **PR-1**: Set `ttl: "1h"` explicitly + record all four cache usage fields. Smallest change, largest visibility win. Without this, no later PR is measurable.
 2. **PR-2**: System-prompt-only restructure for workers — push dynamic content from system into first user message. Add tools-fingerprint hash + stability test.
-3. **PR-3**: Cache pre-warmup in `@orchestrator/` before worker fan-out + 50-minute keepalive.
+3. **PR-3**: Cache pre-warmup in `@orchestrator/` before worker fan-out + sub-TTL keepalive (start at ~50 min for 1h TTL; tune by measurement).
 4. **PR-4**: Below-minimum guard + structured outputs for known-schema planner/replanner calls.
 5. **PR-5**: Two-breakpoint pattern + server-side compaction for planner/replanner.
 6. **PR-6**: Tool-result clearing `transformContext` hook (post-anchor only).
 7. **PR-7**: Cache hit rate + reasoning ratio TUI surface.
-8. **PR-8**: Stream-abort hardening (no retry on cancellation).
+8. **PR-8**: Audit IPC cancel path for non-streaming-retry regression risk.
 9. **PR-9**: Batch API path for shared-context evaluation runs (depends on PRs 1–3 being landed).
 10. **PR-10**: pi-sdk `CacheHint` abstraction (upstream contribution; defers cross-provider portability work).
 
@@ -166,7 +168,7 @@ PRs 1–3 are independent and small; bundle if desired. PRs 4–8 each stand alo
 ### Breakpoint placement (4 max per request)
 - Hierarchy: `tools` → `system` → `messages`. Marker at `system` implicitly covers `tools`; marker at `messages` covers everything before it.
 - TTL ordering: 1h breakpoints **must** appear before 5m in prompt order. Violation → HTTP 400.
-- Top-level `cache_control: {type: "ephemeral"}` on the request enables automatic management; explicit per-block markers give fine-grained control. Mixing them with all 4 slots filled → 400 "no slots for automatic caching".
+- Top-level `cache_control: {type: "ephemeral"}` on the request enables automatic management; explicit per-block markers give fine-grained control. Mixing them with all 4 slots filled → 400 "no slots left for automatic caching".
 
 ### 20-block lookback window
 - Counts content blocks (text entry, image, tool_use, tool_result), not message-array entries. A message with `[text, image]` is 2 blocks.
@@ -182,9 +184,9 @@ PRs 1–3 are independent and small; bundle if desired. PRs 4–8 each stand alo
 Use 5m if turns happen ≤5 min apart. Use 1h for 5–60 min gaps. Don't bother caching for >60 min gaps.
 
 ### Token minimums (April 2026)
-- 4096: Opus 4.7/4.6/4.5, Sonnet 4.6, Haiku 4.5
-- 2048: Sonnet 3.7, Haiku 3.5
-- 1024: Sonnet 4.5, Opus 4/4.1, Sonnet 4
+- 4096: Mythos Preview, Opus 4.7/4.6/4.5, Haiku 4.5
+- 2048: Sonnet 4.6, Haiku 3.5
+- 1024: Sonnet 4.5, Opus 4/4.1, Sonnet 4, Sonnet 3.7
 - Below threshold: silent no-op, both cache fields return 0.
 
 ### Usage-field accounting
@@ -248,8 +250,8 @@ Zero dynamic content in the static prefix. No timestamps, no session IDs, no per
 - Three+ breakpoints (SOC-agent pattern): system Bp4 (1h) → previous assistant Bp3 → previous user Bp2 → current user Bp1. Lookback always finds something within 4–5 blocks.
 
 ### System-only caching strategy
-- arXiv 2601.06007 finding: 78–81% savings on Anthropic for parallel agents with session-specific tool results.
-- Full-history caching can be **negative ROI** if the prefix never repeats across instances (you pay write penalty for zero reads).
+- arXiv 2601.06007 (Lumer et al., Jan 2026) finding: 41–80% savings on Anthropic across configurations for parallel agents with session-specific tool results; the 78–81% headline applies to a high-overlap subset.
+- Full-history caching shows **increased latency and reduced savings** when prefixes don't repeat across instances; the paper does not call this "negative ROI" outright but the ratio collapses vs. system-only.
 - Win condition for system-only: parallel fleet, ephemeral sessions, distinct problems per worker.
 - Win condition for full-history: single long-running session iterating the same content.
 
@@ -266,27 +268,27 @@ Zero dynamic content in the static prefix. No timestamps, no session IDs, no per
 | Sliding window (drop front turns) | Full conversation prefix invalidation | Avoid |
 | Hierarchical summarization (rewrite prefix) | Full invalidation | Acceptable if compaction replay cost > replay-full-history cost |
 | LLMLingua token-level pruning | Non-deterministic; breaks prefix stability | Incompatible with cache |
-| Anchored compaction | System anchor preserved; only messages-level invalidated | **Recommended** |
+| Anchored compaction (informal term — system anchor + messages-only rewrite) | System anchor preserved; only messages-level invalidated | **Recommended** |
 | Tool-result clearing post-anchor | No invalidation | **Lightest, recommended** |
-| Anthropic server-side `compact-2026-01-12` | Anchor preserved; no extra request | **Recommended for Opus 4.6+** |
+| Anthropic server-side `compact-2026-01-12` | Anchor preserved; no extra request | **Recommended on supported models: Sonnet 4.6, Opus 4.6/4.7, Mythos Preview** |
 
 Compaction cost model: compaction inference + 1 turn cache miss vs. cost of replaying full history. Compaction wins past ~10 remaining turns.
 
 ### Tool result handling
 - Truncate at source (e.g., 4096 tokens for file reads).
 - Drop bodies older than 5 turns post-anchor.
-- "Lost in the middle" (Liu et al. 2024): 30%+ accuracy drop when relevant content shifts to middle positions; keep important results trailing.
+- "Lost in the middle" (Liu et al. 2023, arXiv:2307.03172): 30%+ accuracy drop when relevant content shifts to middle positions; keep important results trailing.
 
 ### Parallel-worker fleet
 - Cache is per-API-key, per-workspace.
 - Worker 1 turn 1 = write; workers 2..N turn 1 = read.
-- Pre-warm with sentinel call. Keepalive every ~50 min for 1h TTL.
-- Round-robin replica routing risk: a cached prefix has 1/N hit probability across N replicas. Anthropic's `x-session-affinity` header routes same-prefix requests consistently.
+- Pre-warm with sentinel call. Keepalive at a comfortable margin under TTL (50-min figure for 1h is community folklore — measure and tune).
+- Round-robin replica routing risk: a cached prefix may have <1/1 hit probability across backend replicas. Anthropic does not document a public session-affinity header; rely on `prompt_cache_key`-style routing hints where available and otherwise accept best-effort affinity.
 
 ### Real-world cases
 - ProjectDiscovery: 7% → 84% hit rate, 59–70% cost reduction. Three-breakpoint layout (system 1h + tool defs + conversation tail 5m). "Relocation trick" — moving dynamic working memory out of system prefix into tail user message — alone went 7% → 74%.
 - Claude Code 5-layer pipeline: budget reduction → snip → microcompact → context collapse → semantic auto-compact. Cheapest-first; layers 1–2 don't bust cache.
-- SDK compaction at 5k threshold: 204k → 82k tokens on a 37-turn ticket task (59.7% reduction).
+- SDK compaction at 5k threshold: 198k → 82k tokens on a 37-turn ticket task (~58.6% reduction).
 
 ---
 
@@ -298,28 +300,33 @@ Compaction cost model: compaction inference + 1 turn cache miss vs. cost of repl
 |---|---|---|---|---|
 | Activation | Explicit `cache_control` blocks (or top-level auto) | Automatic prefix; optional `prompt_cache_key` routing hint | Dual: explicit `cachedContents` API + implicit auto (2.5+) | Explicit `cachePoint` markers in Converse API |
 | TTL | 5m or 1h, caller-selected; 1h must precede 5m | ~5–10 min default; 24h via `prompt_cache_retention: "24h"` (mandatory on gpt-5.5+); Azure has no 24h | Explicit: configurable; Implicit: provider-managed | 5m default; 1h available only on Claude Haiku 4.5 / Sonnet 4.5 / Opus 4.5 |
-| Write cost | 1.25× (5m) / 2.0× (1h) | None | Explicit: storage fee $1/MTok/hr (Flash), $4.50/MTok/hr (Pro); implicit free | ~1.25× base; Nova has no surcharge |
-| Read cost | 0.1× (90% off) | ~0.1× (~90% off in current docs) | Vertex 2.5+ explicit/implicit: 0.1×; AI Studio explicit: 0.25× | ~0.1× |
-| Token minimum | 4096 (4.x flagships); 1024–2048 others | 1024 | Implicit: 1024 (Flash) / 2048 (Pro); Explicit: 2048+ | 1024 first checkpoint; 2048 cumulative second |
+| Write cost | 1.25× (5m) / 2.0× (1h) | None | Explicit: storage fee per MTok/hr (AI Studio: $1 Flash, $4.50 Pro; Vertex 2.5 Pro: $0.3125); implicit free | ~1.25× base; Nova has no surcharge |
+| Read cost | 0.1× (90% off) | 0.5× current pricing on gpt-4o (50% off); 0.1× on newer (gpt-5.x) lines per current docs | Vertex 2.5+ explicit/implicit: 0.1×; AI Studio explicit: 0.25× | ~0.1× |
+| Token minimum | 4096 (Mythos / Opus / Haiku 4.5); 2048 (Sonnet 4.6, Haiku 3.5); 1024 (older 4.x, Sonnet 3.7) | 1024 | Implicit: 1024 (Flash) / 2048 (Pro); Explicit: 2048+ | 1024 first checkpoint; 2048 cumulative second |
 | Observability | `cache_creation_input_tokens`, `cache_read_input_tokens`, `cache_creation.ephemeral_5m/1h_input_tokens` | `usage.prompt_tokens_details.cached_tokens` | `usageMetadata.cachedContentTokenCount` | `CacheReadInputTokens`, `CacheWriteInputTokens`, `CacheDetails.ttl` |
-| Rate-limit relief | Cache reads excluded from ITPM (Claude 4.x, Sonnet 3.7) | None — full count toward TPM | Not documented | None |
+| Rate-limit relief | Cache reads excluded from ITPM (Claude 4.x, Sonnet 3.7) | Not documented as excluded — assume cached tokens count toward TPM | Not documented | None |
 | Workspace scope | Per-workspace (Feb 5, 2026+) | Per-account | Per-project | Per-AWS-account, per-region |
 
+xAI Grok and DeepSeek (omitted from the matrix above) both ship automatic prefix caching with provider-managed TTLs and read discounts comparable to OpenAI's; treat them as "OpenAI-shaped" for portability purposes.
+
 ### Worked example: 50k-token prompt, 10 requests (write + 9 reads)
+
 | Provider | Total cost | vs. uncached |
 |---|---|---|
-| Anthropic Sonnet 4.6, 5m | $0.32 | 78% off |
-| Anthropic Sonnet 4.6, 1h | $0.44 | 71% off |
-| OpenAI gpt-4o | $0.24 | 81% off |
-| Gemini 2.5 Pro implicit | $0.12 | 81% off (best, if hit rate holds) |
-| Gemini 2.5 Pro explicit (1h) | $0.34 | 45% off (storage fee dominates) |
-| Bedrock Claude 3.5 Sonnet v2 | $0.65 | 78% off |
+| Anthropic Sonnet 4.6, 5m | $0.32 | ~78% off |
+| Anthropic Sonnet 4.6, 1h | $0.44 | ~71% off |
+| OpenAI gpt-4o (50% cache discount) | ~$0.69 | ~45% off |
+| OpenAI gpt-5.x (90% cache discount per current docs) | ~$0.24 | ~81% off |
+| Gemini 2.5 Pro implicit | $0.12 | ~81% off (best, if hit rate holds) |
+| Gemini 2.5 Pro explicit (1h, AI Studio storage) | $0.34 | ~45% off (storage fee dominates) |
+| Gemini 2.5 Pro explicit (1h, Vertex storage) | ~$0.20 | ~67% off |
+| Bedrock Claude 3.5 Sonnet v2 | ~$0.32 | ~78% off |
 
-Gemini implicit wins this scenario when hit rate is reliable. Bedrock has the same percentage savings as Anthropic but higher absolute prices.
+Numbers are illustrative — verify against current provider pricing before using as a basis for any decision. The shape is what matters: Gemini implicit and Anthropic both reach ~78–81% off in steady state; gpt-4o's 50% cache discount is materially weaker than its newer-generation lines; Bedrock matches Anthropic percentage-wise at slightly higher absolute price.
 
 ### Per-provider foot-guns
 - **Anthropic**: TTL ordering, 20-block lookback, workspace isolation, March 2026 default change, silent below-minimum, tool-array mutation cascade.
-- **OpenAI**: `prompt_cache_key` ~15 RPM throttle; Azure no 24h retention; cached tokens count toward TPM.
+- **OpenAI**: `prompt_cache_key` ~15 RPM throttle; Azure no 24h retention; OpenAI does not document cached tokens as excluded from TPM (treat as if they count until proven otherwise).
 - **Gemini**: Explicit storage fees accumulate if you forget to delete; AI Studio vs Vertex pricing differences; Cloud Storage object mutation silently invalidates cache.
 - **Bedrock**: 5m TTL forces miss on most batch jobs; cross-region inference (CRIS) routes between regions and cache does not survive — under load, hit rate degrades.
 
@@ -335,31 +342,33 @@ Gemini implicit wins this scenario when hit rate is reliable. Bedrock has the sa
 
 ---
 
-## Cluster D — Per-request billing axis
+## Cluster D — Per-request / quota-bounded billing axis
 
-### Per-request billing in 2026 (where it actually exists)
-- **Cursor**: moved to credit pool June 2025 — no longer literal request counting.
-- **Claude Code Pro/Max**: rolling RPM + 5-hour TPM windows. Closest to "request quota" in practice.
-- **GitHub Copilot**: moves to usage-based credits June 1, 2026.
+**Caveat upfront:** literal "flat fee per request, choose your model" billing is functionally extinct in 2026 — Cursor moved to a credit pool in June 2025 and GitHub Copilot moves to usage-based credits June 1, 2026. What remains in this axis is **quota-bounded billing**: rolling RPM + 5-hour TPM windows (Claude Code Max), seat tiers (Gemini Enterprise), and credit pools (Cursor). The advice below assumes that constraint, not literal per-request flat-fee.
+
+### Quota-bounded billing landscape (2026)
+- **Cursor**: credit pool since June 2025 — no longer literal request counting.
+- **Claude Code Pro/Max**: rolling RPM + 5-hour TPM windows. Closest to a live request-quota constraint in practice (but the bucket is denominated in tokens, not requests).
+- **GitHub Copilot**: usage-based credits as of June 1, 2026.
 - **Cline / Aider / Roo / Continue**: BYOK (token-billed via provider).
 - **Featherless.ai**: flat-rate unlimited-token tiers (open models only).
 - **Gemini Enterprise**: $30/user/month flat seat.
 
-The dominant live constraint is Claude Code Max's rolling window — every wasted call burns slot budget.
-
-### Mindset shift (per-token vs per-request)
-| Dimension | Per-token | Per-request |
+### Mindset shift (per-token billing vs quota-bounded)
+| Dimension | Per-token billing | Quota-bounded (RPM/TPM) |
 |---|---|---|
-| Input tokens | Minimize aggressively | Minimize only if it affects TTFT/context fit |
-| Output tokens | Minimize aggressively | Maximize usefulness; accept length to reduce retries |
-| Retries | Expensive (N× tokens) | Very expensive (N× slots; can stall the window) |
-| Prompt verbosity | Cost | Acceptable if it improves reliability |
-| Structured output | Helpful for parsing | Essential (parse failure costs a full slot) |
+| Input tokens | Minimize aggressively | Minimize when token bucket binds; less critical when only RPM binds |
+| Output tokens | Minimize aggressively | Minimize against TPM bucket; only "maximize usefulness" if the bucket is request-denominated, which Claude Code Max's is **not** |
+| Retries | Expensive (N× tokens) | Doubly expensive (N× tokens **and** N× slots) |
+| Prompt verbosity | Cost | Cost on the TPM side |
+| Structured output | Helpful for parsing | Essential (parse failure burns a slot) |
 | Parallel tool calls | Saves tokens | Saves slots — primary lever |
-| Cache hits | Save money | Save time → throughput → more requests fit |
-| Compaction | Avoid (extra request) | Enable server-side (no extra request; prevents overflow failures) |
+| Cache hits | Save money | Save time → throughput → more requests fit before the window binds |
+| Compaction | Avoid (extra request, extra tokens) | Enable server-side when available (no extra request; prevents overflow failures) |
 
 ### Provider-level levers (prompt + cache only)
+The same levers that help per-token also help quota-bounded — the difference is what they save (cost vs. throughput headroom), not which knobs to turn.
+
 1. **Structured outputs** (`output_config.format`): grammar-constrained generation eliminates parse retries. Zero schema-prose overhead. Free.
 2. **Token-efficient tool use** (built into Claude 4+): up to 70% output token reduction on tool calls (avg 14%); lower TTFT.
 3. **Parallel tool calls** (default): N independent tool calls in one assistant turn → 2 requests instead of N+1. Never set `disable_parallel_tool_use` unless data dependencies require it.
@@ -369,7 +378,7 @@ The dominant live constraint is Claude Code Max's rolling window — every waste
 
 ### Stream-lifecycle hazards
 - Aborted streams charge for tokens generated before abort.
-- Claude Code bug double-bills: cancel → auto-retry as non-streaming → both billed. Fix: hard-stop, no retry.
+- The Claude Code product has shipped a double-bill bug on cancellation (cancel → auto-retry as non-streaming → both billed). pi-sdk's worker loop does not exhibit this behavior; the lever for gvc0 is to verify no future change introduces auto-retry on cancel.
 
 ---
 
@@ -405,7 +414,7 @@ The dominant live constraint is Claude Code Max's rolling window — every waste
 3. Add a `tools-fingerprint` integration test in `test/integration/`.
 
 ### Short-term (within 1 month)
-4. Implement cache pre-warmup + 50-min keepalive in `@orchestrator/`.
+4. Implement cache pre-warmup + sub-TTL keepalive in `@orchestrator/` (start at ~50 min for 1h TTL; tune by measurement).
 5. Add below-minimum guard with WARN logging in `@runtime/context-assembly`.
 6. Wire structured outputs (`output_config.format`) on planner DAG-emission calls.
 7. TUI surface for per-worker-class cache hit rate.
@@ -414,7 +423,7 @@ The dominant live constraint is Claude Code Max's rolling window — every waste
 8. Server-side compaction (`compact-2026-01-12`) on planner/replanner.
 9. Two-breakpoint pattern with rolling-breakpoint logic in long-running agent harnesses.
 10. Tool-result clearing `transformContext` extension (post-anchor only).
-11. Stream-abort hardening (no retry on cancellation).
+11. One-time audit of IPC cancel path to confirm no auto-retry-as-non-streaming regression.
 
 ### Long-term (when justified by scale)
 12. Batch API + 1h cache + warmup pipeline for shared-context evaluation runs.
@@ -425,8 +434,8 @@ The dominant live constraint is Claude Code Max's rolling window — every waste
 ### Open questions to revisit
 - Does Anthropic publish ITPM exclusion behavior for thinking output tokens, or only input tokens?
 - Will Anthropic restore the 1h Claude Code default, or is 5m the new normal?
-- Does pi-sdk's `streamFn` allow beta-header injection? If not, what's the upstream path?
 - Will `prompt_cache_retention` ever land on Azure OpenAI?
+- (Resolved: pi-sdk's `streamFn` is wrappable, so beta-header injection like `compact-2026-01-12` and `advanced-tool-use-2025-11-20` is achievable today without an upstream change.)
 
 ---
 
