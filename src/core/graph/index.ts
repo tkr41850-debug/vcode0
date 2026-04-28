@@ -26,14 +26,12 @@ import {
   removeFeature as deleteFeature,
   removeTask as deleteTask,
   queueMilestone as enqueueMilestone,
-  mergeFeatures as mergeGraphFeatures,
   changeMilestone as moveFeatureMilestone,
   editFeature as patchFeature,
   editTask as patchTask,
   reorderTasks as reorderFeatureTasks,
   replaceUsageRollups as replaceGraphUsageRollups,
   reweight as reweightTask,
-  splitFeature as splitGraphFeature,
   dequeueMilestone as unqueueMilestone,
 } from './mutations.js';
 import {
@@ -59,7 +57,6 @@ import type {
   FeatureTransitionPatch,
   GraphSnapshot,
   MergeTrainUpdate,
-  SplitSpec,
   TaskEditPatch,
   TaskTransitionPatch,
   UsageRollupPatch,
@@ -84,7 +81,6 @@ export type {
   GraphSnapshot,
   MergeTrainUpdate,
   PlannerFeatureEditPatch,
-  SplitSpec,
   TaskDependencyOptions,
   TaskEditPatch,
   TaskTransitionPatch,
@@ -182,14 +178,6 @@ export class InMemoryFeatureGraph
       return;
     }
     removeTaskDependency(this, opts);
-  }
-
-  splitFeature(id: FeatureId, splits: SplitSpec[]): Feature[] {
-    return splitGraphFeature(this, id, splits);
-  }
-
-  mergeFeatures(featureIds: FeatureId[], name: string): Feature {
-    return mergeGraphFeatures(this, featureIds, name);
   }
 
   cancelFeature(featureId: FeatureId, cascade?: boolean): void {

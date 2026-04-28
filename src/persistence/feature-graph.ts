@@ -9,7 +9,6 @@ import type {
   FeatureTransitionPatch,
   GraphSnapshot,
   MergeTrainUpdate,
-  SplitSpec,
   TaskEditPatch,
   TaskTransitionPatch,
   UsageRollupPatch,
@@ -159,14 +158,6 @@ export class PersistentFeatureGraph implements FeatureGraph {
 
   removeDependency(opts: DependencyOptions): void {
     this.mutate(() => this.inner.removeDependency(opts));
-  }
-
-  splitFeature(id: FeatureId, splits: SplitSpec[]): Feature[] {
-    return this.mutate(() => this.inner.splitFeature(id, splits));
-  }
-
-  mergeFeatures(featureIds: FeatureId[], name: string): Feature {
-    return this.mutate(() => this.inner.mergeFeatures(featureIds, name));
   }
 
   cancelFeature(featureId: FeatureId, cascade?: boolean): void {

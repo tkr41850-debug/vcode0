@@ -62,13 +62,6 @@ export interface AddTaskOptions {
   outcomeVerification?: string;
 }
 
-export interface SplitSpec {
-  id: FeatureId;
-  name: string;
-  description: string;
-  deps?: FeatureId[];
-}
-
 export interface PlannerFeatureEditPatch {
   name?: string;
   description?: string;
@@ -169,8 +162,6 @@ export interface FeatureGraph {
   createTask(opts: CreateTaskOptions): Task;
   addDependency(opts: DependencyOptions): void;
   removeDependency(opts: DependencyOptions): void;
-  splitFeature(id: FeatureId, splits: SplitSpec[]): Feature[];
-  mergeFeatures(featureIds: FeatureId[], name: string): Feature;
   cancelFeature(featureId: FeatureId, cascade?: boolean): void;
   removeFeature(featureId: FeatureId): void;
   changeMilestone(featureId: FeatureId, newMilestoneId: MilestoneId): void;

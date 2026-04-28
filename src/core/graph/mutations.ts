@@ -7,9 +7,7 @@ export {
   cancelFeature,
   changeMilestone,
   editFeature,
-  mergeFeatures,
   removeFeature,
-  splitFeature,
 } from './feature-mutations.js';
 export {
   clearQueuedMilestones,
