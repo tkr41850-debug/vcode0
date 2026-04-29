@@ -21,6 +21,7 @@ Use these pages when you want contrast with the broader 2026 AI-coding-agent lan
 
 - [Tokenmaxxing](./tokenmaxxing.md) — two-axis research (max useful output per request vs. min tokens for useful output) synthesized into top-10 ranked priorities and a suggested PR sequence for gvc0.
 - [Provider-Tokenmaxxing](./provider-tokenmaxxing.md) — narrower companion focused on provider-level prompt+cache techniques (Anthropic mechanics, agent-loop stability, cross-provider portability, per-request billing); top-16 ranked priorities and 10-PR sequence.
+- [Work-Per-Request](./work-per-request.md) — inverse regime: prompt techniques that maximize useful work per HTTP call when call count is metered (RPD/RPM) but tokens within each call are free. Covers Gemma 4 free tier, Gemini free, GitHub Models, Cohere trial, OpenRouter `:free`. Top-10 ranked priorities, decision tree, and five templates.
 - [Prompt Techniques Research](./prompt-techniques-research.md) — earlier survey of prompt techniques applicable to autonomous coding agents.
 
 ## Direct lineage
