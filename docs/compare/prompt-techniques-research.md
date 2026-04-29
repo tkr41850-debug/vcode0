@@ -330,7 +330,7 @@ Statuses: `done` (fully applied) · `partial` (subset applied; note scope) · `o
 | R11 — Actionable `edit_file` error messages | open | — | Currently `edit N: oldText not found in path`; should name the recovery. |
 | R12 — Deterministic repo-map for research | open | — | Larger architectural change; tree-sitter + in-degree centrality. |
 | R13 — Worker reads AGENTS.md / CLAUDE.md | open | — | Wire `repoContextFile` into `buildSystemPrompt`. |
-| R14 — Reorder phase-prompt assembly (summaries before doctrine) | open | — | Ordering edit in prompt assembly. |
+| R14 — Reorder phase-prompt assembly (summaries before doctrine) | deferred | — | Trades prompt-cache prefix matching for an attention-position win the synthesis didn't measure. Doctrine + tool defs are the bulk of the stable prefix; demoting them to suffix means cross-run cache hits stop landing on the largest reusable block. The synthesis itself flagged caching/modular-prompt interaction as un-researched. Revisit if a recency-footer hybrid (R5-style) is added for phase prompts, or if cache-hit telemetry shows the doctrine prefix isn't recovering tokens worth preserving. |
 | R15 — Adversarial framing in verify prompt | done | d38afaf | "Assume the execution agent is optimistic and has resolved ambiguities in its own favor." |
 | R16 — Tool-output truncation at harness level | open | — | Caps already exist on `read_file` (256 KB) and `run_command` (1 MB); the synthesis recommends a tighter "first 20 + last 20 lines" pattern for bash/test output. |
 | R17 — Fresh-agent reset on repeated identical error | open | — | Depends on R2 loop guard. |
