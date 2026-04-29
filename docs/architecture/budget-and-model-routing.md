@@ -42,6 +42,8 @@ function checkBudget(state: BudgetState, config: BudgetConfig): BudgetAction {
 }
 ```
 
+Budget state is refreshed by `BudgetService.refresh()` (`src/orchestrator/services/budget-service.ts:17`), which accumulates per-task and per-feature usage from `agent_runs` records and updates the feature graph via `replaceUsageRollups()` (`src/core/graph/usage-mutations.ts:7`). The rollup flow recomputes totals from provider-reported usage, enabling real-time budget checks against ceiling limits.
+
 When global budget is hit: pause workers, emit warning/event, and wait for operator to raise ceiling or resume.
 
 ## Dynamic Model Routing
@@ -75,6 +77,8 @@ class ModelRouter {
   }
 }
 ```
+
+Routing is implemented by `ModelRouter` and `routingConfigOrDefault()` (`src/runtime/routing/index.ts:40` and `src/runtime/routing/index.ts:22`). The router resolves the effective tier based on budget pressure and escalation signals, then maps it to a concrete model string from the config tier table or ceiling model.
 
 Config in `.gvc0/config.json`:
 
