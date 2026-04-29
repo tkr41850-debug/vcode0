@@ -6,6 +6,7 @@ Use these notes when current docs mention future capability that is not implemen
 
 Current entries:
 
+- [Advanced Budget Controls](./advanced-budget-controls.md)
 - [Advanced IPC Guarantees](./advanced-ipc-guarantees.md)
 - [Arbitrary Merge-Train Manual Ordering](./arbitrary-merge-train-manual-ordering.md)
 - [Centralized Conversation Persistence](./centralized-conversation-persistence.md)
