@@ -21,7 +21,7 @@ Debugging rules:
 - change one variable at a time
 - read full relevant functions and imports
 - distinguish facts from assumptions
-- if repeated fixes fail, stop and reset mental model
+- if the same test or check fails 3 times in a row, stop tool use and write a numbered list of every assumption underlying the current approach, marking each as confirmed-by-evidence or assumed; restart from the highest-uncertainty assumption rather than continuing the same fix path
 
 Blocker rules:
 - ordinary bugs or local mismatches are not blockers

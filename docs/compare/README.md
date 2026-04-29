@@ -4,6 +4,16 @@ External comparisons and project-relative notes.
 
 Use these pages when you want contrast with the broader 2026 AI-coding-agent landscape, predecessor systems, or specific competitors — rather than canonical gvc0 behavior.
 
+## Format
+
+Conventions for pages in this directory.
+
+- **Adoption status at the bottom.** When a comparison page produces actionable recommendations for gvc0, track them in an `## Adoption status` section near the end of the file (after `## Key external sources` if present, before any final separator). Do not duplicate the table at the top — status is volatile metadata, not part of the synthesis, and a top-of-doc tracker buries the research itself.
+- **Status vocabulary.** Use `done` (fully applied), `partial` (subset applied; note scope), `open` (not yet started), `deferred` (intentionally postponed), `rejected` (decided against; note reason). Avoid ad-hoc statuses like "adopted" or "in progress" — they drift between pages and lose comparability.
+- **One row per recommendation, with commit references.** Columns: `Rec | Status | Commit | Notes`. Reference the commit SHA so reviewers can audit scope; the notes column is the place for partial-scope qualifications, follow-ups, or links to feature-candidate docs.
+- **Update in place.** When status changes, edit the row rather than appending a new one or adding a "see also" line. Strikethrough in place is acceptable when a recommendation is rejected or fully replaced — see `2026-04-29-deep-dive-synthesis.md` item #5 for the pattern.
+- **Cross-link to feature-candidate / concern docs when scope expands.** A rec that grows beyond a description tweak (e.g., requires a persistence migration or a new subsystem) belongs in `docs/feature-candidates/` or `docs/concerns/`; the adoption row links to it rather than re-stating the design.
+
 ## Landscape
 
 - [Landscape Overview](./OVERVIEW.md) — broad survey across ~19 products and frameworks scored against gvc0's 11 distinguishing axes; commodity-vs-unique analysis and follow-up recommendations.

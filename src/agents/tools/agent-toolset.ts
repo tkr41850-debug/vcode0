@@ -186,7 +186,7 @@ export function buildFeaturePhaseAgentToolset(
         name: 'submitDiscuss',
         label: 'Submit Discuss Summary',
         description:
-          'Finalize feature discussion with structured planning input. Call exactly once before discuss phase completes.',
+          'Finalize the discuss phase with structured planning input (intent, success criteria, constraints, risks, anti-goals, open questions). Call exactly once when those fields are concrete enough for downstream agents to act on; this is the phase-completion signal, not a progress checkpoint. Output is read by the research agent and the planner in fresh context — fields not captured here are lost.',
         parameters: featurePhaseToolParameters.submitDiscuss,
         execute: (_toolCallId: string, args: unknown) => {
           const result = host.submitDiscuss(args as SubmitDiscussOptions);
@@ -202,7 +202,7 @@ export function buildFeaturePhaseAgentToolset(
         name: 'submitResearch',
         label: 'Submit Research Summary',
         description:
-          'Finalize feature research with structured codebase findings. Call exactly once before research phase completes.',
+          'Finalize the research phase with structured codebase findings (essential files, reuse patterns, risky boundaries, proofs needed, verification surfaces, planning notes). Call exactly once when the planner has enough to choose an approach without re-reading the same code; this is the phase-completion signal, not a progress checkpoint. Output is read by the planner in fresh context.',
         parameters: featurePhaseToolParameters.submitResearch,
         execute: (_toolCallId: string, args: unknown) => {
           const result = host.submitResearch(args as SubmitResearchOptions);
@@ -218,7 +218,7 @@ export function buildFeaturePhaseAgentToolset(
         name: 'submitSummarize',
         label: 'Submit Durable Summary',
         description:
-          'Finalize merged feature summary with durable downstream context. Call exactly once before summarize phase completes.',
+          'Finalize the summarize phase with durable downstream context (capability delivered, important files, verification confidence, carry-forward notes). Call exactly once after the feature is merged; describe what shipped, not what was attempted. Output is read by future feature-phase agents working in fresh context — anything omitted here is not available downstream.',
         parameters: featurePhaseToolParameters.submitSummarize,
         execute: (_toolCallId: string, args: unknown) => {
           const result = host.submitSummarize(args as SubmitSummarizeOptions);
@@ -234,7 +234,7 @@ export function buildFeaturePhaseAgentToolset(
         name: 'raiseIssue',
         label: 'Raise Verify Issue',
         description:
-          'Record a blocking, concern, or nit issue that the replanner should address. Call once per distinct issue before submitting the verdict.',
+          'Record a verification finding. Severity controls verdict: any "blocking" or "concern" issue forces the verdict to replan_needed regardless of submitVerify outcome; "nit" issues surface in the summary but do not force replanning. Call once per distinct problem; do not bundle multiple problems into one issue. Raise before calling submitVerify.',
         parameters: featurePhaseToolParameters.raiseIssue,
         execute: (_toolCallId: string, args: unknown) => {
           const issue = host.raiseIssue(args as RaiseIssueOptions);
@@ -248,7 +248,7 @@ export function buildFeaturePhaseAgentToolset(
         name: 'submitVerify',
         label: 'Submit Verify Verdict',
         description:
-          'Finalize semantic feature verification with a structured pass or repair-needed verdict. Call exactly once before verify phase completes.',
+          "Finalize the verify phase with a 'pass' or 'replan_needed' verdict and per-criterion evidence. Call exactly once after raising every issue that should change the verdict — raising any 'blocking' or 'concern' issue overrides 'pass' to 'replan_needed' regardless of the verdict submitted here. A 'pass' gates the feature for the merge train; 'replan_needed' routes back to plan with replanFocus.",
         parameters: featurePhaseToolParameters.submitVerify,
         execute: (_toolCallId: string, args: unknown) => {
           const result = host.submitVerify(args as SubmitVerifyOptions);
