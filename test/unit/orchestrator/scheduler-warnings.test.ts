@@ -1,8 +1,5 @@
 import type { EventRecord } from '@core/types/index';
-import type {
-  EventQuery,
-  OrchestratorPorts,
-} from '@orchestrator/ports/index';
+import type { EventQuery, OrchestratorPorts } from '@orchestrator/ports/index';
 import { countVerifyFailuresSinceLastReplan } from '@orchestrator/scheduler/warnings';
 import { describe, expect, it } from 'vitest';
 
