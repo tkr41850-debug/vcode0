@@ -5,13 +5,11 @@ import { Type } from '@sinclair/typebox';
 
 const parameters = Type.Object({
   command: Type.String({
-    description:
-      'Shell command to run. Executed via `sh -c` inside the worktree.',
+    description: 'Shell command. Executed via `sh -c`.',
   }),
   timeoutMs: Type.Optional(
     Type.Number({
-      description:
-        'Kill the command after this many milliseconds. Default 60000.',
+      description: 'Kill after this many ms. Default 60000.',
     }),
   ),
 });
@@ -136,7 +134,7 @@ export function createRunCommandTool(
     name: 'run_command',
     label: 'Run Command',
     description:
-      'Run a shell command inside the task worktree. Returns stdout, stderr, and the exit code.',
+      'Run a shell command. Returns stdout, stderr, exit code. Prefer dedicated tools when one fits — read_file, write_file, edit_file, list_files, search_files, git_status, git_diff — bash matches training distribution but loses path-lock tracking.',
     parameters,
     execute: async (_toolCallId, params, signal) => {
       const timeoutMs = params.timeoutMs ?? 60_000;

@@ -11,7 +11,7 @@ const parameters = Type.Object({
     description: 'File path relative to the worktree root.',
   }),
   content: Type.String({
-    description: 'Full file contents to write. Overwrites any existing file.',
+    description: 'Full file contents.',
   }),
 });
 
@@ -27,8 +27,7 @@ export function createWriteFileTool(
   return {
     name: 'write_file',
     label: 'Write File',
-    description:
-      'Write (or overwrite) a file at the given path, creating parent directories as needed.',
+    description: 'Write a file. Overwrites if it exists; creates parent dirs.',
     parameters,
     execute: async (_toolCallId, params) => {
       await claimer.claim(params.path);

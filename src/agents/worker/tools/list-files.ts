@@ -5,14 +5,12 @@ import { Type } from '@sinclair/typebox';
 const parameters = Type.Object({
   directory: Type.Optional(
     Type.String({
-      description:
-        'Directory to list, relative to the worktree root. Defaults to the worktree root.',
+      description: 'Directory to list. Defaults to the worktree root.',
     }),
   ),
   recursive: Type.Optional(
     Type.Boolean({
-      description:
-        'If true, walk subdirectories recursively. Defaults to false.',
+      description: 'Walk subdirectories. Defaults to false.',
     }),
   ),
 });
@@ -28,8 +26,7 @@ export function createListFilesTool(
   return {
     name: 'list_files',
     label: 'List Files',
-    description:
-      'List files (and directories) inside the worktree. Skips common ignored dirs like .git, node_modules, dist.',
+    description: 'List files and directories. Skips .git, node_modules, dist.',
     parameters,
     execute: async (_toolCallId, params) => {
       const relDir = params.directory ?? '';

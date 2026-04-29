@@ -234,7 +234,7 @@ export function buildFeaturePhaseAgentToolset(
         name: 'raiseIssue',
         label: 'Raise Verify Issue',
         description:
-          'Record a blocking, concern, or nit issue that the replanner should address. Call once per distinct issue before submitting the verdict.',
+          'Record a verification finding. Severity controls verdict: any "blocking" or "concern" issue forces the verdict to replan_needed regardless of submitVerify outcome; "nit" issues surface in the summary but do not force replanning. Call once per distinct problem; do not bundle multiple problems into one issue. Raise before calling submitVerify.',
         parameters: featurePhaseToolParameters.raiseIssue,
         execute: (_toolCallId: string, args: unknown) => {
           const issue = host.raiseIssue(args as RaiseIssueOptions);

@@ -25,7 +25,7 @@ export function createReadFileTool(
   return {
     name: 'read_file',
     label: 'Read File',
-    description: `Read the contents of a file, relative to the task worktree root. Files larger than ${MAX_READ_BYTES} bytes are truncated.`,
+    description: `Read a file. Truncated after ${MAX_READ_BYTES} bytes.`,
     parameters,
     execute: async (_toolCallId, params) => {
       const abs = resolveInsideWorkdir(workdir, params.path);

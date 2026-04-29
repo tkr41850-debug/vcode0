@@ -10,18 +10,16 @@ const MAX_FILE_BYTES = 1 * 1024 * 1024;
 
 const parameters = Type.Object({
   pattern: Type.String({
-    description:
-      'Regular expression (JavaScript syntax) applied to each line of each file.',
+    description: 'JavaScript regex applied per line.',
   }),
   directory: Type.Optional(
     Type.String({
-      description:
-        'Directory to search, relative to the worktree root. Defaults to the worktree root.',
+      description: 'Directory to search. Defaults to the worktree root.',
     }),
   ),
   maxResults: Type.Optional(
     Type.Number({
-      description: 'Cap on the number of match lines returned. Default 200.',
+      description: 'Match-line cap. Default 200.',
     }),
   ),
 });
@@ -38,8 +36,7 @@ export function createSearchFilesTool(
   return {
     name: 'search_files',
     label: 'Search Files',
-    description:
-      'Search for a regex pattern across files in the worktree. Returns matching lines with file path and line number.',
+    description: 'Regex-search files. Returns "path:line: text" matches.',
     parameters,
     execute: async (_toolCallId, params) => {
       let regex: RegExp;

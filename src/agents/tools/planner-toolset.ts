@@ -33,7 +33,7 @@ export function createPlannerToolset(
       {
         name: 'addFeature',
         description:
-          'Add a new feature under an existing milestone to the proposal graph.',
+          'Add a new feature under an existing milestone. A feature is an independent work stream with its own integration branch and lifecycle (discuss → research → plan → execute → verify → summarize). Use this to introduce a new work stream; use addTask to add a unit of work inside an existing feature.',
         execute: (args: AddFeatureOptions) =>
           Promise.resolve(host.addFeature(args)),
       },
@@ -54,7 +54,8 @@ export function createPlannerToolset(
       },
       {
         name: 'addTask',
-        description: 'Add a task to an existing feature in the proposal graph.',
+        description:
+          'Add a task to an existing feature. A task is a unit of work that runs in a worktree and squash-merges back into its feature branch. Do not use addTask to introduce a new work stream — use addFeature for that. Tasks must belong to a single feature; cross-feature dependencies are expressed at the feature level.',
         execute: (args: AddTaskOptions) => Promise.resolve(host.addTask(args)),
       },
       {
@@ -88,7 +89,7 @@ export function createPlannerToolset(
       {
         name: 'addDependency',
         description:
-          'Add a feature or task dependency in the proposal graph and validate it immediately.',
+          'Add a feature-to-feature or task-to-task dependency edge. Direction: addDependency({ from, to }) declares that "from" depends on "to" — "to" is the prerequisite that must complete first, "from" is the dependent that runs after. Reads as "from depends on to". Validated immediately for cycles. Task-to-task dependencies cannot cross feature boundaries; use feature-level dependencies for cross-feature ordering.',
         execute: (args: DependencyOptions) => {
           host.addDependency(args);
           return Promise.resolve(undefined);
@@ -105,7 +106,8 @@ export function createPlannerToolset(
       },
       {
         name: 'submit',
-        description: 'Finalize the proposal graph for approval.',
+        description:
+          'Finalize the proposal graph for approval. Call exactly once after all proposal mutations (addFeature/addTask/addDependency/...) are complete; this is not a progress checkpoint and cannot be called more than once. After submit the proposal is sealed and further mutations are rejected.',
         execute: (args: SubmitProposalOptions) => {
           host.submit(args);
           return Promise.resolve(undefined);

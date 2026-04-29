@@ -5,14 +5,12 @@ import { simpleGit } from 'simple-git';
 const parameters = Type.Object({
   ref: Type.Optional(
     Type.String({
-      description:
-        'Git reference to diff against. Defaults to HEAD (working tree changes).',
+      description: 'Git reference to diff against. Defaults to HEAD.',
     }),
   ),
   staged: Type.Optional(
     Type.Boolean({
-      description:
-        'If true, diff the staging area instead of the working tree.',
+      description: 'Diff the staging area instead of the working tree.',
     }),
   ),
 });
@@ -29,8 +27,7 @@ export function createGitDiffTool(
   return {
     name: 'git_diff',
     label: 'Git Diff',
-    description:
-      'Return `git diff` output for the task worktree. Accepts an optional ref and a staged flag.',
+    description: 'Return `git diff` output.',
     parameters,
     execute: async (_toolCallId, params) => {
       const git = simpleGit(workdir);

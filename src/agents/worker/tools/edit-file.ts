@@ -19,8 +19,7 @@ const parameters = Type.Object({
       }),
     }),
     {
-      description:
-        'Ordered list of substring replacements. Each edit must match exactly once in the current file contents.',
+      description: 'Ordered list of edits.',
     },
   ),
 });
@@ -37,8 +36,7 @@ export function createEditFileTool(
   return {
     name: 'edit_file',
     label: 'Edit File',
-    description:
-      'Apply an ordered list of exact-string replacements to a file. Each edit must match exactly once in the current contents.',
+    description: 'Apply ordered exact-string replacements to a file.',
     parameters,
     execute: async (_toolCallId, params) => {
       await claimer.claim(params.path);

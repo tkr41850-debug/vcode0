@@ -28,8 +28,14 @@ const taskPatchSchema = Type.Object({
 });
 
 const dependencySchema = Type.Object({
-  from: Type.String(),
-  to: Type.String(),
+  from: Type.String({
+    description:
+      'Dependent node id (the one that runs after). Reads as "from depends on to". Must be a feature id for feature dependencies or a task id for task dependencies.',
+  }),
+  to: Type.String({
+    description:
+      'Prerequisite node id (the one that must complete first). Reads as "from depends on to". Must match the kind of "from" — task-to-task only within the same feature; feature-to-feature for cross-feature ordering.',
+  }),
 });
 
 const verificationCriterionSchema = Type.Object({

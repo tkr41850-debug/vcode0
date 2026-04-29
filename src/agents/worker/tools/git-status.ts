@@ -17,8 +17,7 @@ export function createGitStatusTool(
   return {
     name: 'git_status',
     label: 'Git Status',
-    description:
-      'Return `git status --porcelain` output for the task worktree and a summary of change counts.',
+    description: 'Return `git status --porcelain` output.',
     parameters,
     execute: async () => {
       const git = simpleGit(workdir);
