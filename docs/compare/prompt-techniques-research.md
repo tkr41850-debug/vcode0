@@ -2,6 +2,40 @@
 
 External research on 2025–2026 prompt-engineering practice for autonomous coding agents, with concrete recommendations for gvc0's seven prompts (`discuss`, `research`, `plan`, `replan`, `verify`, `summarize`, worker `EXECUTE_TASK_PROMPT`).
 
+## Adoption status (as of 2026-04-29)
+
+Recommendations adopted in commit `d38afaf` (scope: `src/agents/` only):
+
+| Rec | Status | Where landed |
+|---|---|---|
+| R7 evidence checklist | **adopted** | `src/agents/prompts/verify.ts` |
+| R9 raiseIssue coupling | **adopted** | `src/agents/tools/agent-toolset.ts` |
+| R9 addFeature/addTask sibling differentiation | **adopted** | `src/agents/tools/planner-toolset.ts` |
+| R9 addDependency direction + cross-feature constraint | **adopted** | `src/agents/tools/planner-toolset.ts`, `schemas.ts` |
+| R9 submit cardinality | **adopted** | `src/agents/tools/planner-toolset.ts` |
+| R10 run_command "prefer dedicated tools" | **adopted** | `src/agents/worker/tools/run-command.ts` |
+| R15 adversarial framing | **adopted** | `src/agents/prompts/verify.ts` |
+| R9 inverse (compress worker tools matching priors) | **adopted** | `src/agents/worker/tools/{read,write,edit,list,search}-file.ts`, `git-{status,diff}.ts` — finding #4 from cross-cutting findings |
+
+Still open. R1–R5 all touch `src/runtime/worker/system-prompt.ts` or runtime infrastructure outside `src/agents/`; R6/R8 require schema migration with downstream codec/persistence changes; R11 is a one-line error message change in `src/agents/worker/tools/edit-file.ts` that was not bundled into `d38afaf`; R12–R14 and R16–R18 are larger architectural items.
+
+| Rec | Status | Reason |
+|---|---|---|
+| R1 runTests() tool for verifier | open | needs new test-execution capability; verifier currently has only read-only state tools |
+| R2 hard loop-detect with explicit count | open | targets `src/runtime/worker/system-prompt.ts` + worker pool iteration counter |
+| R3 forbidden-completion-language rule | open | targets worker system prompt |
+| R4 mandatory complete-file-read rule | open | targets worker system prompt |
+| R5 recency-position task anchor footer | open | targets worker system prompt assembly |
+| R6 promote objective/outcomeVerification to required + structure | open | persistence migration required (codec, column comments) |
+| R8 mandatory criteriaEvidence on submitVerify | open | also touches `src/core/types/verification.ts` and persistence codecs |
+| R11 edit_file error names recovery action | open | one-line change in `src/agents/worker/tools/edit-file.ts:49`; not bundled into d38afaf |
+| R12 deterministic repo-map for research | open | new tree-sitter module; research prompt has the slot (`Codebase Hints`) but no generator |
+| R13 read AGENTS.md/CLAUDE.md from target repo | open | tracked as `docs/feature-candidates/agents-md-interop.md` |
+| R14 reorder phase prompts (summaries before doctrine) | open | touches all phase prompts in `src/agents/prompts/` |
+| R16 tool-output truncation at harness level | open | runtime/harness change |
+| R17 fresh-agent reset on repeated identical error | open | runtime/orchestrator change |
+| R18 prune gvc0's CLAUDE.md, add Boundaries section | open | docs change in repo root, not in `docs/` |
+
 ## Method
 
 Two rounds of Sonnet subagents with web search.
