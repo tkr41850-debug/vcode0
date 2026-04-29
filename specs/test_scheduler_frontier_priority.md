@@ -1,5 +1,9 @@
 # test_scheduler_frontier_priority
 
+## Coverage status
+
+Partially covered. The 7-key priority comparator is unit-tested in `test/unit/core/scheduling.test.ts` (frontier/priority cases). Full integration coverage of the ready-frontier flow remains deferred.
+
 ## Goal
 
 Capture ready-frontier recomputation and scheduler ordering across milestone steering, work-type tiers, critical path (combined graph), and reservation-overlap penalties. The scheduler operates on `SchedulableUnit` values covering both task execution and feature-phase agent work.
