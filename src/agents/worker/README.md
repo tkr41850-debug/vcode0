@@ -66,7 +66,7 @@ Knowledge tools (`append_knowledge`, `record_decision`) receive the project root
 | Tool | Description |
 |------|-------------|
 | `submit` | Signal task completion. Sends a `result` IPC message with the summary and files changed. The worker agent is expected to call this exactly once when done. Distinct from the planner's `submit` tool which finalizes a planning session. |
-| `confirm` | Finalize after successful `submit()`. Orchestrator-side merging is handled by the scheduler; this tool is a marker the worker uses to indicate it has verified its own work locally. |
+| `confirm` | Self-attest that the worker ran the task contract's verification checks and observed them pass. Progress-only marker emitted after `submit`; not a merge trigger. The orchestrator drives squash-merge from `submit`'s terminal result independently. |
 
 ### Collaboration (Blocking)
 

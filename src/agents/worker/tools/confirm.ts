@@ -15,7 +15,7 @@ export function createConfirmTool(
     name: 'confirm',
     label: 'Confirm Task',
     description:
-      'Marker the worker uses to acknowledge it has verified its own work after submit(). Orchestrator-side squash-merge is driven by the scheduler; this tool emits a progress notification so the operator can observe the confirmation.',
+      'Self-attest that you have verified your own work after `submit`. Call after running the verification checks named in the task contract and observing them pass; do not call if any check failed or you did not run the named checks. This is a progress marker, not a merge trigger — `submit` is the terminal task-complete signal and the orchestrator drives squash-merge from that independently.',
     parameters,
     execute: (_toolCallId) => {
       ipc.progress(`task ${ipc.taskId} confirmed`);
