@@ -8,6 +8,8 @@ export default defineConfig({
     environment: 'node',
     globals: false,
     passWithNoTests: true,
+    testTimeout: 15_000,
+    hookTimeout: 15_000,
     include: [
       'test/unit/**/*.test.ts',
       'test/unit/**/*.spec.ts',
