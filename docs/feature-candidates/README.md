@@ -10,6 +10,7 @@ Current entries:
 - [AGENTS.md Interop](./agents-md-interop.md)
 - [Arbitrary Merge-Train Manual Ordering](./arbitrary-merge-train-manual-ordering.md)
 - [`absurd` Evaluation](./absurd-evaluation.md)
+- [`absurd` Pattern Borrow](./absurd-pattern-borrow.md)
 - [Centralized Conversation Persistence](./centralized-conversation-persistence.md)
 - [Claude Code Harness](./claude-code-harness.md)
 - [Cross-Family Replanner](./cross-family-replanner.md)

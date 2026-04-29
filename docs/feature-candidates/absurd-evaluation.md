@@ -2,9 +2,9 @@
 
 ## Status
 
-Evaluation candidate (not an implementation candidate). Surfaced from the [2026-04-29 deep-dive synthesis](../compare/2026-04-29-deep-dive-synthesis.md).
+Evaluation **landed 2026-04-29**. Verdict: direct adoption rejected for four independent structural reasons (below). The constructive output is [absurd-pattern-borrow.md](./absurd-pattern-borrow.md), which records the schema patterns to lift when gvc0 next touches its journal layer.
 
-This entry tracks an investigation, not a planned change. Promoting to a baseline change requires the evaluation to land first.
+This page now serves as the historical record of the evaluation question and outcome. Originally surfaced from the [2026-04-29 deep-dive synthesis](../compare/2026-04-29-deep-dive-synthesis.md).
 
 ## Baseline
 
@@ -33,6 +33,33 @@ Evaluate Earendil's `absurd` (Postgres-native durable workflow engine for Pi age
 5. **License compatibility.** `absurd` is part of Earendil's commercial product surface and may ship under fair-source DOSP. `pi-agent-core` (gvc0's actual dependency) is MIT-permanent under RFC 0015, but `absurd` may not be. Worth confirming before adopting.
 6. **Migration path.** If `absurd` is adopted later, what does the migration look like? Is there a reversible adoption (run both, dual-write, cut over) or is it one-way?
 
+## Evaluation Findings (2026-04-29)
+
+Two-round subagent investigation: round 1 mapped the territory (README, docs, SQL, blog posts, HN); round 2 ran four parallel deep dives on schema portability, pi-agent integration, scheduler/DAG fit, and TypeScript SDK internals. Sources: `https://github.com/earendil-works/absurd`, `https://earendil-works.github.io/absurd/`, the `absurd.sql` schema, the TS SDK in `sdks/typescript/src`, Armin Ronacher's [April 2026 production post](https://lucumr.pocoo.org/2026/4/4/absurd-in-production/), and the [HN discussion](https://news.ycombinator.com/item?id=45797228).
+
+### Verdict: direct adoption rejected
+
+Four independent structural blockers, any one of which is sufficient:
+
+1. **TS SDK is incompatible with process-per-task.** `TaskContext` is a live `pg.Pool` handle — not serializable across process boundaries. Handlers run as in-process coroutines; `fatalOnLeaseTimeout=true` (the default) calls `process.exit(1)` if a long subprocess does not checkpoint within 2× the lease. There is no IPC, no `child_process` integration, no extensibility hook for "wrap a task in a separate worktree." Reduces to a pg-backed job queue with retry — gvc0's existing SQLite already covers that.
+2. **Scheduler model is architecturally opposed.** No `parent_id` column, no DAG primitives, strict FIFO claim ordered by `(available_at, run_id)` with no priority/affinity hooks. Critical-path EFT, milestone bias, reservation overlap penalties, feature-affine workers, worktree reservation — none expressible. Cross-feature merge-train coordination has structural friction with first-write-wins events (slot-reopen requires unique event names per epoch, defeating the point).
+3. **Pi-agent integration is shallower than gvc0's IPC journal.** `absurd` checkpoints at `message_end` only — assistant message and each tool result. Missing: dynamic per-run backoff state (computed from API errors), help-wait / approval-wait flags, sub-tool-batch granularity for parallel tool calls (a crash mid-batch re-runs the whole batch, which gvc0 today does not). Tools *re-execute* on retry within an assistant turn.
+4. **Postgres-only with no clean path back to SQLite.** `SKIP LOCKED`, `pg_cron`, `FOR UPDATE`/`FOR SHARE`, partitioning, `jsonb` operators — all Postgres-specific. The semantics are translatable to SQLite, but not by adopting `absurd` as a library; only by lifting the schema design. Adopting `absurd` directly means adopting Postgres as a dependency.
+
+### What does survive: pattern-borrowing
+
+The `absurd.sql` schema is a precise, production-tested specification of an agent-aware journal layer. The portable substance:
+
+- Per-attempt `runs` rows separate from `tasks` rows, with lease + claim metadata on the run.
+- Checkpoint table keyed by `(task_id, step_name)` with attempt-number guard and `owner_run_id` linkage; `ON CONFLICT DO UPDATE` for idempotent writes (SQLite-native).
+- Events table with first-write-wins (`INSERT OR IGNORE`); waits registration table for cross-task coordination.
+- Lease expiry + recycling sweep pattern (a periodic query, not heartbeat-based liveness).
+- `message_end`-keyed pi-sdk checkpointing as the base pattern (augmented with explicit gvc0 checkpoints for backoff/approval state).
+
+`SKIP LOCKED` is the most-cited Postgres advantage but is not a casualty for gvc0 — single-writer SQLite with `BEGIN IMMEDIATE` preserves the no-double-claim guarantee without it, because gvc0's worker pool runs in one process with one writer.
+
+This pattern-borrowing path is tracked as a separate candidate: [absurd-pattern-borrow.md](./absurd-pattern-borrow.md). The `absurd` library itself is not adopted; the schema design is treated as a reference spec when the journal is next reshaped.
+
 ## Why It Matters
 
 `absurd` is the most interesting deliverable from the post-Earendil ecosystem because:
@@ -51,22 +78,24 @@ The synthesis recommends a sprint of evaluation, not adoption. The downside scen
 4. **Measure**: lines of code (gvc0 retains this state today; what does `absurd` save?); recovery semantics on simulated crash; operational complexity.
 5. **Decide**: write up findings as a regular `docs/compare/` page with a clear recommendation (adopt, reject, partial-adopt, defer-pending-X).
 
-## Why Deferred (until evaluated)
+## Why Direct Adoption Is Rejected (post-evaluation)
 
-- The current state model works. Crash recovery is exercised in integration tests; the merge train is invariant-protected. There is no acute pain that adopting `absurd` would relieve.
-- Postgres dependency is a real operational tax that single-developer or small-team installs would feel acutely.
-- `absurd` is pre-1.0 public preview. API stability is not promised. Adopting now risks a forced migration when v1 lands.
-- The git-refs-authoritative property is gvc0's strongest moat. Anything that risks splitting authority between git and another store is high-stakes.
+The four blockers above settle the question of adopting `absurd` as a library. The original deferral reasoning still holds and the evaluation findings reinforce it:
 
-## When to Promote (the evaluation, not the adoption)
+- The current state model works. Crash recovery is exercised in integration tests; the merge train is invariant-protected. There was no acute pain to relieve.
+- Postgres dependency is a real operational tax that single-developer or small-team installs would feel acutely. `absurd` has no SQLite mode and the SDK is hard-wired to `pg.Pool`.
+- `absurd` is pre-1.0 public preview. The TS SDK exposes no extensibility hooks (no `onClaim`, no transport substitution, no per-task lease tuning) — a forced migration when v1 lands would be more, not less, expensive than expected.
+- The git-refs-authoritative property is gvc0's strongest moat. `absurd`'s checkpoint model wants to own per-step durable state, which would split authority unless gvc0 reduced `absurd` to a job-queue role — at which point gvc0's existing SQLite already suffices.
 
-The evaluation itself is worth running when:
+## Adoption Decision
 
-- `absurd` reaches a v1 candidate or beta with a documented API stability commitment.
-- A concrete pain point in gvc0's scheduler state emerges that the current SQLite + reconciler model handles awkwardly.
-- A community signal (other Pi-sdk-based projects adopting `absurd`) raises confidence in API maturity.
+Direct adoption: **no**. Pattern-borrowing: **yes, when the journal is next reshaped**. See [absurd-pattern-borrow.md](./absurd-pattern-borrow.md).
 
-Adoption (a separate decision) requires the evaluation to land with a clear recommendation, plus user input on the Postgres-dependency cost.
+The evaluation is closed. Re-opening would require:
+
+- `absurd` v1 introducing a SQLite mode (unlikely — Postgres is an explicit design choice per the production post).
+- gvc0's process-per-task model changing to in-process workers (a separate, very large architectural shift).
+- A documented case study of a Pi-sdk-based DAG orchestrator successfully adopting `absurd` (would update the prior on integration cost).
 
 ## Public references
 

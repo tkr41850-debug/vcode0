@@ -44,7 +44,9 @@ The implication for gvc0: the substrate is being actively invested in, not aband
 
 Temporal raised $300M at $5B in February 2026; Restate, Inngest, and DBOS all surfaced as serious alternatives in the parallel research. LangGraph's checkpointing is "between-step only" — durable on transitions, not within long tool calls. Earendil's `absurd` is Postgres-native and explicitly aimed at agent workflows.
 
-gvc0's current model — git refs as authoritative, SQLite for derived state, NDJSON IPC — sits outside the durable-execution-engine category by choice. The git-as-state property is non-negotiable: it's what makes crash recovery work without a journal replay. But evaluating `absurd` as a complement (e.g., for the orchestrator's own scheduling state, not for graph state) is worth a sprint of investigation. See [absurd-evaluation.md](../feature-candidates/absurd-evaluation.md) and [durable-execution.md](./durable-execution.md).
+gvc0's current model — git refs as authoritative, SQLite for derived state, NDJSON IPC — sits outside the durable-execution-engine category by choice. The git-as-state property is non-negotiable: it's what makes crash recovery work without a journal replay.
+
+**Update (2026-04-29 follow-up):** the `absurd` evaluation is closed. Direct adoption rejected (TS SDK incompatible with process-per-task; FIFO scheduler with no DAG; pi-agent checkpointing shallower than gvc0's IPC journal; Postgres-only). What survives is pattern-borrowing — `absurd.sql` as a reference spec when gvc0 next reshapes its SQLite journal. See [absurd-evaluation.md](../feature-candidates/absurd-evaluation.md), [absurd-pattern-borrow.md](../feature-candidates/absurd-pattern-borrow.md), and [durable-execution.md](./durable-execution.md).
 
 ### 6. gvc0's moat survives the survey
 
@@ -65,13 +67,13 @@ Three properties remain genuinely distinctive after the deep dive:
 ### Soon (2–4 sprints, real value)
 
 4. **Add optional SARIF output mode for `VerifyIssue` payloads.** Interop with GitHub Code Scanning + IDE extensions. Spec: [sarif-verifyissue-output.md](../feature-candidates/sarif-verifyissue-output.md).
-5. **Evaluate Earendil's `absurd` for orchestrator scheduling state.** Not graph state — that stays git-authoritative. Spec: [absurd-evaluation.md](../feature-candidates/absurd-evaluation.md).
+5. **~~Evaluate Earendil's `absurd` for orchestrator scheduling state.~~** *Done 2026-04-29.* Direct adoption rejected; pattern-borrow path tracked at [absurd-pattern-borrow.md](../feature-candidates/absurd-pattern-borrow.md). Outcome recorded in [absurd-evaluation.md](../feature-candidates/absurd-evaluation.md).
 6. **Plan the harness-boundary abstraction even though `ClaudeCodeHarness` stays deferred.** Substrate hedge per [claude-code-harness.md](../feature-candidates/claude-code-harness.md). The Earendil finding lowers urgency but does not invalidate the abstraction.
 
 ### Watching brief
 
 7. **Watch AAIF's MCP / AGENTS.md / goose stewardship cadence.** If AAIF publishes a coordination spec that overlaps with gvc0's split state model, reconsider whether to align or stay distinct.
-8. **Watch `absurd`'s public release notes.** If the API surface stabilizes around primitives close to gvc0's `agent_runs`, the evaluation in #5 may converge into adoption rather than rejection.
+8. **Watch `absurd`'s public release notes.** Direct adoption rejected per #5, but a v1 release introducing a SQLite mode or a published case study of a Pi-sdk DAG orchestrator integrating `absurd` would re-open the question. Until then, only the pattern-borrow path stays active.
 9. **Watch Factory.ai for any coordinator state-machine specification.** Currently opaque; a public spec would change the differentiation pitch in [factory-ai.md](./factory-ai.md).
 10. **Watch SWE-Bench Pro adoption.** OpenAI's February 2026 audit found 59.4% of SWE-Bench Verified problems had test-design issues. SWE-Bench Pro is the successor; if it becomes the de facto benchmark, gvc0's empirical positioning may need a fresh measurement.
 

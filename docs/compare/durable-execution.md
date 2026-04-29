@@ -50,15 +50,18 @@ If gvc0 adopted Temporal / Restate / `absurd` for orchestrator scheduling state:
 - **Merge train integrity.** Already invariant-protected. Durable execution adds nothing.
 - **Replanner correctness.** This is an LLM-correctness problem, not a workflow-durability problem.
 
-## Why `absurd` is worth a sprint of evaluation
+## `absurd` evaluation outcome (2026-04-29)
 
-`absurd` is interesting specifically because it's:
+Two-round subagent investigation closed the question. **Direct adoption: rejected.** Four independent structural blockers:
 
-1. **Postgres-native.** The substrate is well-understood; no new operational surface.
-2. **Built by Earendil for Pi agents.** The semantics are designed around the same execution shape gvc0 uses (tool-calling agents with long-running steps), so impedance mismatch is lower than with Temporal.
-3. **Not aimed at being a state monolith.** Public materials suggest `absurd` expects to coexist with other state stores rather than subsume them.
+1. **TS SDK incompatible with process-per-task.** `TaskContext` holds a live `pg.Pool` handle, not serializable across process boundaries. Handlers are in-process coroutines; `fatalOnLeaseTimeout=true` defaults `process.exit(1)` if a long subprocess does not heartbeat within 2× the lease. No IPC, no `child_process` integration, no extensibility hook for "wrap a task in a worktree."
+2. **Scheduler model is FIFO with no DAG.** No `parent_id`, no priority columns, claim ordered by `(available_at, run_id)`. Critical-path EFT, milestone bias, reservation overlap, feature-affine workers — none expressible. First-write-wins event semantics break for cross-feature merge-train slots (slot reopen requires unique event names per epoch).
+3. **Pi-agent integration shallower than gvc0's IPC journal.** Checkpoints at `message_end` only. Missing: dynamic per-run backoff state, help/approval-wait flags, sub-tool-batch granularity. Tools re-execute on retry within an assistant turn.
+4. **Postgres-only.** `SKIP LOCKED`, `pg_cron`, `FOR UPDATE`/`FOR SHARE`, partitioning, `jsonb`. No SQLite mode in the SDK; adopting the library means adopting Postgres.
 
-The evaluation question for gvc0: **does `absurd` improve orchestrator-internal scheduling state without compromising git-refs-authoritative graph state?** See [absurd-evaluation.md](../feature-candidates/absurd-evaluation.md).
+**What survives: pattern-borrowing.** The `absurd.sql` schema is a precise, production-tested specification of an agent-aware journal. Portable to gvc0's SQLite layer when the journal is next reshaped: per-attempt `runs` rows, checkpoint table keyed by `(task_id, step_name)` with attempt-number guard, events-with-first-write-wins, waits registration, lease expiry + recycling. `SKIP LOCKED` is not a casualty under single-writer SQLite (`BEGIN IMMEDIATE` preserves no-double-claim). Tracked as [absurd-pattern-borrow.md](../feature-candidates/absurd-pattern-borrow.md).
+
+The full evaluation record is in [absurd-evaluation.md](../feature-candidates/absurd-evaluation.md).
 
 ## LangGraph's specific gap
 

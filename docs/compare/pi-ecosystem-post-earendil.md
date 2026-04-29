@@ -36,9 +36,11 @@ gvc0's worker isolation is currently git-worktree + child-process. `gondolin` wo
 
 Worth tracking, not worth adopting yet.
 
-### `absurd` is the most interesting deliverable
+### `absurd` is the most interesting deliverable — but evaluated and rejected for direct adoption
 
-`absurd` is the one piece of the Earendil ecosystem that overlaps with gvc0's existing concerns (durable orchestrator state). The evaluation question is whether `absurd` can host the orchestrator's scheduling state without compromising the git-refs-authoritative property for graph state. See [absurd-evaluation.md](../feature-candidates/absurd-evaluation.md) and [durable-execution.md](./durable-execution.md).
+`absurd` was the one piece of the Earendil ecosystem that overlapped with gvc0's existing concerns (durable orchestrator state). A two-round subagent investigation on 2026-04-29 settled the question: **direct adoption rejected** for four structural reasons (TS SDK incompatible with process-per-task; FIFO scheduler with no DAG; pi-agent checkpointing shallower than gvc0's IPC journal; Postgres-only with no SQLite mode).
+
+What survives is **pattern-borrowing**: `absurd.sql` is a precise reference spec for an agent-aware journal layer (per-attempt `runs` rows, `(task_id, step_name)` checkpoint table, first-write-wins events, lease expiry + recycling) that ports cleanly to SQLite when gvc0 next reshapes its journal. Tracked at [absurd-pattern-borrow.md](../feature-candidates/absurd-pattern-borrow.md); full evaluation at [absurd-evaluation.md](../feature-candidates/absurd-evaluation.md); category context at [durable-execution.md](./durable-execution.md).
 
 ## How the harness-boundary calculus shifts
 
