@@ -167,6 +167,29 @@ describe('codecs — round-trip', () => {
       expect(rowToFeature(row, [])).toEqual(f);
     });
 
+    it('round-trips phase-output fields', () => {
+      const f: Feature = {
+        id: 'f-1',
+        milestoneId: 'm-1',
+        orderInMilestone: 0,
+        name: 'F1',
+        description: 'd',
+        dependsOn: [],
+        status: 'in_progress',
+        workControl: 'planning',
+        collabControl: 'none',
+        featureBranch: 'feat-f1',
+        mergeTrainReentryCount: 0,
+        roughDraft: 'rough draft text',
+        discussOutput: 'discuss summary',
+        researchOutput: 'research notes',
+        featureObjective: 'ship feature',
+        featureDoD: ['has tests', 'docs updated'],
+      };
+      const row = fullRow<FeatureRow>(featureToRow(f));
+      expect(rowToFeature(row, [])).toEqual(f);
+    });
+
     it('round-trips VerifyIssue discriminated union variants', () => {
       const f: Feature = {
         id: 'f-1',
