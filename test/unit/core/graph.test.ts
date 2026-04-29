@@ -320,6 +320,41 @@ describe('InMemoryFeatureGraph', () => {
     ).toThrow(GraphValidationError);
   });
 
+  it('allows creating a feature whose dependency points at a cancelled feature', () => {
+    const g = createGraphWithFeature();
+    updateFeature(g, 'f-1', { collabControl: 'cancelled' });
+    const f2 = g.createFeature({
+      id: 'f-2',
+      milestoneId: 'm-1',
+      name: 'F2',
+      description: 'd',
+      dependsOn: ['f-1'],
+    });
+    expect(f2.dependsOn).toEqual(['f-1']);
+  });
+
+  it('rejects cross-feature task dependency even when the target feature is merged', () => {
+    const g = createGraphWithTask();
+    updateFeature(g, 'f-1', {
+      workControl: 'work_complete',
+      collabControl: 'merged',
+    });
+    g.createFeature({
+      id: 'f-2',
+      milestoneId: 'm-1',
+      name: 'F2',
+      description: 'd',
+    });
+    expect(() =>
+      g.createTask({
+        id: 't-2',
+        featureId: 'f-2',
+        description: 'cross-feature attempt',
+        dependsOn: ['t-1'],
+      }),
+    ).toThrow(/belongs to feature/);
+  });
+
   it('rejects task with invalid id prefix', () => {
     const g = createGraphWithFeature();
     expect(() =>
