@@ -1,4 +1,5 @@
 import { InMemoryFeatureGraph } from '@core/graph/index';
+import type { GraphProposal } from '@core/proposals/index';
 import type { AgentRun } from '@core/types/index';
 import {
   ComposerProposalController,
@@ -81,7 +82,7 @@ describe('ComposerProposalController lifecycle methods', () => {
     expect(result.message).toContain('Submitted proposal');
     expect(run?.payloadJson).toBeDefined();
 
-    const parsed = JSON.parse(run?.payloadJson ?? '{}');
+    const parsed = JSON.parse(run?.payloadJson ?? '{}') as GraphProposal;
     expect(parsed).toMatchObject({
       version: 1,
       mode: 'plan',
