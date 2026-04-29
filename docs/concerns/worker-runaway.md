@@ -22,4 +22,4 @@ Baseline defers. Natural trigger is the budget/usage rollup work (see memory `bu
 ## Related
 
 - [Worker Model](../architecture/worker-model.md)
-- [Distributed Runtime Candidate](../feature-candidates/distributed-runtime.md)
+- [Distributed Runtime Candidate](../feature-candidates/runtime/distributed-runtime.md)

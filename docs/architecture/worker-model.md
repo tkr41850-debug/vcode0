@@ -1,6 +1,6 @@
 # Worker Model
 
-See [ARCHITECTURE.md](../ARCHITECTURE.md) for the high-level architecture overview.
+See [ARCHITECTURE.md](../../ARCHITECTURE.md) for the high-level architecture overview.
 
 ## Worker Model: Process-per-Task
 
@@ -166,7 +166,7 @@ newline-delimited JSON on stdin/stdout.
 For the baseline local-machine architecture,
 plain stdio IPC is sufficient; stronger delivery guarantees,
 acknowledgments, and explicit backpressure handling are deferred.
-See [Feature Candidate: Advanced IPC Guarantees](../feature-candidates/advanced-ipc-guarantees.md).
+See [Feature Candidate: Advanced IPC Guarantees](../feature-candidates/runtime/advanced-ipc-guarantees.md).
 
 ```typescript
 type TaskRuntimeDispatch =
@@ -339,7 +339,7 @@ delta for that attempt.
 This transport does not carry extra task enums for retry/help/approval;
 those remain execution-run concerns on `agent_runs`, while task status
 stays coarse and `blocked` remains derived in the UI.
-See [Conflict Coordination](./operations/conflict-coordination.md)
+See [Conflict Coordination](../operations/conflict-coordination.md)
 for the recommendation/required-sync/escalation ladder.
 
 The `claim_lock` / `claim_decision` pair implements the write-prehook
@@ -355,7 +355,7 @@ reactively at first-write time, downstream suspend-and-rebase
 behavior is identical. Locks release exit-driven: when a terminal
 `result` or `error` message arrives, every lock held by that
 `agentRunId` is dropped. Mid-run explicit release is tracked as an
-[optimization candidate](./optimization-candidates/explicit-lock-release.md).
+[optimization candidate](../optimization-candidates/explicit-lock-release.md).
 The active-lock registry lives beside `ConflictCoordinator` in the
 scheduler loop (`src/orchestrator/scheduler/active-locks.ts`); the
 runtime overlap detector it complements lives in
@@ -378,7 +378,7 @@ Default is `NdjsonStdioTransport`.
 The message shapes stay transport-agnostic rather than stdio-specific,
 so a future migration to a network transport is tractable without
 redesigning the runtime seam.
-See [Feature Candidate: Distributed Runtime](../feature-candidates/distributed-runtime.md).
+See [Feature Candidate: Distributed Runtime](../feature-candidates/runtime/distributed-runtime.md).
 
 Above the transport abstraction sits `IpcBridge` (`src/agents/worker/ipc-bridge.ts:20`), a narrow per-run interface
 injected into worker tools for blocking IPC calls (help requests, approvals, write-path claims, and result submission).

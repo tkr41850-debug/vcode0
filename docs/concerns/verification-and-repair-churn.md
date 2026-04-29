@@ -23,4 +23,4 @@ This is acceptable for the baseline, but it should be watched in real usage befo
 ## Related
 
 - [Operations / Verification and Recovery](../operations/verification-and-recovery.md)
-- [Optimization Candidate: Verification Reuse](../optimization-candidates/verification-and-recovery.md)
+- [Optimization Candidate: Verification Reuse](../optimization-candidates/verification-reuse.md)

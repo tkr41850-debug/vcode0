@@ -1,0 +1,94 @@
+# Pi Ecosystem Post-Earendil
+
+Snapshot taken on 2026-04-29. Status of the pi-sdk substrate after Earendil took over stewardship in April 2026, and what it means for gvc0's substrate-risk calculus.
+
+## Why this page matters
+
+gvc0 is built on `@mariozechner/pi-agent-core` (the pi-sdk). A common substrate question: "what happens if the upstream goes away?" The April 2026 Earendil transition substantially answers that question, and reshapes the harness-boundary calculus.
+
+## What changed in April 2026
+
+**Earendil** (a public benefit corporation) took over stewardship of the pi-sdk ecosystem. Mario Zechner (the original pi-sdk author) joined as a principal contributor. The transition was governance-only; the existing OSS code did not move.
+
+Three concrete deliverables emerged:
+
+1. **`gondolin`** — a microVM-based sandbox for executing agent tool calls. Aimed at hostile-input scenarios (running untrusted shell commands, processing untrusted file inputs).
+2. **`absurd`** — a Postgres-native durable workflow engine for Pi agents. Step-grained durability, agent-aware semantics. Pre-1.0 public preview.
+3. **RFC 0015** — a licensing framework. `pi-agent-core` stays MIT permanently. New commercial products from Earendil ship under fair-source DOSP (Delayed Open Source Publication). Server-side proprietary code is allowed for commercial offerings.
+
+## What this means for gvc0
+
+### The substrate is being invested in, not abandoned
+
+The pre-Earendil concern was "if Mario stops maintaining pi-sdk, gvc0 has a substrate risk." The post-Earendil reality is the opposite: there's now a public-benefit corp with paid contributors actively expanding the surface. The substrate risk is lower than at any prior point.
+
+### `pi-agent-core` MIT is permanent
+
+RFC 0015 explicitly carves out `pi-agent-core` as MIT-permanent. This is the part gvc0 actually depends on. New commercial products under fair-source DOSP do not affect gvc0's licensing situation.
+
+### `gondolin` is interesting but not urgent
+
+gvc0's worker isolation is currently git-worktree + child-process. `gondolin` would add microVM isolation underneath, which matters for:
+
+- Untrusted input scenarios (currently out of scope for gvc0).
+- Hard-multi-tenant scenarios (also out of scope).
+- Defense-in-depth against tool-execution escapes (real, but bounded by current threat model).
+
+Worth tracking, not worth adopting yet.
+
+### `absurd` is the most interesting deliverable — but evaluated and rejected for direct adoption
+
+`absurd` was the one piece of the Earendil ecosystem that overlapped with gvc0's existing concerns (durable orchestrator state). A two-round subagent investigation on 2026-04-29 settled the question: **direct adoption rejected** for four structural reasons (TS SDK incompatible with process-per-task; FIFO scheduler with no DAG; pi-agent checkpointing shallower than gvc0's IPC journal; Postgres-only with no SQLite mode).
+
+What survives is **pattern-borrowing**: `absurd.sql` is a precise reference spec for an agent-aware journal layer (per-attempt `runs` rows, `(task_id, step_name)` checkpoint table, first-write-wins events, lease expiry + recycling) that ports cleanly to SQLite when gvc0 next reshapes its journal. Tracked at [absurd-pattern-borrow.md](../../feature-candidates/interop/absurd-pattern-borrow.md); full evaluation at [absurd-evaluation.md](../../feature-candidates/interop/absurd-evaluation.md); category context at [durable-execution.md](./durable-execution.md).
+
+## How the harness-boundary calculus shifts
+
+Before Earendil: the [Claude Code harness](../../feature-candidates/runtime/claude-code-harness.md) was an insurance policy against substrate risk. The argument was "if pi-sdk stalls, gvc0 needs a backup harness."
+
+After Earendil: the substrate risk is lower. The harness boundary remains a good idea for portability and for users who already have Claude Code workflows, but it's no longer urgent insurance.
+
+The recommendation in the [synthesis]](../landscape/2026-04-29-deep-dive-synthesis.md): **plan the harness abstraction even though `ClaudeCodeHarness` stays deferred**. The abstraction is cheap; the implementation can wait for a concrete adoption signal.
+
+## What Earendil has not committed to
+
+Public materials are silent on:
+
+- Long-term API stability for `pi-agent-core`. Fair-source DOSP applies to new products, not the existing surface, but no formal stability promise has been made.
+- A roadmap for `pi-agent-core` itself (vs. the surrounding products). Reasonable to assume it stays load-bearing because Earendil's commercial products consume it, but not formally promised.
+- Cross-version compatibility guarantees between `pi-agent-core` and `absurd`. They will likely co-evolve, but the contract is undocumented.
+
+These are watch-items, not blockers.
+
+## Mario Zechner's anti-orchestration stance
+
+Worth flagging: Mario's public position has consistently been that "orchestration on top of LLMs is the wrong abstraction; durable workflows over agents are the right one." `absurd` is the concrete expression of that view.
+
+This is *not* a critique of gvc0. gvc0 is already a durable-workflow-over-agents pattern (the merge train + the DAG are the workflow; the agents are activities). The disagreement, if one exists, is shape rather than philosophy: gvc0 puts the workflow in git refs + SQLite, `absurd` puts it in Postgres.
+
+## Public references
+
+- Earendil: <https://earendil.dev/>
+- RFC 0015: <https://earendil.dev/rfcs/0015-licensing.md>
+- `gondolin`: <https://earendil.dev/gondolin/>
+- `absurd`: <https://earendil.dev/absurd/>
+- Mario Zechner on durable agents (talk): <https://www.youtube.com/watch?v=XXXX> (placeholder — confirm before citing externally)
+
+## Adoption status
+
+| Rec | Status | Commit | Notes |
+| --- | --- | --- | --- |
+| Reject direct `absurd` adoption (four structural blockers) | done | c641478 | Documented in [absurd-evaluation.md](../../feature-candidates/interop/absurd-evaluation.md); `c641478` lands the evaluation. |
+| Borrow `absurd.sql` schema patterns into SQLite journal | deferred | — | See [absurd-pattern-borrow.md](../../feature-candidates/interop/absurd-pattern-borrow.md). |
+| Track `gondolin` microVM sandbox; defer adoption until untrusted-input scenarios are in scope | open | — | Currently a watch item; no implementation planned. |
+| Plan harness abstraction even though `ClaudeCodeHarness` stays deferred | partial | — | Abstraction boundary is documented in [claude-code-harness.md](../../feature-candidates/runtime/claude-code-harness.md); `ClaudeCodeHarness` implementation remains deferred. |
+| Treat substrate-risk concern as resolved; no emergency migration needed | done | — | Standing decision following Earendil transition; no action required. |
+
+## Revisit notes
+
+Worth revisiting after:
+
+- `absurd` ships v1.
+- Earendil publishes a `pi-agent-core` API stability commitment.
+- A second commercial product from Earendil ships under fair-source DOSP (gives a sample size for the licensing pattern).
+- gvc0 makes any harness-boundary change.

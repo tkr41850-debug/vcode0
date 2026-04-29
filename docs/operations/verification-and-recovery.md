@@ -87,7 +87,7 @@ Current wiring:
 }
 ```
 
-Feature checks run in the feature branch during `ci_check` and are the heavy branch-level gate before spec review. `verifying` is an agent-level review that checks whether the feature branch meets the feature spec. There is no separate `verification.mergeTrain` layer — post-rebase `ci_check` currently reruns the same `verification.feature` layer via `VerificationService`. Empty effective check lists are advisory-only: the phase still passes, but the orchestrator emits a warning because verification ran without configured commands (deduped per integration cycle — see [Warnings](./warnings.md)). Timeouts are configurable per verification layer; the 60s / 600s values shown above are baseline examples for local-machine workflows. Support for substantially longer-running verification windows is deferred. See [Feature Candidate: Long Verification Timeouts](../feature-candidates/long-verification-timeouts.md). Slow-check warnings and feature-churn warnings are described in [Warnings](./warnings.md). Upstream sync recommendation and conflict escalation behavior are described in [Conflict Coordination](./conflict-coordination.md).
+Feature checks run in the feature branch during `ci_check` and are the heavy branch-level gate before spec review. `verifying` is an agent-level review that checks whether the feature branch meets the feature spec. There is no separate `verification.mergeTrain` layer — post-rebase `ci_check` currently reruns the same `verification.feature` layer via `VerificationService`. Empty effective check lists are advisory-only: the phase still passes, but the orchestrator emits a warning because verification ran without configured commands (deduped per integration cycle — see [Warnings](./warnings.md)). Timeouts are configurable per verification layer; the 60s / 600s values shown above are baseline examples for local-machine workflows. Support for substantially longer-running verification windows is deferred. See [Feature Candidate: Long Verification Timeouts](../feature-candidates/lifecycle/long-verification-timeouts.md). Slow-check warnings and feature-churn warnings are described in [Warnings](./warnings.md). Upstream sync recommendation and conflict escalation behavior are described in [Conflict Coordination](./conflict-coordination.md).
 
 ### Unified Failure Routing to Replanning
 
@@ -109,7 +109,7 @@ If `ci_check` fails (pre-verify or post-rebase):
 If `verifying` finds that the code does not satisfy the feature spec:
 1. Keep the feature on the same feature branch.
 2. The verify agent emits typed `VerifyIssue[]` via the `raiseIssue` tool; the run's terminal payload carries the accumulated list and the orchestrator persists it onto `features.verify_issues` with `source: 'verify'`. A `verifier_issue_raised` event is written per call for audit.
-3. If the verify run emits no blocking/concern issues the feature moves to `awaiting_merge`; otherwise feature work control moves to `replanning`. `nit`-severity issues are non-blocking: they still land on `features.verify_issues` and surface in the verification summary, but do not force replanning. See [Verify Nit Task Pool](../feature-candidates/verify-nit-task-pool.md) for the eventual mechanism to route these into post-merge follow-up work.
+3. If the verify run emits no blocking/concern issues the feature moves to `awaiting_merge`; otherwise feature work control moves to `replanning`. `nit`-severity issues are non-blocking: they still land on `features.verify_issues` and surface in the verification summary, but do not force replanning. See [Verify Nit Task Pool](../feature-candidates/runtime/verify-nit-task-pool.md) for the eventual mechanism to route these into post-merge follow-up work.
 4. On approved replan, new/modified tasks land on the same feature branch; persisted `verifyIssues` stay until later verification passes replace them.
 5. Return to `ci_check` after approved replan work lands.
 
@@ -184,7 +184,7 @@ The reconciler must be idempotent — a second invocation on the same state is a
 
 ## Hard Cancellation
 
-Hard mid-integration cancellation is not implemented in the current inline coordinator. The intended marker-row contract and branch-reset behavior remain deferred design, alongside graceful mid-integration cancellation. See [Feature Candidate: Graceful Integration Cancellation](../feature-candidates/graceful-integration-cancellation.md).
+Hard mid-integration cancellation is not implemented in the current inline coordinator. The intended marker-row contract and branch-reset behavior remain deferred design, alongside graceful mid-integration cancellation. See [Feature Candidate: Graceful Integration Cancellation](../feature-candidates/coordination/graceful-integration-cancellation.md).
 
 ## Stuck Detection
 

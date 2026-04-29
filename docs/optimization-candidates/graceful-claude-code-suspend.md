@@ -8,7 +8,7 @@ Future optimization candidate. Not part of baseline `ClaudeCodeHarness` wiring.
 
 The baseline `ClaudeCodeHarness` suspends a worker by sending `SIGTERM` to the `claude -p` subprocess immediately when the orchestrator decides to pause the run (same-feature overlap, cross-feature overlap, approval timeout, operator action). Session state persists to `~/.claude/projects/<cwd-slug>/<session-id>.jsonl` per-turn, so the **last completed turn** survives, but any partial turn in flight when SIGTERM arrives is lost. Resume respawns via `claude -p --resume <session-id>` with the steering directive as the `-p` prompt.
 
-See [feature-candidates/claude-code-harness.md](../feature-candidates/claude-code-harness.md) — "Suspend / resume" under Baseline Decisions.
+See [feature-candidates/runtime/claude-code-harness.md](../feature-candidates/runtime/claude-code-harness.md) — "Suspend / resume" under Baseline Decisions.
 
 This is acceptable because cold-start is ~1-3s and partial-turn loss is rare; simpler flow beats graceful coordination for a first pass.
 
@@ -34,5 +34,5 @@ The hardest part is that Claude Code's `-p` does not expose a documented "pause 
 
 ## Related
 
-- [feature-candidates/claude-code-harness.md](../feature-candidates/claude-code-harness.md) — baseline harness decisions
+- [feature-candidates/runtime/claude-code-harness.md](../feature-candidates/runtime/claude-code-harness.md) — baseline harness decisions
 - [architecture/worker-model.md](../architecture/worker-model.md) — suspend/resume IPC contract
