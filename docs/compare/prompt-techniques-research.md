@@ -318,7 +318,7 @@ Statuses: `done` (fully applied) · `partial` (subset applied; note scope) · `o
 | Rec | Status | Commit | Notes |
 | --- | --- | --- | --- |
 | R1 — Verify-agent `runTests()` tool | open | — | Highest-ROI item per the synthesis; needs new tool plus prompt rule. |
-| R2 — Worker loop-detection trigger | open | — | Requires worker prompt edit + runtime iteration counter for the kill-at-6 path. |
+| R2 — Worker loop-detection trigger | partial | — | Prompt half landed: replaced "if repeated fixes fail, stop and reset mental model" with explicit "after the same test or check fails 3 times, stop tool use, write a numbered list of every assumption marked confirmed-by-evidence vs. assumed, restart from the highest-uncertainty assumption." Runtime iteration counter and kill-at-6 routing to replan still open. |
 | R3 — Forbidden-completion-language rule | open | — | Worker prompt only; small. |
 | R4 — Mandatory complete-file-read rule | open | — | Worker prompt only. |
 | R5 — Recency-position task anchor | open | — | `buildSystemPrompt` footer addition. |
