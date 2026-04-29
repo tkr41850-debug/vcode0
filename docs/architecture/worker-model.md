@@ -163,7 +163,7 @@ newline-delimited JSON on stdin/stdout.
 For the baseline local-machine architecture,
 plain stdio IPC is sufficient; stronger delivery guarantees,
 acknowledgments, and explicit backpressure handling are deferred.
-See [Feature Candidate: Advanced IPC Guarantees](./feature-candidates/advanced-ipc-guarantees.md).
+See [Feature Candidate: Advanced IPC Guarantees](../feature-candidates/advanced-ipc-guarantees.md).
 
 ```typescript
 type TaskRuntimeDispatch =
@@ -317,7 +317,7 @@ type OrchestratorToWorkerMessage =
 ```
 
 The `suspend` / `resume` messages are a general
-**collaboration-control** mechanism.
+**collaboration_control** mechanism.
 Same-feature overlap and cross-feature overlap both use them for live
 runtime coordination.
 The task-scoped `resume` control path is only for live in-memory worker
@@ -375,7 +375,7 @@ Default is `NdjsonStdioTransport`.
 The message shapes stay transport-agnostic rather than stdio-specific,
 so a future migration to a network transport is tractable without
 redesigning the runtime seam.
-See [Feature Candidate: Distributed Runtime](./feature-candidates/distributed-runtime.md).
+See [Feature Candidate: Distributed Runtime](../feature-candidates/distributed-runtime.md).
 
 ## Task Payload: Planner-Baked
 
@@ -587,4 +587,4 @@ async function recoverOrphanedRuns(store: Store, runtime: RuntimePort) {
 }
 ```
 
-SQLite addition: `feature_branch`, `worktree_branch`, and collaboration-control fields are part of the persisted schema (see [Architecture / Persistence](./architecture/persistence.md)).
+SQLite addition: `feature_branch`, `worktree_branch`, and collaboration_control fields are part of the persisted schema (see [Architecture / Persistence](./persistence.md)).

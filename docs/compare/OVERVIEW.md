@@ -23,7 +23,7 @@ These are the properties that distinguish gvc0 architecturally. Each is a column
 3. **MT** — programmatic merge train into `main` (rebase → post-rebase CI → main-SHA validation → `merge --no-ff`).
 4. **PA** — proposal-graph planner with human approval before authoritative graph mutation.
 5. **RP** — replanner agent for verify-failure recovery.
-6. **SS** — split state model (work-control / collaboration-control / run-state).
+6. **SS** — split state model (work_control / collaboration_control / run-state).
 7. **VI** — typed `VerifyIssue[]` payload with sources `verify | ci_check | rebase`.
 8. **CC** — conflict coordination (same-feature write-path locks + cross-feature primary/secondary).
 9. **CR** — crash recovery via persistence + git refs authoritative.
@@ -77,7 +77,7 @@ Long-tail products surveyed but not tabulated (none change the shape of the conc
 ### Genuinely unique to gvc0 / GSD-2 lineage
 
 - **DAG (long-lived authoritative DAG-as-project-state with feature-only-on-feature + task-only-within-feature constraints).** LangGraph and agent-deck use DAGs for execution flow. Most other coding agents treat plans as ephemeral per-run artifacts. Only **GSD-2** (gvc0's direct ancestor) and **Factory.ai's** coordinator approach come architecturally close — and neither publicly formalizes the dependency-shape constraints that gvc0 enforces.
-- **SS (split state model: work-control / collaboration-control / run-state).** No surveyed product publicly separates execution-phase tracking from branch/merge coordination from transient run details. Most products either collapse these into a single status enum or hide the model entirely.
+- **SS (split state model: work_control / collaboration_control / run-state).** No surveyed product publicly separates execution-phase tracking from branch/merge coordination from transient run details. Most products either collapse these into a single status enum or hide the model entirely.
 - **VI (typed `VerifyIssue` payload with sourced classification).** Codex Security (Mar 2026) classifies issues by severity but doesn't expose a discriminated-source schema. Composio's CI-failure auto-fix is the closest functional match, but the issue payload is not typed. Everyone else returns free-form text and relies on the agent's own re-parsing.
 - **RP (dedicated replanner agent on verify failure).** Devin 3.0 has dynamic re-planning (single-agent mid-loop), Composio auto-fixes CI failures (single tool), but no surveyed product has a *separate* replanner agent with its own toolset whose only job is recovery routing on verify/CI/rebase failure. LangGraph supports compile-time replanning patterns but doesn't ship a recovery agent.
 

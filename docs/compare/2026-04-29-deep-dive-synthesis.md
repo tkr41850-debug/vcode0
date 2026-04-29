@@ -54,7 +54,7 @@ Three properties remain genuinely distinctive after the deep dive:
 
 - **Typed `VerifyIssue` + dedicated replanner agent.** No public competitor has both. Adding optional SARIF output ([sarif-verifyissue-output.md](../feature-candidates/sarif-verifyissue-output.md)) makes this interoperable without diluting the typed model.
 - **Git refs as authoritative state.** Crash recovery semantics fall out of this property; competitors using purely-database state struggle to reconcile against `main`'s actual SHA.
-- **Programmatic merge train.** Only Overstory shares the shape, and Overstory's queue lacks the rebase → post-rebase-CI → main-SHA validation → `merge --no-ff` invariant chain. Worth auditing Overstory's [issue #103](./merge-step-file-filtering-audit-context.md) for the analogous bug class — see [merge-step-file-filtering-audit.md](../feature-candidates/merge-step-file-filtering-audit.md).
+- **Programmatic merge train.** Only Overstory shares the shape, and Overstory's queue lacks the rebase → post-rebase-CI → main-SHA validation → `merge --no-ff` invariant chain. Worth auditing Overstory's issue #103 for the analogous bug class — see [merge-step-file-filtering-audit.md](../feature-candidates/merge-step-file-filtering-audit.md).
 
 ## Ten prioritized recommendations
 

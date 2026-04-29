@@ -125,7 +125,7 @@ Additional reservation-level detection could be made push-based in the future. S
 
 ### State Transition Guards
 
-State transitions are validated by pure guard functions in `core/fsm/` before being applied. Guards check both axes (work-control and collab-control) together — for example, `executing → ci_check` must satisfy the feature composite guard. SQL constraint hardening may be added later as a safety net but does not replace the orchestrator guards.
+State transitions are validated by pure guard functions in `core/fsm/` before being applied. Guards check both axes (work_control and collaboration_control) together — for example, `executing → ci_check` must satisfy the feature composite guard. SQL constraint hardening may be added later as a safety net but does not replace the orchestrator guards.
 
 ### Feature-Phase Concurrency
 

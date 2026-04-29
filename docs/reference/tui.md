@@ -40,11 +40,11 @@ Task rows render as derived `blocked` when:
 
 Feature rows render as blocked when current feature-phase run is waiting in `await_response`, `await_approval`, or active `retry_await`.
 
-Feature and task metadata show current work-control / collab-control values directly in row badges.
+Feature and task metadata show current work_control / collaboration_control values directly in row badges.
 
 ### Integration Sub-phases
 
-When a feature is in `collabControl=integrating`, the row badge surfaces the active sub-phase from the live integration run metadata (not from a second work-control enum):
+When a feature is in `collabControl=integrating`, the row badge surfaces the active sub-phase from the live integration run metadata (not from a second work_control enum):
 
 - `rebasing` — rebase onto latest `main` in progress
 - `ci_check/post_rebase` — post-rebase `ci_check` run in progress
