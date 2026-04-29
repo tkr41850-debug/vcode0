@@ -127,6 +127,8 @@ Most single-key commands only work in graph focus. While composer is focused, re
 
 Composer is command-first today. Submitted text must start with `/`. Plain text submit is not wired yet and shows `planner chat not wired yet`.
 
+> **DEFERRED**: Planner chat not yet wired (see `src/tui/app-composer.ts`).
+
 Slash-command parsing is shell-like:
 
 - quoted multi-word values are supported
@@ -221,4 +223,5 @@ Illustrative layout:
 - composer currently supports a minimal milestone authoring flow (`/milestone-add`) but still lacks milestone edit/remove commands
 - agent monitor is read-only; no worker steer or abort controls are exposed
 - manual run ownership (operator attach, `manual_input` drop-in, `release_to_scheduler` to return a run to automatic execution) is described in `docs/operations/verification-and-recovery.md` but no TUI command surface is wired yet
+  > **DEFERRED**: Operator attach / run ownership not yet implemented in TuiApp (no `attach` methods in `src/tui/app.ts` or `src/tui/app-deps.ts`).
 
