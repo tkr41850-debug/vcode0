@@ -20,5 +20,5 @@ Keep the re-entry-descending sort. Rely on replan-loop counters to catch broken 
 
 ## Related
 
-- [Feature Candidate: Fine-Grained Merge-Train Priority](../feature-candidates/merge-train-niceness.md)
+- [Feature Candidate: Fine-Grained Merge-Train Priority](../feature-candidates/coordination/merge-train-niceness.md)
 - [Concern: Merge-Train Re-entry Cap](./merge-train-reentry-cap.md)

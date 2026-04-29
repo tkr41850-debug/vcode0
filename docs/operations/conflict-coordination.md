@@ -173,7 +173,7 @@ Cross-feature overlap is handled more conservatively than same-feature file lock
 11. If the rebase succeeds but suspended task worktrees still cannot be resumed cleanly, keep the feature blocked and route that failure into the same replanning path.
 12. If rebase plus verification succeeds, continue normally; otherwise escalate to replanning.
 
-The baseline uses **per-feature blocking** (all secondary work paused) rather than per-task suspension (only overlapping tasks paused). This is simpler and safer — rebasing the feature branch with no active tasks avoids mid-flight worktree issues, and recovery on rebase failure is straightforward since no tasks need retroactive suspension. The parallelism cost is bounded because cross-feature overlap should be uncommon when reservation-based scheduling penalties are working. See [per-task cross-feature suspension](../feature-candidates/per-task-cross-feature-suspension.md) for the finer-grained alternative.
+The baseline uses **per-feature blocking** (all secondary work paused) rather than per-task suspension (only overlapping tasks paused). This is simpler and safer — rebasing the feature branch with no active tasks avoids mid-flight worktree issues, and recovery on rebase failure is straightforward since no tasks need retroactive suspension. The parallelism cost is bounded because cross-feature overlap should be uncommon when reservation-based scheduling penalties are working. See [per-task cross-feature suspension](../feature-candidates/coordination/per-task-cross-feature-suspension.md) for the finer-grained alternative.
 
 ## Cross-Feature Priority Policy
 

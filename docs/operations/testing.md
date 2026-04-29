@@ -1,6 +1,6 @@
 # Testing
 
-See [ARCHITECTURE.md](../ARCHITECTURE.md) for the high-level architecture overview and [specs/README.md](../specs/README.md) for the grouped scenario-spec index.
+See [ARCHITECTURE.md](../../ARCHITECTURE.md) for the high-level architecture overview and [specs/README.md](../../specs/README.md) for the grouped scenario-spec index.
 
 ## Current Test Coverage
 
@@ -57,7 +57,7 @@ Deferred integration targets:
 
 ## Scenario Specs
 
-The canonical markdown scenario inventory lives in [specs/README.md](../specs/README.md).
+The canonical markdown scenario inventory lives in [specs/README.md](../../specs/README.md).
 
 Keep `specs/test_*.md` focused on end-to-end scenarios that are likely to become integration tests later. Current groups are:
 

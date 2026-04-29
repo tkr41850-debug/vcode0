@@ -20,5 +20,5 @@ Baseline keeps the flat 1-second retry. A proper fix adds exponential backoff pl
 
 ## Related
 
-- [Feature Candidate: Generalized Phase Timeouts](../feature-candidates/phase-timeouts.md)
+- [Feature Candidate: Generalized Phase Timeouts](../feature-candidates/lifecycle/phase-timeouts.md)
 - [Operations / Verification and Recovery](../operations/verification-and-recovery.md)

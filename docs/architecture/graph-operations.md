@@ -14,7 +14,7 @@ See [ARCHITECTURE.md](../../ARCHITECTURE.md) for the high-level architecture ove
 | **addDependency(fromId, toId)** | Add a dependency edge (`feature → feature` or `task → task` within the same feature). Edge kind is inferred from typed prefixed ids (`f-*`, `t-*`). |
 | **removeDependency(fromId, toId)** | Remove a dependency edge |
 | **cancelFeature(featureId, cascade?)** | **User-facing soft abort.** Mark as cancelled (`collabControl → cancelled`), clear feature runtime block metadata, cancel feature-scoped and task-scoped runs, abort in-flight task runs, preserve existing task suspension metadata for worktree context, and optionally cancel transitive dependents when `cascade=true`. Preserves the feature, its tasks, and worktrees so state remains inspectable and the decision is reversible. Wired from TUI (`x` / `/cancel`) through `cancelFeatureRunWork` in `src/compose.ts`. |
-| **removeFeature(featureId)** | **Destructive planner-only primitive.** Remove a feature, detach incoming feature deps, and remove its tasks and task deps. Reachable in production only through proposal approval; the proposal layer rejects the op when the feature has already started work or still has dependents (see `staleReasonForOp` in `src/core/proposals/index.ts`). The core mutation itself has no guard — the policy lives at the proposal boundary, not as an invariant in core, so any direct caller outside proposals must enforce the same check and coordinate runtime cleanup (worktrees, agent runs) itself. No user-facing kill path exists today; see [User Feature Kill](../feature-candidates/user-feature-kill.md) for the deferred candidate. |
+| **removeFeature(featureId)** | **Destructive planner-only primitive.** Remove a feature, detach incoming feature deps, and remove its tasks and task deps. Reachable in production only through proposal approval; the proposal layer rejects the op when the feature has already started work or still has dependents (see `staleReasonForOp` in `src/core/proposals/index.ts`). The core mutation itself has no guard — the policy lives at the proposal boundary, not as an invariant in core, so any direct caller outside proposals must enforce the same check and coordinate runtime cleanup (worktrees, agent runs) itself. No user-facing kill path exists today; see [User Feature Kill](../feature-candidates/lifecycle/user-feature-kill.md) for the deferred candidate. |
 | **changeMilestone(featureId, newMilestoneId)** | Reassign a feature to a different milestone without changing dependency semantics |
 | **editFeature(featureId, patch)** | Update feature fields such as name, description, summary, or runtime block metadata |
 | **addTask(featureId, description, deps?)** | Add a task to an existing feature. Core `AddTaskOptions` accepts inline `deps` plus optional `weight`, `reservedWritePaths`, and planner-baked payload fields. The planner **tool** schema (`src/agents/tools/schemas.ts`) does not expose `deps` — planner flows declare edges via the separate `addDependency` tool. |
@@ -39,7 +39,7 @@ Every mutation must preserve DAG invariants:
 - **Referential integrity** — no dangling dependency edges
 - **Status consistency** — can't add tasks to a cancelled/done feature
 
-Feature restructuring is proposal-driven, not a direct graph primitive. A planner that wants to split one feature into two proposes `remove_feature(original)` plus `add_feature(...)` replacements and dependency rewrites in same approval payload. A planner that wants to merge features keeps one retained feature, edits its metadata, removes superseded features, and rewires dependencies through proposal ops. See [in-flight split/merge](../feature-candidates/in-flight-split-merge.md) for deferred started-work variant.
+Feature restructuring is proposal-driven, not a direct graph primitive. A planner that wants to split one feature into two proposes `remove_feature(original)` plus `add_feature(...)` replacements and dependency rewrites in same approval payload. A planner that wants to merge features keeps one retained feature, edits its metadata, removes superseded features, and rewires dependencies through proposal ops. See [in-flight split/merge](../feature-candidates/coordination/in-flight-split-merge.md) for deferred started-work variant.
 
 ```typescript
 interface FeatureGraph {
@@ -363,7 +363,7 @@ Queue rules:
    entry order via `mergeTrainEnteredAt` / `mergeTrainEntrySeq`). Fully arbitrary
    persistent manual ordering is deferred as a feature candidate
    because it adds persistence/update complexity. See
-   [Feature Candidate: Arbitrary Merge-Train Manual Ordering](../feature-candidates/arbitrary-merge-train-manual-ordering.md).
+   [Feature Candidate: Arbitrary Merge-Train Manual Ordering](../feature-candidates/coordination/arbitrary-merge-train-manual-ordering.md).
 5. The queue head moves into `integrating` through the in-process
    integration executor, which runs rebase → post-rebase `ci_check`
    → explicit main-SHA validation → `git merge --no-ff` under marker-row
