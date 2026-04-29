@@ -52,7 +52,10 @@ main
   commit with a dedicated snapshot author/email; when that
   worktree/branch is later reloaded, the synthetic snapshot commit
   is undone so the work resumes as uncommitted state rather than as
-  a normal authored commit.
+  a normal authored commit. Worktree provisioning is managed by `WorktreeProvisioner` interface
+  (implemented by `GitWorktreeProvisioner` in `src/runtime/worktree/index.ts:12`) with
+  entry-points `ensureFeatureWorktree` and `ensureTaskWorktree` that idempotently
+  create or verify git worktrees at their canonical paths.
 
 ### Git Commit Strategy
 
@@ -377,6 +380,11 @@ so a future migration to a network transport is tractable without
 redesigning the runtime seam.
 See [Feature Candidate: Distributed Runtime](./feature-candidates/distributed-runtime.md).
 
+Above the transport abstraction sits `IpcBridge` (`src/agents/worker/ipc-bridge.ts:20`), a narrow per-run interface
+injected into worker tools for blocking IPC calls (help requests, approvals, write-path claims, and result submission).
+`IpcBridge` is distinct from the low-level `NdjsonStdioTransport` — the transport handles framing and delivery,
+while `IpcBridge` provides the high-level semantics tools need to coordinate with the orchestrator.
+
 ## Task Payload: Planner-Baked
 
 Task workers do not assemble their own context at dispatch time.
@@ -385,7 +393,9 @@ outcomeVerification onto each Task row, plus a feature-level
 objective and Definition of Done on the owning Feature row. At
 dispatch, runtime reads those columns and packages them into a
 `TaskPayload` that rides the `run` IPC frame. The worker system
-prompt is rendered from this payload.
+prompt is rendered from this payload via `buildSystemPrompt` (`src/runtime/worker/system-prompt.ts:121`),
+which assembles a static execution ruleset, task metadata, feature context, and dependency outputs
+from the `TaskPayload` into a unified system prompt for the pi-sdk `Agent` loop.
 
 Resume dispatch rebuilds the same `TaskRunPayload` shape,
 including planner-baked `payload`, routed `model`, and
@@ -417,6 +427,15 @@ Knowledge and decisions injection is a feature-phase concern now
 (see `docs/reference/knowledge-files.md`); runtime no longer assembles
 them for task workers.
 
+## Session Storage and Checkpointing
+
+Sessions are persisted by `FileSessionStore` (`src/runtime/sessions/index.ts:46`),
+which stores agent messages and checkpoint state in `.gvc0/sessions/` as versioned JSON envelopes.
+Each checkpoint captures the message history, any pending wait state (help or approval), completed tool results, and terminal task results.
+Envelopes use a stable version field (`envelope.version: 1`) to support future migrations and are written atomically via temp-file rename.
+On task resume, `WorkerRuntime` loads the persisted checkpoint and restores conversation state from `sessionId`;
+within a resume attempt, help/approval waits can be recovered by re-sending the pending request and waiting for the operator's response again.
+
 ## Crash Recovery
 
 On startup, gvc0 scans persisted `agent_runs` for orphaned work
@@ -445,9 +464,11 @@ cleanly before exit.
 
 Workers are wrapped in a harness that abstracts the
 underlying session provider.
-The baseline uses `PiSdkHarness`, which runs pi-sdk `Agent`
-instances directly and is the contract the rest of the
-orchestrator should target so future backends
+The baseline uses `PiSdkHarness`, which spawns and manages child processes running `WorkerRuntime`
+instances (`src/runtime/worker/index.ts:61+`). `PiSdkHarness` forks a child process that runs the `WorkerRuntime.run()` method,
+which initializes a pi-sdk `Agent` and manages the agent loop, IPC transport, and session checkpointing
+for that individual task. `PiSdkHarness` is the orchestrator-side entry point that creates the process, wires IPC,
+and provides the contract the rest of the orchestrator should target so future backends
 (for example `ClaudeCodeHarness`) can slot in without changing
 scheduler logic.
 The orchestrator should depend only on this harness interface
@@ -512,6 +533,10 @@ the `SessionHandle` (`abort`, `manual_input`, `run`). Backend is
 swappable, but the IDs on the wire are real.
 
 A `ClaudeCodeHarness` exists in the type/config surface but remains a future runtime backend; baseline dispatch/recovery still defaults to `PiSdkHarness`.
+
+**Feature-phase execution:** Feature-phase runs (discuss, research, plan, verify, summarize, replan) execute inline through `DiscussFeaturePhaseBackend`
+(`src/runtime/harness/feature-phase/index.ts:62`), which dispatches directly to `PlannerAgent` and `ReplannerAgent` methods (`discussFeature`, `researchFeature`, `planFeature`, `verifyFeature`, `summarizeFeature`, `replanFeature`). Unlike task workers, feature phases do not spawn child processes but run agent methods
+directly in the orchestrator thread, using the same `FileSessionStore` for checkpoint persistence and the same `agent_runs` table for retry/backoff tracking. The `FeaturePhaseOrchestrator` class (`src/agents/runtime.ts:68`), instantiated in `src/compose.ts`, owns the agent instances passed to the backend.
 
 Config surface already includes task model routing plus harness selection:
 
