@@ -9,7 +9,7 @@ This document uses two main state axes plus a run/session overlay:
 - **Collaboration control** — branch / merge / suspension / conflict coordination (`none`, `branch_open`, `merge_queued`, `integrating`, `merged`, task-level `suspended`, feature/task `conflict`)
 - **Run/session state** — retry windows, help/approval waits, and manual ownership on `agent_runs`
 
-A task becoming **stuck** is a work-control problem. A task or feature entering **conflict** is a collaboration-control problem. Merge progress stays in collaboration control; work control waits in `awaiting_merge` until collaboration control reaches `merged`. Retry/backoff, help waits, approval waits, and manual takeover do not add new task enums; they live on the execution run and surface as derived blocked/reporting state when relevant. Cancelled tasks are terminal for active recovery/dispatch even if they still retain suspension metadata from earlier overlap handling.
+A task becoming **stuck** is a work_control problem. A task or feature entering **conflict** is a collaboration_control problem. Merge progress stays in collaboration_control; work_control waits in `awaiting_merge` until collaboration_control reaches `merged`. Retry/backoff, help waits, approval waits, and manual takeover do not add new task enums; they live on the execution run and surface as derived blocked/reporting state when relevant. Cancelled tasks are terminal for active recovery/dispatch even if they still retain suspension metadata from earlier overlap handling.
 
 ## Retry: Exponential Backoff up to 1 Week
 
@@ -151,7 +151,7 @@ Crash recovery between `git merge` and the clearing DB transaction is handled by
 
 ### Same-Feature Task Conflict
 
-When a same-feature task enters collaboration-control `conflict` after auto-rebase fails:
+When a same-feature task enters collaboration_control `conflict` after auto-rebase fails:
 1. Steer the existing task agent in the real conflicted worktree.
 2. If the agent resolves the conflict and later lands the task normally, clear the task's `conflict` collaboration state and continue the normal task completion path.
 3. If the agent resolves the merge but still needs additional code changes, treat that as normal task work rather than a continuing collaboration conflict.
@@ -188,7 +188,7 @@ Hard mid-integration cancellation is not implemented in the current inline coord
 
 ## Stuck Detection
 
-A task is **stuck** when it repeatedly fails verification and resubmits without making progress. This is a work-control condition, not a dependency-waiting or merge-conflict label.
+A task is **stuck** when it repeatedly fails verification and resubmits without making progress. This is a work_control condition, not a dependency-waiting or merge-conflict label.
 
 ```typescript
 interface StuckPolicy {

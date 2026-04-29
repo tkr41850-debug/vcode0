@@ -93,7 +93,7 @@ Action:
 
 ### Same-Feature File Locks
 
-The file-lock system is primarily a same-feature collaboration-control mechanism. It coordinates overlapping writes between task worktrees that belong to the same feature branch.
+The file-lock system is primarily a same-feature collaboration_control mechanism. It coordinates overlapping writes between task worktrees that belong to the same feature branch.
 
 Detection sources:
 

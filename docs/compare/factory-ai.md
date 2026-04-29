@@ -36,7 +36,7 @@ Factory does not publicly formalize feature-only-on-feature / task-only-within-f
 | Auto-resume after long-running tasks | Crash recovery via SQLite + git refs authoritative | Both have crash recovery; ours is documented invariant-driven, theirs is managed-service opaque. |
 | No publicly specified merge train | Programmatic merge train (rebase → CI → SHA validation → merge --no-ff) | gvc0's distinguishing axis. |
 | No publicly specified DAG-as-state | Long-lived milestone → feature → task DAG | gvc0's distinguishing axis. |
-| No publicly specified split state model | Work-control / collaboration-control / run-state | gvc0's distinguishing axis. |
+| No publicly specified split state model | work_control / collaboration_control / run-state | gvc0's distinguishing axis. |
 | No publicly specified typed-issue verification | Typed `VerifyIssue` with sourced classification | gvc0's distinguishing axis. |
 | Multi-model / budget governance (likely) | Heavy / standard / light + ceilings | Both likely have it; ours is documented, Factory's not surfaced. |
 

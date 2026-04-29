@@ -135,7 +135,7 @@ interface Task {
   orderInFeature: number;          // authoritative sibling order within the owning feature
   description: string;
   dependsOn: TaskId[];             // task ids within the same feature only
-  status: TaskStatus;              // work-control execution status
+  status: TaskStatus;              // work_control execution status
   collabControl: TaskCollabControl;
   workerId?: string;
   worktreeBranch?: string;

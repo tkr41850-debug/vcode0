@@ -19,7 +19,7 @@ The main difference is **what's the long-lived authoritative state**: Overstory 
 Conceptual mapping (approximate):
 
 - Overstory **worker** ≈ our **task worker** (both run in worktrees).
-- Overstory **merge queue entry** ≈ our **feature collaboration-control state** approaching `merging`.
+- Overstory **merge queue entry** ≈ our **feature collaboration_control state** approaching `merging`.
 - Overstory **conflict tier** ≈ our **conflict-coordination policy** (same-feature vs. cross-feature).
 - Overstory has no clear analogue of our **milestone/feature/task DAG** as a planning artifact.
 
@@ -33,7 +33,7 @@ Conceptual mapping (approximate):
 | SQLite as queue store | SQLite via better-sqlite3, git refs authoritative | Both lean on SQLite for durability; both must reconcile against git. |
 | No public DAG planner | Milestone → feature → task DAG | gvc0's distinguishing axis. |
 | No public proposal-graph approval | Proposal-graph planner with HITL approval before mutation | gvc0's distinguishing axis. |
-| No public split-state model | Work-control / collaboration-control / run-state | gvc0's distinguishing axis. |
+| No public split-state model | work_control / collaboration_control / run-state | gvc0's distinguishing axis. |
 | No public typed-issue verification payload | Typed `VerifyIssue` with `verify | ci_check | rebase` source | gvc0's distinguishing axis. |
 | No public dedicated replanner agent | Replanner agent for verify-failure recovery | gvc0's distinguishing axis. |
 | No public budget routing tiers | Heavy / standard / light routing + ceilings | gvc0's distinguishing axis. |
@@ -47,7 +47,7 @@ Conceptual mapping (approximate):
 
 1. **Persistent project DAG as authoritative state.** Our milestone/feature/task graph survives across runs; Overstory's queue is per-run state, not project state.
 2. **Dependency-shape constraints.** Feature-only-on-feature and task-only-within-feature are enforced at graph-mutation time in `core/graph`. Overstory does not publicly enforce dependency shape.
-3. **Split state model.** Work-control vs. collaboration-control vs. run-state is gvc0's clearest moat for crash recovery and re-planning correctness. Overstory's queue + worker model collapses these.
+3. **Split state model.** `work_control` vs. `collaboration_control` vs. run-state is gvc0's clearest moat for crash recovery and re-planning correctness. Overstory's queue + worker model collapses these.
 4. **Typed verification routing.** `VerifyIssue` discriminated union with `verify | ci_check | rebase` source feeds the replanner; Overstory's recovery semantics on tier-3/tier-4 conflicts are not yet read but appear to be tier-local rather than agent-driven.
 5. **Proposal-graph + human approval.** Authoritative graph mutation only happens after operator accepts a proposal. Overstory does not have a planner agent in the same sense.
 6. **Cross-feature primary/secondary policy.** The asymmetric coordination across long-lived feature branches has no clear Overstory analogue.
