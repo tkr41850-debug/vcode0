@@ -13,6 +13,8 @@ This means the graph is validated as it's constructed
 reason step-by-step, while the authoritative graph remains
 unchanged until a human approves the proposal.
 
+`GraphProposalToolHost` (created via `createProposalToolHost()` helper in `src/agents/tools/proposal-host.ts`) holds an `InMemoryFeatureGraph` draft and a `GraphProposalBuilder` that records each tool-call mutation as an ordered operation. It maintains the distinction between mutable drafting (before `submit()`) and immutable finalization, allowing the planner and replanner agents to reason about graph changes step-by-step while keeping the proposal in a reviewable form. The host is instantiated by the planner/replanner runtime in `src/agents/runtime.ts` and by the TUI proposal controller in `src/tui/proposal-controller.ts` to provide the feature-graph tools to the agent.
+
 Each tool call mutates only the in-memory proposal graph and is
 recorded as an ordered graph-modification step that can later be
 reviewed, approved, or rejected. The proposal should retain both
