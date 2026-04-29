@@ -147,7 +147,7 @@ export function emitEmptyVerificationChecksWarning(
   return nextWarnings;
 }
 
-function countVerifyFailuresSinceLastReplan(
+export function countVerifyFailuresSinceLastReplan(
   store: OrchestratorPorts['store'],
   featureId: FeatureId,
 ): number {
