@@ -306,3 +306,32 @@ Worker payload enhancement: distinguish `expectedFiles` (write/structurally modi
 - [Simon Willison — Designing Agentic Loops](https://simonwillison.net/2025/Sep/30/designing-agentic-loops/)
 - [Cursor agent best practices](https://cursor.com/blog/agent-best-practices)
 - [bits-bytes-nn — Evolution of AI Agentic Patterns](https://bits-bytes-nn.github.io/insights/agentic-ai/2026/04/05/evolution-of-ai-agentic-patterns-en.html)
+
+---
+
+## Adoption status
+
+Tracks which recommendations from this synthesis have landed in gvc0. Update when status changes; reference the commit so reviewers can audit scope.
+
+Statuses: `done` (fully applied) · `partial` (subset applied; note scope) · `open` (not yet started) · `deferred` (intentionally postponed) · `rejected` (decided against; note reason).
+
+| Rec | Status | Commit | Notes |
+| --- | --- | --- | --- |
+| R1 — Verify-agent `runTests()` tool | open | — | Highest-ROI item per the synthesis; needs new tool plus prompt rule. |
+| R2 — Worker loop-detection trigger | open | — | Requires worker prompt edit + runtime iteration counter for the kill-at-6 path. |
+| R3 — Forbidden-completion-language rule | open | — | Worker prompt only; small. |
+| R4 — Mandatory complete-file-read rule | open | — | Worker prompt only. |
+| R5 — Recency-position task anchor | open | — | `buildSystemPrompt` footer addition. |
+| R6 — Structured `outcomeVerification` | open | — | Schema change in `agents/tools/schemas.ts` plus verifier consumer. |
+| R7 — Verify-prompt evidence checklist | done | d38afaf | 5-item checklist; each unverifiable item is a blocking issue. |
+| R8 — Mandatory `criteriaEvidence` on submitVerify | open | — | Schema change. |
+| R9 — Tighten non-standard tool descriptions | partial | d38afaf | Applied to raiseIssue, addFeature, addTask, addDependency, submit (planner) and dependency parameters. Not yet applied to submitDiscuss / submitResearch / submitSummarize / submitVerify / confirm or to other phase-host inspection tools. |
+| R10 — Negative constraint on `run_command` | done | d38afaf | "Prefer dedicated tools when one fits — bash matches training distribution but loses path-lock tracking." |
+| R11 — Actionable `edit_file` error messages | open | — | Currently `edit N: oldText not found in path`; should name the recovery. |
+| R12 — Deterministic repo-map for research | open | — | Larger architectural change; tree-sitter + in-degree centrality. |
+| R13 — Worker reads AGENTS.md / CLAUDE.md | open | — | Wire `repoContextFile` into `buildSystemPrompt`. |
+| R14 — Reorder phase-prompt assembly (summaries before doctrine) | open | — | Ordering edit in prompt assembly. |
+| R15 — Adversarial framing in verify prompt | done | d38afaf | "Assume the execution agent is optimistic and has resolved ambiguities in its own favor." |
+| R16 — Tool-output truncation at harness level | open | — | Caps already exist on `read_file` (256 KB) and `run_command` (1 MB); the synthesis recommends a tighter "first 20 + last 20 lines" pattern for bash/test output. |
+| R17 — Fresh-agent reset on repeated identical error | open | — | Depends on R2 loop guard. |
+| R18 — Prune gvc0's CLAUDE.md, add Boundaries section | open | — | Project-file edit. |
