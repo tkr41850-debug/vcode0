@@ -153,6 +153,7 @@ const ErrorFrame = Type.Object({
   agentRunId: Type.String(),
   scopeRef: ScopeRef,
   error: Type.String(),
+  stack: Type.Optional(Type.String()),
   usage: Type.Optional(Payload),
 });
 

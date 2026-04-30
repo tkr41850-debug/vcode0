@@ -208,6 +208,28 @@ describe('validateWorkerFrame', () => {
     expect(result.ok).toBe(false);
   });
 
+  it('accepts error frame with stack', () => {
+    const result = validateWorkerFrame({
+      type: 'error',
+      taskId: 't-1',
+      agentRunId: 'r-1',
+      error: 'boom',
+      stack: 'Error: boom\n    at foo (/x.ts:1:1)',
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it('rejects error frame with non-string stack', () => {
+    const result = validateWorkerFrame({
+      type: 'error',
+      taskId: 't-1',
+      agentRunId: 'r-1',
+      error: 'boom',
+      stack: 42,
+    });
+    expect(result.ok).toBe(false);
+  });
+
   it('rejects wrong-typed array field', () => {
     const result = validateWorkerFrame({
       type: 'claim_lock',

@@ -29,6 +29,7 @@ import type {
   SessionToolResult,
 } from '@runtime/sessions/index';
 import { messagesToTokenUsageAggregate } from '@runtime/usage';
+import { formatError } from '@runtime/worker/format-error';
 import { buildSystemPrompt } from '@runtime/worker/system-prompt';
 
 export interface WorkerRuntimeConfig {
@@ -192,12 +193,13 @@ export class WorkerRuntime {
     });
 
     if (runError !== undefined) {
-      const errorMessage = formatError(runError);
+      const formatted = formatError(runError);
       this.transport.send({
         type: 'error',
         taskId: task.id,
         agentRunId: dispatch.agentRunId,
-        error: errorMessage,
+        error: formatted.message,
+        ...(formatted.stack !== undefined ? { stack: formatted.stack } : {}),
         usage,
       });
       return;
@@ -872,16 +874,6 @@ function extractText(msg: AssistantMessage): string {
     .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
     .map((b) => b.text)
     .join('');
-}
-
-function formatError(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  if (typeof err === 'string') return err;
-  try {
-    return JSON.stringify(err);
-  } catch {
-    return 'unknown error';
-  }
 }
 
 /**

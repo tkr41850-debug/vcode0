@@ -447,6 +447,7 @@ export type WorkerToOrchestratorMessage =
       agentRunId: string;
       scopeRef?: RunScope;
       error: string;
+      stack?: string;
       usage?: RuntimeUsageDelta;
     }
   | {
