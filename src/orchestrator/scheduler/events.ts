@@ -3,12 +3,7 @@ import * as path from 'node:path';
 import { persistPhaseOutputToFeature } from '@agents';
 import type { FeatureGraph } from '@core/graph/index';
 import { resolveTaskWorktreeBranch, worktreePath } from '@core/naming/index';
-import {
-  type AgentRun,
-  DEFAULT_MAX_SQUASH_RETRIES,
-  type FeatureId,
-  type RebaseVerifyIssue,
-} from '@core/types/index';
+import type { AgentRun, FeatureId, RebaseVerifyIssue } from '@core/types/index';
 import type { ConflictCoordinator } from '@orchestrator/conflicts/index';
 import type { FeatureLifecycleCoordinator } from '@orchestrator/features/index';
 import type { OrchestratorPorts } from '@orchestrator/ports/index';
@@ -20,6 +15,7 @@ import {
   summarizeProposalApply,
 } from '@orchestrator/proposals/index';
 import type { SummaryCoordinator } from '@orchestrator/summaries/index';
+import { defaultMaxSquashRetries } from '@root/config';
 import { runtimeUsageToTokenUsageAggregate } from '@runtime/usage';
 
 import type { ActiveLocks } from './active-locks.js';
@@ -215,7 +211,7 @@ export async function handleSchedulerEvent(params: {
         message.result,
       );
       const maxRetries =
-        ports.config.maxSquashRetries ?? DEFAULT_MAX_SQUASH_RETRIES;
+        ports.config.maxSquashRetries ?? defaultMaxSquashRetries();
       const outcome = await squashWithRetry(
         conflicts,
         {

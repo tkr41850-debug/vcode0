@@ -1,6 +1,5 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-
 import type {
   BudgetConfig,
   ClaudeCodeHarnessConfig,
@@ -14,6 +13,7 @@ import type {
   VerificationLayerConfig,
   WarningConfig,
 } from '@core/types';
+import { DEFAULT_MAX_SQUASH_RETRIES } from '@core/types';
 import {
   DEFAULT_CI_CHECK_REPLAN_LOOP_THRESHOLD,
   DEFAULT_LONG_FEATURE_BLOCKING_MS,
@@ -63,6 +63,10 @@ export function defaultHarnessConfig(): HarnessConfig {
   return {
     kind: 'pi-sdk',
   };
+}
+
+export function defaultMaxSquashRetries(): number {
+  return DEFAULT_MAX_SQUASH_RETRIES;
 }
 
 export function defaultModelRoutingConfig(

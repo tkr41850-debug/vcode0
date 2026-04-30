@@ -6,6 +6,7 @@ import {
   buildPersistedDefaultConfig,
   DEFAULT_MODEL_ID,
   defaultHarnessConfig,
+  defaultMaxSquashRetries,
   defaultModelRoutingConfig,
   defaultWarningConfig,
   defaultWarningThresholds,
@@ -266,6 +267,10 @@ describe('centralized default builders', () => {
 
   it('defaultHarnessConfig is pi-sdk', () => {
     expect(defaultHarnessConfig()).toEqual({ kind: 'pi-sdk' });
+  });
+
+  it('defaultMaxSquashRetries returns 3', () => {
+    expect(defaultMaxSquashRetries()).toBe(3);
   });
 
   it('defaultModelRoutingConfig uses DEFAULT_MODEL_ID for ceiling and tiers', () => {
