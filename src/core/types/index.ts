@@ -41,6 +41,12 @@ export type {
   TaskResult,
 } from './phases.js';
 export type {
+  IpcQuarantineDirection,
+  QuarantinedFrameEntry,
+  QuarantinedFrameQuery,
+  QuarantinedFrameRecord,
+} from './quarantine.js';
+export type {
   AgentRun,
   AgentRunHarnessKind,
   AgentRunPhase,

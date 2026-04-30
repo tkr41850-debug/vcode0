@@ -159,6 +159,8 @@ function createStoreMock(): Store {
     })),
     listInboxItems: () => [],
     resolveInboxItem: () => {},
+    appendQuarantinedFrame: vi.fn(),
+    listQuarantinedFrames: vi.fn(() => []),
   };
 }
 

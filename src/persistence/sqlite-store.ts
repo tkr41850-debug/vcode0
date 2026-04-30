@@ -7,6 +7,10 @@ import type {
   InboxItemKind,
   InboxItemQuery,
   IntegrationState,
+  IpcQuarantineDirection,
+  QuarantinedFrameEntry,
+  QuarantinedFrameQuery,
+  QuarantinedFrameRecord,
   TaskId,
 } from '@core/types/index';
 import type {
@@ -39,6 +43,9 @@ const INTEGRATION_STATE_COLUMNS =
 const INBOX_ITEM_COLUMNS =
   'id, ts, kind, task_id, agent_run_id, feature_id, payload, resolution';
 
+const IPC_QUARANTINE_COLUMNS =
+  'id, ts, direction, agent_run_id, raw, error_message';
+
 interface InboxItemRow {
   id: number;
   ts: number;
@@ -48,6 +55,15 @@ interface InboxItemRow {
   feature_id: string | null;
   payload: string | null;
   resolution: string | null;
+}
+
+interface IpcQuarantineRow {
+  id: number;
+  ts: number;
+  direction: string;
+  agent_run_id: string | null;
+  raw: string;
+  error_message: string;
 }
 
 interface AgentRunInsertParams {
@@ -113,6 +129,7 @@ export class SqliteStore implements Store {
   private readonly clearIntegrationStateStmt;
   private readonly insertInboxItemStmt;
   private readonly resolveInboxItemStmt;
+  private readonly insertQuarantinedFrameStmt;
   private readonly updateAgentRunTxn: (
     runId: string,
     patch: AgentRunPatch,
@@ -206,6 +223,17 @@ export class SqliteStore implements Store {
 
     this.resolveInboxItemStmt = db.prepare<[string, number]>(
       'UPDATE inbox_items SET resolution = ? WHERE id = ?',
+    );
+
+    this.insertQuarantinedFrameStmt = db.prepare<{
+      ts: number;
+      direction: string;
+      agent_run_id: string | null;
+      raw: string;
+      error_message: string;
+    }>(
+      `INSERT INTO ipc_quarantine (ts, direction, agent_run_id, raw, error_message)
+       VALUES (:ts, :direction, :agent_run_id, :raw, :error_message)`,
     );
 
     // Read-modify-write is wrapped in a single transaction so concurrent
@@ -407,6 +435,48 @@ export class SqliteStore implements Store {
   resolveInboxItem(id: number, resolution: string): void {
     this.resolveInboxItemStmt.run(resolution, id);
   }
+
+  // ---------- IPC quarantine ----------
+
+  appendQuarantinedFrame(entry: QuarantinedFrameEntry): void {
+    this.insertQuarantinedFrameStmt.run({
+      ts: entry.ts,
+      direction: entry.direction,
+      agent_run_id: entry.agentRunId ?? null,
+      raw: entry.raw,
+      error_message: entry.errorMessage,
+    });
+  }
+
+  listQuarantinedFrames(
+    query?: QuarantinedFrameQuery,
+  ): QuarantinedFrameRecord[] {
+    const clauses: string[] = [];
+    const params: Record<string, unknown> = {};
+    if (query?.agentRunId !== undefined) {
+      clauses.push('agent_run_id = :agent_run_id');
+      params.agent_run_id = query.agentRunId;
+    }
+    const where = clauses.length > 0 ? ` WHERE ${clauses.join(' AND ')}` : '';
+    const limit = query?.limit;
+    const limitClause =
+      limit !== undefined ? ` LIMIT ${Math.max(0, limit)}` : '';
+    const stmt = this.db.prepare<Record<string, unknown>, IpcQuarantineRow>(
+      `SELECT ${IPC_QUARANTINE_COLUMNS} FROM ipc_quarantine${where} ORDER BY ts DESC, id DESC${limitClause}`,
+    );
+    return stmt.all(params).map(rowToQuarantinedFrame);
+  }
+}
+
+function rowToQuarantinedFrame(row: IpcQuarantineRow): QuarantinedFrameRecord {
+  return {
+    id: row.id,
+    ts: row.ts,
+    direction: row.direction as IpcQuarantineDirection,
+    ...(row.agent_run_id !== null ? { agentRunId: row.agent_run_id } : {}),
+    raw: row.raw,
+    errorMessage: row.error_message,
+  };
 }
 
 function rowToInboxItem(row: InboxItemRow): InboxItem {

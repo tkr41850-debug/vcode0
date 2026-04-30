@@ -455,4 +455,116 @@ describe('SqliteStore', () => {
       expect(reread?.featureBranchPostRebaseSha).toBeUndefined();
     });
   });
+
+  describe('ipc quarantine', () => {
+    it('round-trips appended frames', () => {
+      store.appendQuarantinedFrame({
+        ts: 1_000_000,
+        direction: 'worker_to_orchestrator',
+        agentRunId: 'run-1',
+        raw: '{"bad":',
+        errorMessage: '/type: expected string discriminator',
+      });
+
+      const all = store.listQuarantinedFrames();
+      expect(all).toHaveLength(1);
+      expect(all[0]).toMatchObject({
+        ts: 1_000_000,
+        direction: 'worker_to_orchestrator',
+        agentRunId: 'run-1',
+        raw: '{"bad":',
+        errorMessage: '/type: expected string discriminator',
+      });
+      expect(typeof all[0]?.id).toBe('number');
+    });
+
+    it('orders results by ts DESC', () => {
+      store.appendQuarantinedFrame({
+        ts: 100,
+        direction: 'worker_to_orchestrator',
+        raw: 'a',
+        errorMessage: 'oldest',
+      });
+      store.appendQuarantinedFrame({
+        ts: 300,
+        direction: 'worker_to_orchestrator',
+        raw: 'b',
+        errorMessage: 'newest',
+      });
+      store.appendQuarantinedFrame({
+        ts: 200,
+        direction: 'orchestrator_to_worker',
+        raw: 'c',
+        errorMessage: 'middle',
+      });
+
+      const all = store.listQuarantinedFrames();
+      expect(all.map((f) => f.errorMessage)).toEqual([
+        'newest',
+        'middle',
+        'oldest',
+      ]);
+    });
+
+    it('filters by agentRunId via the partial index', () => {
+      store.appendQuarantinedFrame({
+        ts: 100,
+        direction: 'worker_to_orchestrator',
+        agentRunId: 'run-a',
+        raw: 'a',
+        errorMessage: 'a',
+      });
+      store.appendQuarantinedFrame({
+        ts: 200,
+        direction: 'worker_to_orchestrator',
+        raw: 'no-run',
+        errorMessage: 'no-run',
+      });
+      store.appendQuarantinedFrame({
+        ts: 300,
+        direction: 'worker_to_orchestrator',
+        agentRunId: 'run-b',
+        raw: 'b',
+        errorMessage: 'b',
+      });
+
+      const onlyA = store.listQuarantinedFrames({ agentRunId: 'run-a' });
+      expect(onlyA.map((f) => f.errorMessage)).toEqual(['a']);
+    });
+
+    it('limit caps the result set', () => {
+      for (let i = 0; i < 5; i++) {
+        store.appendQuarantinedFrame({
+          ts: i + 1,
+          direction: 'worker_to_orchestrator',
+          raw: String(i),
+          errorMessage: String(i),
+        });
+      }
+      const out = store.listQuarantinedFrames({ limit: 2 });
+      expect(out.map((f) => f.errorMessage)).toEqual(['4', '3']);
+    });
+
+    it('limit of 0 returns no rows', () => {
+      store.appendQuarantinedFrame({
+        ts: 1,
+        direction: 'worker_to_orchestrator',
+        raw: 'a',
+        errorMessage: 'a',
+      });
+      expect(store.listQuarantinedFrames({ limit: 0 })).toEqual([]);
+    });
+
+    it('omits agentRunId on read when not provided on write', () => {
+      store.appendQuarantinedFrame({
+        ts: 1,
+        direction: 'orchestrator_to_worker',
+        raw: 'x',
+        errorMessage: 'no run',
+      });
+      const [record] = store.listQuarantinedFrames();
+      expect(record).toBeDefined();
+      expect('agentRunId' in (record ?? {})).toBe(false);
+    });
+  });
 });

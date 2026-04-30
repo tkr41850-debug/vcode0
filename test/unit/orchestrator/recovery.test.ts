@@ -152,6 +152,8 @@ function createStoreMock(runs: AgentRun[]): Store {
     appendInboxItem: vi.fn(),
     listInboxItems: vi.fn(() => []),
     resolveInboxItem: vi.fn(),
+    appendQuarantinedFrame: vi.fn(),
+    listQuarantinedFrames: vi.fn(() => []),
   };
 }
 

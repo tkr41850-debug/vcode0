@@ -10,6 +10,9 @@ import type {
   InboxItemQuery,
   IntegrationState,
   ProposalPhaseDetails,
+  QuarantinedFrameEntry,
+  QuarantinedFrameQuery,
+  QuarantinedFrameRecord,
 } from '@core/types/index';
 import type { VerificationService } from '@orchestrator/services/verification-service';
 import type { RuntimePort } from '@runtime';
@@ -63,6 +66,12 @@ export interface Store {
   appendInboxItem(item: InboxItemAppend): InboxItem;
   listInboxItems(query?: InboxItemQuery): InboxItem[];
   resolveInboxItem(id: number, resolution: string): void;
+
+  // IPC quarantine (durable sink for malformed frames).
+  appendQuarantinedFrame(entry: QuarantinedFrameEntry): void;
+  listQuarantinedFrames(
+    query?: QuarantinedFrameQuery,
+  ): QuarantinedFrameRecord[];
 }
 
 export interface UiPort {

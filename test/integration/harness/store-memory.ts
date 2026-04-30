@@ -5,6 +5,9 @@ import type {
   InboxItemAppend,
   InboxItemQuery,
   IntegrationState,
+  QuarantinedFrameEntry,
+  QuarantinedFrameQuery,
+  QuarantinedFrameRecord,
 } from '@core/types/index';
 import type {
   AgentRunPatch,
@@ -29,6 +32,8 @@ export class InMemoryStore implements Store {
   private integration: IntegrationState | undefined;
   private readonly inbox: InboxItem[] = [];
   private nextInboxId = 1;
+  private readonly quarantine: QuarantinedFrameRecord[] = [];
+  private nextQuarantineId = 1;
 
   getAgentRun(id: string): AgentRun | undefined {
     return this.runs.get(id);
@@ -150,6 +155,35 @@ export class InMemoryStore implements Store {
       throw new Error(`inbox item "${id}" does not exist`);
     }
     item.resolution = resolution;
+  }
+
+  appendQuarantinedFrame(entry: QuarantinedFrameEntry): void {
+    this.quarantine.push({
+      id: this.nextQuarantineId++,
+      ts: entry.ts,
+      direction: entry.direction,
+      ...(entry.agentRunId !== undefined
+        ? { agentRunId: entry.agentRunId }
+        : {}),
+      raw: entry.raw,
+      errorMessage: entry.errorMessage,
+    });
+  }
+
+  listQuarantinedFrames(
+    query?: QuarantinedFrameQuery,
+  ): QuarantinedFrameRecord[] {
+    let out = [...this.quarantine].sort((a, b) => {
+      if (a.ts !== b.ts) return b.ts - a.ts;
+      return b.id - a.id;
+    });
+    if (query?.agentRunId !== undefined) {
+      out = out.filter((entry) => entry.agentRunId === query.agentRunId);
+    }
+    if (query?.limit !== undefined) {
+      out = out.slice(0, Math.max(0, query.limit));
+    }
+    return out;
   }
 }
 
