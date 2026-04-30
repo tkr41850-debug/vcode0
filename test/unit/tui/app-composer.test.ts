@@ -65,6 +65,8 @@ function buildDataSource(overrides: Partial<TuiAppDeps> = {}): TuiAppDeps & {
     decideTaskApproval: () => Promise.resolve(''),
     sendTaskManualInput: () => Promise.resolve(''),
     sendPlannerChatInput,
+    respondToFeaturePhaseHelp: () => Promise.resolve(''),
+    listPendingFeaturePhaseHelp: () => [],
     quit: () => Promise.resolve(),
     ...overrides,
   } as TuiAppDeps & { sendPlannerChatInput: ReturnType<typeof vi.fn> };

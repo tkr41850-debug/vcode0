@@ -137,18 +137,38 @@ export async function executeSlashCommand(params: {
       return `Initialized ${created.milestoneId} and ${created.featureId}.`;
     }
     case 'reply': {
-      const taskId = params.currentSelection.taskId;
-      if (taskId === undefined) {
-        throw new Error('select task waiting for help first');
-      }
       const text = parsed.args.text;
       if (typeof text !== 'string' || text.length === 0) {
         throw new Error('--text is required');
       }
-      return params.dataSource.respondToTaskHelp(taskId, {
-        kind: 'answer',
-        text,
-      });
+      const taskId = params.currentSelection.taskId;
+      if (taskId !== undefined) {
+        return params.dataSource.respondToTaskHelp(taskId, {
+          kind: 'answer',
+          text,
+        });
+      }
+      const featureId = params.currentSelection.featureId;
+      if (featureId !== undefined) {
+        const snapshot = params.dataSource.snapshot();
+        const feature = snapshot.features.find(
+          (entry) => entry.id === featureId,
+        );
+        if (feature === undefined) {
+          throw new Error(`feature "${featureId}" not found`);
+        }
+        const phase = phaseForFeature(feature);
+        if (phase === undefined) {
+          throw new Error(
+            `feature "${featureId}" is not in planning or replanning`,
+          );
+        }
+        return params.dataSource.respondToFeaturePhaseHelp(featureId, phase, {
+          kind: 'answer',
+          text,
+        });
+      }
+      throw new Error('select task or feature waiting for help first');
     }
     case 'input': {
       const taskId = params.currentSelection.taskId;

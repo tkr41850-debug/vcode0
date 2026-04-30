@@ -253,6 +253,20 @@ export class RecoveryService {
       run.sessionId,
     );
     if (run.phase === 'plan' || run.phase === 'replan') {
+      if (run.runStatus === 'await_response') {
+        // Pending request_help waits live in the in-memory ProposalPhaseSession
+        // and do not survive a restart: the toolCallId resolver is gone, so
+        // /reply has nothing to answer. Reset the run to 'ready' so the
+        // scheduler re-dispatches; the planner resumes from its persisted
+        // session transcript and may re-issue request_help, this time with a
+        // fresh toolCallId that the operator can answer.
+        this.ports.store.updateAgentRun(run.id, {
+          runStatus: 'ready',
+          owner: 'system',
+          payloadJson: undefined,
+        });
+        return;
+      }
       if (run.runStatus === 'await_approval' && completionEvent === undefined) {
         this.backfillStoredProposalCompletion(run);
       }

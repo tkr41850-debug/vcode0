@@ -173,6 +173,16 @@ This composer `/submit` command submits a planning/replanning proposal draft for
 Task commands support `--weight trivial|small|medium|heavy`.
 While draft is active, DAG title shows draft mode and status bar reports `view: draft`.
 
+### Help-response commands
+
+`/reply --text "..."` answers the most recent pending request. Routing is by selection:
+
+- task selected and run is `await_response` → answers the task's `request_help` via runtime help-response IPC
+- feature selected and feature is in `planning` or `replanning` with pending feature-phase help → answers the planner's oldest pending `request_help` via `respondToFeaturePhaseHelp`
+- otherwise rejected with notice
+
+`/input --text "..."` sends manual input on a task run currently `running/manual` (operator attached). Plain-text composer input (no slash) on a planning/replanning feature with a running plan/replan run routes to the planner as a follow-up turn (see Composer plain-text behavior earlier). Use `/input` for tasks; rely on plain-text for planner chat.
+
 ### Approval commands
 
 When selected feature has pending proposal, composer enters approval mode and surfaces approval commands:

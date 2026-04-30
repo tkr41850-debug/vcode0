@@ -34,6 +34,14 @@ export type FeaturePhaseDispatchOutcome =
 
 export interface FeaturePhaseSessionHandle extends SessionHandle {
   awaitOutcome(this: void): Promise<FeaturePhaseDispatchOutcome>;
+  /**
+   * For plan/replan handles backed by a {@link LiveProposalPhaseSession},
+   * exposes the underlying session so the orchestrator can introspect /
+   * resolve pending help requests. Undefined for synthetic handles built
+   * around legacy planFeature/replanFeature wrappers and for non-proposal
+   * phases (discuss/research/verify/ci_check/summarize).
+   */
+  proposalSession?: LiveProposalPhaseSession;
 }
 
 export type ResumeFeaturePhaseResult =
@@ -369,7 +377,7 @@ export function createFeaturePhaseHandle(params: {
     awaitOutcome(): Promise<FeaturePhaseDispatchOutcome> {
       return outcome;
     },
-  };
+  } as FeaturePhaseSessionHandle;
 }
 
 /**
@@ -433,14 +441,21 @@ export function createProposalPhaseSessionHandle(params: {
       params.session.sendUserMessage(text);
       return Promise.resolve();
     },
-    send(_message: OrchestratorToWorkerMessage): void {
-      // Phase 5 wires help_response / approval_decision; in-process planner
-      // does not consume worker IPC today.
+    send(message: OrchestratorToWorkerMessage): void {
+      // The in-process planner doesn't speak worker IPC, but help_response
+      // arrives through the same RuntimePort.respondToRunHelp surface as
+      // task workers, so route the typed message into the session's
+      // respondToHelp registry. approval_decision is task-only today.
+      if (message.type === 'help_response') {
+        params.session.respondToHelp(message.toolCallId, message.response);
+      }
     },
     onWorkerMessage(
       _handler: (message: WorkerToOrchestratorMessage) => void,
     ): void {
-      // Phase 5 wires Agent.subscribe → worker-message adapter.
+      // Phase 5 defers the Agent.subscribe → worker-message adapter for
+      // attach observation; help-response routing flows through send()
+      // above instead.
     },
     onExit(handler: (info: SessionExitInfo) => void): void {
       if (exitInfo !== undefined) {
@@ -452,5 +467,6 @@ export function createProposalPhaseSessionHandle(params: {
     awaitOutcome(): Promise<FeaturePhaseDispatchOutcome> {
       return outcome;
     },
+    proposalSession: params.session,
   };
 }

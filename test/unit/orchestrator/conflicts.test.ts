@@ -72,6 +72,9 @@ function createPorts(root: string): OrchestratorPorts {
         Promise.resolve({ kind: 'not_running' as const, taskId: agentRunId }),
       ),
       abortRun: vi.fn(),
+      listPendingFeaturePhaseHelp: vi.fn(
+        () => [] as readonly { toolCallId: string; query: string }[],
+      ),
       respondToRunClaim: vi.fn((agentRunId: string) =>
         Promise.resolve({ kind: 'not_running' as const, taskId: agentRunId }),
       ),

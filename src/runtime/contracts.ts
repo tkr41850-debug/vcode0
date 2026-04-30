@@ -282,6 +282,17 @@ export interface RuntimePort {
     text: string,
   ): Promise<TaskControlResult>;
   abortRun(this: void, agentRunId: string): Promise<TaskControlResult>;
+  /**
+   * Snapshot of pending help requests on a feature-phase live session.
+   * Empty for task runs and for feature-phase runs whose backend has no
+   * proposal session attached (legacy planFeature/replanFeature wrappers,
+   * non-proposal phases). Used by the TUI to surface what the operator
+   * needs to answer and to look up the toolCallId for respondToRunHelp.
+   */
+  listPendingFeaturePhaseHelp(
+    this: void,
+    agentRunId: string,
+  ): readonly { toolCallId: string; query: string }[];
   respondToRunClaim(
     this: void,
     agentRunId: string,

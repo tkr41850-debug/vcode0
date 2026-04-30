@@ -143,6 +143,31 @@ export async function composeApplication(): Promise<GvcApplication> {
       respondToPendingTaskHelp(store, runtime, taskId, response),
     decideTaskApproval: (taskId, decision) =>
       decidePendingTaskApproval(store, runtime, taskId, decision),
+    respondToFeaturePhaseHelp: async (featureId, phase, response) => {
+      const runId = `run-feature:${featureId}:${phase}`;
+      const run = store.getAgentRun(runId);
+      if (run?.scopeType !== 'feature_phase') {
+        throw new Error(`feature "${featureId}" has no ${phase} run`);
+      }
+      const pending = runtime.listPendingFeaturePhaseHelp(runId);
+      const next = pending[0];
+      if (next === undefined) {
+        throw new Error(
+          `feature "${featureId}" planner has no pending help request`,
+        );
+      }
+      const result = await runtime.respondToRunHelp(
+        runId,
+        next.toolCallId,
+        response,
+      );
+      if (result.kind !== 'delivered') {
+        throw new Error(`feature "${featureId}" planner is not running`);
+      }
+      return `Sent help response to ${featureId} planner.`;
+    },
+    listPendingFeaturePhaseHelp: (featureId, phase) =>
+      runtime.listPendingFeaturePhaseHelp(`run-feature:${featureId}:${phase}`),
     sendPlannerChatInput: async (featureId, phase, text) => {
       const runId = `run-feature:${featureId}:${phase}`;
       const run = store.getAgentRun(runId);
@@ -201,6 +226,39 @@ export async function composeApplication(): Promise<GvcApplication> {
       },
       onSubmitted: (scope, details, proposal, submissionIndex) => {
         ui.onProposalSubmitted(scope, details, proposal, submissionIndex);
+      },
+      onHelpRequested: (scope, toolCallId, query) => {
+        // Persist await_response so existing TUI status badges + recovery
+        // service see the help wait through the standard agent_runs surface.
+        // Refresh UI immediately: scheduler tick is parked inside the long
+        // dispatchFeaturePhaseRun await, so the next refresh would not run
+        // until outcome resolves; without this nudge the TUI can miss the
+        // live await_response transition.
+        const runId = `run-feature:${scope.featureId}:${scope.phase}`;
+        const run = store.getAgentRun(runId);
+        if (run?.scopeType === 'feature_phase') {
+          store.updateAgentRun(runId, {
+            runStatus: 'await_response',
+            payloadJson: JSON.stringify({ toolCallId, query }),
+          });
+          ui.refresh();
+        }
+      },
+      onHelpResolved: (scope, _toolCallId) => {
+        // Pending help drained; flip back to running unless the planner
+        // already terminated (the phase-end hook resets ownership).
+        const runId = `run-feature:${scope.featureId}:${scope.phase}`;
+        const run = store.getAgentRun(runId);
+        if (
+          run?.scopeType === 'feature_phase' &&
+          run.runStatus === 'await_response'
+        ) {
+          store.updateAgentRun(runId, {
+            runStatus: 'running',
+            payloadJson: undefined,
+          });
+          ui.refresh();
+        }
       },
       onPhaseEnded: (scope, outcome) => {
         ui.onProposalPhaseEnded(scope, outcome);

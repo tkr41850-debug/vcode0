@@ -1,4 +1,5 @@
 import {
+  buildProposalAgentToolset,
   createPlannerToolset,
   createProposalToolHost,
   type PlannerToolDefinition,
@@ -120,6 +121,33 @@ describe('createPlannerToolset', () => {
 
     expect(host.getProposalDetails().summary).toBe('second pass');
     expect(host.buildProposal().ops).toHaveLength(2);
+  });
+
+  it('buildProposalAgentToolset omits request_help when no callback provided', () => {
+    const graph = createGraphWithFeature();
+    const host = createProposalToolHost(graph, 'plan');
+    const tools = buildProposalAgentToolset(host);
+    expect(tools.map((tool) => tool.name)).not.toContain('request_help');
+  });
+
+  it('buildProposalAgentToolset exposes request_help when callback provided; tool routes through callback', async () => {
+    const graph = createGraphWithFeature();
+    const host = createProposalToolHost(graph, 'plan');
+    const calls: Array<{ toolCallId: string; query: string }> = [];
+    const tools = buildProposalAgentToolset(host, undefined, (id, q) => {
+      calls.push({ toolCallId: id, query: q });
+      return Promise.resolve({ kind: 'answer', text: `re: ${q}` });
+    });
+    const helpTool = tools.find((tool) => tool.name === 'request_help');
+    expect(helpTool).toBeDefined();
+    expect(helpTool?.label).toBe('Request Help');
+
+    const result = await helpTool?.execute('call-1', { query: 'which dep?' });
+    expect(calls).toEqual([{ toolCallId: 'call-1', query: 'which dep?' }]);
+    expect(result?.content[0]).toMatchObject({
+      type: 'text',
+      text: 're: which dep?',
+    });
   });
 
   it('formats tool text for representative operations', async () => {

@@ -507,6 +507,86 @@ describe('FeaturePhaseOrchestrator', () => {
     });
   });
 
+  it('planner request_help blocks until session.respondToHelp resolves with operator answer', async () => {
+    faux.setResponses([
+      fauxAssistantMessage(
+        [fauxToolCall('request_help', { query: 'which deps does t-1 need?' })],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage(
+        [
+          fauxToolCall('addTask', {
+            featureId: 'f-1',
+            description: 'Built with operator answer',
+          }),
+          fauxToolCall('submit', proposalDetails),
+        ],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage([fauxText('Plan ready.')]),
+    ]);
+
+    const helpRequests: Array<{ toolCallId: string; query: string }> = [];
+    const helpResolutions: string[] = [];
+    const sink: ProposalOpSink = {
+      onOpRecorded: () => {},
+      onSubmitted: () => {},
+      onHelpRequested: (_scope, toolCallId, query) => {
+        helpRequests.push({ toolCallId, query });
+      },
+      onHelpResolved: (_scope, toolCallId) => {
+        helpResolutions.push(toolCallId);
+      },
+      onPhaseEnded: () => {},
+    };
+
+    const { feature, run, runtime } = createRuntimeFixture('plan', {
+      proposalOpSink: sink,
+    });
+    const session = runtime.startPlanFeature(feature, { agentRunId: run.id });
+    const outcomePromise = session.awaitOutcome();
+
+    // sink.onHelpRequested fires synchronously from the planner's
+    // request_help tool execution; flushing microtasks is deterministic.
+    while (helpRequests.length === 0) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    expect(helpRequests).toHaveLength(1);
+    expect(helpRequests[0]?.query).toBe('which deps does t-1 need?');
+    expect(session.listPendingHelp()).toHaveLength(1);
+
+    const toolCallId = helpRequests[0]?.toolCallId;
+    expect(toolCallId).toBeDefined();
+    const delivered = session.respondToHelp(toolCallId ?? '', {
+      kind: 'answer',
+      text: 'depends only on the README anchor',
+    });
+    expect(delivered).toBe(true);
+    expect(helpResolutions).toEqual([toolCallId]);
+
+    const result = await outcomePromise;
+    expect(result.proposal.ops).toHaveLength(1);
+    expect(result.proposal.ops[0]).toMatchObject({
+      kind: 'add_task',
+      description: 'Built with operator answer',
+    });
+    expect(session.listPendingHelp()).toEqual([]);
+  });
+
+  it('aborting a session with pending help rejects the request_help promise', async () => {
+    const { feature, run, runtime } = createRuntimeFixture('plan');
+    const session = runtime.startPlanFeature(feature, { agentRunId: run.id });
+    // Start outcome but do not await; we will abort below.
+    const outcomePromise = session.awaitOutcome();
+    outcomePromise.catch(() => {
+      // expected: abort propagates
+    });
+
+    const helpPromise = session.requestHelp('call-x', 'q');
+    session.abort();
+    await expect(helpPromise).rejects.toThrow('proposal phase aborted');
+  });
+
   it('startReplanFeature carries replan reason into prompt + returns live session', async () => {
     faux.setResponses([
       fauxAssistantMessage([fauxToolCall('submit', proposalDetails)], {
@@ -576,6 +656,8 @@ describe('FeaturePhaseOrchestrator', () => {
           opCount: proposal.ops.length,
         });
       },
+      onHelpRequested: () => {},
+      onHelpResolved: () => {},
       onPhaseEnded: (scope, outcome) => {
         events.push({ kind: 'ended', scope, outcome });
       },
@@ -626,6 +708,8 @@ describe('FeaturePhaseOrchestrator', () => {
     const sink: ProposalOpSink = {
       onOpRecorded: () => {},
       onSubmitted: () => {},
+      onHelpRequested: () => {},
+      onHelpResolved: () => {},
       onPhaseEnded: (_scope, outcome) => {
         endedEvents.push({ outcome });
       },

@@ -5,7 +5,7 @@ import { createReadFileTool } from '@agents/worker/tools/read-file';
 import { createSearchFilesTool } from '@agents/worker/tools/search-files';
 import type { AgentTool, AgentToolResult } from '@mariozechner/pi-agent-core';
 import type { TextContent } from '@mariozechner/pi-ai';
-import type { TSchema } from '@sinclair/typebox';
+import { type TSchema, Type } from '@sinclair/typebox';
 
 import type { DefaultFeaturePhaseToolHost } from './feature-phase-host.js';
 import { createPlannerToolset, formatToolText } from './planner-toolset.js';
@@ -143,18 +143,60 @@ function buildRepoInspectionTools(workdir: string): FeaturePhaseAgentTool[] {
   ] as unknown as FeaturePhaseAgentTool[];
 }
 
+export type ProposalRequestHelpFn = (
+  toolCallId: string,
+  query: string,
+) => Promise<{ kind: 'answer'; text: string } | { kind: 'discuss' }>;
+
+const requestHelpParameters = Type.Object({
+  query: Type.String({
+    description:
+      'Question or request for the human operator. Be specific — this blocks the planner run until a response arrives.',
+  }),
+});
+
+function createProposalRequestHelpTool(
+  requestHelp: ProposalRequestHelpFn,
+): ProposalAgentTool {
+  return {
+    name: 'request_help',
+    label: 'Request Help',
+    description:
+      'Ask the human operator for guidance during planning. Blocks the planner run until the orchestrator delivers a help response. Use sparingly when the proposal cannot proceed without operator input (e.g. ambiguous scope, missing decision).',
+    parameters: requestHelpParameters,
+    execute: async (toolCallId, args) => {
+      const { query } = args as { query: string };
+      const response = await requestHelp(toolCallId, query);
+      const text =
+        response.kind === 'answer'
+          ? response.text
+          : '[operator chose to discuss — expect follow-up steering]';
+      return {
+        content: buildTextContent(text),
+        details: { query, responseKind: response.kind },
+      };
+    },
+  };
+}
+
 export function buildProposalAgentToolset(
   host: GraphProposalToolHost,
   inspectionHost?: DefaultFeaturePhaseToolHost,
+  requestHelp?: ProposalRequestHelpFn,
 ): ProposalAgentTool[] {
   const toolset = createPlannerToolset(host);
   const inspectionTools =
     inspectionHost !== undefined
       ? buildFeatureInspectionTools(inspectionHost)
       : [];
+  const helpTool =
+    requestHelp !== undefined
+      ? [createProposalRequestHelpTool(requestHelp)]
+      : [];
 
   return [
     ...inspectionTools,
+    ...helpTool,
     ...toolset.tools.map((tool) => ({
       name: tool.name,
       label: tool.name,

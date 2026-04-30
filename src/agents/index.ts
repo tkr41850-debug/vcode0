@@ -20,6 +20,7 @@ export type { ReplannerAgent } from '@agents/replanner';
 export type {
   FeatureAgentRuntimeConfig,
   LiveProposalPhaseSession,
+  ProposalHelpResponse,
   ProposalOpScope,
   ProposalOpSink,
 } from '@agents/runtime';

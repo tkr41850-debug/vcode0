@@ -319,6 +319,8 @@ function createRuntimeMock(order: string[]): RuntimePort & {
       Promise.resolve({ kind: 'not_running', taskId: agentRunId }),
     abortRun: (agentRunId: string) =>
       Promise.resolve({ kind: 'not_running', taskId: agentRunId }),
+    listPendingFeaturePhaseHelp: () =>
+      [] as readonly { toolCallId: string; query: string }[],
     respondToRunClaim: (agentRunId: string) =>
       Promise.resolve({ kind: 'not_running', taskId: agentRunId }),
     steerTask: (taskId: string) =>

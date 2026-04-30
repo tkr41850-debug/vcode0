@@ -35,6 +35,7 @@ const plannerTools = [
   'addDependency',       // (DependencyOptions) → void — validated immediately
   'removeDependency',    // (DependencyOptions) → void
   'submit',              // (SubmitProposalOptions) → void — checkpoint proposal; callable multiple times (each call replaces prior pending proposal)
+  'request_help',        // ({query}) → text response — only present when the runtime supplies a help-response callback (live planner runs); blocks the planner until the operator answers via /reply or session.respondToHelp
 ];
 ```
 

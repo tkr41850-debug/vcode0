@@ -56,5 +56,19 @@ export interface TuiAppDeps {
     phase: 'plan' | 'replan',
     text: string,
   ): Promise<string>;
+  /**
+   * Resolve the oldest pending request_help on a running feature-phase plan
+   * or replan agent. Returns a notice string; throws if no pending help.
+   */
+  respondToFeaturePhaseHelp(
+    featureId: FeatureId,
+    phase: 'plan' | 'replan',
+    response: Extract<HelpResponse, { kind: 'answer' }>,
+  ): Promise<string>;
+  /** List pending help requests (toolCallId + query) on a feature-phase run. */
+  listPendingFeaturePhaseHelp(
+    featureId: FeatureId,
+    phase: 'plan' | 'replan',
+  ): readonly { toolCallId: string; query: string }[];
   quit(): Promise<void>;
 }

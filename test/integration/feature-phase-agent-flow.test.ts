@@ -635,6 +635,8 @@ describe('feature-phase agent flow', () => {
           phaseCompletedSeen: phaseCompleteSeen(),
         });
       },
+      onHelpRequested: () => {},
+      onHelpResolved: () => {},
       onPhaseEnded: (_scope, outcome) => {
         events.push({
           kind: 'ended',

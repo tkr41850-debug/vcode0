@@ -97,3 +97,51 @@ describe('ProposalPhaseSessionImpl pre-bind queuing', () => {
     await expect(session.awaitOutcome()).resolves.toBe(result);
   });
 });
+
+describe('ProposalPhaseSessionImpl request-help wiring', () => {
+  it('requestHelp returns a pending promise; respondToHelp resolves it', async () => {
+    const session = new ProposalPhaseSessionImpl(scope);
+
+    const helpPromise = session.requestHelp('call-1', 'which deps?');
+    expect(session.listPendingHelp()).toEqual([
+      { toolCallId: 'call-1', query: 'which deps?' },
+    ]);
+
+    const delivered = session.respondToHelp('call-1', {
+      kind: 'answer',
+      text: 'depends on t-2',
+    });
+    expect(delivered).toBe(true);
+
+    await expect(helpPromise).resolves.toEqual({
+      kind: 'answer',
+      text: 'depends on t-2',
+    });
+    expect(session.listPendingHelp()).toEqual([]);
+  });
+
+  it('respondToHelp returns false for unknown toolCallId', () => {
+    const session = new ProposalPhaseSessionImpl(scope);
+    const delivered = session.respondToHelp('missing', {
+      kind: 'discuss',
+    });
+    expect(delivered).toBe(false);
+  });
+
+  it('multiple concurrent help requests resolve independently', async () => {
+    const session = new ProposalPhaseSessionImpl(scope);
+
+    const a = session.requestHelp('call-a', 'q-a');
+    const b = session.requestHelp('call-b', 'q-b');
+    expect(session.listPendingHelp()).toHaveLength(2);
+
+    session.respondToHelp('call-b', { kind: 'discuss' });
+    await expect(b).resolves.toEqual({ kind: 'discuss' });
+    expect(session.listPendingHelp()).toEqual([
+      { toolCallId: 'call-a', query: 'q-a' },
+    ]);
+
+    session.respondToHelp('call-a', { kind: 'answer', text: 'a' });
+    await expect(a).resolves.toEqual({ kind: 'answer', text: 'a' });
+  });
+});

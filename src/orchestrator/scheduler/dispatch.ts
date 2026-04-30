@@ -501,6 +501,23 @@ export async function dispatchFeaturePhaseUnit(params: {
       );
     }
 
+    // Persist runStatus='running' BEFORE awaiting dispatchFeaturePhaseRun so
+    // operator-driven surfaces (TUI sendPlannerChatInput, respondTo*, attach)
+    // can find the run live during its long-running outcome promise. The
+    // post-dispatch persist (awaiting_approval / completed_inline) replaces
+    // this in-flight marker.
+    if (run.runStatus !== 'running') {
+      params.ports.store.updateAgentRun(run.id, {
+        runStatus: 'running',
+        owner: 'system',
+        sessionId: run.sessionId ?? run.id,
+        restartCount:
+          run.runStatus === 'retry_await'
+            ? run.restartCount + 1
+            : run.restartCount,
+      });
+    }
+
     const result = await dispatchFeaturePhaseRun({
       feature: params.feature,
       phase: params.phase,

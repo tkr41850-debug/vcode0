@@ -21,6 +21,7 @@ import type {
 } from '@runtime/contracts';
 import type {
   FeaturePhaseBackend,
+  FeaturePhaseSessionHandle,
   SessionHandle,
   SessionHarness,
 } from '@runtime/harness/index';
@@ -34,7 +35,7 @@ interface LiveSession {
 interface FeaturePhaseLiveSession {
   scope: Extract<RunScope, { kind: 'feature_phase' }>;
   agentRunId: string;
-  handle: SessionHandle;
+  handle: FeaturePhaseSessionHandle;
 }
 
 function dispatchMetadata(
@@ -355,17 +356,42 @@ export class LocalWorkerPool implements RuntimePort {
     toolCallId: string,
     response: { kind: 'answer'; text: string } | { kind: 'discuss' },
   ): Promise<TaskControlResult> {
-    return Promise.resolve(
-      this.controlRun(agentRunId, (session) => {
-        session.handle.send({
-          type: 'help_response',
-          taskId: session.ref.taskId ?? '',
-          agentRunId,
-          toolCallId,
-          response,
-        });
-      }),
-    );
+    const taskSession = this.liveRuns.get(agentRunId);
+    if (taskSession !== undefined) {
+      taskSession.handle.send({
+        type: 'help_response',
+        taskId: taskSession.ref.taskId ?? '',
+        agentRunId,
+        toolCallId,
+        response,
+      });
+      return Promise.resolve({
+        kind: 'delivered',
+        taskId: taskSession.ref.taskId ?? agentRunId,
+        agentRunId,
+      });
+    }
+
+    const featurePhase = this.featurePhaseLiveSessions.get(agentRunId);
+    if (featurePhase !== undefined) {
+      featurePhase.handle.send({
+        type: 'help_response',
+        taskId: '',
+        agentRunId,
+        toolCallId,
+        response,
+      });
+      return Promise.resolve({
+        kind: 'delivered',
+        taskId: agentRunId,
+        agentRunId,
+      });
+    }
+
+    return Promise.resolve({
+      kind: 'not_running',
+      taskId: this.findTaskIdForRun(agentRunId) ?? agentRunId,
+    });
   }
 
   decideRunApproval(
@@ -443,6 +469,13 @@ export class LocalWorkerPool implements RuntimePort {
         });
       }),
     );
+  }
+
+  listPendingFeaturePhaseHelp(
+    agentRunId: string,
+  ): readonly { toolCallId: string; query: string }[] {
+    const session = this.featurePhaseLiveSessions.get(agentRunId);
+    return session?.handle.proposalSession?.listPendingHelp() ?? [];
   }
 
   abortRun(agentRunId: string): Promise<TaskControlResult> {

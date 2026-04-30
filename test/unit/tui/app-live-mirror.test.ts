@@ -61,6 +61,8 @@ function createStubDeps(overrides: Partial<TuiAppDeps> = {}): TuiAppDeps {
     decideTaskApproval: () => Promise.resolve(''),
     sendTaskManualInput: () => Promise.resolve(''),
     sendPlannerChatInput: () => Promise.resolve(''),
+    respondToFeaturePhaseHelp: () => Promise.resolve(''),
+    listPendingFeaturePhaseHelp: () => [],
     quit: () => Promise.resolve(),
     ...overrides,
   };

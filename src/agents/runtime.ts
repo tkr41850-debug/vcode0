@@ -54,8 +54,27 @@ export interface ProposalOpSink {
     proposal: GraphProposal,
     submissionIndex: number,
   ): void;
+  /**
+   * Planner blocks on a `request_help` tool call. Listeners (e.g. compose.ts)
+   * persist `runStatus='await_response'` on the agent_run row so the rest of
+   * the orchestrator/TUI can see the help wait through the existing surface.
+   */
+  onHelpRequested(
+    scope: ProposalOpScope,
+    toolCallId: string,
+    query: string,
+  ): void;
+  /**
+   * Pending help resolved (operator answered, or session aborted/cleared).
+   * Listeners flip `runStatus` back to `'running'`.
+   */
+  onHelpResolved(scope: ProposalOpScope, toolCallId: string): void;
   onPhaseEnded(scope: ProposalOpScope, outcome: 'completed' | 'failed'): void;
 }
+
+export type ProposalHelpResponse =
+  | { kind: 'answer'; text: string }
+  | { kind: 'discuss' };
 
 export interface LiveProposalPhaseSession {
   readonly scope: ProposalOpScope;
@@ -65,6 +84,19 @@ export interface LiveProposalPhaseSession {
   abort(): void;
   /** Resolves with the final ProposalPhaseResult after the agent settles. */
   awaitOutcome(): Promise<ProposalPhaseResult>;
+  /**
+   * Register a pending help request and return a Promise that resolves once
+   * an operator delivers a response via {@link respondToHelp}. Used by the
+   * planner's `request_help` tool to block its own run on operator input.
+   */
+  requestHelp(toolCallId: string, query: string): Promise<ProposalHelpResponse>;
+  /**
+   * Deliver an operator response for a pending help request keyed by
+   * `toolCallId`. Returns true if a matching pending request was resolved.
+   */
+  respondToHelp(toolCallId: string, response: ProposalHelpResponse): boolean;
+  /** Snapshot of currently-pending help requests on this session. */
+  listPendingHelp(): readonly { toolCallId: string; query: string }[];
 }
 
 export interface FeatureAgentRuntimeConfig {
@@ -115,8 +147,79 @@ export class ProposalPhaseSessionImpl implements LiveProposalPhaseSession {
   private outcome: Promise<ProposalPhaseResult> | undefined;
   private readonly pendingFollowUps: string[] = [];
   private pendingAbort = false;
+  private readonly pendingHelp = new Map<
+    string,
+    {
+      query: string;
+      resolve: (response: ProposalHelpResponse) => void;
+      reject: (error: Error) => void;
+    }
+  >();
+  private helpListener:
+    | {
+        onRequested: (toolCallId: string, query: string) => void;
+        onResolved: (toolCallId: string) => void;
+      }
+    | undefined;
 
   constructor(readonly scope: ProposalOpScope) {}
+
+  /**
+   * @internal Wires the runtime's ProposalOpSink so request_help tool calls
+   * can fire onHelpRequested/onHelpResolved without giving the session a
+   * direct dependency on the sink shape.
+   */
+  setHelpListener(listener: {
+    onRequested: (toolCallId: string, query: string) => void;
+    onResolved: (toolCallId: string) => void;
+  }): void {
+    this.helpListener = listener;
+  }
+
+  requestHelp(
+    toolCallId: string,
+    query: string,
+  ): Promise<ProposalHelpResponse> {
+    return new Promise<ProposalHelpResponse>((resolve, reject) => {
+      this.pendingHelp.set(toolCallId, { query, resolve, reject });
+      this.helpListener?.onRequested(toolCallId, query);
+    });
+  }
+
+  respondToHelp(toolCallId: string, response: ProposalHelpResponse): boolean {
+    const entry = this.pendingHelp.get(toolCallId);
+    if (entry === undefined) {
+      return false;
+    }
+    this.pendingHelp.delete(toolCallId);
+    this.helpListener?.onResolved(toolCallId);
+    entry.resolve(response);
+    return true;
+  }
+
+  /**
+   * Reject all pending help waits with the given error. Used when the run is
+   * aborting or has otherwise ended, so request_help tool promises do not
+   * dangle forever.
+   */
+  rejectAllPendingHelp(error: Error): void {
+    if (this.pendingHelp.size === 0) {
+      return;
+    }
+    const entries = Array.from(this.pendingHelp.entries());
+    this.pendingHelp.clear();
+    for (const [toolCallId, entry] of entries) {
+      this.helpListener?.onResolved(toolCallId);
+      entry.reject(error);
+    }
+  }
+
+  listPendingHelp(): readonly { toolCallId: string; query: string }[] {
+    return Array.from(this.pendingHelp.entries(), ([toolCallId, entry]) => ({
+      toolCallId,
+      query: entry.query,
+    }));
+  }
 
   bindAgent(agent: Agent): void {
     this.agent = agent;
@@ -151,6 +254,7 @@ export class ProposalPhaseSessionImpl implements LiveProposalPhaseSession {
   }
 
   abort(): void {
+    this.rejectAllPendingHelp(new Error('proposal phase aborted'));
     if (this.agent === undefined) {
       this.pendingAbort = true;
       return;
@@ -291,8 +395,6 @@ export class FeaturePhaseOrchestrator {
       this.deps.graph,
       this.deps.store,
     );
-    const tools = buildProposalAgentToolset(host, inspectionHost);
-
     const sink = this.deps.proposalOpSink;
     const scope: ProposalOpScope = {
       featureId: feature.id,
@@ -301,6 +403,21 @@ export class FeaturePhaseOrchestrator {
     };
 
     const session = new ProposalPhaseSessionImpl(scope);
+    if (sink !== undefined) {
+      session.setHelpListener({
+        onRequested: (toolCallId, query) => {
+          sink.onHelpRequested(scope, toolCallId, query);
+        },
+        onResolved: (toolCallId) => {
+          sink.onHelpResolved(scope, toolCallId);
+        },
+      });
+    }
+    const tools = buildProposalAgentToolset(
+      host,
+      inspectionHost,
+      (toolCallId, query) => session.requestHelp(toolCallId, query),
+    );
 
     // Run the agent on a deferred kick-off so subscribers can attach via the
     // returned session before any op fires. The promise stays internal until
@@ -351,6 +468,12 @@ export class FeaturePhaseOrchestrator {
         return { summary: details.summary, proposal, details };
       } finally {
         unsubscribe?.();
+        // Reject any still-pending help waits so request_help tool promises
+        // don't dangle past the phase end (covers natural failure paths;
+        // explicit abort already calls rejectAllPendingHelp).
+        session.rejectAllPendingHelp(
+          new Error(`proposal phase ${phase} ended (outcome=${outcome})`),
+        );
         sink?.onPhaseEnded(scope, outcome);
       }
     })();

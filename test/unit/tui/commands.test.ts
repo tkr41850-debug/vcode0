@@ -1,3 +1,4 @@
+import type { GraphSnapshot } from '@core/graph/index';
 import type { TaskAgentRun } from '@core/types/index';
 import { CombinedAutocompleteProvider } from '@mariozechner/pi-tui';
 import { executeSlashCommand } from '@tui/app-composer';
@@ -32,7 +33,11 @@ function makeTaskRun(overrides: Partial<TaskAgentRun> = {}): TaskAgentRun {
 
 function createDataSource(taskRun?: TaskAgentRun) {
   return {
-    snapshot: () => ({ milestones: [], features: [], tasks: [] }),
+    snapshot: ((): GraphSnapshot => ({
+      milestones: [],
+      features: [],
+      tasks: [],
+    })) as () => GraphSnapshot,
     listAgentRuns: () => [],
     getWorkerCounts: () => ({
       runningWorkers: 0,
@@ -54,6 +59,10 @@ function createDataSource(taskRun?: TaskAgentRun) {
     decideTaskApproval: vi.fn(async () => 'decision sent'),
     sendTaskManualInput: vi.fn(async () => 'input sent'),
     sendPlannerChatInput: vi.fn(() => Promise.resolve('planner chat sent')),
+    respondToFeaturePhaseHelp: vi.fn(() => Promise.resolve('help sent')),
+    listPendingFeaturePhaseHelp: vi.fn(
+      () => [] as readonly { toolCallId: string; query: string }[],
+    ),
     quit: vi.fn(async () => {}),
   };
 }
@@ -241,5 +250,84 @@ describe('buildComposerSlashCommands', () => {
       't-1',
       'continue',
     );
+  });
+
+  it('routes /reply on a planning feature to respondToFeaturePhaseHelp', async () => {
+    const dataSource = createDataSource();
+    dataSource.snapshot = () => ({
+      milestones: [],
+      features: [createFeatureFixture({ id: 'f-1', workControl: 'planning' })],
+      tasks: [],
+    });
+    const proposalController = { execute: vi.fn() };
+
+    await expect(
+      executeSlashCommand({
+        input: '/reply --text "depends on README anchor"',
+        commandContext: {} as never,
+        notice: undefined,
+        dataSource,
+        proposalController: proposalController as never,
+        currentSelection: { featureId: 'f-1' },
+        setSelectedNodeId: vi.fn(),
+      }),
+    ).resolves.toBe('help sent');
+    expect(dataSource.respondToFeaturePhaseHelp).toHaveBeenCalledWith(
+      'f-1',
+      'plan',
+      { kind: 'answer', text: 'depends on README anchor' },
+    );
+    expect(dataSource.respondToTaskHelp).not.toHaveBeenCalled();
+  });
+
+  it('routes /reply on a replanning feature to respondToFeaturePhaseHelp with replan phase', async () => {
+    const dataSource = createDataSource();
+    dataSource.snapshot = () => ({
+      milestones: [],
+      features: [
+        createFeatureFixture({ id: 'f-1', workControl: 'replanning' }),
+      ],
+      tasks: [],
+    });
+    const proposalController = { execute: vi.fn() };
+
+    await executeSlashCommand({
+      input: '/reply --text "use approach 2"',
+      commandContext: {} as never,
+      notice: undefined,
+      dataSource,
+      proposalController: proposalController as never,
+      currentSelection: { featureId: 'f-1' },
+      setSelectedNodeId: vi.fn(),
+    });
+
+    expect(dataSource.respondToFeaturePhaseHelp).toHaveBeenCalledWith(
+      'f-1',
+      'replan',
+      { kind: 'answer', text: 'use approach 2' },
+    );
+  });
+
+  it('rejects /reply when selected feature is not in planning or replanning', async () => {
+    const dataSource = createDataSource();
+    dataSource.snapshot = () => ({
+      milestones: [],
+      features: [createFeatureFixture({ id: 'f-1', workControl: 'executing' })],
+      tasks: [],
+    });
+    const proposalController = { execute: vi.fn() };
+
+    await expect(
+      executeSlashCommand({
+        input: '/reply --text "x"',
+        commandContext: {} as never,
+        notice: undefined,
+        dataSource,
+        proposalController: proposalController as never,
+        currentSelection: { featureId: 'f-1' },
+        setSelectedNodeId: vi.fn(),
+      }),
+    ).rejects.toThrow(/planning or replanning/);
+    expect(dataSource.respondToFeaturePhaseHelp).not.toHaveBeenCalled();
   });
 });
