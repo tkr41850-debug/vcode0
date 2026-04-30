@@ -141,6 +141,7 @@ describe('compose helpers', () => {
 
   it('cancels feature runs and aborts running tasks while leaving non-running tasks alone', async () => {
     const graph = new InMemoryFeatureGraph();
+    graph.__enterTick();
     graph.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
     graph.createFeature({
       id: 'f-1',

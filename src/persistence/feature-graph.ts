@@ -224,6 +224,14 @@ export class PersistentFeatureGraph implements FeatureGraph {
     this.mutate(() => this.inner.replaceUsageRollups(patch));
   }
 
+  __enterTick(): void {
+    this.inner.__enterTick();
+  }
+
+  __leaveTick(): void {
+    this.inner.__leaveTick();
+  }
+
   // ---------- Mutation helper ----------
 
   private mutate<T>(fn: () => T): T {

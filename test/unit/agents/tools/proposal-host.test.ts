@@ -319,8 +319,15 @@ describe('GraphProposalToolHost', () => {
     });
     secondHost.submit(proposalDetails);
 
-    const firstResult = applyGraphProposal(graph, firstHost.buildProposal());
-    const secondResult = applyGraphProposal(graph, secondHost.buildProposal());
+    graph.__enterTick();
+    let firstResult: ReturnType<typeof applyGraphProposal>;
+    let secondResult: ReturnType<typeof applyGraphProposal>;
+    try {
+      firstResult = applyGraphProposal(graph, firstHost.buildProposal());
+      secondResult = applyGraphProposal(graph, secondHost.buildProposal());
+    } finally {
+      graph.__leaveTick();
+    }
 
     expect(firstResult.applied).toHaveLength(1);
     expect(secondResult.applied).toHaveLength(1);

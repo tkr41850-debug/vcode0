@@ -196,37 +196,42 @@ export class SchedulerLoop {
   }
 
   protected async tick(now: number): Promise<void> {
-    const beforeFingerprint = this.uiStateFingerprint();
+    this.graph.__enterTick();
+    try {
+      const beforeFingerprint = this.uiStateFingerprint();
 
-    while (this.events.length > 0) {
-      const event = this.events.shift();
-      if (event !== undefined) {
-        await this.handleEvent(event);
+      while (this.events.length > 0) {
+        const event = this.events.shift();
+        if (event !== undefined) {
+          await this.handleEvent(event);
+        }
       }
-    }
 
-    this.summaries.reconcilePostMerge();
-    const integratingId = this.features.beginNextIntegration();
-    if (integratingId !== undefined) {
-      const outcome = await this.integration.runIntegration(integratingId);
-      if (outcome.kind === 'merged') {
-        this.enqueue({
-          type: 'feature_integration_complete',
-          featureId: integratingId,
-        });
+      this.summaries.reconcilePostMerge();
+      const integratingId = this.features.beginNextIntegration();
+      if (integratingId !== undefined) {
+        const outcome = await this.integration.runIntegration(integratingId);
+        if (outcome.kind === 'merged') {
+          this.enqueue({
+            type: 'feature_integration_complete',
+            featureId: integratingId,
+          });
+        }
       }
-    }
-    await this.coordinateSameFeatureRuntimeOverlaps();
-    await this.coordinateCrossFeatureRuntimeOverlaps();
-    const warningsChanged = this.emitWarningSignals(now);
-    await this.dispatchReadyWork(now);
+      await this.coordinateSameFeatureRuntimeOverlaps();
+      await this.coordinateCrossFeatureRuntimeOverlaps();
+      const warningsChanged = this.emitWarningSignals(now);
+      await this.dispatchReadyWork(now);
 
-    if (
-      beforeFingerprint !== this.uiStateFingerprint() ||
-      this.didRetryWindowExpire(now) ||
-      warningsChanged
-    ) {
-      this.ports.ui.refresh();
+      if (
+        beforeFingerprint !== this.uiStateFingerprint() ||
+        this.didRetryWindowExpire(now) ||
+        warningsChanged
+      ) {
+        this.ports.ui.refresh();
+      }
+    } finally {
+      this.graph.__leaveTick();
     }
   }
 

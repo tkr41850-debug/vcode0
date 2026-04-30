@@ -283,6 +283,7 @@ describe('BudgetService', () => {
       } as unknown as OrchestratorPorts,
       graph,
     );
+    graph.__enterTick();
 
     const state = await service.refresh();
 
@@ -349,6 +350,7 @@ describe('BudgetService', () => {
       } as unknown as OrchestratorPorts,
       graph,
     );
+    graph.__enterTick();
 
     const state = await service.refresh();
 

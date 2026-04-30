@@ -98,6 +98,24 @@ export class InMemoryFeatureGraph
   private _featureSuccessors = new Map<FeatureId, Set<FeatureId>>();
   private _taskSuccessors = new Map<TaskId, Set<TaskId>>();
   private _taskIdCounter = 0;
+  private _inTick = 0;
+
+  __enterTick(): void {
+    this._inTick += 1;
+  }
+
+  __leaveTick(): void {
+    if (this._inTick > 0) this._inTick -= 1;
+  }
+
+  private _assertInTick(method: string): void {
+    if (process.env['GVC_ASSERT_TICK_BOUNDARY'] !== '1') return;
+    if (this._inTick === 0) {
+      throw new Error(
+        `[graph] tick-boundary violation: ${method} called outside scheduler tick`,
+      );
+    }
+  }
 
   constructor(initial?: GraphSnapshot) {
     if (initial !== undefined) {
@@ -153,18 +171,22 @@ export class InMemoryFeatureGraph
   }
 
   createMilestone(opts: CreateMilestoneOptions): Milestone {
+    this._assertInTick('createMilestone');
     return createGraphMilestone(this, opts);
   }
 
   createFeature(opts: CreateFeatureOptions): Feature {
+    this._assertInTick('createFeature');
     return createGraphFeature(this, opts);
   }
 
   createTask(opts: CreateTaskOptions): Task {
+    this._assertInTick('createTask');
     return createGraphTask(this, opts);
   }
 
   addDependency(opts: DependencyOptions): void {
+    this._assertInTick('addDependency');
     if (isFeatureDependency(opts)) {
       addFeatureDependency(this, opts);
       return;
@@ -173,6 +195,7 @@ export class InMemoryFeatureGraph
   }
 
   removeDependency(opts: DependencyOptions): void {
+    this._assertInTick('removeDependency');
     if (isFeatureDependency(opts)) {
       removeFeatureDependency(this, opts);
       return;
@@ -181,66 +204,82 @@ export class InMemoryFeatureGraph
   }
 
   cancelFeature(featureId: FeatureId, cascade?: boolean): void {
+    this._assertInTick('cancelFeature');
     cancelGraphFeature(this, featureId, cascade);
   }
 
   removeFeature(featureId: FeatureId): void {
+    this._assertInTick('removeFeature');
     deleteFeature(this, featureId);
   }
 
   changeMilestone(featureId: FeatureId, newMilestoneId: MilestoneId): void {
+    this._assertInTick('changeMilestone');
     moveFeatureMilestone(this, featureId, newMilestoneId);
   }
 
   editFeature(featureId: FeatureId, patch: FeatureEditPatch): Feature {
+    this._assertInTick('editFeature');
     return patchFeature(this, featureId, patch);
   }
 
   addTask(opts: AddTaskOptions): Task {
+    this._assertInTick('addTask');
     return appendTask(this, opts);
   }
 
   editTask(taskId: TaskId, patch: TaskEditPatch): Task {
+    this._assertInTick('editTask');
     return patchTask(this, taskId, patch);
   }
 
   removeTask(taskId: TaskId): void {
+    this._assertInTick('removeTask');
     deleteTask(this, taskId);
   }
 
   reorderTasks(featureId: FeatureId, taskIds: TaskId[]): void {
+    this._assertInTick('reorderTasks');
     reorderFeatureTasks(this, featureId, taskIds);
   }
 
   reweight(taskId: TaskId, weight: TaskWeight): void {
+    this._assertInTick('reweight');
     reweightTask(this, taskId, weight);
   }
 
   queueMilestone(milestoneId: MilestoneId): void {
+    this._assertInTick('queueMilestone');
     enqueueMilestone(this, milestoneId);
   }
 
   dequeueMilestone(milestoneId: MilestoneId): void {
+    this._assertInTick('dequeueMilestone');
     unqueueMilestone(this, milestoneId);
   }
 
   clearQueuedMilestones(): void {
+    this._assertInTick('clearQueuedMilestones');
     clearMilestoneQueue(this);
   }
 
   transitionFeature(featureId: FeatureId, patch: FeatureTransitionPatch): void {
+    this._assertInTick('transitionFeature');
     applyFeatureTransition(this, featureId, patch);
   }
 
   transitionTask(taskId: TaskId, patch: TaskTransitionPatch): void {
+    this._assertInTick('transitionTask');
     applyTaskTransition(this, taskId, patch);
   }
 
   updateMergeTrainState(featureId: FeatureId, fields: MergeTrainUpdate): void {
+    this._assertInTick('updateMergeTrainState');
     applyMergeTrainState(this, featureId, fields);
   }
 
   replaceUsageRollups(patch: UsageRollupPatch): void {
+    this._assertInTick('replaceUsageRollups');
     replaceGraphUsageRollups(this, patch);
   }
 }

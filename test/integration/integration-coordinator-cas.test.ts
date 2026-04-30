@@ -79,6 +79,7 @@ function makeGraph(): InMemoryFeatureGraph {
     ],
     tasks: [],
   });
+  graph.__enterTick();
   graph.updateMergeTrainState('f-1', {
     mergeTrainEnteredAt: 10,
     mergeTrainEntrySeq: 1,

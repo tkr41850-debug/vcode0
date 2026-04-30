@@ -13,7 +13,7 @@ function makeGraph(opts: {
   verifyIssues?: VerifyIssue[];
   mergeTrainReentryCount?: number;
 }): InMemoryFeatureGraph {
-  return new InMemoryFeatureGraph({
+  const g = new InMemoryFeatureGraph({
     milestones: [createMilestoneFixture()],
     features: [
       createFeatureFixture({
@@ -31,6 +31,8 @@ function makeGraph(opts: {
     ],
     tasks: [],
   });
+  g.__enterTick();
+  return g;
 }
 
 describe('FeatureLifecycleCoordinator.rerouteToReplan', () => {

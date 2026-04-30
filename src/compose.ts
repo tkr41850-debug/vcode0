@@ -87,11 +87,16 @@ export async function composeApplication(): Promise<GvcApplication> {
       const milestone = graph
         .snapshot()
         .milestones.find((entry) => entry.id === milestoneId);
-      if (milestone?.steeringQueuePosition !== undefined) {
-        graph.dequeueMilestone(milestoneId);
-        return;
+      graph.__enterTick();
+      try {
+        if (milestone?.steeringQueuePosition !== undefined) {
+          graph.dequeueMilestone(milestoneId);
+          return;
+        }
+        graph.queueMilestone(milestoneId);
+      } finally {
+        graph.__leaveTick();
       }
-      graph.queueMilestone(milestoneId);
     },
     initializeProject: (input) => {
       return initializeProjectGraph(graph, input);
@@ -344,8 +349,13 @@ export async function composeApplication(): Promise<GvcApplication> {
       scheduler.setAutoExecutionEnabled(mode === 'auto');
     },
     start: async () => {
-      await recovery.recoverOrphanedRuns();
-      await reconciler.reconcile();
+      graph.__enterTick();
+      try {
+        await recovery.recoverOrphanedRuns();
+        await reconciler.reconcile();
+      } finally {
+        graph.__leaveTick();
+      }
       await scheduler.run();
       ui.refresh();
     },
@@ -590,21 +600,26 @@ export function initializeProjectGraph(
   }
 
   const milestoneId: MilestoneId = 'm-1';
-  graph.createMilestone({
-    id: milestoneId,
-    name: input.milestoneName,
-    description: input.milestoneDescription,
-  });
-  graph.queueMilestone(milestoneId);
-
   const featureId: FeatureId = 'f-1';
-  graph.createFeature({
-    id: featureId,
-    milestoneId,
-    name: input.featureName,
-    description: input.featureDescription,
-  });
-  transitionFeatureToPlanning(graph, featureId);
+  graph.__enterTick();
+  try {
+    graph.createMilestone({
+      id: milestoneId,
+      name: input.milestoneName,
+      description: input.milestoneDescription,
+    });
+    graph.queueMilestone(milestoneId);
+
+    graph.createFeature({
+      id: featureId,
+      milestoneId,
+      name: input.featureName,
+      description: input.featureDescription,
+    });
+    transitionFeatureToPlanning(graph, featureId);
+  } finally {
+    graph.__leaveTick();
+  }
 
   return { milestoneId, featureId };
 }
@@ -647,7 +662,10 @@ export function formatWorkerOutput(
 }
 
 interface CancelFeatureRunDeps {
-  graph: Pick<FeatureGraph, 'tasks' | 'cancelFeature'>;
+  graph: Pick<
+    FeatureGraph,
+    'tasks' | 'cancelFeature' | '__enterTick' | '__leaveTick'
+  >;
   store: {
     listAgentRuns: () => readonly AgentRun[];
     updateAgentRun: (runId: string, patch: Partial<AgentRun>) => void;
@@ -675,7 +693,12 @@ export async function cancelFeatureRunWork(
     return run.scopeType === 'feature_phase' && run.scopeId === featureId;
   });
 
-  graph.cancelFeature(featureId);
+  graph.__enterTick();
+  try {
+    graph.cancelFeature(featureId);
+  } finally {
+    graph.__leaveTick();
+  }
 
   for (const run of affectedRuns) {
     const isTaskRunning =

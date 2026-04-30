@@ -26,7 +26,7 @@ const TASK_ID = 't-err';
 const RUN_ID = `run-task:${TASK_ID}`;
 
 function buildGraph(): InMemoryFeatureGraph {
-  return new InMemoryFeatureGraph({
+  const g = new InMemoryFeatureGraph({
     milestones: [createMilestoneFixture()],
     features: [
       createFeatureFixture({
@@ -44,6 +44,8 @@ function buildGraph(): InMemoryFeatureGraph {
       }),
     ],
   });
+  g.__enterTick();
+  return g;
 }
 
 function buildPorts(projectRoot: string): {

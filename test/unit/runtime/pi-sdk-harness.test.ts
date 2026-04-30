@@ -204,6 +204,7 @@ describe('PiSdkHarness', () => {
       { entryPath: '/tmp/custom-entry.ts', forkProcess: forkWorker },
     );
     const graph = new InMemoryFeatureGraph();
+    graph.__enterTick();
     graph.createMilestone({ id: 'm-1', name: 'M1', description: 'desc' });
     graph.createFeature({
       id: 'f-9',
@@ -216,6 +217,7 @@ describe('PiSdkHarness', () => {
       featureId: 'f-9',
       description: 'desc',
     });
+    graph.__leaveTick();
 
     await harness.start(
       {

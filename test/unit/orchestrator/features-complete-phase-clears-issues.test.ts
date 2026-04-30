@@ -12,7 +12,7 @@ function makeGraph(opts: {
   workControl: 'ci_check' | 'verifying';
   verifyIssues: VerifyIssue[];
 }): InMemoryFeatureGraph {
-  return new InMemoryFeatureGraph({
+  const g = new InMemoryFeatureGraph({
     milestones: [createMilestoneFixture()],
     features: [
       createFeatureFixture({
@@ -25,6 +25,8 @@ function makeGraph(opts: {
     ],
     tasks: [],
   });
+  g.__enterTick();
+  return g;
 }
 
 const rebaseIssue: VerifyIssue = {

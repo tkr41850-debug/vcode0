@@ -219,6 +219,7 @@ describe('FeatureGraph contracts', () => {
 
   it('single-milestone-per-feature constraint', () => {
     const g = new InMemoryFeatureGraph();
+    g.__enterTick();
 
     // Try to create feature without specifying milestoneId
     expect(() => {

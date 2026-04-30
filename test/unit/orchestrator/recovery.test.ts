@@ -421,6 +421,7 @@ function createPorts(
   graph: InMemoryFeatureGraph;
 } {
   const graph = new InMemoryFeatureGraph();
+  graph.__enterTick();
   graph.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
   graph.createFeature({
     id: 'f-1',

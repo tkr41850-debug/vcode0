@@ -75,6 +75,7 @@ function makeGraph(): InMemoryFeatureGraph {
     ],
     tasks: [],
   });
+  graph.__enterTick();
   graph.updateMergeTrainState('f-1', {
     mergeTrainEnteredAt: 10,
     mergeTrainEntrySeq: 1,
@@ -359,6 +360,7 @@ describe('IntegrationReconciler', () => {
       features: [],
       tasks: [],
     });
+    graph.__enterTick();
     const features = new FeatureLifecycleCoordinator(graph);
     const { ports } = makePorts({
       featureId: 'f-missing',

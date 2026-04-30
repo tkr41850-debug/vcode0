@@ -98,28 +98,33 @@ export function approveFeatureProposal(
   phase: ProposalPhase,
   proposal: GraphProposal,
 ): ProposalApprovalOutcome {
-  const result = applyGraphProposal(graph, proposal);
-  let featureTasks = tasksForFeature(graph, featureId);
-  if (phase === 'replan') {
-    restoreReplannedStuckTasks(graph, featureTasks, result);
+  graph.__enterTick();
+  try {
+    const result = applyGraphProposal(graph, proposal);
+    let featureTasks = tasksForFeature(graph, featureId);
+    if (phase === 'replan') {
+      restoreReplannedStuckTasks(graph, featureTasks, result);
+      featureTasks = tasksForFeature(graph, featureId);
+    }
+    if (featureTasks.length === 0) {
+      graph.cancelFeature(featureId);
+      return {
+        result,
+        cancelled: true,
+        cancelReason: 'empty_proposal',
+        shouldAdvance: false,
+      };
+    }
+    promoteReadyTasks(graph, featureTasks);
     featureTasks = tasksForFeature(graph, featureId);
-  }
-  if (featureTasks.length === 0) {
-    graph.cancelFeature(featureId);
     return {
       result,
-      cancelled: true,
-      cancelReason: 'empty_proposal',
-      shouldAdvance: false,
+      cancelled: false,
+      shouldAdvance: shouldAdvanceAfterApproval(phase, result, featureTasks),
     };
+  } finally {
+    graph.__leaveTick();
   }
-  promoteReadyTasks(graph, featureTasks);
-  featureTasks = tasksForFeature(graph, featureId);
-  return {
-    result,
-    cancelled: false,
-    shouldAdvance: shouldAdvanceAfterApproval(phase, result, featureTasks),
-  };
 }
 
 function tasksForFeature(graph: FeatureGraph, featureId: FeatureId): Task[] {
@@ -196,18 +201,23 @@ export function advanceFeatureAfterApproval(
     throw new Error(`feature "${featureId}" does not exist`);
   }
 
-  if (feature.status === 'pending') {
-    graph.transitionFeature(featureId, { status: 'in_progress' });
-  }
-  if (graph.features.get(featureId)?.status !== 'done') {
-    graph.transitionFeature(featureId, { status: 'done' });
-  }
+  graph.__enterTick();
+  try {
+    if (feature.status === 'pending') {
+      graph.transitionFeature(featureId, { status: 'in_progress' });
+    }
+    if (graph.features.get(featureId)?.status !== 'done') {
+      graph.transitionFeature(featureId, { status: 'done' });
+    }
 
-  graph.transitionFeature(featureId, {
-    workControl: 'executing',
-    status: 'pending',
-    collabControl: 'branch_open',
-  });
+    graph.transitionFeature(featureId, {
+      workControl: 'executing',
+      status: 'pending',
+      collabControl: 'branch_open',
+    });
+  } finally {
+    graph.__leaveTick();
+  }
 }
 
 export function summarizeProposalApply(

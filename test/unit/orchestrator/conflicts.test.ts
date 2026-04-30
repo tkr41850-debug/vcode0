@@ -149,6 +149,7 @@ function createTask(overrides: Partial<Task> = {}): Task {
 
 function createGraph(): InMemoryFeatureGraph {
   const graph = new InMemoryFeatureGraph();
+  graph.__enterTick();
   graph.createMilestone({ id: 'm-1', name: 'M1', description: 'd' });
   graph.createMilestone({ id: 'm-2', name: 'M2', description: 'd' });
   graph.createFeature({
@@ -309,6 +310,7 @@ describe('ConflictCoordinator', () => {
         }),
       ],
     });
+    graph.__enterTick();
     const coordinator = new ConflictCoordinator(ports, graph);
     const feature = graph.features.get('f-feature-1');
     const dominant = graph.tasks.get('t-dominant');
@@ -386,6 +388,7 @@ describe('ConflictCoordinator', () => {
         }),
       ],
     });
+    graph.__enterTick();
     const coordinator = new ConflictCoordinator(ports, graph);
     const suspended = graph.tasks.get('t-suspended');
     const dominant = graph.tasks.get('t-dominant');
@@ -472,6 +475,7 @@ describe('ConflictCoordinator', () => {
         }),
       ],
     });
+    graph.__enterTick();
     const coordinator = new ConflictCoordinator(ports, graph);
     const suspended = graph.tasks.get('t-suspended');
     const dominant = graph.tasks.get('t-dominant');
@@ -567,6 +571,7 @@ describe('ConflictCoordinator', () => {
         }),
       ],
     });
+    graph.__enterTick();
     const coordinator = new ConflictCoordinator(ports, graph);
     const suspended = graph.tasks.get('t-suspended');
     const dominant = graph.tasks.get('t-dominant');
@@ -636,6 +641,7 @@ describe('ConflictCoordinator', () => {
         }),
       ],
     });
+    graph.__enterTick();
     const coordinator = new ConflictCoordinator(ports, graph);
     const suspended = graph.tasks.get('t-suspended');
     const dominant = graph.tasks.get('t-dominant');
@@ -725,6 +731,7 @@ describe('ConflictCoordinator', () => {
         }),
       ],
     });
+    graph.__enterTick();
     const coordinator = new ConflictCoordinator(ports, graph);
     const dominant = graph.tasks.get('t-dominant');
     const overlap = graph.tasks.get('t-overlap');
@@ -832,6 +839,7 @@ describe('ConflictCoordinator', () => {
         }),
       ],
     });
+    graph.__enterTick();
     const coordinator = new ConflictCoordinator(ports, graph);
 
     await coordinator.reconcileSameFeatureTasks(feature.id, 't-dominant');
@@ -880,6 +888,7 @@ describe('ConflictCoordinator', () => {
         }),
       ],
     });
+    graph.__enterTick();
     const coordinator = new ConflictCoordinator(ports, graph);
     const dominant = graph.tasks.get('t-dominant');
     const suspended = graph.tasks.get('t-suspended');
@@ -970,6 +979,7 @@ describe('ConflictCoordinator', () => {
         }),
       ],
     });
+    graph.__enterTick();
     const coordinator = new ConflictCoordinator(ports, graph);
     const dominant = graph.tasks.get('t-dominant');
     const suspended = graph.tasks.get('t-suspended');
@@ -1053,6 +1063,7 @@ describe('ConflictCoordinator', () => {
         }),
       ],
     });
+    graph.__enterTick();
     const coordinator = new ConflictCoordinator(ports, graph);
     const dominant = graph.tasks.get('t-dominant');
     const suspended = graph.tasks.get('t-suspended');

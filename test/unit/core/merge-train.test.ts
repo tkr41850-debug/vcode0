@@ -8,11 +8,13 @@ import {
 } from '../../helpers/graph-builders.js';
 
 function buildGraph(...features: Feature[]): InMemoryFeatureGraph {
-  return new InMemoryFeatureGraph({
+  const g = new InMemoryFeatureGraph({
     milestones: [createMilestoneFixture()],
     features,
     tasks: [],
   });
+  g.__enterTick();
+  return g;
 }
 
 function expectMergeTrainFieldsCleared(feature: Feature | undefined): void {

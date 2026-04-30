@@ -180,4 +180,7 @@ export interface FeatureGraph {
 
   updateMergeTrainState(featureId: FeatureId, fields: MergeTrainUpdate): void;
   replaceUsageRollups(patch: UsageRollupPatch): void;
+
+  __enterTick(): void;
+  __leaveTick(): void;
 }

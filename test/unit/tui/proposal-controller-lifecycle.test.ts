@@ -11,21 +11,26 @@ import { updateFeature } from '../../helpers/graph-builders.js';
 
 function makePlanningGraph(): InMemoryFeatureGraph {
   const graph = new InMemoryFeatureGraph();
-  graph.createMilestone({
-    id: 'm-1',
-    name: 'Milestone 1',
-    description: 'desc',
-  });
-  graph.createFeature({
-    id: 'f-1',
-    milestoneId: 'm-1',
-    name: 'Planner feature',
-    description: 'desc',
-  });
-  updateFeature(graph, 'f-1', {
-    workControl: 'planning',
-    collabControl: 'none',
-  });
+  graph.__enterTick();
+  try {
+    graph.createMilestone({
+      id: 'm-1',
+      name: 'Milestone 1',
+      description: 'desc',
+    });
+    graph.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'Planner feature',
+      description: 'desc',
+    });
+    updateFeature(graph, 'f-1', {
+      workControl: 'planning',
+      collabControl: 'none',
+    });
+  } finally {
+    graph.__leaveTick();
+  }
   return graph;
 }
 

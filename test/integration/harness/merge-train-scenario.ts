@@ -46,6 +46,7 @@ export function createMergeTrainScenario(
   const clock = { now: initialClock };
   const db = openDatabase(':memory:');
   const graph = new PersistentFeatureGraph(db, () => clock.now);
+  graph.__enterTick();
   const coord = new MergeTrainCoordinator();
 
   let milestoneSeeded = false;

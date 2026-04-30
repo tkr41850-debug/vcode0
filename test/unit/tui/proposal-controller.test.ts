@@ -10,17 +10,22 @@ import { updateFeature, updateTask } from '../../helpers/graph-builders.js';
 
 function makePlanningGraph(): InMemoryFeatureGraph {
   const graph = new InMemoryFeatureGraph();
-  graph.createMilestone({
-    id: 'm-1',
-    name: 'Milestone 1',
-    description: 'desc',
-  });
-  graph.createFeature({
-    id: 'f-1',
-    milestoneId: 'm-1',
-    name: 'Planner feature',
-    description: 'desc',
-  });
+  graph.__enterTick();
+  try {
+    graph.createMilestone({
+      id: 'm-1',
+      name: 'Milestone 1',
+      description: 'desc',
+    });
+    graph.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'Planner feature',
+      description: 'desc',
+    });
+  } finally {
+    graph.__leaveTick();
+  }
   updateFeature(graph, 'f-1', {
     workControl: 'planning',
     collabControl: 'none',
@@ -224,11 +229,16 @@ describe('ComposerProposalController', () => {
 
   it('uses selection fallback for feature, task, and milestone ids', async () => {
     const graph = makePlanningGraph();
-    graph.createTask({
-      id: 't-1',
-      featureId: 'f-1',
-      description: 'Existing task',
-    });
+    graph.__enterTick();
+    try {
+      graph.createTask({
+        id: 't-1',
+        featureId: 'f-1',
+        description: 'Existing task',
+      });
+    } finally {
+      graph.__leaveTick();
+    }
     const controller = new ComposerProposalController(makeEnv(graph));
 
     await controller.execute('/task-edit --description "Edited task"', {
@@ -291,12 +301,17 @@ describe('ComposerProposalController', () => {
 
   it('rejects invalid draft edit inputs and mixed dependency endpoints', async () => {
     const graph = makePlanningGraph();
-    graph.createTask({
-      id: 't-1',
-      featureId: 'f-1',
-      description: 'Existing task',
-    });
-    updateTask(graph, 't-1', { weight: 'small' });
+    graph.__enterTick();
+    try {
+      graph.createTask({
+        id: 't-1',
+        featureId: 'f-1',
+        description: 'Existing task',
+      });
+      updateTask(graph, 't-1', { weight: 'small' });
+    } finally {
+      graph.__leaveTick();
+    }
     const controller = new ComposerProposalController(makeEnv(graph));
 
     await expect(

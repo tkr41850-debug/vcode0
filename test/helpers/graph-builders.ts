@@ -51,13 +51,20 @@ export function createTaskFixture(overrides: Partial<Task> = {}): Task {
   };
 }
 
+/**
+ * Test helpers leave the returned graph in the "in-tick" state so subsequent
+ * test mutations don't trip the GVC_ASSERT_TICK_BOUNDARY guard. Each test
+ * gets a fresh graph, so leaking an extra `__enterTick` is harmless.
+ */
 export function createGraphFixture(): InMemoryFeatureGraph {
-  return new InMemoryFeatureGraph();
+  const g = new InMemoryFeatureGraph();
+  g.__enterTick();
+  return g;
 }
 
 /** Graph with a default milestone m-1 pre-created. */
 export function createGraphWithMilestone(): InMemoryFeatureGraph {
-  const g = new InMemoryFeatureGraph();
+  const g = createGraphFixture();
   g.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
   return g;
 }

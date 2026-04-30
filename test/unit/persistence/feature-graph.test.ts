@@ -51,6 +51,7 @@ describe('PersistentFeatureGraph', () => {
     clock = 1_000_000;
     db = openDatabase(':memory:');
     graph = new PersistentFeatureGraph(db, now);
+    graph.__enterTick();
   });
 
   afterEach(() => {

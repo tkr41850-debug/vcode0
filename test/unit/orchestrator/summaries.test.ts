@@ -23,7 +23,7 @@ function createFeature(overrides: Partial<Feature> = {}): Feature {
 function createGraph(
   featureOverrides: Partial<Feature> = {},
 ): InMemoryFeatureGraph {
-  return new InMemoryFeatureGraph({
+  const g = new InMemoryFeatureGraph({
     milestones: [
       {
         id: 'm-1',
@@ -36,6 +36,8 @@ function createGraph(
     features: [createFeature(featureOverrides)],
     tasks: [],
   });
+  g.__enterTick();
+  return g;
 }
 
 describe('SummaryCoordinator', () => {

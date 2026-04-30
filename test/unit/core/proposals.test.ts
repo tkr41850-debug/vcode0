@@ -12,6 +12,7 @@ import { updateFeature } from '../../helpers/graph-builders.js';
 
 function createGraph(): InMemoryFeatureGraph {
   const graph = new InMemoryFeatureGraph();
+  graph.__enterTick();
   graph.createMilestone({
     id: 'm-1',
     name: 'Milestone 1',

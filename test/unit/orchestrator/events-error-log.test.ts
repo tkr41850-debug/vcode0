@@ -38,6 +38,7 @@ function buildDeps(params: { task?: Task; run: AgentRun }): {
     ],
     tasks: params.task !== undefined ? [params.task] : [],
   });
+  graph.__enterTick();
 
   const store = {
     getAgentRun: vi.fn(() => params.run),

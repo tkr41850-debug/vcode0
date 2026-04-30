@@ -61,6 +61,10 @@ export class GraphProposalToolHost {
     readonly mode: GraphProposalMode,
   ) {
     this.draft = new InMemoryFeatureGraph(graph.snapshot());
+    // The draft is a private side-graph for proposal recording, not driven
+    // by the scheduler. Permanently enter its tick so mutations don't trip
+    // the GVC_ASSERT_TICK_BOUNDARY guard.
+    this.draft.__enterTick();
     this.builder = new GraphProposalBuilder(mode);
   }
 
