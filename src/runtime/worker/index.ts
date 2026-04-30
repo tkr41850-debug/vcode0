@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { ClaimLockResult, IpcBridge } from '@agents/worker';
 import { buildWorkerToolset } from '@agents/worker';
+import { isDestructiveCommand } from '@agents/worker/destructive-ops';
 import type {
   GitConflictContext,
   TaskResult,
@@ -126,6 +127,32 @@ export class WorkerRuntime {
         messages,
       },
       toolExecution: 'sequential',
+      beforeToolCall: async (context) => {
+        if (context.toolCall.name !== 'run_command') {
+          return undefined;
+        }
+        const args = context.args as { command?: unknown };
+        if (typeof args.command !== 'string') {
+          return undefined;
+        }
+        const decision = isDestructiveCommand(args.command);
+        if (!decision.match) {
+          return undefined;
+        }
+        const reason = `destructive op requires approval: ${decision.pattern}`;
+        this.transport.send({
+          type: 'request_approval',
+          taskId: task.id,
+          agentRunId: dispatch.agentRunId,
+          toolCallId: context.toolCall.id,
+          payload: {
+            kind: 'destructive_action',
+            description: `${decision.pattern}: ${args.command}`,
+            affectedPaths: [process.cwd()],
+          },
+        });
+        return { block: true, reason };
+      },
     };
     if (this.config.getApiKey !== undefined) {
       agentOptions.getApiKey = this.config.getApiKey;

@@ -1697,6 +1697,127 @@ describe('SchedulerLoop', () => {
     );
   });
 
+  it('appends a destructive_action inbox row when request_approval payload kind is destructive_action', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const graph = createSingleFeatureGraph(
+      {
+        status: 'pending',
+        workControl: 'executing',
+        collabControl: 'none',
+      },
+      [
+        createTaskFixture({
+          id: 't-1',
+          description: 'Task 1',
+          status: 'running',
+          collabControl: 'branch_open',
+        }),
+      ],
+    );
+    ports.store.createAgentRun(
+      makeTaskRun({
+        id: 'run-task:t-1',
+        runStatus: 'running',
+        sessionId: 'sess-1',
+      }),
+    );
+    const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
+    const appendInboxItem = ports.store.appendInboxItem as ReturnType<
+      typeof vi.fn
+    >;
+
+    const loop = new SchedulerLoop(graph, ports);
+
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
+      type: 'worker_message',
+      message: {
+        type: 'request_approval',
+        taskId: 't-1',
+        agentRunId: 'run-task:t-1',
+        toolCallId: 'tc-1',
+        payload: {
+          kind: 'destructive_action',
+          description: 'git push --force: git push --force origin main',
+          affectedPaths: ['/tmp/wt'],
+        },
+      },
+    });
+    await loop.step(100);
+
+    expect(appendInboxItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'destructive_action',
+        taskId: 't-1',
+        agentRunId: 'run-task:t-1',
+        payload: expect.objectContaining({
+          toolCallId: 'tc-1',
+          description: expect.stringContaining('git push --force'),
+          affectedPaths: ['/tmp/wt'],
+        }),
+      }),
+    );
+    expect(updateAgentRun).toHaveBeenCalledWith(
+      'run-task:t-1',
+      expect.objectContaining({
+        runStatus: 'await_approval',
+        owner: 'manual',
+      }),
+    );
+  });
+
+  it('does not append an inbox row for non-destructive request_approval payloads', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const graph = createSingleFeatureGraph(
+      {
+        status: 'pending',
+        workControl: 'executing',
+        collabControl: 'none',
+      },
+      [
+        createTaskFixture({
+          id: 't-1',
+          description: 'Task 1',
+          status: 'running',
+          collabControl: 'branch_open',
+        }),
+      ],
+    );
+    ports.store.createAgentRun(
+      makeTaskRun({
+        id: 'run-task:t-1',
+        runStatus: 'running',
+        sessionId: 'sess-1',
+      }),
+    );
+    const appendInboxItem = ports.store.appendInboxItem as ReturnType<
+      typeof vi.fn
+    >;
+
+    const loop = new SchedulerLoop(graph, ports);
+
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
+      type: 'worker_message',
+      message: {
+        type: 'request_approval',
+        taskId: 't-1',
+        agentRunId: 'run-task:t-1',
+        toolCallId: 'tc-2',
+        payload: {
+          kind: 'custom',
+          label: 'check this',
+          detail: 'just want a sanity check',
+        },
+      },
+    });
+    await loop.step(100);
+
+    expect(appendInboxItem).not.toHaveBeenCalled();
+  });
+
   it('escalates a transient worker error past retryCap to inbox with retry_exhausted kind', async () => {
     const order: string[] = [];
     const { ports } = createPorts(order);

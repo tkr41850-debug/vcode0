@@ -342,6 +342,19 @@ export async function handleSchedulerEvent(params: {
     }
 
     if (message.type === 'request_approval') {
+      if (message.payload.kind === 'destructive_action') {
+        ports.store.appendInboxItem({
+          ts: now(),
+          kind: 'destructive_action',
+          taskId: run.scopeId,
+          agentRunId: run.id,
+          payload: {
+            toolCallId: message.toolCallId,
+            description: message.payload.description,
+            affectedPaths: message.payload.affectedPaths,
+          },
+        });
+      }
       ports.store.updateAgentRun(run.id, {
         runStatus: 'await_approval',
         owner: 'manual',
