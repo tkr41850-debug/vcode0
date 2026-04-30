@@ -6,20 +6,14 @@ import type {
   Task,
   VerificationSummary,
 } from '@core/types/index';
-import {
-  DEFAULT_CI_CHECK_REPLAN_LOOP_THRESHOLD,
-  DEFAULT_LONG_FEATURE_BLOCKING_MS,
-  DEFAULT_REBASE_REPLAN_LOOP_THRESHOLD,
-  DEFAULT_TOTAL_REPLAN_LOOP_THRESHOLD,
-  DEFAULT_VERIFY_REPLAN_LOOP_THRESHOLD,
-  WarningEvaluator,
-} from '@core/warnings/index';
+import { WarningEvaluator } from '@core/warnings/index';
 import { ConflictCoordinator } from '@orchestrator/conflicts/index';
 import { FeatureLifecycleCoordinator } from '@orchestrator/features/index';
 import { IntegrationCoordinator } from '@orchestrator/integration/index';
 import type { OrchestratorPorts } from '@orchestrator/ports/index';
 import type { ProposalPhase } from '@orchestrator/proposals/index';
 import { SummaryCoordinator } from '@orchestrator/summaries/index';
+import { defaultWarningThresholds } from '@root/config';
 import type { WorkerToOrchestratorMessage } from '@runtime/contracts';
 
 import { ActiveLocks } from './active-locks.js';
@@ -108,26 +102,29 @@ export class SchedulerLoop {
       graph,
       features: this.features,
     });
+    const thresholds = defaultWarningThresholds();
     this.warnings = new WarningEvaluator({
-      budgetWarnPercent: ports.config.budget?.warnAtPercent ?? 80,
-      budgetGlobalUsd: ports.config.budget?.globalUsd ?? 1,
-      featureChurnThreshold: 3,
-      taskFailureThreshold: 3,
+      budgetWarnPercent:
+        ports.config.budget?.warnAtPercent ?? thresholds.budgetWarnPercent,
+      budgetGlobalUsd:
+        ports.config.budget?.globalUsd ?? thresholds.budgetGlobalUsd,
+      featureChurnThreshold: thresholds.featureChurnThreshold,
+      taskFailureThreshold: thresholds.taskFailureThreshold,
       longFeatureBlockingMs:
         ports.config.warnings?.longFeatureBlockingMs ??
-        DEFAULT_LONG_FEATURE_BLOCKING_MS,
+        thresholds.longFeatureBlockingMs,
       verifyReplanLoopThreshold:
         ports.config.warnings?.verifyReplanLoopThreshold ??
-        DEFAULT_VERIFY_REPLAN_LOOP_THRESHOLD,
+        thresholds.verifyReplanLoopThreshold,
       ciCheckReplanLoopThreshold:
         ports.config.warnings?.ciCheckReplanLoopThreshold ??
-        DEFAULT_CI_CHECK_REPLAN_LOOP_THRESHOLD,
+        thresholds.ciCheckReplanLoopThreshold,
       rebaseReplanLoopThreshold:
         ports.config.warnings?.rebaseReplanLoopThreshold ??
-        DEFAULT_REBASE_REPLAN_LOOP_THRESHOLD,
+        thresholds.rebaseReplanLoopThreshold,
       totalReplanLoopThreshold:
         ports.config.warnings?.totalReplanLoopThreshold ??
-        DEFAULT_TOTAL_REPLAN_LOOP_THRESHOLD,
+        thresholds.totalReplanLoopThreshold,
     });
   }
 

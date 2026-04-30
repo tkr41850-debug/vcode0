@@ -10,6 +10,7 @@ import type {
 import type { AgentEvent, AgentMessage } from '@mariozechner/pi-agent-core';
 import { Agent } from '@mariozechner/pi-agent-core';
 import type { AssistantMessage } from '@mariozechner/pi-ai';
+import { defaultModelRoutingConfig } from '@root/config';
 import type {
   ApprovalDecision,
   ApprovalPayload,
@@ -84,17 +85,7 @@ export class WorkerRuntime {
     const { task, payload, model: modelId, routingTier } = taskRun;
     const model = resolveModel(
       { model: modelId, tier: routingTier },
-      {
-        enabled: false,
-        ceiling: modelId,
-        tiers: {
-          heavy: modelId,
-          standard: modelId,
-          light: modelId,
-        },
-        escalateOnFailure: false,
-        budgetPressure: false,
-      },
+      defaultModelRoutingConfig(modelId),
     );
 
     const systemPrompt = buildSystemPrompt(task, payload);

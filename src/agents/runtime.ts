@@ -31,6 +31,7 @@ import type {
 import type { AgentMessage, AgentTool } from '@mariozechner/pi-agent-core';
 import { Agent } from '@mariozechner/pi-agent-core';
 import type { Store } from '@orchestrator/ports/index';
+import { defaultModelRoutingConfig } from '@root/config';
 import { resolveModel } from '@runtime/routing/model-bridge';
 import type { SessionStore } from '@runtime/sessions/index';
 import { messagesToTokenUsageAggregate } from '@runtime/usage';
@@ -584,17 +585,8 @@ export class FeaturePhaseOrchestrator {
         model: this.deps.config.modelRouting?.ceiling ?? this.deps.modelId,
         tier: phaseRoutingTier(phase),
       },
-      this.deps.config.modelRouting ?? {
-        enabled: false,
-        ceiling: this.deps.modelId,
-        tiers: {
-          heavy: this.deps.modelId,
-          standard: this.deps.modelId,
-          light: this.deps.modelId,
-        },
-        escalateOnFailure: false,
-        budgetPressure: false,
-      },
+      this.deps.config.modelRouting ??
+        defaultModelRoutingConfig(this.deps.modelId),
     );
 
     const options: NonNullable<ConstructorParameters<typeof Agent>[0]> = {
