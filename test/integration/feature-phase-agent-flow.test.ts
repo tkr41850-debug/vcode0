@@ -292,6 +292,7 @@ function createFixture({
     worktree: createWorktreeStub(),
     ui: createUiStub(),
     config,
+    projectRoot: '/repo',
   };
 
   return {
@@ -374,6 +375,7 @@ describe('feature-phase agent flow', () => {
       worktree: createWorktreeStub(),
       ui: createUiStub(),
       config,
+      projectRoot: '/repo',
     };
     const loop = new SchedulerLoop(graph, ports);
 

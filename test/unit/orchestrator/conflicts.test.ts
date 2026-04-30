@@ -39,6 +39,7 @@ function createPorts(root: string): OrchestratorPorts {
     ui: {} as OrchestratorPorts['ui'],
     sessionStore: new InMemorySessionStore(),
     config: createConfig(),
+    projectRoot: root,
     runtime: {
       dispatchRun: vi.fn(),
       dispatchTask: vi.fn(),

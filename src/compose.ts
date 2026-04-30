@@ -309,6 +309,7 @@ export async function composeApplication(): Promise<GvcApplication> {
     worktree,
     ui,
     config,
+    projectRoot,
   };
 
   const scheduler = new SchedulerLoop(graph, ports);

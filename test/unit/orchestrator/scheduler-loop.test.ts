@@ -18,6 +18,7 @@ import type {
   Task,
   TaskAgentRun,
 } from '@core/types/index';
+import { ConflictCoordinator } from '@orchestrator/conflicts/index';
 import type {
   AgentRunPatch,
   AgentRunQuery,
@@ -439,6 +440,7 @@ function createPorts(
         ensureFeatureWorktree: () => Promise.resolve('/repo'),
         ensureTaskWorktree: () => Promise.resolve('/repo'),
       },
+      projectRoot: '/repo',
     },
     runtime,
     ui,
@@ -610,11 +612,16 @@ let originalCwd = '';
 beforeEach(() => {
   originalCwd = process.cwd();
   process.chdir(getTmpDir());
+  vi.spyOn(
+    ConflictCoordinator.prototype,
+    'squashMergeTaskIntoFeature',
+  ).mockResolvedValue({ ok: true, sha: 'stub-squash-sha' });
 });
 
 afterEach(() => {
   process.chdir(originalCwd);
   vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 describe('SchedulerLoop', () => {

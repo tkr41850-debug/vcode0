@@ -22,6 +22,80 @@ export async function rebaseTaskWorktree(
   return rebaseGitDir(taskDir, rebaseTarget);
 }
 
+export type SquashMergeOutcome =
+  | { ok: true; sha: string }
+  | { ok: true; alreadyMerged: true; sha: string }
+  | { ok: false; conflict: true; conflictedFiles: string[] };
+
+export async function squashMergeTaskIntoFeature(
+  taskBranch: string,
+  featureBranch: string,
+  featureWorktreePath: string,
+  commitMessage: string,
+): Promise<SquashMergeOutcome> {
+  const git = simpleGit(featureWorktreePath);
+
+  const currentBranch = (
+    await git.raw(['rev-parse', '--abbrev-ref', 'HEAD'])
+  ).trim();
+  if (currentBranch !== featureBranch) {
+    await git.raw(['checkout', featureBranch]);
+  }
+
+  const mergeBase = (
+    await git.raw(['merge-base', featureBranch, taskBranch])
+  ).trim();
+  const taskTip = (await git.raw(['rev-parse', taskBranch])).trim();
+  if (mergeBase === taskTip) {
+    const sha = (await git.raw(['rev-parse', 'HEAD'])).trim();
+    return { ok: true, alreadyMerged: true, sha };
+  }
+
+  let mergeThrew = false;
+  try {
+    await git.raw(['merge', '--squash', taskBranch]);
+  } catch {
+    mergeThrew = true;
+  }
+
+  const status = await git.status();
+  if (status.conflicted.length > 0) {
+    const conflictedFiles = [...status.conflicted];
+    try {
+      await git.raw(['merge', '--abort']);
+    } catch {
+      // no active merge state; fall through
+    }
+    // ensure working tree is clean even if --abort was a no-op
+    try {
+      await git.raw(['reset', '--hard', 'HEAD']);
+    } catch {
+      // tolerate; nothing actionable
+    }
+    return { ok: false, conflict: true, conflictedFiles };
+  }
+
+  if (mergeThrew) {
+    // Non-conflict failure (corrupt repo, invalid ref) — surface raw error.
+    await git.raw(['merge', '--squash', taskBranch]);
+  }
+
+  if (
+    status.staged.length === 0 &&
+    status.created.length === 0 &&
+    status.deleted.length === 0 &&
+    status.modified.length === 0 &&
+    status.renamed.length === 0
+  ) {
+    const sha = (await git.raw(['rev-parse', 'HEAD'])).trim();
+    return { ok: true, alreadyMerged: true, sha };
+  }
+
+  await git.raw(['commit', '-m', commitMessage]);
+  const sha = (await git.raw(['rev-parse', 'HEAD'])).trim();
+  return { ok: true, sha };
+}
+
 export async function rebaseGitDir(
   gitDir: string,
   rebaseTarget: string,

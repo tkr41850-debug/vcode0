@@ -1,5 +1,8 @@
+import * as path from 'node:path';
+
 import { persistPhaseOutputToFeature } from '@agents';
 import type { FeatureGraph } from '@core/graph/index';
+import { resolveTaskWorktreeBranch, worktreePath } from '@core/naming/index';
 import type { AgentRun, FeatureId } from '@core/types/index';
 import type { ConflictCoordinator } from '@orchestrator/conflicts/index';
 import type { FeatureLifecycleCoordinator } from '@orchestrator/features/index';
@@ -37,6 +40,15 @@ function isFeatureCancelled(
   featureId: FeatureId,
 ): boolean {
   return graph.features.get(featureId)?.collabControl === 'cancelled';
+}
+
+function buildSquashCommitMessage(
+  taskId: string,
+  result: { summary: string },
+): string {
+  const summary = result.summary.trim();
+  const headline = summary.length > 0 ? summary : `task ${taskId}`;
+  return `${headline}\n\nTask: ${taskId}\n`;
 }
 
 export async function handleSchedulerEvent(params: {
@@ -85,20 +97,61 @@ export async function handleSchedulerEvent(params: {
     if (message.type === 'result') {
       activeLocks.releaseByRun(message.agentRunId);
       const taskLanded = message.completionKind === 'submitted';
+
+      if (!taskLanded) {
+        graph.transitionTask(run.scopeId, {
+          status: 'done',
+          result: message.result,
+        });
+        completeTaskRun(ports, run, 'system', {
+          tokenUsage: runtimeUsageToTokenUsageAggregate(message.usage),
+        });
+        return;
+      }
+
+      const taskRow = graph.tasks.get(run.scopeId);
+      const feature =
+        taskRow !== undefined
+          ? graph.features.get(taskRow.featureId)
+          : undefined;
+      if (taskRow === undefined || feature === undefined) {
+        return;
+      }
+      const taskBranch = resolveTaskWorktreeBranch(taskRow);
+      const featureWorktreePath = path.join(
+        ports.projectRoot,
+        worktreePath(feature.featureBranch),
+      );
+      const commitMessage = buildSquashCommitMessage(
+        taskRow.id,
+        message.result,
+      );
+      const squash = await conflicts.squashMergeTaskIntoFeature(
+        taskBranch,
+        feature.featureBranch,
+        featureWorktreePath,
+        commitMessage,
+      );
+
+      if (!squash.ok) {
+        // Phase 5.2 will run the rebase + retry loop here. For 5.1, leave the
+        // task in `running` state and the worker run unfinished so the next
+        // tick can replay; do not flip `merged`.
+        return;
+      }
+
       graph.transitionTask(run.scopeId, {
         status: 'done',
-        ...(taskLanded ? { collabControl: 'merged' as const } : {}),
+        collabControl: 'merged',
         result: message.result,
       });
-      if (taskLanded) {
-        features.onTaskLanded(run.scopeId);
-        const landedTask = graph.tasks.get(run.scopeId);
-        if (landedTask !== undefined) {
-          await conflicts.reconcileSameFeatureTasks(
-            landedTask.featureId,
-            run.scopeId,
-          );
-        }
+      features.onTaskLanded(run.scopeId);
+      const landedTask = graph.tasks.get(run.scopeId);
+      if (landedTask !== undefined) {
+        await conflicts.reconcileSameFeatureTasks(
+          landedTask.featureId,
+          run.scopeId,
+        );
       }
       completeTaskRun(ports, run, 'system', {
         tokenUsage: runtimeUsageToTokenUsageAggregate(message.usage),

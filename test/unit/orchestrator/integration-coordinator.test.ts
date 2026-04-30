@@ -124,6 +124,7 @@ function makePorts(opts: { cwd: string; verification?: VerificationSummary }): {
     sessionStore: new InMemorySessionStore(),
     config: { tokenProfile: 'balanced' },
     runtime: {} as OrchestratorPorts['runtime'],
+    projectRoot: opts.cwd,
   };
   return { ports, markers };
 }

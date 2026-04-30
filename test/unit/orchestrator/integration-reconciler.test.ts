@@ -108,6 +108,7 @@ function makePorts(initialMarker: IntegrationState | undefined): {
     sessionStore: new InMemorySessionStore(),
     config: { tokenProfile: 'balanced' },
     runtime: {} as OrchestratorPorts['runtime'],
+    projectRoot: '/repo',
   };
   return { ports, state };
 }

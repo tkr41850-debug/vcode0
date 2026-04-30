@@ -8,12 +8,14 @@ import {
   releaseCrossFeatureOverlap,
   resumeCrossFeatureTasks,
 } from './cross-feature.js';
+import { type SquashMergeOutcome, squashMergeTaskIntoFeature } from './git.js';
 import {
   handleSameFeatureOverlap,
   reconcileSameFeatureTasks,
 } from './same-feature.js';
 import type { CrossFeatureReleaseResult, OverlapIncident } from './types.js';
 
+export type { SquashMergeOutcome } from './git.js';
 export type { CrossFeatureReleaseResult, OverlapIncident } from './types.js';
 
 export class ConflictCoordinator {
@@ -81,5 +83,19 @@ export class ConflictCoordinator {
 
   clearCrossFeatureBlock(featureId: FeatureId): void {
     clearCrossFeatureBlock(this.graph, featureId);
+  }
+
+  async squashMergeTaskIntoFeature(
+    taskBranch: string,
+    featureBranch: string,
+    featureWorktreePath: string,
+    commitMessage: string,
+  ): Promise<SquashMergeOutcome> {
+    return squashMergeTaskIntoFeature(
+      taskBranch,
+      featureBranch,
+      featureWorktreePath,
+      commitMessage,
+    );
   }
 }

@@ -86,4 +86,5 @@ export interface OrchestratorPorts {
   worktree: WorktreeProvisioner;
   ui: UiPort;
   config: GvcConfig;
+  projectRoot: string;
 }
