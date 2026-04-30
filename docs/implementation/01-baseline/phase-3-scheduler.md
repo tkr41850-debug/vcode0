@@ -26,7 +26,7 @@ Verified gaps on `main`:
 
 ## Steps
 
-The phase ships as **2 commits**. Step 3.1 is independent of step 3.2; either can ship first, but 3.1 is suggested because it is more broadly load-bearing.
+Ships as **2 commits**. Steps independent; ship 3.1 first (more broadly load-bearing).
 
 ---
 
@@ -41,19 +41,19 @@ The phase ships as **2 commits**. Step 3.1 is independent of step 3.2; either ca
 - `src/persistence/feature-graph.ts` — `PersistentFeatureGraph` wraps `InMemoryFeatureGraph` and is the type production code holds. Add `__enterTick`/`__leaveTick` here that delegate to `this.inner.__enterTick()` / `this.inner.__leaveTick()`. Without this, `this.graph.__enterTick()` from the scheduler will be a missing-method runtime error in production.
 - `src/orchestrator/scheduler/index.ts` — wrap `tick()` body: `this.graph.__enterTick(); try { ... } finally { this.graph.__leaveTick(); }`. Note: `tick()` body contains `await` calls (e.g. `runIntegration` around `:214`, overlap coordinators around `:222-223`); the counter approach is fine because it counts call-stack depth, not synchronous reentrance — accept that any code reachable through those awaits is treated as in-tick.
 - `src/compose.ts` — wrap each mutation site, not a single line range: (a) `initializeProjectGraph` body (declared at `:383`, interactive entry, not boot — `createMilestone`/`queueMilestone`/`createFeature`/`transitionFeatureToPlanning`); (b) `cancelFeatureRunWork` body (declared at `:463`, the `cancelFeature` call at `:483`, leftover-task sweep at `:470`); (c) `:87,90` TUI milestone-queue toggles. Prefer wrapping at the call site rather than by line range so future edits inside these blocks don't silently fall outside the wrap.
-- Other unguarded call sites (`proposals/index.ts`, `summaries/index.ts`, `merge-train/index.ts`, `integration/reconciler.ts`, `services/budget-service.ts`) — verify each is inside a tick at call time. If a site is genuinely outside any tick, wrap the entry point with enter/leave.
+- Other unguarded call sites (`proposals/index.ts`, `summaries/index.ts`, `merge-train/index.ts`, `integration/reconciler.ts`, `services/budget-service.ts`) — verify each is inside a tick at call time; otherwise wrap entry point.
 
 **Tests:**
 
 - `test/unit/core/graph/tick-boundary.test.ts` — with the env var unset, mutators succeed without enter/leave (no regression). With the env set, an out-of-tick mutator throws; with enter/leave, succeeds. Nested enter/leave (counter > 1) is supported.
 - Run the full suite with `GVC_ASSERT_TICK_BOUNDARY=1 npm run test:unit && GVC_ASSERT_TICK_BOUNDARY=1 npm run test:integration`. All tests must pass under both modes — failures here mean a real out-of-tick mutator that needs fixing.
-- **Test silently-swallowed paths**: `src/orchestrator/scheduler/events.ts:198-326` wraps the proposal-application call in a try/catch that logs and continues. A test asserting "out-of-tick proposal application throws" will silently pass even on regression. Either (a) add a test that inspects the log capture, or (b) add a one-call-site assertion test that bypasses the try/catch by calling `approveFeatureProposal` directly outside a tick.
+- **Silently-swallowed paths**: `events.ts:198-326` wraps proposal apply in try/catch that logs+continues, so an out-of-tick throw passes a naive test. Either inspect log capture, or call `approveFeatureProposal` directly outside a tick to bypass the catch.
 
 **Verification:** `npm run check:fix && npm run check && GVC_ASSERT_TICK_BOUNDARY=1 npm run test`.
 
 **Review subagent:**
 
-> Verify the tick-boundary guard: (1) every mutator on `InMemoryFeatureGraph` calls `_assertInTick` (grep the class for public methods that mutate maps and confirm); (2) the `_inTick` counter supports nesting (enter/leave are paired correctly); (3) the env gate is read once per call to `_assertInTick`, not cached, so tests can flip it; (4) all current call sites pass with `GVC_ASSERT_TICK_BOUNDARY=1` — list any new enter/leave pairs added to make this true and confirm each represents a real tick-equivalent boundary, not a workaround. Under 400 words.
+> Verify tick-boundary guard: (1) every mutating public method on `InMemoryFeatureGraph` calls `_assertInTick`; (2) `_inTick` counter supports nesting; (3) env gate is read each call (not cached); (4) all call sites pass with `GVC_ASSERT_TICK_BOUNDARY=1` — list new enter/leave pairs and confirm each is a real tick-equivalent boundary, not a workaround. Under 350 words.
 
 **Commit:** `feat(core/graph): env-gated tick-boundary mutation guard`
 
@@ -77,7 +77,7 @@ The phase ships as **2 commits**. Step 3.1 is independent of step 3.2; either ca
 
 **Review subagent:**
 
-> Verify the dispatch guard: (1) it runs *before* `dispatchTaskUnit` and `dispatchFeaturePhaseUnit` — both code paths covered; (2) on unmerged, the iteration `continue`s rather than `return`s (one bad unit must not stop dispatch of the rest); (3) the warn message includes featureId, taskId, and depId so an operator can act on it; (4) feature-phase units are also covered (a phase unit for feature B should be skipped if A is unmerged); (5) the helper is a pure function over the graph, no side effects. Under 350 words.
+> Verify dispatch guard: (1) runs before both `dispatchTaskUnit` and `dispatchFeaturePhaseUnit`; (2) on unmerged, `continue` not `return` (one bad unit must not stop dispatch); (3) warn includes featureId, taskId, depId; (4) phase units covered; (5) helper is pure. Under 300 words.
 
 **Commit:** `feat(scheduler/dispatch): unmerged-dep belt-and-suspenders guard`
 

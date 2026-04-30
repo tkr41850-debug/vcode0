@@ -16,7 +16,7 @@ Verified gaps on `main`:
 
 ## Steps
 
-The phase ships as **6 commits**. Each commit is one of the steps below. Steps are ordered so each one stands on its own and the test suite stays green between commits.
+Ships as **7 commits**, one per step, each green-on-commit.
 
 ---
 
@@ -129,9 +129,9 @@ npm run check:fix && npm run check
 
 **Files:**
 
-- `src/runtime/retry-policy.ts` — new. Export `RetryPolicy` interface as a sub-object with fields `{ transientPatterns: (RegExp | string)[]; baseDelayMs: number; maxDelayMs: number; jitterFraction: number; retryCap: number }`, plus `decideRetry(error, attempt, policy)` and `computeRetryBackoffMs(attempt, policy)`. Function is pure — caller injects `now` and `random` (or seeded RNG for tests). **Vocabulary boundary with Phase 5**: Phase 5 introduces a separate `maxSquashRetries` config knob with its own deterministic loop (no jitter, no exponential delay, no transient classification — every iteration is `rebase → squash` against a re-resolved feature tip). `RetryPolicy` is for *worker error retries* (network, 429, 5xx, `health_timeout`); `maxSquashRetries` is for *git-conflict retries* inside one tick. They are siblings, not consumer/provider; do not collapse one into the other. README cross-phase conventions should state this.
+- `src/runtime/retry-policy.ts` — new. Export `RetryPolicy` interface as a sub-object with fields `{ transientPatterns: (RegExp | string)[]; baseDelayMs: number; maxDelayMs: number; jitterFraction: number; retryCap: number }`, plus `decideRetry(error, attempt, policy)` and `computeRetryBackoffMs(attempt, policy)`. Function is pure — caller injects `now` and `random` (or seeded RNG for tests). **Vocabulary boundary**: distinct from Phase 5's `maxSquashRetries` (deterministic git-conflict loop, no jitter/backoff). Siblings, not consumer/provider — do not collapse.
 - `src/config.ts` — add `retryPolicy` config block as a single sub-object (not flat fields), so the structure mirrors the `RetryPolicy` interface above.
-- `src/orchestrator/scheduler/events.ts` — call `decideRetry` at every error-path retry-decision site in this file. Today these are the `retryAt: Date.now() + 1000` lines in the **`worker_message` error branch** (where `message.type === 'error'`, around `events.ts:108-122` on current `main`) and the **`feature_phase_error` handler** (around `:439-456`). The earlier line citations `:113-116` and `:449-451` are accurate against pre-Phase-5 `main` but **discriminate by event-type string, not handler alias** — there is no `taskFailed` or `featurePhaseFailed` symbol in the codebase; those are descriptive names only. The rule is structural: every place where an error-path retry-decision says "wait N ms then retry" or "give up" must go through `decideRetry`. On `escalate_inbox`, append to inbox (step 1.6 wires this; until then, pass-through to the existing `failed` path with a TODO). Do NOT touch Phase 5's squash-retry loop — that is a sibling abstraction (see boundary note above).
+- `src/orchestrator/scheduler/events.ts` — call `decideRetry` at every error-path retry-decision site: the **`worker_message` error branch** (`message.type === 'error'`, around `:108-122`) and the **`feature_phase_error` handler** (around `:439-456`). Discriminate by event-type string, not handler alias — no `taskFailed`/`featurePhaseFailed` symbols exist in code. The rule is structural: every retry-decision site ("wait N ms then retry" or "give up") must go through `decideRetry`. On `escalate_inbox`, append to inbox (step 1.6 wires this; until then, pass-through to `failed` with a TODO). Do NOT touch Phase 5's squash-retry loop.
 - `src/orchestrator/scheduler/index.ts:237-247` — events.ts handlers receive a `params` bag from this construction site, **not** a `deps` field. Add `retryPolicy` to that bag (or to `OrchestratorPorts` if it makes more sense as a long-lived dependency); thread through `compose.ts` from the new `retryPolicy` config block. `worker-pool.ts` does not own this code path; the events handler is invoked by the scheduler tick, not by the pool.
 
 **Tests:**
@@ -151,7 +151,9 @@ npm run check:fix && npm run check
 
 ### Step 1.6 — Inbox `kind` extensions + retry-policy integration
 
-**What:** the `inbox_items` table, Store methods (`appendInboxItem`/`listInboxItems`/`resolveInboxItem`), and the initial `kind` union (`'squash_retry_exhausted'`) are owned by Phase 5 step 5.2 (foundational, ships first). This step extends the `kind` union with `'semantic_failure' | 'retry_exhausted'` and wires Step 1.5's `escalate_inbox` outcomes to write rows.
+**Prerequisite:** Phase 5 step 5.2 must have landed (provides `inbox_items` table + `appendInboxItem`/`listInboxItems`/`resolveInboxItem` on `Store`). Phase 5 ships first per order 5→1→2→3→4.
+
+**What:** the `inbox_items` table, Store methods, and the initial `kind` union (`'squash_retry_exhausted'`) are owned by Phase 5 step 5.2. This step extends the `kind` union with `'semantic_failure' | 'retry_exhausted'` and wires Step 1.5's `escalate_inbox` outcomes to write rows.
 
 **Files:**
 
@@ -184,7 +186,7 @@ npm run check:fix && npm run check
   - `\bgit\s+branch\s+-D\b` — capital D only (lowercase `-d` is a safe delete of merged branches).
   - `\bgit\s+reset\s+--hard\b` — any args after.
   Test the regex against every example listed in the Tests section before commit; one missed case here means an irreversible op slips through.
-- `src/runtime/worker/index.ts` — register `beforeToolCall: async (toolName, input) => { ... }` on the pi-sdk Agent. For `run_command`, run the guard. On match, post a `request_approval` IPC frame (existing surface) and return `{ block: true, reason: 'destructive op requires approval: <pattern>' }`. The pi-sdk shape is `BeforeToolCallResult { block?: boolean; reason?: string }` (both fields **optional**, hook is `async`). Returning the literal `{ block: true, reason: '...' }` matches the type. **Open design question to resolve before commit**: does the guard `await` the existing `request_approval` round-trip and return based on the operator's response, or return `{ block: true }` immediately and let the out-of-band inbox path handle approval? Both paths cannot fire for the same call without racing — pick one and document it. The simplest MVP choice is "block immediately, inbox row carries the approval ask, agent retry is operator-initiated"; the alternative requires a synchronous wait and a way to distinguish approve/deny.
+- `src/runtime/worker/index.ts` — register `beforeToolCall: async (toolName, input) => { ... }` on the pi-sdk Agent. For `run_command`, run the guard. On match, post a `request_approval` IPC frame (existing surface) and return `{ block: true, reason: 'destructive op requires approval: <pattern>' }`. The pi-sdk shape is `BeforeToolCallResult { block?: boolean; reason?: string }` (both optional, async hook). **MVP path**: block immediately and return `{ block: true, reason }`; inbox row carries the approval ask; agent retry is operator-initiated. Synchronous-await alternative deferred.
 - `src/orchestrator/scheduler/events.ts` — when handling `request_approval` with `kind: 'destructive_action'`, call `store.appendInboxItem` with the same kind.
 
 **Tests:**
@@ -204,7 +206,7 @@ npm run check:fix && npm run check
 
 ## Phase exit criteria
 
-- All six commits land in order on a feature branch.
+- All seven commits land in order on a feature branch.
 - `npm run verify` passes on the final commit.
-- A faux-worker integration test (`test/integration/phase-1-survivability.test.ts`, optional) drives a worker through: malformed frame → quarantine; hang → heartbeat timeout → retry; transient error → backoff retry; destructive op → inbox row. This is a sanity check; it can be added as a Phase 1.8 commit if useful.
-- Run a final review subagent across all six commits to confirm the IPC validation, quarantine, heartbeat, retry policy, inbox, and destructive-op guard form one coherent survivability layer — verify no escalation path is silently dropped, no two layers contradict each other on the same failure class, and the durable tables are read by at least one consumer (a write-only table is dead weight). Address findings before declaring the phase complete.
+- A faux-worker integration test (`test/integration/phase-1-survivability.test.ts`, optional) drives a worker through: malformed frame → quarantine; hang → heartbeat timeout → retry; transient error → backoff retry; destructive op → inbox row. Sanity check; can land as a Phase 1.8 commit.
+- Run a final review subagent across all seven commits to confirm coherent survivability: no silently dropped escalation, no contradictions across layers on the same failure class, every durable table has a reader. Address findings before declaring the phase complete.

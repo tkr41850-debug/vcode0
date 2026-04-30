@@ -10,12 +10,10 @@ Close the TOCTOU window between the main-SHA re-check and the `git merge --no-ff
 
 Two facts shape the design:
 
-1. **`git merge` does not accept `--force-with-lease`.** Empirically: git 2.52.0 returns `unknown option`. The flag exists on `git push` and `git fetch` only. So "add `--force-with-lease` to the merge invocation" is not viable.
-2. **The integration coordinator runs in the orchestrator's CWD.** `IntegrationCoordinator.cwd = deps.cwd ?? process.cwd()` (`:48`), and `mainGit = simpleGit(this.cwd)` (`:51`). There is no dedicated integration worktree. Detaching HEAD or running `git merge` here mutates the orchestrator's actual working tree files. Today's `:158-159` already does this; the redesign should avoid making it worse.
+1. **`git merge` does not accept `--force-with-lease`.** That flag is `git push`/`git fetch` only.
+2. **The integration coordinator runs in the orchestrator's CWD.** `IntegrationCoordinator.cwd = deps.cwd ?? process.cwd()` (`:48`), `mainGit = simpleGit(this.cwd)` (`:51`). No dedicated integration worktree; running `git merge` here mutates the orchestrator's working tree. After plumbing-based integration the working tree will appear stale relative to `main` — that is acceptable; the orchestrator reads only refs and feature worktrees, never its own working-tree files. Do not add a post-CAS `git checkout main` to "clean up" — it would silently reintroduce the mutation.
 
 The fix uses git plumbing (`merge-tree` + `commit-tree` + `update-ref`) to build the merge commit *without ever touching the working tree*, then atomically swing `refs/heads/main` via `update-ref <ref> <new> <old>` (canonical compare-and-swap).
-
-Single-orchestrator deployments rarely hit the TOCTOU race. Multi-orchestrator deployments (or any environment where humans can push to main) make it real.
 
 ## Steps
 
@@ -34,12 +32,10 @@ The phase ships as **1 commit**.
 5. On `update-ref` failure: no working-tree mutation occurred, no ref was updated, the new merge commit (`<mergeSha>`) is dangling and will be garbage-collected eventually. Call `rerouteToReplan(featureId, [issue])` (`src/orchestrator/features/index.ts:51`) with a `RebaseVerifyIssue` whose `source: 'rebase'` (NOT `'squash'` — that is reserved for Phase 5's squash exhaustion to disambiguate concurrency loss from inherent conflict), `description` mentions "main moved during integration", and `conflictedFiles: []` (no files conflicted — main simply advanced; mirror the existing reroute shape at `src/orchestrator/integration/index.ts:142-150`). Note: `main_moved` is an `IntegrationOutcome.kind`, not a `VerifyIssue` discriminator — do not invent a new issue source/code.
 6. On conflict during step 2's merge-tree: identical to today's rebase conflict — return `kind: 'conflict'` (or the equivalent existing path; the integration coordinator already handles rebase conflicts via `runRebase` at `:178-194`, but the post-merge-tree conflict is a distinct case because a clean rebase succeeded and then merge-tree disagrees — this should not happen in practice, but log it loudly if it does).
 
-**Important advantage**: this design removes the existing `mainGit.checkout(this.mainBranch)` + `mainGit.merge(...)` pair entirely. The orchestrator's working tree is no longer mutated by the integration step. Subsequent `mainGit.revparse(['main'])` calls return the new merge SHA because the *ref* moved, regardless of working-tree state. If the orchestrator's working tree appears stale, that is acceptable — the orchestrator does not read its own working tree files; it only reads refs and worktrees of features.
-
 **Files:**
 
-- `src/orchestrator/integration/index.ts` — replace lines `:158-159` (the `checkout` + `merge` pair) with the four-step plumbing sequence above. Use `mainGit.raw(['merge-base', expectedParentSha, feature.featureBranch])`, `mainGit.raw(['merge-tree', '--write-tree', `--merge-base=${base}`, expectedParentSha, feature.featureBranch])`, `mainGit.raw(['commit-tree', tree, '-p', expectedParentSha, '-p', featureSha, '-m', mergeMessage])`, `mainGit.raw(['update-ref', 'refs/heads/main', mergeSha, expectedParentSha])`. Each `raw` returns trimmed stdout on success and throws on non-zero exit.
-- The TOCTOU pre-check at `:137-156` (compare `currentMainSha !== expectedParentSha`) becomes redundant once `update-ref` is atomic, but keep it for fast-fail semantics — the cheap check skips building a doomed merge commit when main has already moved before we even start. The CAS at step 4 is the actual safety guarantee, not the pre-check.
+- `src/orchestrator/integration/index.ts` — replace lines `:158-159` (the `checkout` + `merge` pair) with the four-step plumbing sequence above. Use `mainGit.raw(['merge-base', expectedParentSha, feature.featureBranch])`, `mainGit.raw(['merge-tree', '--write-tree', `--merge-base=${base}`, expectedParentSha, feature.featureBranch])`, `mainGit.raw(['commit-tree', tree, '-p', expectedParentSha, '-p', featureSha, '-m', mergeMessage])`, `mainGit.raw(['update-ref', 'refs/heads/main', mergeSha, expectedParentSha])`. Each `raw` returns trimmed stdout on success and throws on non-zero exit. **Do not** add a post-CAS `git checkout main` to "refresh" the working tree — the orchestrator never reads its own working-tree files; reintroducing the checkout silently undoes the entire redesign.
+- The TOCTOU pre-check at `:137-156` becomes redundant once `update-ref` is atomic, but keep it as a fast-fail — skips building a doomed merge commit when main already moved.
 - Detect `update-ref` lease failure by inspecting the `raw` rejection's stderr for the substring `cannot lock ref` (git's exact phrasing; matches across recent git versions). Also handle non-zero exit code as the primary signal — the substring match is a backstop in case future versions tweak phrasing.
 - (No git-wrapper file to touch — `src/runtime/worker/git/index.ts` does not exist; `simple-git` exposes the plumbing commands via `raw`. A repo-local git helper exists at `src/orchestrator/conflicts/git.ts` for reference, but the integration path uses `simpleGit` directly via the `mainGit` field.)
 
@@ -68,7 +64,5 @@ The phase ships as **1 commit**.
 
 ## Notes
 
-- This phase has only one item. Treat it as a self-contained low-risk patch — do not bundle it with Phase 1 commits, since the merge path is touched by no other phase.
-- If a multi-orchestrator deployment is explicitly out of scope, this phase can be deferred. Document the deferral in `docs/concerns/` rather than dropping the plan entirely.
-- An alternative implementation uses `git push . <mergeSha>:refs/heads/main --force-with-lease=refs/heads/main:<expectedParentSha>` (lease IS valid on push). Prefer `update-ref` for clarity — local push has more moving parts (refspec parsing, reflog entries, hook firing) and the lease-error format differs across git versions.
-- The plumbing approach (`merge-tree --write-tree`) requires git ≥ 2.38. Verified on the project's git 2.52.0. If future deployments target older git, `commit-tree` and `update-ref` are universally available; only `merge-tree --write-tree` would need a fallback (e.g. a temporary worktree).
+- If multi-orchestrator deployment is out of scope, this phase can be deferred — document in `docs/concerns/`.
+- Requires git ≥ 2.38 for `merge-tree --write-tree`. Verified on project's 2.52.0; older deployments would need a temp-worktree fallback for that step only.
