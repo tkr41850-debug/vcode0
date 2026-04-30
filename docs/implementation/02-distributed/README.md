@@ -28,7 +28,7 @@ The track distinguishes three multiplexed frame families on the worker↔orchest
 | `register` / `register_ack` / `register_reject` | Registry (setup) | One-shot per connection. Authenticates worker, declares capabilities + capacity, accepts or rejects on protocol mismatch. |
 | `heartbeat` / `heartbeat_ack` | Registry (liveness, lease carrier) | Recurring; worker-scoped (network workers only). After phase 5 the heartbeat carries `leases: Array<{agentRunId, fence}>` and is the canonical lease-renewal channel. |
 | `health_ping` / `health_pong` | Run-plane (local stdio liveness, **no leases**) | Baseline phase 1 frames; orchestrator↔local-spawn-child only. Pure liveness watchdog with no lease semantics. Network workers do not use them — they renew leases via `heartbeat`. |
-| `reconnect` / `reconnect_ack` | Registry (lease lifecycle) | Worker volunteers held `(agentRunId, fence)` after a transport drop; orchestrator either reattaches or sends `abort` per the algorithm in [`INVESTIGATION-architectural.md`](./INVESTIGATION-architectural.md) §D7. |
+| `reconnect` / `reconnect_ack` | Registry (lease lifecycle) | Worker volunteers held `(agentRunId, fence)` after a transport drop; orchestrator either reattaches or sends `abort` per the algorithm in [`_archive/INVESTIGATION-architectural.md`](./_archive/INVESTIGATION-architectural.md) §D7. |
 | `worker_shutdown` / `worker_shutdown_ack` | Registry (lease lifecycle) | Voluntary release. Lease moves to `released` (skip grace period); takeover may dispatch immediately. Fire-and-forget; lost frame falls back to TTL expiry. |
 
 ## Scope

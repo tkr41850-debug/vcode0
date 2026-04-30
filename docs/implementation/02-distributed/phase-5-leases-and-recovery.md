@@ -138,7 +138,22 @@ Nine commits, lease-lifecycle order: schema → grant → renew → expire → t
   CREATE INDEX idx_run_leases_expires ON run_leases(expires_at);
   CREATE INDEX idx_run_leases_worker ON run_leases(worker_id);
   ALTER TABLE agent_runs ADD COLUMN fence_token INTEGER NOT NULL DEFAULT 0;
+  CREATE TABLE run_lease_events (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_run_id    TEXT NOT NULL REFERENCES agent_runs(id),
+    prior_state     TEXT NOT NULL,
+    new_state       TEXT NOT NULL,
+    prior_worker_id TEXT NOT NULL,
+    new_worker_id   TEXT,
+    fence_before    INTEGER NOT NULL,
+    fence_after     INTEGER NOT NULL,
+    reason          TEXT NOT NULL,
+    occurred_at     INTEGER NOT NULL
+  );
+  CREATE INDEX idx_run_lease_events_run ON run_lease_events(agent_run_id);
   ```
+
+  The `run_lease_events` audit table lands here (not in step 5.4) so the migration is one transactional unit; consumers turn on in step 5.4.
 
 - `src/persistence/db.ts` — register in the `migrations` array (same
   wiring as the 010 entry from phase 1 step 1.3).
@@ -147,8 +162,10 @@ Nine commits, lease-lifecycle order: schema → grant → renew → expire → t
   `expireLease` (transactional: lease mutation + fence bump in one tx),
   `releaseLease` (voluntary, marks `state='released'`, **skips grace**;
   used by `worker_shutdown` from phase 1 step 1.2 and by clean
-  local-spawn `child.on('exit')`), and
-  `listExpiredLeases(now, graceMs)`.
+  local-spawn `child.on('exit')`),
+  `listExpiredLeases(now, graceMs)`, and
+  `bumpAndReadFence(agentRunId)` (transactional: increment
+  `agent_runs.fence_token`, return new value; called by step 5.2 dispatch path before the `run` frame is sent).
 - `src/persistence/sqlite-store.ts` — implement. `expireLease` and
   `releaseLease` each wrap in `db.transaction(...)`.
 - `src/core/types/runs.ts` — add `RunLease` (with `state: 'active' |
@@ -164,7 +181,7 @@ Cover renewal-with-stale-fence rejection.
 
 **Review subagent:**
 
-> Verify the migration: (1) `fence_token` ADD COLUMN has `NOT NULL DEFAULT 0`; (2) `expireLease` runs the lease update + fence bump in one transaction; (3) `releaseLease` skips fence bump but still wraps in a transaction; (4) no consumer wired yet. Flag any FK omission, missing index, or interface drift. Under 250 words.
+> Verify the migration: (1) `fence_token` ADD COLUMN has `NOT NULL DEFAULT 0`; (2) `expireLease` runs the lease update + fence bump in one transaction; (3) `releaseLease` skips fence bump but still wraps in a transaction; (4) `bumpAndReadFence` is transactional; (5) `run_lease_events` ships in this migration alongside `run_leases` (single transactional unit); (6) no consumer wired yet. Flag any FK omission, missing index, or interface drift. Under 250 words.
 
 **Commit:** `feat(persistence): add run_leases table and fence_token column`
 
@@ -204,8 +221,8 @@ emitted by the aborted worker is rejected by step 5.5 enforcement.
   string` and `fence: number`. Legacy `workerPid` / `workerBootEpoch`
   stay until step 5.9.
 - `src/runtime/worker-pool.ts:78+` — implement the ordering above. Read
-  + bump fence via a new `Store.bumpAndReadFence(agentRunId)`
-  transaction (added to step 5.1 review). After `harness.start` resolves,
+  + bump fence via `Store.bumpAndReadFence(agentRunId)`
+  (introduced in step 5.1). After `harness.start` resolves,
   call `store.grantLease({ agentRunId, workerId, fence, grantedAt: now,
   expiresAt: now + ttl, state: 'active' })`. On grant failure, close the
   handle and rethrow.
@@ -298,35 +315,10 @@ stale lease.
 
 Voluntary release (`worker_shutdown` frame, clean local `child.on('exit')`) calls `releaseLease` — skips grace, reroutes next tick. Crash-style local exit calls `expireLease` directly (synchronous co-located crash detection, no TTL wait).
 
-**Takeover events log.** Every transition out of `active` (whether
-expiry or voluntary release) writes a row to a new
-`run_lease_events` audit table: `agent_run_id`, `prior_state`,
-`new_state` (`expired` | `released`), `prior_worker_id`,
-`new_worker_id` (NULL until reroute lands), `prior_fence`,
-`new_fence`, `reason` (`heartbeat_timeout` | `worker_shutdown` |
-`local_child_exit_clean` | `local_child_exit_crash` |
-`forced_takeover`), `at`. This is the forensic gap left by dropping
-`owner_worker_id` in step 5.9.
+**Takeover events log.** Every transition out of `active` (whether expiry or voluntary release) writes a row to the `run_lease_events` audit table (schema lands in step 5.1's migration). `reason` is one of `heartbeat_timeout` | `worker_shutdown` | `local_child_exit_clean` | `local_child_exit_crash` | `forced_takeover`. `new_worker_id` is NULL until reroute back-fills it. This is the forensic gap left by dropping `owner_worker_id` in step 5.9.
 
 **Files:**
 
-- `src/persistence/migrations/013_run_leases_fence_token.ts` (extend
-  step 5.1) — add the `run_lease_events` table to the same migration:
-  ```sql
-  CREATE TABLE run_lease_events (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    agent_run_id TEXT NOT NULL REFERENCES agent_runs(id),
-    prior_state TEXT NOT NULL,
-    new_state   TEXT NOT NULL,
-    prior_worker_id TEXT,
-    new_worker_id   TEXT,
-    prior_fence INTEGER NOT NULL,
-    new_fence   INTEGER NOT NULL,
-    reason TEXT NOT NULL,
-    at INTEGER NOT NULL
-  );
-  CREATE INDEX idx_run_lease_events_run ON run_lease_events(agent_run_id);
-  ```
 - `src/orchestrator/scheduler/lease-sweeper.ts` — new pure module taking
   `(now, store, scheduler, runtime, sessionStore, config)`; emits per
   expired lease either `lease_expired_resume` (reroutes via

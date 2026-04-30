@@ -274,7 +274,7 @@ addressing a worker over the phase-1 network IPC transport.
 `start(...)` and `resume(...)` send a `run` frame across the wire
 just like the local path.
 
-**`SessionHandle.onExit` semantics — diverges from local-spawn (per `INVESTIGATION-architectural.md` §D15):**
+**`SessionHandle.onExit` semantics — diverges from local-spawn (per [`_archive/INVESTIGATION-architectural.md`](./_archive/INVESTIGATION-architectural.md) §D15):**
 
 - **Bare transport close** (network drop, unclean worker exit, partition) is treated as **dirty**: log it, but do **not** fire `onExit`. The handle's `runStatus` stays `running`; the lease layer (phase 5) handles cleanup via TTL expiry. Firing `onExit` on bare close would terminate the run on every flap and contradicts the partition model where the worker is fine but unreachable.
 - **Worker-initiated terminal frame** (`result`, `error`) is the clean path: `onExit` fires with the terminal outcome.
@@ -335,8 +335,8 @@ worker selection — the dispatcher does.
 **What:** the dispatcher picks between `PiSdkHarness` and
 `RemoteWsHarness` per run. Selection rule:
 
-- A worker capability declared in phase 1 (`worker.capabilities` —
-  e.g. `local-spawn` vs. `remote-ssh`) determines which harness can
+- A worker capability declared in phase 1 (`capabilities.transportKind`
+  — `local-spawn` vs `remote-ws`) determines which harness can
   service that worker.
 - For each task ready to dispatch, the dispatcher asks the registry
   for the next available worker (single worker for now — multi-worker
@@ -369,7 +369,7 @@ is unchanged — phase 2 keeps the seam stable.
   `LocalWorkerPool` directly.
 - `src/orchestrator/scheduler/dispatch.ts:160-225` — `harnessKind`
   patch logic already accepts both kinds; double-check it matches
-  the new `remote-ssh` discriminator.
+  the new `remote-ws` discriminator (phase-1 D2).
 
 **Tests:**
 

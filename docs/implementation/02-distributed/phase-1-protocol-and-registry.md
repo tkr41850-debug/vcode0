@@ -78,7 +78,7 @@ The phase ships as **6 commits**, each shippable on its own with the test suite 
 
 - `src/orchestrator/ports/worker-registry.ts` — new. Define:
   - `WorkerIdentity = { workerId: string; bootEpoch: number }`.
-  - `WorkerCapabilities = { scopeKinds: readonly RunScope['kind'][]; harnessKinds: readonly HarnessKind[] }`.
+  - `WorkerCapabilities = { scopeKinds: readonly RunScope['kind'][]; harnessKinds: readonly HarnessKind[]; transportKind: 'local-spawn' | 'remote-ws' }` — `transportKind` is part of capabilities (not worker identity) so the phase-3 picker can filter on it. Phase 4 step 4.4 extends the type with an optional `verification?: { commandSets: readonly string[] }` field.
   - `WorkerCapacity = { maxConcurrentRuns: number }`.
   - `WorkerStatus = 'live' | 'stale' | 'lost'`.
   - `RegisteredWorker = WorkerIdentity & { capabilities; capacity; agent: { name; version }; lastSeenAt: number; status: WorkerStatus; firstSeenAt: number }`.

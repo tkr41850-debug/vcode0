@@ -50,7 +50,7 @@ The phase ships as **7 commits**. Steps stand on their own; the test suite stays
 
 Specifically:
 
-- Add `listWorkers(): readonly WorkerCapacityView[]` to `RuntimePort`. Each `WorkerCapacityView` carries `{ workerId, kind: 'local-spawn' | 'remote', maxConcurrent, inFlight, healthy }`.
+- Add `listWorkers(): readonly WorkerCapacityView[]` to `RuntimePort`. Each `WorkerCapacityView` carries `{ workerId, kind: 'local-spawn' | 'remote', capabilities: WorkerCapabilities, maxConcurrent, inFlight, healthy }`. `capabilities` is the phase-1 `WorkerCapabilities` type — the picker (step 3.3) filters on `capabilities.{scopeKinds, harnessKinds, transportKind}`, so the view must surface it.
 - Keep `idleWorkerCount()` for back-compat (phase-1/2 callers and the scheduler tick still use it as a cheap "is anyone free?" gate); deprecate in a follow-up after phase 5.
 - Extend `dispatchRun` with an optional fourth arg: `options?: { targetWorkerId?: string; policyHint?: 'sticky' | 'capacity' }`. When `targetWorkerId` is set, the pool routes to that worker or returns a `not_dispatchable` result the scheduler can re-queue.
 - Add a corresponding `not_dispatchable` variant to `DispatchRunResult` (`{ kind: 'not_dispatchable'; agentRunId: string; reason: 'unknown_worker' | 'worker_full' | 'worker_unhealthy' }`). Existing call sites switch through this case explicitly.
