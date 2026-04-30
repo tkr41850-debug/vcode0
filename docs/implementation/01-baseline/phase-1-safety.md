@@ -4,6 +4,12 @@
 
 Harden the worker IPC and retry paths so a single misbehaving worker (malformed output, hang, transient API failure, attempt at a destructive git op) cannot take down the orchestrator or silently lose work. Add durable persistence for escalations.
 
+## Scope
+
+**In:** IPC frame schema validation (TypeBox); `ipc_quarantine` table + Store API + in-process ring buffer; worker heartbeat / health timeout; centralized retry policy classifier (`network/429/5xx/health_timeout`, exponential backoff with jitter); inbox `kind` extensions for `'semantic_failure' | 'retry_exhausted' | 'destructive_action'`; pi-sdk `beforeToolCall` destructive-op guard.
+
+**Out:** the `inbox_items` table itself (Phase 5 step 5.2); `request_help` operator escalations (planner-side, separate); migration files for CHECK widening (Phase 5's table ships the full union up-front); repair-loop bundle, `executing_repair`, commit-trailer injection (dropped from MVP per README).
+
 ## Background
 
 Verified gaps on `main`:
@@ -111,13 +117,13 @@ npm run check:fix && npm run check
 **Tests:**
 
 - `test/integration/harness-heartbeat.test.ts` — faux worker that drops pongs after N rounds; assert harness emits `health_timeout` error and the run transitions to `retry_await` via the existing error handler.
-- Unit test for the ping/pong round-trip with a fake transport.
+- Unit test for the ping/pong round-trip with a fake transport. Extend `test/unit/runtime/ipc-frame-schema.test.ts` (the file Phase 1 step 1.1 introduces) to round-trip both `health_ping` and `health_pong` schema branches — without this, a typo in the TypeBox schema slips through `npm run check`.
 
-**Verification:** `npm run check:fix && npm run check`.
+**Verification:** `npm run check:fix && npm run check` (the latter must include the extended `ipc-frame-schema.test.ts` round-trip and the new `harness-heartbeat.test.ts` integration test — verify both run, not just compile).
 
 **Review subagent:**
 
-> Verify the heartbeat: (1) interval is cleared on every termination path (normal exit, abort, timeout, error); (2) worker handler replies promptly even if the agent loop is busy (handler is registered before agent loop starts, runs on the IPC microtask, not a tool callback); (3) the synthesized `error` frame matches the existing error contract so the scheduler retry handler picks it up; (4) `workerHealthTimeoutMs` config is threaded end-to-end. Flag any leak (uncleared interval) or path that bypasses the timeout. Under 350 words.
+> Verify the heartbeat: (1) interval is cleared on every termination path (normal exit, abort, timeout, error); (2) worker handler replies promptly even if the agent loop is busy (handler is registered before agent loop starts, runs on the IPC microtask, not a tool callback); (3) the synthesized `error` frame matches the existing error contract so the scheduler retry handler picks it up; (4) `workerHealthTimeoutMs` config is threaded end-to-end and routed through Phase 6's centralized default helper if Phase 6 has shipped; (5) `ipc-frame-schema.test.ts` round-trips both `health_ping` and `health_pong` branches. Flag any leak (uncleared interval) or path that bypasses the timeout. Under 350 words.
 
 **Commit:** `feat(runtime/harness): heartbeat with health timeout`
 
@@ -157,7 +163,7 @@ npm run check:fix && npm run check
 
 **Files:**
 
-- `src/orchestrator/ports/index.ts` — extend the `InboxItemAppend` `kind` union to add `'semantic_failure'` and `'retry_exhausted'`. The Store method signatures already exist from Phase 5 step 5.2; no method additions needed.
+- `src/orchestrator/ports/index.ts` — extend the `InboxItemAppend` `kind` union to add `'semantic_failure'` and `'retry_exhausted'`. The Store method signatures already exist from Phase 5 step 5.2; no method additions needed. **No new migration**: per the baseline's pre-0.0.0 stance (Phase 0 reset), Phase 5 step 5.2 ships the `inbox_items` table with the full literal CHECK constraint from the start — Phase 1 only widens the TS union, not the SQL.
 - `src/orchestrator/scheduler/events.ts` — replace the TODO from step 1.5 with `store.appendInboxItem({ kind: 'semantic_failure' | 'retry_exhausted', ... })` at the `escalate_inbox` call sites in the `worker_message` error branch and the `feature_phase_error` handler.
 
 **Tests:**
@@ -165,11 +171,11 @@ npm run check:fix && npm run check
 - Extend `test/unit/persistence/sqlite-store.test.ts` (already covers append/list/resolve from Phase 5 step 5.2) — assert the new `kind` values round-trip.
 - `test/integration/retry-inbox-escalation.test.ts` — faux worker emits an error classified as semantic; assert an `inbox_items` row appears with the right `kind` and `payload`.
 
-**Verification:** `npm run check:fix && npm run check`.
+**Verification:** `npm run check:fix && npm run check`. **Pre-flight:** confirm Phase 5 step 5.2 is in the base branch (`git log --oneline | grep inbox_items`) — without the table created by Phase 5 the new `kind` literals compile but `appendInboxItem` fails at runtime.
 
 **Review subagent:**
 
-> Verify inbox kind extensions: (1) the `kind` union is the canonical TS string-literal union, not free-form; (2) the retry-policy integration in `events.ts` writes to inbox on every escalation path covered by this step — `'semantic_failure'` (semantic worker error) and `'retry_exhausted'` (retry-cap hit). `request_help` operator escalations are out of scope for Step 1.6 — they are a planner-side IPC frame, not a scheduler retry outcome, and are wired separately. Grep for any escalation in `events.ts` that still sets `runStatus = 'failed'` without an inbox row; (3) no consumer assumed to exist (this is a producer-only step); (4) the `inbox_items` table and Store methods from Phase 5 step 5.2 are not duplicated. Under 350 words.
+> Verify inbox kind extensions: (1) the `kind` union is the canonical TS string-literal union, not free-form; (2) the retry-policy integration in `events.ts` writes to inbox on every escalation path covered by this step — `'semantic_failure'` (semantic worker error) and `'retry_exhausted'` (retry-cap hit). `request_help` operator escalations are out of scope for Step 1.6 — they are a planner-side IPC frame, not a scheduler retry outcome, and are wired separately. Grep for any escalation in `events.ts` that still sets `runStatus = 'failed'` without an inbox row; (3) no consumer assumed to exist (this is a producer-only step); (4) the `inbox_items` table and Store methods from Phase 5 step 5.2 are not duplicated; (5) **no new migration file** — the table's CHECK constraint already permits the new kinds because Phase 5 ships it with the full literal union from the start. Under 350 words.
 
 **Commit:** `feat(scheduler): wire retry escalation to inbox_items`
 
@@ -188,6 +194,7 @@ npm run check:fix && npm run check
   Test the regex against every example listed in the Tests section before commit; one missed case here means an irreversible op slips through.
 - `src/runtime/worker/index.ts` — register `beforeToolCall: async (toolName, input) => { ... }` on the pi-sdk Agent. For `run_command`, run the guard. On match, post a `request_approval` IPC frame (existing surface) and return `{ block: true, reason: 'destructive op requires approval: <pattern>' }`. The pi-sdk shape is `BeforeToolCallResult { block?: boolean; reason?: string }` (both optional, async hook). **MVP path**: block immediately and return `{ block: true, reason }`; inbox row carries the approval ask; agent retry is operator-initiated. Synchronous-await alternative deferred.
 - `src/orchestrator/scheduler/events.ts` — when handling `request_approval` with `kind: 'destructive_action'`, call `store.appendInboxItem` with the same kind.
+- `src/orchestrator/ports/index.ts` — extend the `InboxItemAppend` `kind` union to add `'destructive_action'`. **No new migration** — Phase 5 step 5.2 ships the table with the full CHECK union from the start.
 
 **Tests:**
 
@@ -198,7 +205,7 @@ npm run check:fix && npm run check
 
 **Review subagent:**
 
-> Verify destructive guard: (1) regex set covers exactly `git push --force`, `git push -f`, `git branch -D`, `git reset --hard` — no broader patterns that produce false positives (especially `--force-with-lease`); (2) the pi-sdk hook returns `{ block: true }` rather than throwing — throwing would surface as a worker crash, not a tool error; (3) the `inbox_items` row carries enough payload to act on (command text, cwd, agentRunId); (4) the agent's transcript shows the block message so the LLM can adapt next turn. Under 400 words.
+> Verify destructive guard: (1) regex set covers exactly `git push --force`, `git push -f`, `git branch -D`, `git reset --hard` — no broader patterns that produce false positives (especially `--force-with-lease`); (2) the pi-sdk hook returns `{ block: true, reason: '...' }` rather than throwing — throwing would surface as a worker crash, not a tool error; the `reason` string must include the matched pattern so the agent transcript shows actionable feedback; (3) the `inbox_items` row carries enough payload to act on (command text, cwd, agentRunId); (4) the agent's transcript shows the block reason so the LLM can adapt next turn; (5) **no new migration file** — Phase 5's table CHECK already covers `'destructive_action'`. Under 400 words.
 
 **Commit:** `feat(agents/worker): destructive-op guard via beforeToolCall`
 

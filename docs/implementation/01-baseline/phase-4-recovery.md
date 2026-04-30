@@ -6,6 +6,12 @@ Stop disk and inode exhaustion from accumulated worktrees, and unblock boot when
 
 **Depends on Phase 5** (which ships first per order) for the task-worktree disposal hook. Step 4.1 disposes task worktree on successful squash, feature worktree on successful main merge.
 
+## Scope
+
+**In:** `removeWorktree(target, branch)` and `sweepStaleLocks()` on `WorktreeProvisioner`; disposal hooks at task-squash success (Phase 5 site) and three feature-merge sites (`integration/index.ts`, `integration/reconciler.ts`, `scheduler/events.ts`); boot-time stale-lock sweep before first scheduler tick.
+
+**Out:** worktree creation pathway changes; operator-triggered or TUI-initiated disposal (no `prune` CLI verb, no manual `removeWorktree` surface); reference counting; cross-host distributed lock recovery; restoring the dropped `executing_repair` priority arm.
+
 ## Background
 
 Verified gaps on `main`:
@@ -30,13 +36,21 @@ The phase ships as **2 commits**. Step 4.1 is independent of step 4.2; ship 4.1 
 **Files:**
 
 - `src/runtime/worktree/index.ts` — extend the `WorktreeProvisioner` interface with `removeWorktree(target: string, branch: string): Promise<void>`. Take `branch` as an explicit arg rather than reverse-deriving from the path (callers already have it: `feature.featureBranch` for features, `resolveTaskWorktreeBranch(task)` from `src/core/naming/index.ts:38` for tasks). Both calls must run against `simpleGit(projectRoot)`, **not** `simpleGit(target)` — after `worktree remove`, `target` no longer exists, so a `simpleGit(target)` instance for the branch-delete would fail with "not a git repository". Implement on `GitWorktreeProvisioner` as `git.raw(['worktree', 'remove', '--force', target])` followed by `git.raw(['branch', '-D', branch])`, where `git = simpleGit(projectRoot)` (the provisioner already holds this — see existing `ensureFeatureWorktree` callers). Be idempotent: swallow "is not a working tree" / "no such worktree" / branch-not-found errors and verify with `hasRegisteredWorktree(target) === false` before returning.
-- **Task disposal site (depends on Phase 5)** — Phase 5 reorders `events.ts` so the squash runs **before** `transitionTask(..., 'merged')`. **Pin the order**: dispose the task worktree *after* `transitionTask(..., 'merged')` succeeds (not before, not alongside). Rationale: state-transition first means a disposal failure (disk full, permission error, lock) does not roll back a successful merge — the task is canonically `merged` and the worktree leak is a separate concern logged for operator follow-up. The earlier "before or alongside" phrasing is dropped because two implementations could legitimately disagree on it. Call `removeWorktree(taskWorktreeTarget, taskBranch)` where `taskWorktreeTarget = path.join(projectRoot, worktreePath(resolveTaskWorktreeBranch(task)))`. Disposal runs async/non-blocking with respect to the next handler steps; failures are logged at warn level and never throw.
+- **Task disposal site (depends on Phase 5)** — Phase 5 reorders `events.ts` so the squash runs **before** `transitionTask(..., 'merged')`. **Insertion site**: in the `{ ok: true }` success branch added by Phase 5 step 5.1 to the `taskLanded` handler in `src/orchestrator/scheduler/events.ts`, immediately after the `transitionTask({ status: 'done', collabControl: 'merged' })` call and before `features.onTaskLanded`. **Pin the order**: dispose the task worktree *after* `transitionTask(..., 'merged')` succeeds (not before, not alongside). Rationale: state-transition first means a disposal failure (disk full, permission error, lock) does not roll back a successful merge — the task is canonically `merged` and the worktree leak is a separate concern logged for operator follow-up. Call `removeWorktree(taskWorktreeTarget, taskBranch)` where `taskWorktreeTarget = path.join(projectRoot, worktreePath(resolveTaskWorktreeBranch(task)))`. Disposal runs async/non-blocking with respect to the next handler steps; failures are logged at warn level and never throw.
 - **Feature disposal site** — `src/core/merge-train/index.ts:125` is the `transitionFeature(..., 'merged')` (inside `completeIntegration`); `:147` is the `branch_open` eject and is *not* a disposal point. Disposal must run from the production callers of `completeIntegration` (via the wrapper at `src/orchestrator/features/index.ts:47-49`), not from inside `merge-train` itself (core has no I/O). The three callers are:
   - `src/orchestrator/integration/index.ts:173` (post-merge success)
   - `src/orchestrator/integration/reconciler.ts:97` (recovery path that observes a merge already happened)
   - `src/orchestrator/scheduler/events.ts:465` (defensive recovery path: guarded by `if (feature.collabControl !== 'merged')`; fires only when in-memory state lags the ref after a recovery interleave — zero invocations on the happy path, but intentional. Do not flag as dead during implementation review).
   At all three sites, dispose the feature worktree (`worktreePath(feature.featureBranch)`). Defensively enumerate leftover tasks via `for...of graph.tasks.values()` filtered on `t.featureId === featureId` (codebase idiom; do not introduce `Array.from`) and call `removeWorktree` on each — covers crash-recovery where squash succeeded but task disposal did not.
 - `src/orchestrator/ports/index.ts` — re-export the extended `WorktreeProvisioner` if the type is currently re-exported.
+- **`WorktreeProvisioner` test-double stubs (must update — same 6 sites Phase 8 step 8.2 already extended)**: by the time Phase 4 ships, every stub already carries `ensureFeatureBranch` from Phase 8. Phase 4 extends the same stubs with no-op `removeWorktree` and (for step 4.2) `sweepStaleLocks` async fns. Sites:
+  - `test/unit/orchestrator/scheduler-loop.test.ts:438-439`
+  - `test/unit/orchestrator/conflicts.test.ts:35-36`
+  - `test/unit/orchestrator/integration-coordinator.test.ts:119-120`
+  - `test/unit/orchestrator/integration-reconciler.test.ts:103-104`
+  - `test/unit/orchestrator/recovery.test.ts:463-464`
+  - `test/integration/feature-phase-agent-flow.test.ts:65-66`
+  Line numbers anchor today's `main`. Re-resolve at edit time — Phase 8 will have grown each stub by one method, and any stub-shape regression must be caught here, not in CI.
 
 **Tests:**
 

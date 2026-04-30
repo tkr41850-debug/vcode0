@@ -6,6 +6,12 @@ Fix first-run orchestration so `/init` followed by `/auto` enters normal plannin
 
 This phase is a TDD bug fix with one lifecycle correction attached. Do not expand it into worktree cleanup, merge-train changes, or planner prompt redesign.
 
+## Scope
+
+**In:** gate `ensureFeatureWorktree` in `dispatch.ts` so `discuss | research | plan | replan` phases skip provisioning; `ensureFeatureBranch(feature)` on `WorktreeProvisioner` interface; explicit `ensureFeatureBranch` call before `branch_open` collab transition; updating the 6 `WorktreeProvisioner` test-double sites with the new method.
+
+**Out:** worktree disposal (Phase 4); harness `verify`/`summarize` worktree requirements (current implementation reads graph/store/projectRoot, not feature path); planner prompt redesign; merge-train changes; new `FeatureLifecycleCoordinator` surface beyond wiring `ensureFeatureBranch` at `approveFeatureProposal`.
+
 ## Background
 
 Verified gaps on `main`:
@@ -39,7 +45,7 @@ Ships as **2 commits**, in order. First commit fixes the user-visible regression
 
 ### Step 8.1 — Stop provisioning feature worktrees for pre-execution feature phases
 
-**What:** gate `ensureFeatureWorktree(...)` by feature phase inside `dispatchFeaturePhaseUnit(...)`. `discuss`, `research`, `plan`, and `replan` should dispatch without requiring a feature worktree. Keep feature-worktree provisioning for phases that truly run against feature-branch contents (`verify`, `ci_check`, `summarize`), and leave `execute` unchanged.
+**What:** gate `ensureFeatureWorktree(...)` by feature phase inside `dispatchFeaturePhaseUnit(...)`. `discuss`, `research`, `plan`, and `replan` should dispatch without requiring a feature worktree. Keep feature-worktree provisioning for phases that need or will need it (`verify`, `ci_check`, `summarize`), and leave `execute` unchanged. **Note on the `verify`/`summarize` side**: today the agent tool wiring for these phases uses graph/store/`projectRoot` context, not the feature worktree path itself — `ci_check` is the only phase whose underlying `ports.verification.verifyFeature` clearly needs the feature branch checked out. Keeping `verify` and `summarize` on the "needs worktree" side is intentional forward-compat (these phases will likely gain worktree-bound tools as feature verification matures); it is conservative, not strictly required by current code.
 
 This is the immediate `/init` + `/auto` fix. It should make the first feature enter planning approval flow instead of `retry_await`.
 

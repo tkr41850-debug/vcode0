@@ -4,6 +4,12 @@
 
 Add cheap, env-gated invariants that catch graph-mutation and dispatch-correctness regressions early, before they manifest as silent scheduling bugs. Both items are defensive: the system works without them today, but adding them is high-leverage given the cost.
 
+## Scope
+
+**In:** env-gated tick-boundary mutation guard (asserts no graph mutations between scheduler ticks); dispatch-time unmerged-dependency belt-and-suspenders check.
+
+**Out:** structural changes to scheduler ordering, milestone steering, or critical-path computation; new mutation pathways; production gating beyond the env flag.
+
 ## Background
 
 Verified gaps on `main`:

@@ -6,6 +6,12 @@ Make the TUI composer usable during live orchestration. Slash-command suggestion
 
 This phase is UI-state stabilization, not a command-surface rewrite. Keep current slash-command semantics, keep `CombinedAutocompleteProvider` as the completion engine, and avoid patching `@mariozechner/pi-tui`.
 
+## Scope
+
+**In:** stable delegating autocomplete provider that survives view refreshes; `esc` always defocuses composer regardless of draft contents; preservation of `CombinedAutocompleteProvider` as the completion source.
+
+**Out:** patching or forking `@mariozechner/pi-tui`; new slash commands or completion behaviors; live-planner removal; replacing the third-data-mode planner pane (kept on `main`).
+
 ## Background
 
 Verified gaps on `main`:

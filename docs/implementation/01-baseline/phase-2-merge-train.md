@@ -4,6 +4,12 @@
 
 Close the TOCTOU window between the main-SHA re-check and the `git merge --no-ff` call inside `IntegrationCoordinator`. Atomic at the git ref-update layer instead of relying on a check-then-act pattern. Do this without mutating any working tree, since the integration coordinator runs in the orchestrator's CWD (`process.cwd()`, see `src/orchestrator/integration/index.ts:48`) — not a dedicated integration worktree as the original plan assumed.
 
+## Scope
+
+**In:** plumbing-based merge (`merge-base` → `merge-tree --write-tree` → `commit-tree`) + atomic CAS via `update-ref refs/heads/main <new> <old>`; `cannot lock ref` lease-fail detection; `main_moved` reroute to `replan_needed` with `source: 'rebase'`; preservation of the existing pre-check as a fast-fail.
+
+**Out:** dedicated integration worktree; `--force-with-lease` (does not exist for `git merge`); post-CAS working-tree refresh; multi-orchestrator deployment work beyond CAS correctness.
+
 ## Background
 
 `src/orchestrator/integration/index.ts:137-156` reads `main` SHA via `revparse` and compares it to `expectedParentSha`. Lines `:158-159` then run `mainGit.checkout(this.mainBranch)` and `mainGit.merge(['--no-ff', feature.featureBranch])` — without any concurrency guard. Between line 137 and line 159 main may advance (concurrent push, second orchestrator instance), and the merge proceeds onto the new tip. The reconciler then sees `parents[0] !== expectedParentSha` and stalls the feature in `halted`.
@@ -25,7 +31,7 @@ The phase ships as **1 commit**.
 
 **What:** stop running `git merge` on the working tree. Instead:
 
-1. Compute merge base: `git merge-base <expectedParentSha> <featureBranch>` — output is the merge-base SHA.
+1. Compute merge base: `git merge-base <expectedParentSha> <featureBranch>` — output is the merge-base SHA. (After a successful `runRebase`, `expectedParentSha` *is* the merge-base; the explicit `merge-base` call is a defensive double-check that also handles the no-op rebase case where main and feature already share a tip.)
 2. Build merge tree without touching the working tree: `git merge-tree --write-tree --merge-base=<base> <expectedParentSha> <featureBranch>` — outputs the resulting tree SHA on stdout (modern git ≥ 2.38; verified available on 2.52.0). On conflict, git exits non-zero with conflict info on stderr/stdout.
 3. Build merge commit: `git commit-tree <tree> -p <expectedParentSha> -p <featureSha> -m <mergeMessage>` — outputs the merge commit SHA. Equivalent to a `--no-ff` merge, but produced as a pure plumbing operation without any working-tree mutation. **`featureSha` provenance**: use the `postRebaseSha` value the coordinator already records at `src/orchestrator/integration/index.ts:115-117` (post-rebase feature tip). Do not re-resolve `featureBranch` at commit-tree time — a concurrent push to the feature branch between rebase completion and commit-tree would produce a parent shape the reconciler does not recognize. The reconciler at `src/orchestrator/integration/reconciler.ts:87-90` checks `parents[1] === featureBranchPostRebaseSha`; pinning `featureSha = postRebaseSha` is the only way to satisfy that invariant.
 4. Atomic CAS: `git update-ref refs/heads/main <mergeSha> <expectedParentSha>`. Succeeds iff main still points at `expectedParentSha`; otherwise git errors with `cannot lock ref 'refs/heads/main': is at <new>... but expected <old>` and exits non-zero.
@@ -45,7 +51,7 @@ The phase ships as **1 commit**.
 - The existing coordinator tests in `test/unit/orchestrator/integration-coordinator.test.ts` use real git subprocesses; verify they still pass after replacing the `checkout`+`merge` pair with plumbing. The merge commit shape (two-parent, no-ff) is unchanged from the operator's perspective; only the construction path differs.
 - Working-tree assertion: after a successful integration, the orchestrator's CWD has not been mutated (no checkout, no merge). Add an assertion if the harness exposes the working-tree state.
 
-**Verification:** `npm run check:fix && npm run check`.
+**Verification:** `npm run check:fix && npm run check` (the latter must execute `test/integration/integration-coordinator-cas.test.ts` — confirm the new test ran, not just compiled, by checking the test report includes both the unchanged-main and main-advanced branches).
 
 **Review subagent:**
 
