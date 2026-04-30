@@ -1,7 +1,17 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
-import { JsonConfigLoader, resolveVerificationLayerConfig } from '@root/config';
+import {
+  buildEffectiveDefaultConfig,
+  buildPersistedDefaultConfig,
+  DEFAULT_MODEL_ID,
+  defaultHarnessConfig,
+  defaultModelRoutingConfig,
+  defaultWarningConfig,
+  defaultWarningThresholds,
+  JsonConfigLoader,
+  resolveVerificationLayerConfig,
+} from '@root/config';
 import { describe, expect, it } from 'vitest';
 
 import { useTmpDir } from '../helpers/tmp-dir.js';
@@ -212,5 +222,80 @@ describe('JsonConfigLoader', () => {
     await expect(new JsonConfigLoader(configPath).load()).rejects.toThrow(
       `Invalid JSON in ${configPath}`,
     );
+  });
+});
+
+describe('centralized default builders', () => {
+  it('exposes the canonical default model id', () => {
+    expect(DEFAULT_MODEL_ID).toBe('claude-sonnet-4-6');
+  });
+
+  it('defaultWarningThresholds returns a fresh copy each call', () => {
+    const a = defaultWarningThresholds();
+    const b = defaultWarningThresholds();
+    expect(a).toEqual(b);
+    expect(a).not.toBe(b);
+  });
+
+  it('defaultWarningConfig matches the persisted warnings shape', () => {
+    expect(defaultWarningConfig()).toEqual({
+      longFeatureBlockingMs: 8 * 60 * 60 * 1000,
+      verifyReplanLoopThreshold: 3,
+      ciCheckReplanLoopThreshold: 3,
+      rebaseReplanLoopThreshold: 3,
+      totalReplanLoopThreshold: 6,
+    });
+  });
+
+  it('defaultHarnessConfig is pi-sdk', () => {
+    expect(defaultHarnessConfig()).toEqual({ kind: 'pi-sdk' });
+  });
+
+  it('defaultModelRoutingConfig uses DEFAULT_MODEL_ID for ceiling and tiers', () => {
+    expect(defaultModelRoutingConfig()).toEqual({
+      enabled: false,
+      ceiling: DEFAULT_MODEL_ID,
+      tiers: {
+        heavy: DEFAULT_MODEL_ID,
+        standard: DEFAULT_MODEL_ID,
+        light: DEFAULT_MODEL_ID,
+      },
+      escalateOnFailure: false,
+      budgetPressure: false,
+    });
+  });
+
+  it('defaultModelRoutingConfig honors a caller-supplied ceiling', () => {
+    const cfg = defaultModelRoutingConfig('claude-opus-4-7');
+    expect(cfg.ceiling).toBe('claude-opus-4-7');
+    expect(cfg.tiers).toEqual({
+      heavy: 'claude-opus-4-7',
+      standard: 'claude-opus-4-7',
+      light: 'claude-opus-4-7',
+    });
+  });
+
+  it('buildPersistedDefaultConfig omits modelRouting (kept implicit on disk)', () => {
+    const cfg = buildPersistedDefaultConfig();
+    expect(cfg).toEqual({
+      tokenProfile: 'balanced',
+      warnings: defaultWarningConfig(),
+      harness: defaultHarnessConfig(),
+    });
+    expect(cfg.modelRouting).toBeUndefined();
+  });
+
+  it('buildEffectiveDefaultConfig materializes runtime modelRouting', () => {
+    const cfg = buildEffectiveDefaultConfig();
+    expect(cfg.modelRouting).toEqual(defaultModelRoutingConfig());
+    expect(cfg.tokenProfile).toBe('balanced');
+    expect(cfg.warnings).toEqual(defaultWarningConfig());
+    expect(cfg.harness).toEqual(defaultHarnessConfig());
+  });
+
+  it('buildEffectiveDefaultConfig accepts overrides', () => {
+    const cfg = buildEffectiveDefaultConfig({ tokenProfile: 'quality' });
+    expect(cfg.tokenProfile).toBe('quality');
+    expect(cfg.modelRouting).toEqual(defaultModelRoutingConfig());
   });
 });

@@ -25,6 +25,8 @@ import {
 
 export const DEFAULT_CONFIG_PATH = '.gvc0/config.json';
 
+export const DEFAULT_MODEL_ID = 'claude-sonnet-4-6';
+
 export type VerificationLayerName = 'task' | 'feature';
 
 const DEFAULT_WARNING_THRESHOLDS: WarningThresholds = {
@@ -39,7 +41,11 @@ const DEFAULT_WARNING_THRESHOLDS: WarningThresholds = {
   totalReplanLoopThreshold: DEFAULT_TOTAL_REPLAN_LOOP_THRESHOLD,
 };
 
-function defaultWarningConfig(): WarningConfig {
+export function defaultWarningThresholds(): WarningThresholds {
+  return { ...DEFAULT_WARNING_THRESHOLDS };
+}
+
+export function defaultWarningConfig(): WarningConfig {
   return {
     longFeatureBlockingMs: DEFAULT_WARNING_THRESHOLDS.longFeatureBlockingMs,
     verifyReplanLoopThreshold:
@@ -53,9 +59,25 @@ function defaultWarningConfig(): WarningConfig {
   };
 }
 
-function defaultHarnessConfig(): HarnessConfig {
+export function defaultHarnessConfig(): HarnessConfig {
   return {
     kind: 'pi-sdk',
+  };
+}
+
+export function defaultModelRoutingConfig(
+  ceiling: string = DEFAULT_MODEL_ID,
+): ModelRoutingConfig {
+  return {
+    enabled: false,
+    ceiling,
+    tiers: {
+      heavy: ceiling,
+      standard: ceiling,
+      light: ceiling,
+    },
+    escalateOnFailure: false,
+    budgetPressure: false,
   };
 }
 
@@ -66,6 +88,26 @@ const DEFAULT_CONFIG: GvcConfig = {
     kind: 'pi-sdk',
   },
 };
+
+export function buildPersistedDefaultConfig(): GvcConfig {
+  return {
+    tokenProfile: DEFAULT_CONFIG.tokenProfile,
+    warnings: defaultWarningConfig(),
+    harness: defaultHarnessConfig(),
+  };
+}
+
+export function buildEffectiveDefaultConfig(
+  overrides: Partial<GvcConfig> = {},
+): GvcConfig {
+  return {
+    tokenProfile: DEFAULT_CONFIG.tokenProfile,
+    warnings: defaultWarningConfig(),
+    harness: defaultHarnessConfig(),
+    modelRouting: defaultModelRoutingConfig(),
+    ...overrides,
+  };
+}
 
 export interface ConfigLoader {
   load(): Promise<GvcConfig>;
@@ -83,7 +125,7 @@ export class JsonConfigLoader implements ConfigLoader {
       return normalizeConfig(JSON.parse(raw) as unknown, resolvedPath);
     } catch (error: unknown) {
       if (isNodeError(error) && error.code === 'ENOENT') {
-        const config = cloneDefaultConfig();
+        const config = buildPersistedDefaultConfig();
         await fs.writeFile(
           resolvedPath,
           `${JSON.stringify(config, null, 2)}\n`,
@@ -97,14 +139,6 @@ export class JsonConfigLoader implements ConfigLoader {
       throw error;
     }
   }
-}
-
-function cloneDefaultConfig(): GvcConfig {
-  return {
-    tokenProfile: DEFAULT_CONFIG.tokenProfile,
-    warnings: defaultWarningConfig(),
-    harness: defaultHarnessConfig(),
-  };
 }
 
 function normalizeConfig(input: unknown, configPath: string): GvcConfig {

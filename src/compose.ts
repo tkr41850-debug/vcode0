@@ -22,7 +22,7 @@ import {
 import { openDatabase } from '@persistence/db';
 import { PersistentFeatureGraph } from '@persistence/feature-graph';
 import { SqliteStore } from '@persistence/sqlite-store';
-import { JsonConfigLoader } from '@root/config';
+import { DEFAULT_MODEL_ID, JsonConfigLoader } from '@root/config';
 import type {
   ApprovalDecision,
   ApprovalPayload,
@@ -38,8 +38,6 @@ import { FileSessionStore } from '@runtime/sessions/index';
 import { LocalWorkerPool } from '@runtime/worker-pool';
 import { GitWorktreeProvisioner } from '@runtime/worktree/index';
 import { TuiApp } from '@tui/app';
-
-const DEFAULT_MODEL_ID = 'claude-sonnet-4-6';
 
 export async function composeApplication(): Promise<GvcApplication> {
   const projectRoot = process.cwd();
