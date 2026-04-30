@@ -11,7 +11,10 @@ export type {
   TokenProfile,
   WarningConfig,
 } from './config.js';
-export { DEFAULT_MAX_SQUASH_RETRIES } from './config.js';
+export {
+  DEFAULT_MAX_SQUASH_RETRIES,
+  DEFAULT_WORKER_HEALTH_TIMEOUT_MS,
+} from './config.js';
 export type {
   BaseGitConflictContext,
   CrossFeatureFeatureRebaseGitConflictContext,

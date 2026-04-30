@@ -62,8 +62,9 @@ class CollectingWritable extends Writable {
   }
 }
 
-type FakeChild = ChildProcess & {
+type FakeChild = Omit<ChildProcess, 'stdout'> & {
   pid: number;
+  stdout: PassThrough;
   writes: string[];
   kill: ReturnType<typeof vi.fn>;
   emitExit: (code: number | null, signal: NodeJS.Signals | null) => void;
@@ -439,5 +440,189 @@ describe('PiSdkHarness', () => {
 
     expect(errors).toHaveLength(1);
     expect(errors[0]?.message).toBe('spawn ENOENT');
+  });
+
+  describe('heartbeat', () => {
+    it('emits health_ping on the half-period interval', async () => {
+      vi.useFakeTimers();
+      const child = createForkedChild();
+      const forkWorker = vi.fn(() => child);
+      const harness = new PiSdkHarness(
+        createSessionStoreMock(),
+        '/tmp/project-root',
+        {
+          entryPath: '/tmp/custom-entry.ts',
+          forkProcess: forkWorker,
+          workerHealthTimeoutMs: 1000,
+        },
+      );
+
+      await harness.start(makeTaskRunPayload({ taskId: 't-1' }), 'run-hb');
+      // first write is the run frame
+      expect(child.writes).toHaveLength(1);
+
+      vi.advanceTimersByTime(500);
+      const pings = child.writes
+        .map((w) => JSON.parse(w))
+        .filter((m) => m.type === 'health_ping');
+      expect(pings).toHaveLength(1);
+      expect(pings[0]?.nonce).toBe(1);
+
+      vi.advanceTimersByTime(500);
+      const pings2 = child.writes
+        .map((w) => JSON.parse(w))
+        .filter((m) => m.type === 'health_ping');
+      expect(pings2).toHaveLength(2);
+    });
+
+    it('synthesizes a health_timeout error and SIGKILLs the child on missed pongs', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(0));
+      const child = createForkedChild();
+      const forkWorker = vi.fn(() => child);
+      const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
+      const harness = new PiSdkHarness(
+        createSessionStoreMock(),
+        '/tmp/project-root',
+        {
+          entryPath: '/tmp/custom-entry.ts',
+          forkProcess: forkWorker,
+          workerHealthTimeoutMs: 1000,
+        },
+      );
+
+      const handle = await harness.start(
+        makeTaskRunPayload({ taskId: 't-7' }),
+        'run-hb',
+      );
+      const messages: { type: string; error?: string }[] = [];
+      handle.onWorkerMessage((m) =>
+        messages.push(m as unknown as (typeof messages)[number]),
+      );
+
+      vi.advanceTimersByTime(2000);
+
+      const timeouts = messages.filter(
+        (m) => m.type === 'error' && m.error === 'health_timeout',
+      );
+      expect(timeouts).toHaveLength(1);
+      expect(killSpy).toHaveBeenCalledWith(4321, 'SIGKILL');
+
+      killSpy.mockRestore();
+    });
+
+    it('resets the timeout window when a pong arrives', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(0));
+      const child = createForkedChild();
+      const forkWorker = vi.fn(() => child);
+      const harness = new PiSdkHarness(
+        createSessionStoreMock(),
+        '/tmp/project-root',
+        {
+          entryPath: '/tmp/custom-entry.ts',
+          forkProcess: forkWorker,
+          workerHealthTimeoutMs: 1000,
+        },
+      );
+
+      const handle = await harness.start(
+        makeTaskRunPayload({ taskId: 't-7' }),
+        'run-hb',
+      );
+      const messages: { type: string }[] = [];
+      handle.onWorkerMessage((m) =>
+        messages.push(m as unknown as (typeof messages)[number]),
+      );
+
+      // Advance just past the first ping window; send a pong before timeout.
+      vi.advanceTimersByTime(800);
+      vi.setSystemTime(new Date(800));
+      child.stdout.write('{"type":"health_pong","nonce":1}\n');
+      await vi.advanceTimersByTimeAsync(1);
+      vi.setSystemTime(new Date(1500));
+      vi.advanceTimersByTime(500);
+
+      const timeouts = messages.filter((m) => m.type === 'error');
+      expect(timeouts).toHaveLength(0);
+    });
+
+    it('clears the heartbeat interval on child exit', async () => {
+      vi.useFakeTimers();
+      const child = createForkedChild();
+      const forkWorker = vi.fn(() => child);
+      const harness = new PiSdkHarness(
+        createSessionStoreMock(),
+        '/tmp/project-root',
+        {
+          entryPath: '/tmp/custom-entry.ts',
+          forkProcess: forkWorker,
+          workerHealthTimeoutMs: 1000,
+        },
+      );
+
+      await harness.start(makeTaskRunPayload({ taskId: 't-1' }), 'run-hb');
+      vi.advanceTimersByTime(500);
+      const beforeExit = child.writes.length;
+
+      child.emitExit(0, null);
+      vi.advanceTimersByTime(5000);
+
+      expect(child.writes.length).toBe(beforeExit);
+    });
+
+    it('clears the heartbeat interval on child error', async () => {
+      vi.useFakeTimers();
+      const child = createForkedChild();
+      const forkWorker = vi.fn(() => child);
+      const harness = new PiSdkHarness(
+        createSessionStoreMock(),
+        '/tmp/project-root',
+        {
+          entryPath: '/tmp/custom-entry.ts',
+          forkProcess: forkWorker,
+          workerHealthTimeoutMs: 1000,
+        },
+      );
+
+      await harness.start(makeTaskRunPayload({ taskId: 't-1' }), 'run-hb');
+      vi.advanceTimersByTime(500);
+      const beforeError = child.writes.length;
+
+      child.emitError(new Error('spawn boom'));
+      vi.advanceTimersByTime(5000);
+
+      expect(child.writes.length).toBe(beforeError);
+    });
+
+    it('clears the heartbeat interval on abort', async () => {
+      vi.useFakeTimers();
+      const child = createForkedChild();
+      const forkWorker = vi.fn(() => child);
+      const harness = new PiSdkHarness(
+        createSessionStoreMock(),
+        '/tmp/project-root',
+        {
+          entryPath: '/tmp/custom-entry.ts',
+          forkProcess: forkWorker,
+          workerHealthTimeoutMs: 1000,
+        },
+      );
+
+      const handle = await harness.start(
+        makeTaskRunPayload({ taskId: 't-1' }),
+        'run-hb',
+      );
+      vi.advanceTimersByTime(500);
+      const beforeAbort = child.writes.length;
+
+      handle.abort();
+      // After abort, the only write that should follow is the abort frame
+      // itself; advancing the heartbeat clock must not produce more pings.
+      const afterAbortFirst = child.writes.length;
+      vi.advanceTimersByTime(5000);
+      expect(child.writes.length).toBe(afterAbortFirst);
+      expect(afterAbortFirst).toBeGreaterThanOrEqual(beforeAbort + 1);
+    });
   });
 });

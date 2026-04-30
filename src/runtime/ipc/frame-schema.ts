@@ -105,6 +105,11 @@ const ClaimDecisionFrame = Type.Object({
   deniedPaths: Type.Optional(Type.Array(Type.String())),
 });
 
+const HealthPingFrame = Type.Object({
+  type: Type.Literal('health_ping'),
+  nonce: Type.Integer({ minimum: 0 }),
+});
+
 const ORCHESTRATOR_VARIANTS = {
   run: RunFrame,
   steer: SteerFrame,
@@ -115,6 +120,7 @@ const ORCHESTRATOR_VARIANTS = {
   approval_decision: ApprovalDecisionFrame,
   manual_input: ManualInputFrame,
   claim_decision: ClaimDecisionFrame,
+  health_ping: HealthPingFrame,
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -185,6 +191,11 @@ const ClaimLockFrame = Type.Object({
   paths: Type.Array(Type.String()),
 });
 
+const HealthPongFrame = Type.Object({
+  type: Type.Literal('health_pong'),
+  nonce: Type.Integer({ minimum: 0 }),
+});
+
 const WORKER_VARIANTS = {
   progress: ProgressFrame,
   result: ResultFrame,
@@ -193,6 +204,7 @@ const WORKER_VARIANTS = {
   request_approval: RequestApprovalFrame,
   assistant_output: AssistantOutputFrame,
   claim_lock: ClaimLockFrame,
+  health_pong: HealthPongFrame,
 } as const;
 
 // ---------------------------------------------------------------------------

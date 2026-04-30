@@ -151,6 +151,11 @@ export async function handleSchedulerEvent(params: {
   if (event.type === 'worker_message') {
     const message = event.message;
 
+    // Health frames are intercepted in the harness; nothing to do here.
+    if (message.type === 'health_pong') {
+      return;
+    }
+
     if (message.type === 'claim_lock') {
       await handleClaimLock(
         {

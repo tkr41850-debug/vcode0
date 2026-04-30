@@ -3,7 +3,11 @@ import * as path from 'node:path';
 import type { Readable, Writable } from 'node:stream';
 
 import { resolveTaskWorktreeBranch, worktreePath } from '@core/naming/index';
-import type { HarnessKind, Task } from '@core/types/index';
+import {
+  DEFAULT_WORKER_HEALTH_TIMEOUT_MS,
+  type HarnessKind,
+  type Task,
+} from '@core/types/index';
 import type {
   OrchestratorToWorkerMessage,
   ResumableTaskExecutionRunRef,
@@ -87,12 +91,14 @@ export interface PiSdkHarnessOptions {
   entryPath?: string;
   forkProcess?: ForkWorker;
   quarantine?: Quarantine;
+  workerHealthTimeoutMs?: number;
 }
 
 export class PiSdkHarness implements SessionHarness {
   private readonly entryPath: string;
   private readonly forkProcess: ForkWorker;
   private readonly quarantine: Quarantine | undefined;
+  private readonly workerHealthTimeoutMs: number;
 
   constructor(
     private readonly sessionStore: SessionStore,
@@ -102,6 +108,8 @@ export class PiSdkHarness implements SessionHarness {
     this.entryPath = options.entryPath ?? WORKER_ENTRY;
     this.forkProcess = options.forkProcess ?? child_process.fork;
     this.quarantine = options.quarantine;
+    this.workerHealthTimeoutMs =
+      options.workerHealthTimeoutMs ?? DEFAULT_WORKER_HEALTH_TIMEOUT_MS;
   }
 
   start(taskRun: TaskRunPayload, agentRunId: string): Promise<SessionHandle> {
@@ -137,6 +145,7 @@ export class PiSdkHarness implements SessionHarness {
         harnessKind: 'pi-sdk',
         ...(child.pid !== undefined ? { workerPid: child.pid } : {}),
         workerBootEpoch: CURRENT_ORCHESTRATOR_BOOT_EPOCH,
+        healthTimeoutMs: this.workerHealthTimeoutMs,
       },
     );
 
@@ -192,6 +201,7 @@ export class PiSdkHarness implements SessionHarness {
         harnessKind: 'pi-sdk',
         ...(child.pid !== undefined ? { workerPid: child.pid } : {}),
         workerBootEpoch: CURRENT_ORCHESTRATOR_BOOT_EPOCH,
+        healthTimeoutMs: this.workerHealthTimeoutMs,
       },
     );
 
@@ -263,16 +273,74 @@ function createSessionHandle(
     harnessKind: HarnessKind;
     workerPid?: number;
     workerBootEpoch?: number;
+    healthTimeoutMs: number;
   },
 ): SessionHandle {
   let exitInfo: SessionExitInfo | undefined;
   const exitHandlers: Array<(info: SessionExitInfo) => void> = [];
+  const messageHandlers: Array<(message: WorkerToOrchestratorMessage) => void> =
+    [];
+
+  const dispatchMessage = (message: WorkerToOrchestratorMessage): void => {
+    for (const h of messageHandlers) h(message);
+  };
+
+  let lastPongTs = Date.now();
+  let nextNonce = 1;
+  let intervalHandle: NodeJS.Timeout | undefined;
+
+  const stopHeartbeat = (): void => {
+    if (intervalHandle !== undefined) {
+      clearInterval(intervalHandle);
+      intervalHandle = undefined;
+    }
+  };
 
   const fireExit = (info: SessionExitInfo): void => {
     if (exitInfo !== undefined) return;
     exitInfo = info;
+    stopHeartbeat();
     for (const handler of exitHandlers) handler(info);
   };
+
+  // Single transport listener: route health_pong inline, fan out the rest.
+  // Multiple onWorkerMessage subscribers all see the same dispatched stream.
+  transport.onMessage((message) => {
+    if (message.type === 'health_pong') {
+      lastPongTs = Date.now();
+      return;
+    }
+    dispatchMessage(message);
+  });
+
+  if (metadata.healthTimeoutMs > 0) {
+    const halfPeriod = Math.max(1, Math.floor(metadata.healthTimeoutMs / 2));
+    intervalHandle = setInterval(() => {
+      const now = Date.now();
+      if (now - lastPongTs > metadata.healthTimeoutMs) {
+        stopHeartbeat();
+        const pid = metadata.workerPid;
+        if (pid !== undefined && !child.killed) {
+          try {
+            process.kill(pid, 'SIGKILL');
+          } catch {
+            // child may have already exited; tolerate ESRCH
+          }
+        }
+        dispatchMessage({
+          type: 'error',
+          taskId,
+          agentRunId,
+          error: 'health_timeout',
+        });
+        return;
+      }
+      transport.send({ type: 'health_ping', nonce: nextNonce++ });
+    }, halfPeriod);
+    if (typeof intervalHandle.unref === 'function') {
+      intervalHandle.unref();
+    }
+  }
 
   child.on('exit', (code, signal) => {
     fireExit({ code, signal });
@@ -292,6 +360,7 @@ function createSessionHandle(
       : {}),
 
     abort() {
+      stopHeartbeat();
       transport.send({
         type: 'abort',
         taskId,
@@ -322,7 +391,7 @@ function createSessionHandle(
     onWorkerMessage(
       handler: (message: WorkerToOrchestratorMessage) => void,
     ): void {
-      transport.onMessage(handler);
+      messageHandlers.push(handler);
     },
 
     onExit(handler: (info: SessionExitInfo) => void): void {

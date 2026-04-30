@@ -13,7 +13,10 @@ import type {
   VerificationLayerConfig,
   WarningConfig,
 } from '@core/types';
-import { DEFAULT_MAX_SQUASH_RETRIES } from '@core/types';
+import {
+  DEFAULT_MAX_SQUASH_RETRIES,
+  DEFAULT_WORKER_HEALTH_TIMEOUT_MS,
+} from '@core/types';
 import {
   DEFAULT_CI_CHECK_REPLAN_LOOP_THRESHOLD,
   DEFAULT_LONG_FEATURE_BLOCKING_MS,
@@ -67,6 +70,10 @@ export function defaultHarnessConfig(): HarnessConfig {
 
 export function defaultMaxSquashRetries(): number {
   return DEFAULT_MAX_SQUASH_RETRIES;
+}
+
+export function defaultWorkerHealthTimeoutMs(): number {
+  return DEFAULT_WORKER_HEALTH_TIMEOUT_MS;
 }
 
 export function defaultModelRoutingConfig(
@@ -176,6 +183,15 @@ function normalizeConfig(input: unknown, configPath: string): GvcConfig {
           maxSquashRetries: parseNumber(
             input.maxSquashRetries,
             'maxSquashRetries',
+            configPath,
+          ),
+        }
+      : {}),
+    ...(input.workerHealthTimeoutMs !== undefined
+      ? {
+          workerHealthTimeoutMs: parseNumber(
+            input.workerHealthTimeoutMs,
+            'workerHealthTimeoutMs',
             configPath,
           ),
         }

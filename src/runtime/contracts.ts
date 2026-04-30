@@ -418,6 +418,10 @@ export type OrchestratorToWorkerMessage =
       claimId: string;
       kind: 'granted' | 'denied';
       deniedPaths?: readonly string[];
+    }
+  | {
+      type: 'health_ping';
+      nonce: number;
     };
 
 export type WorkerToOrchestratorMessage =
@@ -475,4 +479,8 @@ export type WorkerToOrchestratorMessage =
       scopeRef?: RunScope;
       claimId: string;
       paths: readonly string[];
+    }
+  | {
+      type: 'health_pong';
+      nonce: number;
     };

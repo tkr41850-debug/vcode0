@@ -652,6 +652,10 @@ export class LocalWorkerPool implements RuntimePort {
     session: LiveSession,
   ): void {
     session.handle.onWorkerMessage((message: WorkerToOrchestratorMessage) => {
+      // Health frames are routed inline by the harness; never reach here.
+      if (message.type === 'health_pong') {
+        return;
+      }
       const normalizedMessage =
         message.agentRunId === session.ref.agentRunId
           ? message

@@ -34,6 +34,12 @@ let runtime: WorkerRuntime | undefined;
 let initialized = false;
 
 transport.onMessage((message: OrchestratorToWorkerMessage) => {
+  // Health ping: reply synchronously on the IPC microtask, never route to the
+  // agent loop. Keeps the heartbeat alive even when the agent is mid-tool-call.
+  if (message.type === 'health_ping') {
+    transport.send({ type: 'health_pong', nonce: message.nonce });
+    return;
+  }
   if (message.type === 'run' && !initialized) {
     initialized = true;
 

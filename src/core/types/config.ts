@@ -51,6 +51,8 @@ export interface GvcConfig {
   warnings?: WarningConfig;
   harness?: HarnessConfig;
   maxSquashRetries?: number;
+  workerHealthTimeoutMs?: number;
 }
 
 export const DEFAULT_MAX_SQUASH_RETRIES = 3;
+export const DEFAULT_WORKER_HEALTH_TIMEOUT_MS = 60_000;

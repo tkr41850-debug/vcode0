@@ -22,7 +22,11 @@ import {
 import { openDatabase } from '@persistence/db';
 import { PersistentFeatureGraph } from '@persistence/feature-graph';
 import { SqliteStore } from '@persistence/sqlite-store';
-import { DEFAULT_MODEL_ID, JsonConfigLoader } from '@root/config';
+import {
+  DEFAULT_MODEL_ID,
+  defaultWorkerHealthTimeoutMs,
+  JsonConfigLoader,
+} from '@root/config';
 import type {
   ApprovalDecision,
   ApprovalPayload,
@@ -289,10 +293,18 @@ export async function composeApplication(): Promise<GvcApplication> {
   const quarantine = new Quarantine({
     sink: (entry) => store.appendQuarantinedFrame(entry),
   });
+  const workerHealthTimeoutMs =
+    config.workerHealthTimeoutMs ?? defaultWorkerHealthTimeoutMs();
   const runtime = new LocalWorkerPool(
-    new PiSdkHarness(sessionStore, projectRoot, { quarantine }),
+    new PiSdkHarness(sessionStore, projectRoot, {
+      quarantine,
+      workerHealthTimeoutMs,
+    }),
     maxWorkers,
     (message) => {
+      if (message.type === 'health_pong') {
+        return;
+      }
       const workerOutput = formatWorkerOutput(message);
       if (workerOutput !== undefined) {
         ui.onWorkerOutput(message.agentRunId, message.taskId, workerOutput);

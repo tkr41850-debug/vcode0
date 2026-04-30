@@ -78,12 +78,21 @@ describe('validateOrchestratorFrame', () => {
         claimId: 'c',
         kind: 'granted',
       },
+      { type: 'health_ping', nonce: 1 },
     ];
 
     for (const v of variants) {
       const result = validateOrchestratorFrame(v);
       expect(result.ok, `variant ${v.type}`).toBe(true);
     }
+  });
+
+  it('rejects health_ping with non-numeric nonce', () => {
+    const result = validateOrchestratorFrame({
+      type: 'health_ping',
+      nonce: 'a',
+    });
+    expect(result.ok).toBe(false);
   });
 
   it('rejects unknown discriminator', () => {
@@ -175,12 +184,18 @@ describe('validateWorkerFrame', () => {
         claimId: 'c',
         paths: ['a/b'],
       },
+      { type: 'health_pong', nonce: 7 },
     ];
 
     for (const v of variants) {
       const result = validateWorkerFrame(v);
       expect(result.ok, `variant ${v.type}`).toBe(true);
     }
+  });
+
+  it('rejects health_pong without nonce', () => {
+    const result = validateWorkerFrame({ type: 'health_pong' });
+    expect(result.ok).toBe(false);
   });
 
   it('rejects missing required field', () => {
