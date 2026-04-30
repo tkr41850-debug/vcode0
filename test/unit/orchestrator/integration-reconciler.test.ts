@@ -109,6 +109,7 @@ function makePorts(initialMarker: IntegrationState | undefined): {
     config: { tokenProfile: 'balanced' },
     runtime: {} as OrchestratorPorts['runtime'],
     projectRoot: '/repo',
+    runErrorLogSink: { writeFirstFailure: async () => {} },
   };
   return { ports, state };
 }

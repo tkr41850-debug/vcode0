@@ -293,6 +293,7 @@ function createFixture({
     ui: createUiStub(),
     config,
     projectRoot: '/repo',
+    runErrorLogSink: { writeFirstFailure: async () => {} },
   };
 
   return {
@@ -376,6 +377,7 @@ describe('feature-phase agent flow', () => {
       ui: createUiStub(),
       config,
       projectRoot: '/repo',
+      runErrorLogSink: { writeFirstFailure: async () => {} },
     };
     const loop = new SchedulerLoop(graph, ports);
 

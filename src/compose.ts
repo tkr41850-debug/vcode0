@@ -34,6 +34,7 @@ import type {
   RuntimePort,
   WorkerToOrchestratorMessage,
 } from '@runtime/contracts';
+import { FileSystemRunErrorLogSink } from '@runtime/error-log/index';
 import {
   DiscussFeaturePhaseBackend,
   PiSdkHarness,
@@ -315,6 +316,7 @@ export async function composeApplication(): Promise<GvcApplication> {
     config,
   );
   const worktree = new GitWorktreeProvisioner(projectRoot);
+  const runErrorLogSink = new FileSystemRunErrorLogSink({ projectRoot });
   const ports: OrchestratorPorts = {
     store,
     runtime,
@@ -324,6 +326,7 @@ export async function composeApplication(): Promise<GvcApplication> {
     ui,
     config,
     projectRoot,
+    runErrorLogSink,
   };
 
   const scheduler = new SchedulerLoop(graph, ports);

@@ -85,6 +85,7 @@ function buildPorts(projectRoot: string): {
     ui,
     config: { tokenProfile: 'balanced' },
     projectRoot,
+    runErrorLogSink: { writeFirstFailure: async () => {} },
   };
   return { ports, store };
 }

@@ -472,6 +472,7 @@ function createPorts(
       ui,
       config: { tokenProfile: 'balanced' },
       projectRoot: '/repo',
+      runErrorLogSink: { writeFirstFailure: async () => {} },
     },
   };
 }

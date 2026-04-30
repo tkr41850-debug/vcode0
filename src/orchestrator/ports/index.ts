@@ -16,6 +16,7 @@ import type {
 } from '@core/types/index';
 import type { VerificationService } from '@orchestrator/services/verification-service';
 import type { RuntimePort } from '@runtime';
+import type { RunErrorLogSink } from '@runtime/error-log/index';
 import type { SessionStore } from '@runtime/sessions/index';
 import type { WorktreeProvisioner } from '@runtime/worktree/index';
 
@@ -104,4 +105,5 @@ export interface OrchestratorPorts {
   ui: UiPort;
   config: GvcConfig;
   projectRoot: string;
+  runErrorLogSink: RunErrorLogSink;
 }

@@ -117,6 +117,7 @@ function createPorts(root: string): OrchestratorPorts {
       idleWorkerCount: vi.fn(() => 0),
       stopAll: vi.fn(),
     },
+    runErrorLogSink: { writeFirstFailure: async () => {} },
   } as OrchestratorPorts & {
     runtime: {
       suspendTask: ReturnType<typeof vi.fn>;

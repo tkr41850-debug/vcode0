@@ -87,6 +87,7 @@ function buildPorts(projectRoot: string): {
     ui,
     config: { tokenProfile: 'balanced', maxSquashRetries: MAX_SQUASH_RETRIES },
     projectRoot,
+    runErrorLogSink: { writeFirstFailure: async () => {} },
   };
   return { ports, store };
 }

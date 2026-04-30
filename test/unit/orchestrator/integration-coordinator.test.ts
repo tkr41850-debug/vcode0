@@ -125,6 +125,7 @@ function makePorts(opts: { cwd: string; verification?: VerificationSummary }): {
     config: { tokenProfile: 'balanced' },
     runtime: {} as OrchestratorPorts['runtime'],
     projectRoot: opts.cwd,
+    runErrorLogSink: { writeFirstFailure: async () => {} },
   };
   return { ports, markers };
 }

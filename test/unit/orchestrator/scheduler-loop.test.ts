@@ -450,6 +450,7 @@ function createPorts(
         ensureTaskWorktree: () => Promise.resolve('/repo'),
       },
       projectRoot: '/repo',
+      runErrorLogSink: { writeFirstFailure: async () => {} },
     },
     runtime,
     ui,
