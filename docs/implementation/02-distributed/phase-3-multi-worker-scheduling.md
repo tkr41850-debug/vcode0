@@ -2,45 +2,23 @@
 
 ## Goal
 
-Replace the orchestrator's single-knob "idle local slots" capacity model with a worker-aware capacity and ownership model that lets many workers (local-spawn and remote alike) run concurrently. After this phase the scheduler:
+Replace the single-integer capacity model with worker-aware capacity + ownership: per-worker concurrency tracking, capacity-weighted picker, persisted `ownerWorkerId`, sticky resume, and a small ops query surface.
 
-- Tracks declared concurrency per registered worker (introduced in phase 1) and counts in-flight runs per worker.
-- Picks a worker with spare capacity for each ready unit using a simple capacity-weighted policy that does not head-of-line block on slow VMs.
-- Records on every dispatched run *which* worker is currently executing it, in a way that survives orchestrator restart.
-- Prefers the previous owner on resume (sticky session), falling back to "any worker with capacity" when that worker is gone.
-- Exposes a small operator query surface: "who owns run X?" and "what is each worker doing?".
-
-This phase **lifts** the single-remote-worker restriction set in phase 2. It does **not** touch recovery semantics — phase 5 introduces leases and network-liveness reclamation. The current pid/`/proc` liveness check stays in place; reassignment of a lost run is still a phase-5 concern. Feature-phase agents continue to run locally on the orchestrator (still in `FeaturePhaseOrchestrator` / `DiscussFeaturePhaseBackend`) — phase 4 moves them onto the same plane as task runs.
+This phase **lifts** the single-remote-worker restriction from phase 2 and does not touch recovery (phase 5).
 
 ## Background
 
-Verified gaps on `main`:
-
-- **Capacity model is a single integer.** `LocalWorkerPool` (`src/runtime/worker-pool.ts:62-76`) is constructed with a `maxConcurrency: number` and exposes capacity via `idleWorkerCount(): Math.max(0, this.maxConcurrency - this.liveRuns.size)` (`:572-574`). The scheduler reads exactly that one number at `src/orchestrator/scheduler/dispatch.ts:797` and breaks the dispatch loop once `dispatched >= idleWorkers` (`:813-816`). Nothing knows about per-worker capacity, per-worker in-flight count, or worker identity.
-- **No worker-id selection.** `RuntimePort.dispatchRun(scope, dispatch, payload)` (`src/runtime/contracts.ts:239-244`) carries no worker hint. The pool always routes through the single configured `SessionHarness` and `FeaturePhaseBackend`. After phases 1 and 2 there are multiple registered workers, but the dispatch path has no way to express "send this to worker W".
-- **Ownership is not persisted.** `agent_runs` columns added in `009_agent_run_harness_metadata.ts` (`harness_kind`, `worker_pid`, `worker_boot_epoch`, `harness_meta_json`) describe *what kind of process* hosted the run, not *which registered worker* did. There is no `owner_worker_id` column or `run_assignments` table. After orchestrator restart, recovery (`src/orchestrator/services/recovery-service.ts`) cannot tell which worker the run belonged to and cannot route a resume to the same worker for cache locality.
-- **Sticky resume is implicit, not explicit.** `taskDispatchForRun` (`src/orchestrator/scheduler/dispatch.ts:145-158`) builds a `resume` dispatch from `run.sessionId` but says nothing about which worker hosts that session. When sessions are worker-hosted (phase 2's worker-side `FileSessionStore`), routing a resume to a different worker silently fails or hits `not_resumable`.
-- **No operator visibility.** No CLI/TUI surface answers "what is worker W doing right now?" or "who owns run X?". The TUI reads only `agent_runs.run_status` and the local `liveRuns` map.
-
-The contracts and ports already accommodate the change without breaking phases 1–2:
-
-- `RuntimePort.dispatchRun` is the seam to extend with an optional `targetWorkerId` / policy hint.
-- `Store` (`src/orchestrator/ports/index.ts:43-58`) gains `listWorkerLoad()` (or similar) that aggregates owner columns across `agent_runs`.
-- `LocalWorkerPool` becomes one transport in a registry; the registry is the new capacity oracle.
+Capacity, worker selection, ownership persistence, sticky routing, and operator query are all absent on `main`; each step below cites the file/line being changed.
 
 ## Steps
 
-The phase ships as **7 commits**. Steps are ordered so each one stands on its own and the test suite stays green between commits. Steps 3.1 and 3.2 are persistence/contract groundwork; 3.3 rewrites the picker; 3.4 lifts worker-side concurrency; 3.5 adds sticky resume; 3.6 adds the ops query surface; 3.7 is the multi-worker integration test.
+The phase ships as **7 commits**. Steps stand on their own; the test suite stays green between commits.
 
 ---
 
 ### Step 3.1 — Persist run ownership
 
-**What:** add `owner_worker_id` and `owner_assigned_at` columns to `agent_runs` and surface them on `BaseAgentRun`. The migration is `011_agent_run_owner_columns.ts` per the pinned numbering from [phase 0](./phase-0-migration-consolidation.md) (phase 1's `010_workers.ts` is the predecessor). The new columns default `NULL` so historical rows remain valid; the field is set when the scheduler hands a run to a worker and cleared on terminal completion.
-
-A separate `run_assignments` table is **rejected** for this phase: ownership is 1:1 with a run at any moment in time and the existing row already carries every other lifecycle field (`run_status`, `session_id`, harness metadata). Adding a join table buys nothing for phase 3 and complicates the recovery query in phase 5. If multi-host shadowing or per-attempt ownership history becomes a requirement later, that is the trigger to split.
-
-Note: phase 5 step 5.9 drops these columns entirely once leases own worker attribution. This step is producer/consumer-only for phase 3's sticky-resume bookkeeping (used by step 3.5 sticky resume); after phase 5, ownership reads come from `run_leases.worker_id`. Phase 5's review prompt grep-checks for any `run.ownerWorkerId` read post-phase-5 as a forbidden access pattern.
+**What:** add `owner_worker_id` and `owner_assigned_at` columns to `agent_runs` and surface them on `BaseAgentRun`. Migration is `011_agent_run_owner_columns.ts` (pinned numbering from [phase 0](./phase-0-migration-consolidation.md); `010_workers.ts` is the predecessor). New columns default `NULL`; set on dispatch, cleared on terminal completion. Single columns, not a join table — 1:1 with the run.
 
 **Files:**
 
@@ -60,7 +38,7 @@ Note: phase 5 step 5.9 drops these columns entirely once leases own worker attri
 
 **Review subagent:**
 
-> Verify the ownership persistence: (1) migration is idempotent (`ALTER TABLE` is naturally so on SQLite when the column is absent — confirm no destructive `DROP`); (2) `AGENT_RUN_COLUMNS`, the insert prepared statement, and the update prepared statement all list the two new columns in the same order the codec expects — a column-order mismatch silently writes the wrong field; (3) `BaseAgentRun` typing flows through both `TaskAgentRun` and `FeaturePhaseAgentRun`; (4) `AgentRunPatch` allows clearing the field (`ownerWorkerId: undefined`) so terminal completion can null it; (5) no consumer is wired yet — this is producer-only schema groundwork. Under 350 words.
+> Verify the step body; additionally confirm `AGENT_RUN_COLUMNS`, insert/update prepared statements, and codec all list the two new columns in matching order (column-order mismatch silently writes the wrong field). Under 200 words.
 
 **Commit:** `feat(persistence): add owner_worker_id to agent_runs`
 
@@ -77,7 +55,7 @@ Specifically:
 - Extend `dispatchRun` with an optional fourth arg: `options?: { targetWorkerId?: string; policyHint?: 'sticky' | 'capacity' }`. When `targetWorkerId` is set, the pool routes to that worker or returns a `not_dispatchable` result the scheduler can re-queue.
 - Add a corresponding `not_dispatchable` variant to `DispatchRunResult` (`{ kind: 'not_dispatchable'; agentRunId: string; reason: 'unknown_worker' | 'worker_full' | 'worker_unhealthy' }`). Existing call sites switch through this case explicitly.
 
-`LocalWorkerPool` registers itself as the lone worker with `workerId = 'local'` and `maxConcurrent = this.maxConcurrency`, so phase-1/2 callers see a single-worker fleet. Phase 1's `WorkerRegistry` (the registry of remote workers) gains a `register(view)` / `update(view)` surface; the pool reads from it.
+Phase 1's `WorkerRegistry` gains a `register(view)` / `update(view)` surface; the pool reads from it. (`LocalWorkerPool`'s self-registration as `workerId = 'local'` is described in Files below.)
 
 **Files:**
 
@@ -96,7 +74,7 @@ Specifically:
 
 **Review subagent:**
 
-> Verify the runtime-port extension: (1) every existing `switch` on `DispatchRunResult.kind` (grep for `kind === 'started'` / `kind === 'resumed'` etc.) now handles `not_dispatchable` — no implicit fall-through; (2) `idleWorkerCount` semantics unchanged — the picker rewrite in 3.3 will replace its callers, this step keeps it working; (3) `targetWorkerId === undefined` is the no-op default — every existing caller compiles unchanged; (4) `LocalWorkerPool.listWorkers()` includes feature-phase live sessions in `inFlight` only if those count against the same capacity pool (they currently do, because `featurePhaseLiveSessions` and `liveRuns` share the local process budget); (5) the new `not_dispatchable` variant carries enough info (`reason`) for the picker to pick a different worker rather than crashing the run. Under 400 words.
+> Verify every existing `switch` on `DispatchRunResult.kind` now handles `not_dispatchable` (no implicit fall-through). Verify `idleWorkerCount` semantics are unchanged and `targetWorkerId === undefined` is a no-op default. Under 250 words.
 
 **Commit:** `feat(runtime): capacity-aware dispatch seam with worker views`
 
@@ -115,8 +93,6 @@ Specifically:
 
 The local-spawn back-compat case is identical to today: `listWorkers()` returns one view, the picker picks it, `targetWorkerId === 'local'`. No regression on a single-worker config.
 
-Fairness is bounded by the round-robin's "most empty relative to declared capacity" tiebreaker. A weak VM with `maxConcurrent = 1` and a strong VM with `maxConcurrent = 8` both get a fair share of work — the weak VM gets one run, the strong VM gets up to eight, and the picker will not stack work onto a worker whose `inFlight / maxConcurrent` is already higher than its peers'. Head-of-line blocking on a single slow worker is impossible because the picker never blocks on a full worker — it picks a different one.
-
 **Files:**
 
 - `src/orchestrator/scheduler/dispatch.ts` — replace the `idleWorkers` integer (`:797`) and the `dispatched < idleWorkers` loop break (`:813-816`) with a `pickWorker(views, lastAssignedAt)` helper plus a `not_dispatchable` retry inner loop. Pass `targetWorkerId` through to `dispatchTaskRun` / `dispatchFeaturePhaseRun`. Extend `runningRunPatch` (`:160-190`) and the corresponding feature-phase patches (`:192-224`) to set `ownerWorkerId` and `ownerAssignedAt` from a new arg.
@@ -134,7 +110,7 @@ Fairness is bounded by the round-robin's "most empty relative to declared capaci
 
 **Review subagent:**
 
-> Verify the picker rewrite: (1) the picker is deterministic given identical inputs (sort key `(inFlight / maxConcurrent, lastAssignedAt)` produces a stable order); (2) the inner `not_dispatchable` retry loop terminates — it must shrink the candidate set on every iteration and exit when empty, never spin; (3) `ownerWorkerId` is set on every successful dispatch (both task and feature-phase paths) and cleared on every terminal completion (look for any error path that bypasses the `updateAgentRun` clear — if so, ownership leaks); (4) the existing dispatch guard from `01-baseline/phase-3-scheduler.md` step 3.2 still runs *before* `dispatchTaskUnit` / `dispatchFeaturePhaseUnit`, not after the picker — picking a worker for an unmerged-dep task is wasted work; (5) the back-compat single-worker path produces identical commit-history to the previous integer-slot code (no surprise reorder or starvation). Under 500 words.
+> Verify the inner `not_dispatchable` retry loop terminates (must shrink the candidate set every iteration). Verify `ownerWorkerId` is set on every successful dispatch and cleared on every terminal completion (look for error paths that bypass the `updateAgentRun` clear — those leak ownership). Under 250 words.
 
 **Commit:** `feat(scheduler/dispatch): capacity-aware worker picker`
 
@@ -221,10 +197,7 @@ The CLI / TUI piece is intentionally minimal — phase 3 needs operator visibili
 - `src/persistence/db.ts` — register `Migration012AgentRunOwnerIndex` in the imports + `migrations` array literal.
 - `src/orchestrator/ports/index.ts` — add `Store.listRunsByOwner(workerId: string): AgentRun[]`.
 - `src/persistence/sqlite-store.ts` — implement using a prepared statement.
-- `src/tui/...` (or `src/cli/...`, whichever the repo currently houses operator tooling under) — add a worker panel that prints the joined view. **Three-tier rendering** for any worker hosting a run with `runStatus === 'running'`, driven by joining the lease state from phase 5 step 5.1 (the worker panel renders gracefully pre-phase-5 by showing only the `runStatus` tier; phase 5 enriches it):
-  - `running` × lease `active` and last heartbeat fresh → green / "active".
-  - `running` × lease `active` and last heartbeat in the grace window → yellow / "delayed".
-  - `running` × lease `expired` or `released` → red / "in recovery". This includes the "stranded" case (runs with `owner_worker_id` pointing at a worker absent from `listWorkers()`).
+- `src/tui/...` (or `src/cli/...`, whichever the repo currently houses operator tooling under) — add a worker panel that prints the joined view. **Three-tier rendering** for any worker hosting a `runStatus === 'running'` run, with the lease side stubbed pre-phase-5 (panel renders the `runStatus` tier only until phase 5 step 5.1 lands, then enriches): lease `active` + heartbeat fresh → "active"; lease `active` + heartbeat in the grace window → "delayed"; lease `expired`/`released` → "in recovery" (includes the stranded case where `owner_worker_id` points at a worker absent from `listWorkers()`).
 - (No core or scheduler changes.)
 
 **Tests:**
@@ -236,7 +209,7 @@ The CLI / TUI piece is intentionally minimal — phase 3 needs operator visibili
 
 **Review subagent:**
 
-> Verify the operator surface: (1) the new index is partial (`WHERE owner_worker_id IS NOT NULL`) so it stays cheap on large `agent_runs` tables; (2) `listRunsByOwner` returns only rows with the exact `workerId` — no prefix or substring match; (3) the joined operator view does not assume ordering of runs within a worker — show whatever order is stable so successive renders are not noisy; (4) the surface tolerates a worker present in `listWorkers()` with zero owned runs (idle worker) and a worker absent from `listWorkers()` but present in `listRunsByOwner` (recently-disconnected worker with stranded ownership) — the latter is the leak phase 5 cleans up, so render it with a "stranded" hint rather than hiding it; (5) no new long-running poll loop — the panel reads on refresh, identical to existing TUI patterns. Under 400 words.
+> Verify the partial index (`WHERE owner_worker_id IS NOT NULL`) and `listRunsByOwner` exact-match. Confirm the surface tolerates a stranded-ownership worker (absent from `listWorkers()`, present in `listRunsByOwner`) and renders it with a "stranded" hint rather than hiding it. Under 200 words.
 
 **Commit:** `feat(persistence,tui): operator visibility for worker ownership`
 
@@ -261,7 +234,7 @@ The test is a stop-energy gate: if it passes, the phase outcome holds. If it fai
 
 **Review subagent:**
 
-> Verify the multi-worker integration test: (1) determinism — two ready tasks must reproducibly land on two distinct workers; if the picker's tiebreaker depends on `Date.now()` or `Math.random()`, inject a clock and a seed; (2) the third-task-waits assertion checks the *event order*, not just the final state — a race that happens to settle correctly is not the same as fairness; (3) the orchestrator-restart leg actually exercises the recovery path (boot a fresh `SchedulerLoop` against the existing SQLite file) rather than just calling `dispatchRun` again; (4) cleanup: both workers are killed on test teardown even if assertions fail (no orphaned child processes leaking between test files); (5) the test does not depend on real network — phase 1's transport faux is sufficient. Under 500 words.
+> Verify determinism (inject a clock + seed if the tiebreaker depends on `Date.now()` / `Math.random()`) and event-order assertions (not just final state). Standard integration hygiene applies for cleanup. Under 200 words.
 
 **Commit:** `test(orchestrator): multi-worker scheduling integration`
 
@@ -273,12 +246,8 @@ The test is a stop-energy gate: if it passes, the phase outcome holds. If it fai
 - `npm run verify` passes on the final commit.
 - The multi-worker integration test from 3.7 passes deterministically across at least 20 consecutive runs (catch any picker non-determinism or worker-startup race).
 - Manual smoke: boot a real second worker process; submit a three-feature graph; observe via the 3.6 operator surface that runs distribute across both workers and that ownership clears on completion.
-- Run a final review subagent across all seven commits to confirm: (a) ownership is persisted, set, and cleared at every relevant transition; (b) the picker's fairness behavior holds under heterogeneous capacity; (c) sticky resume falls through to fresh start when the previous worker is gone, *not* to a different worker with a stale session id; (d) the operator surface answers both "who owns run X?" and "what is each worker doing?"; (e) feature-phase agents are still local (phase 4 will move them); (f) recovery still uses pid/`/proc` (phase 5 will replace this). Address findings before declaring the phase complete.
+- A final review subagent confirms: ownership is persisted, set, and cleared at every transition; sticky resume falls through to fresh start when the previous worker is gone (*not* to a different worker with a stale session id); the picker's fairness behavior holds under heterogeneous capacity.
 
-## Out of scope (deferred to later phases)
+## Out of scope
 
-- **Lease-based recovery.** A run whose owner is unreachable stays parked. Phase 5 introduces leases, takeover, and stale-lease reclamation.
-- **Network-liveness for workers.** The current pid + `/proc/<pid>/environ` check still fires on local-spawn workers. Remote workers rely on phase 1's heartbeat for `healthy`, and a missed heartbeat marks the view `healthy: false` for picker purposes — but the run on that worker is not reassigned. Phase 5.
-- **Feature-phase agent distribution.** Discuss/research/plan/replan/verify/summarize still execute on the orchestrator. Phase 4 moves them onto the same `dispatchRun` plane as task execution; the picker built here will then route them too with no additional scheduler change.
-- **Cross-worker session migration.** A live session cannot move from worker A to worker B mid-run. The sticky-resume policy depends on this constraint; a future "live migration" feature would require a worker-to-worker session export protocol and is not motivated by current deployment shapes.
-- **Per-task resource caps.** CPU/memory/network caps per run on the worker side. The phase 3.4 isolation gives a foundation (per-run scratch, per-run session) but does not enforce limits.
+Deferred to later phases per the README phase table: lease-based recovery and network-liveness reclamation (phase 5), feature-phase agent distribution (phase 4), cross-worker session migration, and per-task resource caps.

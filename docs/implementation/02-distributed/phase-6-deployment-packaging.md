@@ -17,60 +17,9 @@ is the lifecycle and packaging glue that sits on top.
 
 ## Background
 
-### Phases 1–5 prerequisites (assumed)
+Phases 1–5 deliver the registry plane (frames `register`/`heartbeat`/`reconnect`/`worker_shutdown`), worker bootstrap in `worker-entry-remote.ts`, and the lease semantics this phase relies on (`worker_shutdown` ack → `released` skipping grace; same-`bootEpoch` reconnect reattaches without fence rotation; different-`bootEpoch` triggers takeover).
 
-- **Phase 1** — registry-plane frames `register`, `heartbeat`,
-  `reconnect`, `worker_shutdown`. Schemas defined; orchestrator-side
-  reconcile logic for `reconnect`/`worker_shutdown` lives in step 1.4.
-- **Phase 2** — `worker-entry-remote.ts` runs the worker bootstrap;
-  reads task payload from network IPC; resolves `<worker-fs-root>`
-  from `GVC0_WORKER_FS_ROOT`.
-- **Phase 5** — `worker_shutdown` ack moves the lease to `released`
-  (skips grace); reconnect with same `bootEpoch` reattaches without
-  fence rotation; reconnect with different `bootEpoch` triggers
-  takeover.
-
-### Verified gaps on `main` after phases 1–5
-
-- `package.json` has no `worker` script. The integration tests invoke
-  `worker-entry-remote.ts` via `tsx` with hand-built env — fine for
-  tests, not a deployment surface.
-- `src/runtime/remote/worker-entry-remote.ts` has no signal handlers.
-  SIGTERM from systemd kills the process immediately; in-flight leases
-  must wait `leaseTtlMs + leaseGraceMs` (45s default) before takeover.
-- No worker-side reconnect loop. Phase 1 step 1.2 ships the
-  `reconnect` frame *schema* and phase 1 step 1.4 wires the
-  *orchestrator-side* reconcile, but `WorkerRegistryClient` (phase 1
-  step 1.5) is documented as "dial server, send register, await
-  register_ack, start heartbeat interval, expose close()" — explicitly
-  no reconnect logic. Phase 5 *assumes* workers reconnect
-  (step 5.7 cases 1, 2, 7) but does not say where the loop lives. A
-  transient transport drop currently terminates the worker; systemd
-  `Restart=always` rotates `bootEpoch` and forces takeover — wasted
-  work for a 2s network glitch.
-- No SIGTERM handler. No phase doc requires the worker entry to trap
-  SIGTERM and emit `worker_shutdown`; `worker-systemd.md` flags this
-  as an unverified assumption.
-- No `bootEpoch` source. Phase 1 D1 and phase 5 D7 specify "fresh per
-  process start, stable across reconnects within a process" but no
-  step actually generates the value.
-- The only env validation is whatever the call sites do ad-hoc;
-  missing `GVC0_WORKER_SECRET` surfaces as a TypeBox reject at the
-  registry handshake, several function calls deep, hard to read in
-  journald.
-- Env-prefix drift. Phases 1 / 4 use `GVC_*` (`GVC_WORKER_PROTOCOL_TOKEN`
-  on `workerProtocol.sharedSecret`; `GVC_FORCE_REMOTE_AGENTS` on the
-  phase-4 lint guard). Phase 2 and `worker-systemd.md` use `GVC0_*`
-  (`GVC0_WORKER_FS_ROOT`, `GVC0_ORCHESTRATOR_URL`, …). One prefix has
-  to win before the validator lands.
-- No `deploy/` directory. The systemd unit + env template in
-  `docs/deployment/worker-systemd.md` are operator-copyable but not
-  installable from the repo.
-- No structured-log convention. Multi-line stack traces interleave
-  badly in journald; downstream filtering needs single-line JSON.
-- Initial-connect failure (worker boots while orchestrator is down)
-  is not specified by any phase. The handshake spec assumes a
-  successful TCP connect.
+Gaps on `main` after phases 1–5: no `npm run worker` script, no signal handlers (SIGTERM from systemd kills immediately, forcing 45s lease-grace wait), no worker-side reconnect loop (phase 5 step 5.7 cases 1/2/7 assume one but no phase wires it), no `bootEpoch` source (phase 1 D1 / phase 5 D7 specify the contract but no step generates the value), ad-hoc env validation, env-prefix drift (`GVC_*` vs `GVC0_*` across phases 1/4 vs 2), no `deploy/` directory, no structured-log convention, and no spec for initial-connect failure when orchestrator is down at boot.
 
 ### Design decisions
 
@@ -80,30 +29,13 @@ is the lifecycle and packaging glue that sits on top.
   process crashes — the respawned worker picks a fresh `bootEpoch`,
   re-registers, and any orphaned leases expire and reroute via the
   phase 5 sweep. Worker code does not try to be its own supervisor.
-- **Reconnect bounds.** Exponential backoff `250ms → 30s` cap with
-  ±25% jitter. Reset on successful `reconnect_ack`. Give up after
-  5 min of unbroken failures and exit with code `2`; systemd respawns
-  with a fresh `bootEpoch`. The cap is *not* about lease holding —
-  phase 5 leases are gone after `leaseTtlMs + leaseGraceMs` (45s
-  default), well before 5 min — it's about not wasting CPU on an
-  optimistic backoff schedule once the network has clearly stayed
-  dead, and about ensuring the worker eventually re-registers with a
-  fresh epoch (which is the only path that re-creates the orchestrator
-  side state if the orchestrator itself was restarted).
+- **Reconnect bounds.** Exponential backoff `250ms → 30s` cap with ±25% jitter. Reset on successful `reconnect_ack`. Give up after 5 min unbroken failures, exit `2`; systemd respawns with a fresh `bootEpoch`. The 5-min cap is well past the 45s lease grace (leases are long gone) — it bounds CPU on a clearly-dead network and guarantees eventual fresh-epoch re-registration if the orchestrator itself was restarted.
 - **Initial-connect failures use the same loop.** A worker that boots
   while the orchestrator is unreachable goes through the same
   backoff schedule. There is no "first connect" special case; the
   give-up timer starts from the first connect attempt. After give-up,
   exit `2` and systemd respawns from scratch.
-- **`bootEpoch` is `Date.now()` at process start.** Generated once in
-  `runWorker`, immutable for the lifetime of the process. Reconnects
-  reuse it; only systemd respawn gets a new value. Clock-based
-  satisfies "monotonic per worker incarnation" without persisting a
-  counter file. Worst-case clock skew on a single VM between reboots
-  is a few ms; collisions across reboots within the same millisecond
-  are not a correctness issue (the orchestrator-side reconcile only
-  cares about *equality* with the last-known epoch for the same
-  `workerId`, not strict monotonicity).
+- **`bootEpoch` is `Date.now()` at process start.** Generated once in `runWorker`, immutable for the process lifetime. Reconnects reuse it; only systemd respawn gets a new value. Orchestrator reconcile checks equality (not monotonicity), so same-millisecond reboot collisions are not a correctness issue.
 - **SIGTERM drives drain, SIGINT mirrors it.** systemd sends SIGTERM
   by default; the same handler runs on SIGINT for interactive
   `Ctrl+C`. SIGKILL is unhandleable and falls through to lease
@@ -117,13 +49,7 @@ is the lifecycle and packaging glue that sits on top.
   `inFlightLeases` set, awaits `worker_shutdown_ack`, then
   `process.exit(0)`. On timeout, exit `1`; phase 5's TTL+grace
   reroutes the runs.
-- **Env prefix is `GVC0_*` everywhere.** Phase 1 / 4 introductions of
-  `GVC_WORKER_PROTOCOL_TOKEN` and `GVC_FORCE_REMOTE_AGENTS` get
-  renamed to `GVC0_WORKER_PROTOCOL_TOKEN` and `GVC0_FORCE_REMOTE_AGENTS`
-  in step 6.2 alongside the validator. Picked `GVC0_*` because it
-  matches the operator-facing artifact (`worker-systemd.md`) and
-  phase 2's already-shipped `GVC0_WORKER_FS_ROOT`; renaming fewer
-  tokens is the cheaper end of the rename.
+- **Env prefix is `GVC0_*` everywhere.** Step 6.2 renames `GVC_WORKER_PROTOCOL_TOKEN` and `GVC_FORCE_REMOTE_AGENTS` to the `GVC0_*` prefix (matches the operator-facing `worker-systemd.md` and phase 2's shipped `GVC0_WORKER_FS_ROOT`).
 - **Env validation is fail-fast.** Required keys
   (`GVC0_ORCHESTRATOR_URL`, `GVC0_WORKER_SECRET`, `GVC0_WORKER_ID`)
   missing → exit `64` (`EX_USAGE`) with a single-line JSON error
@@ -131,19 +57,8 @@ is the lifecycle and packaging glue that sits on top.
   warning but do not block boot — operators add new env vars before
   upgrading the worker binary; warning surfaces drift without a hard
   break.
-- **`transportKind` is implicit, not env-driven.** The
-  `worker-entry-remote.ts` bootstrap always declares
-  `transportKind: 'remote-ws'` in its `register` frame because the
-  *file* is the remote-WS variant — local-spawn workers go through
-  `worker/entry.ts` and register in-process with `workerId='local'`
-  per phase 1 D2. No `GVC0_WORKER_TRANSPORT_KIND` env exists; if a
-  third transport ever ships, the new entry file pins the new value.
-- **Single invocation form: `npm run worker`.** No `bin` field in
-  `package.json`. A `bin` entry would point at compiled JS that this
-  repo does not currently build, and the operator narrative
-  (`worker-systemd.md`) only ever uses `ExecStart=/usr/bin/npm run
-  worker`. The script form is `tsx bin/worker.ts`; `tsx` is already
-  a dev dep. Global install (`npm install -g`) is out of scope.
+- **`transportKind` is implicit.** `worker-entry-remote.ts` hardcodes `'remote-ws'`; local-spawn workers go through `worker/entry.ts` per phase 1 D2. No env switch — new transports get new entry files.
+- **Single invocation form: `npm run worker` → `tsx bin/worker.ts`.** No `bin` field; the repo does not build compiled JS, and `worker-systemd.md` uses `ExecStart=/usr/bin/npm run worker`. Global install out of scope.
 - **Structured logs are JSON-per-line.** Errors are serialized as
   `{ msg, stack: stack.split('\n').slice(0, 4).join(' ⏎ ') }` so a
   stack trace stays on one line. No new logging dependency — a
@@ -164,23 +79,9 @@ is the lifecycle and packaging glue that sits on top.
   drops onto the VM. The two stay in sync via a "the canonical unit
   lives at `deploy/systemd/gvc0-worker.service`" pointer in the doc.
 
-### What this phase is **not**
-
-- Not a packaging system. No `.deb`, no Docker image, no Helm chart.
-  The deployment story is "git clone + npm ci + systemd". Operators
-  who need a different shape can build it on top.
-- Not auto-update. `git pull && systemctl restart gvc0-worker` is
-  the upgrade path.
-- Not TLS termination. A reverse proxy in front of the registry
-  endpoint handles that; the worker speaks plain WebSocket.
-- Not the bare-repo SSH wrapper. Phase 2 owns the git transport
-  layer; this phase only documents that the worker user needs an
-  ssh key on the deploy VM.
-
 ## Steps
 
-The phase ships as **6 commits**. Each stands alone; the test suite
-stays green between commits.
+Six commits — see "Out of scope" at the end for what this phase is not.
 
 ---
 
@@ -226,16 +127,7 @@ systemd respawn.
 
 **Review subagent:**
 
-> Verify the entry: (1) `runWorker` is the only place worker
-> bootstrap code runs — no module-level side effects in
-> `worker-entry-remote.ts` (grep for top-level `await` and
-> top-level `process.on(...)` outside `runWorker`); (2)
-> `bootEpoch` is generated exactly once per `runWorker` call,
-> threaded into every `register` / `reconnect` / `heartbeat`
-> frame, and never re-read from the clock after the initial
-> capture; (3) `bin/worker.ts` does not import from `test/`;
-> (4) `package.json` has the `worker` script and no `bin`
-> field. Under 300 words.
+> Verify the entry: (1) no module-level side effects in `worker-entry-remote.ts` outside `runWorker`; (2) `bootEpoch` is generated once per `runWorker` call and threaded into every `register`/`reconnect`/`heartbeat` frame; (3) `package.json` has the `worker` script, no `bin` field. Under 200 words.
 
 **Commit:** `feat(runtime/remote): npm run worker entry + bootEpoch generation`
 
@@ -293,19 +185,7 @@ missing or invalid key. Unknown `GVC0_*` vars log a warning.
 
 **Review subagent:**
 
-> Verify env validation: (1) every required key has both a
-> presence and a shape check; (2) the failure JSON includes the
-> key name verbatim so an operator can grep journald for it; (3)
-> defaults match the values printed in
-> `docs/deployment/worker-systemd.md` and
-> `deploy/systemd/worker.env.example`; (4) the validator is the
-> only env-reading path in the worker bootstrap — grep
-> `process.env\.GVC0_` outside this file should be empty after
-> the change; (5) no `GVC_*` prefix remains anywhere in the repo
-> except in changelog/git history (grep `GVC_` source-side); (6)
-> `transportKind` is hardcoded to `'remote-ws'` in
-> `worker-entry-remote.ts` and is *not* read from env. Under
-> 350 words.
+> Verify env validation: (1) every required key has both presence and shape checks; (2) failure JSON includes verbatim key names; (3) the validator is the only env-reading path (grep `process.env\.GVC0_` outside this file is empty); (4) no source-side `GVC_*` prefix remains; (5) `transportKind` is hardcoded `'remote-ws'`, not env-driven. Under 250 words.
 
 **Commit:** `feat(runtime/remote): worker env validator + GVC0_ prefix consolidation`
 
@@ -351,15 +231,7 @@ and let phase-5 TTL handle the runs.
 
 **Review subagent:**
 
-> Verify drain: (1) SIGTERM fires `worker_shutdown` exactly once
-> per process even on repeated signals; (2) the frame's
-> `inFlightLeases` matches the worker's current lease cache (no
-> stale or speculative entries); (3) drain timeout falls through
-> to `process.exit(1)` rather than hanging; (4) the integration
-> test asserts the lease moves to `released` (not `expired`) on
-> the orchestrator side; (5) no other code path calls
-> `process.exit` from within the worker bootstrap (grep
-> `process\.exit` under `src/runtime/remote/`). Under 350 words.
+> Verify drain: (1) SIGTERM fires `worker_shutdown` exactly once per process; (2) `inFlightLeases` matches the worker's current cache; (3) drain timeout exits 1, never hangs; (4) integration test asserts lease moves to `released` (not `expired`) orchestrator-side; (5) no other `process.exit` paths under `src/runtime/remote/`. Under 250 words.
 
 **Commit:** `feat(runtime/remote): SIGTERM-driven orderly drain`
 
@@ -423,20 +295,7 @@ and lets systemd respawn from scratch.
 
 **Review subagent:**
 
-> Verify reconnect: (1) `bootEpoch` (from step 6.1) stays constant
-> across all `connect` attempts within one `runReconnectLoop`
-> invocation; (2) the *first* successful connect sends `register`,
-> *subsequent* successes send `reconnect` (phase 1.2) — the
-> `isFirstConnect` flag is the discriminator; (3) the give-up path
-> exits the process via the bubble-up to `bin/worker.ts`, not via
-> `process.exit` inside the loop; (4) backoff and the give-up
-> deadline both reset on successful `register_ack` /
-> `reconnect_ack`, not on any TCP-level reconnect — so a stuck
-> orchestrator that accepts the socket but never acks does *not*
-> reset the schedule; (5) the integration test asserts the lease's
-> `state` and `fence` are unchanged across reconnect — proving the
-> same-bootEpoch reattach branch fired, not takeover. Under 400
-> words.
+> Verify reconnect: (1) `bootEpoch` stays constant across all connect attempts within one loop; (2) first connect sends `register`, subsequent connects send `reconnect` (phase 1.2); (3) give-up bubbles up to `bin/worker.ts`, no in-loop `process.exit`; (4) backoff + give-up deadline reset on `register_ack`/`reconnect_ack` only — accepted-but-unacked socket does not reset; (5) integration test asserts lease `state`/`fence` unchanged across reconnect (proves same-bootEpoch reattach, not takeover). Under 300 words.
 
 **Commit:** `feat(runtime/remote): bounded reconnect loop with backoff`
 
@@ -476,13 +335,7 @@ and lets systemd respawn from scratch.
 
 **Review subagent:**
 
-> Verify logging: (1) every line emitted by the worker is exactly
-> one `\n`-terminated JSON object — multi-line stack traces are
-> joined; (2) `console.log` / `console.error` are not called from
-> any file under `src/runtime/remote/` or `bin/`; (3) the field
-> set on every line includes `workerId` and `bootEpoch` so log
-> aggregators can filter; (4) stream split is honored: `error`
-> writes to stderr, others to stdout. Under 250 words.
+> Verify logging: (1) every line is one `\n`-terminated JSON object; multi-line stack traces are joined; (2) no `console.log`/`console.error` under `src/runtime/remote/` or `bin/`; (3) every line has `workerId` and `bootEpoch`; (4) `error` → stderr, others → stdout. Under 200 words.
 
 **Commit:** `feat(runtime/remote): structured single-line JSON logs`
 
@@ -497,13 +350,7 @@ a missing-pointer rather than a stale code block.
 
 **Files:**
 
-- `deploy/systemd/gvc0-worker.service` — new. Canonical unit.
-  Includes `TimeoutStopSec=120` (the 60s drain in step 6.3 is well
-  inside this window; default `DefaultTimeoutStopSec` varies across
-  distros and would SIGKILL the drain on Alpine). Top-of-file
-  comment: "Canonical unit. Edit here, not in
-  `/etc/systemd/system/`. See
-  `docs/deployment/worker-systemd.md` for install narrative."
+- `deploy/systemd/gvc0-worker.service` — new. Canonical unit. Includes `TimeoutStopSec=120` (60s drain fits; default varies per distro and SIGKILLs the drain on Alpine). Top comment points at `docs/deployment/worker-systemd.md`.
 - `deploy/systemd/worker.env.example` — new. Documented env
   template covering every key the validator from step 6.2
   recognizes, with required keys uncommented at sentinel values
@@ -532,18 +379,7 @@ a missing-pointer rather than a stale code block.
 
 **Review subagent:**
 
-> Verify deploy artifacts: (1) `diff
-> deploy/systemd/gvc0-worker.service <(extract the fenced unit
-> block from docs/deployment/worker-systemd.md)` is empty — the
-> doc preview and canonical file are byte-identical, no drift; (2)
-> the env template covers every key recognized by `parseWorkerEnv`
-> (cross-reference step 6.2) and no others; (3) env defaults match
-> the validator defaults exactly; (4) `TimeoutStopSec=120` is
-> present in the unit; (5) no secret values land in the example
-> file (placeholders only — `<set-me>`, never a real token); (6)
-> `docs/deployment/worker-systemd.md` cites `deploy/systemd/...`
-> as the canonical source and does not claim to be authoritative
-> on directive contents. Under 350 words.
+> Verify deploy artifacts: (1) the canonical unit file and the doc's fenced preview are byte-identical (diff empty); (2) env template covers exactly the keys `parseWorkerEnv` recognizes; defaults match the validator; (3) `TimeoutStopSec=120` is in the unit; (4) no real secrets in the example file (placeholders only); (5) `worker-systemd.md` cites `deploy/systemd/...` as canonical. Under 250 words.
 
 **Commit:** `chore(deploy): canonical systemd unit + env template`
 
@@ -551,58 +387,11 @@ a missing-pointer rather than a stale code block.
 
 ## Phase exit criteria
 
-- All six commits land in order on a feature branch.
-- `npm run verify` passes on the final commit.
-- A clean checkout on a fresh VM can run, in order:
-  `npm ci && cp deploy/systemd/worker.env.example /etc/gvc0/worker.env
-  && (edit) && cp deploy/systemd/gvc0-worker.service
-  /etc/systemd/system/ && systemctl daemon-reload && systemctl
-  start gvc0-worker` and the worker registers, takes a run, and
-  drains cleanly on `systemctl stop gvc0-worker`.
-- `test/integration/distributed/` covers: missing required env →
-  exit 64; spawned worker registers and runs one task; SIGTERM →
-  `worker_shutdown` → lease released → exit 0; transport drop →
-  reconnect with same `bootEpoch` → run continues; initial-connect
-  failure (orchestrator down at boot) → backoff loop → eventual
-  successful `register`; reconnect give-up → exit 2.
-- `deploy/systemd/gvc0-worker.service` is the canonical unit and
-  the fenced preview in `docs/deployment/worker-systemd.md` is a
-  byte-identical extract — verifiable via the step 6.6 review-
-  subagent diff.
-- Every `GVC_*` env reference (phase 1 `GVC_WORKER_PROTOCOL_TOKEN`,
-  phase 4 `GVC_FORCE_REMOTE_AGENTS`) has been renamed to `GVC0_*`;
-  source-side grep for `GVC_` returns nothing outside changelog
-  and git history.
+- All six commits land in order; `npm run verify` passes on the final commit.
+- Clean-VM install path works: `npm ci && cp deploy/systemd/worker.env.example /etc/gvc0/worker.env && (edit) && cp deploy/systemd/gvc0-worker.service /etc/systemd/system/ && systemctl daemon-reload && systemctl start gvc0-worker` — worker registers, takes a run, drains cleanly on `systemctl stop gvc0-worker`.
+- Integration suite covers: missing-env → exit 64; spawn → register → run; SIGTERM → `worker_shutdown` → released → exit 0; transient drop → same-`bootEpoch` reconnect → run continues; orchestrator-down-at-boot → eventual register; reconnect give-up → exit 2.
+- Source-side grep for `GVC_` returns nothing outside git history.
 
-## Out of scope (and rationale)
+## Out of scope
 
-- **Container images / Dockerfile.** The deployment story is
-  long-lived VMs with persistent scratch space; container images
-  are a different lifecycle and would need their own phase.
-- **`.deb` / `.rpm` packaging.** `git clone + npm ci` is the path.
-  Distros that need package management can wrap this.
-- **Auto-update.** `git pull && systemctl restart gvc0-worker` is
-  the documented upgrade. Continuous delivery is an orthogonal
-  concern.
-- **Bare-repo SSH key provisioning.** The git transport setup
-  (orchestrator-side `git-shell` user, deploy key on the worker)
-  is documented in `worker-systemd.md` but not automated. Phase 2
-  owns the bare-repo protocol; phase 6 does not regress that
-  boundary.
-- **TLS termination.** A reverse proxy in front of the registry
-  endpoint handles wss; the worker speaks `ws:` or `wss:` based on
-  `GVC0_ORCHESTRATOR_URL`. Cert management is operator turf.
-- **Health-check endpoint.** systemd does not need one — the lease
-  layer is the source of truth for liveness, and `Restart=always`
-  catches process death. Adding `Type=notify` with sd_notify is
-  deferred until the lease layer surfaces a use case (e.g. delaying
-  reroute until the new worker has registered).
-
-## Effect on the rest of the track
-
-After this phase merges, `worker-systemd.md` becomes the operator's
-single point of reference: install steps, environment file, unit
-file, and run/stop semantics all map to checked-in artifacts and
-code. The track's deployment story is closed. Subsequent work
-(observability, multi-region, container images) builds on this
-surface rather than rewriting it.
+Container images / `.deb` / `.rpm` packaging, auto-update, TLS termination (operator-managed reverse proxy), bare-repo SSH key provisioning (phase 2 boundary), and a health-check endpoint (lease layer is the liveness source of truth; `sd_notify` deferred).

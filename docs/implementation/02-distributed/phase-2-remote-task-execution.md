@@ -35,41 +35,13 @@ per-dispatch.
 - Dispatch picks transport per run based on a worker capability declared
   by the registry from phase 1.
 
-### What stays out of phase 2 (state explicitly so reviewers don't expect it)
+### What stays out
 
-- **Multi-worker scheduling.** The dispatcher will only address one
-  remote worker at a time. Capacity-aware fan-out is phase 3.
-- **Feature-phase agents.** Planner, replanner, verifier, summarizer,
-  researcher, discusser keep running locally through
-  `DiscussFeaturePhaseBackend` (`src/runtime/harness/feature-phase/index.ts:75`)
-  and `FeaturePhaseOrchestrator` (`src/agents/runtime.ts:177`). They move
-  to remote dispatch in phase 4.
-- **Recovery.** `worker_pid` / `workerBootEpoch` / `/proc/<pid>/environ`
-  liveness on `agent_runs` (see `src/orchestrator/services/recovery-service.ts:809-844`)
-  stay the recovery model in this phase. Remote runs are simply marked
-  unrecoverable on orchestrator restart and rerouted via the existing
-  retry paths. Phase 5 replaces this with leases.
-- **Auth hardening / mTLS / cross-trust-boundary deployments.** Per the
-  track non-negotiables; transport-level auth is whatever the chosen
-  network transport ships with (ssh keys for the bare repo, transport
-  auth from phase 1 for the IPC plane).
-- **Worker-to-worker traffic.** All coordination flows through the
-  orchestrator.
+Multi-worker, feature-phase agents, lease-based recovery, mTLS, and worker-to-worker traffic all stay out — see README phase table.
 
-### Prerequisites from phase 1
+### Prerequisites
 
-Phase 1 has already shipped:
-
-- A `WorkerRegistry` port and persisted worker rows.
-- Worker registration handshake, heartbeat, and capacity declaration.
-- Network IPC transport scaffold (the wire format question is decided in
-  phase 1 — this phase consumes the chosen transport, it does not
-  re-pick it).
-- `agent_runs` carries `worker_id` (or equivalent) so a run can be
-  joined back to the worker that hosted it.
-
-If `phase-1-protocol-and-registry.md` has not landed yet, treat the
-above bullets as the phase-1 contract that this plan will adopt.
+Consumes phase 1's `WorkerRegistry`, network IPC transport, and `agent_runs.worker_id`.
 
 ### Survey of code that moves
 
@@ -101,13 +73,7 @@ configured location), pushes the current `main` plus every existing
 feature branch into it, and writes the chosen ssh URL into the project
 config block.
 
-The transport for the git plane is **ssh** (recommended in the track
-README). Workers reach the bare repo via `ssh://<host>/<path>.git`. No
-HTTP backend, no `git daemon`. Justification: ssh is one config item
-(authorized keys), preserves push-side auth without a separate
-daemon, and survives behind a firewall the same way the IPC transport
-will. If a deployment cannot run ssh, that becomes a follow-up; it does
-not block the LAN-default case.
+Git plane transport is **ssh** (per track README): `ssh://<host>/<path>.git`, no HTTP backend, no `git daemon`.
 
 **Ref naming and force-push rules:**
 
@@ -157,15 +123,7 @@ not block the LAN-default case.
 
 **Review subagent prompt:**
 
-> Review the `BareRepoLayout` work. Verify: (1) `ensureBareRepo` is
-> idempotent and never deletes refs; (2) the `pre-receive` hook
-> rejects exactly force-pushes and deletions, and the rejection
-> message names the offending ref; (3) `bareRepoSshUrl` produces a
-> URL the standard ssh client can resolve without extra config; (4)
-> `gvc0 repo init` is safe to re-run on an existing project (no ref
-> loss, no auth-key rewrite). Flag any path where the orchestrator
-> writes a force-push, or any case where a worker key path is granted
-> push access to a branch outside its task namespace. Under 350 words.
+> Verify the `pre-receive` hook rejects exactly force-pushes and deletions (rejection message names the offending ref). Flag any path where the orchestrator force-pushes, or any case where a worker key gets push access outside its task namespace. Under 200 words.
 
 **Commit:** `feat(orchestrator/git): bare repo layout and ssh-only push contract`
 
@@ -221,15 +179,7 @@ worker's filesystem to clean up.
 
 **Review subagent prompt:**
 
-> Verify worker-side git: (1) `ensureClone` is idempotent — second
-> call against an existing clone fetches and does not re-clone; (2)
-> `ensureTaskWorktree` always branches from feature-branch HEAD as
-> reported by the bare repo, never from a cached local SHA; (3)
-> `pushTaskBranch` uses non-force push and tags the push with
-> `-o agent_run_id=<id>` so the bare-repo hook can authorize; (4) on
-> abort, the task branch is left in a state the orchestrator can
-> read (commits intact, no force-reset). Flag any path that mutates
-> a branch outside the task's namespace. Under 350 words.
+> Verify `pushTaskBranch` uses `-o agent_run_id=<id>` and non-force, and abort leaves the task branch readable (commits intact, no force-reset). Flag any path that mutates a branch outside the task's namespace. Under 200 words.
 
 **Commit:** `feat(runtime/remote): worker-side git client and worktree manager`
 
@@ -237,28 +187,7 @@ worker's filesystem to clean up.
 
 ### Step 2.3 — Centralized session storage seam
 
-**What:** decide and implement the session-storage shape. The
-decision: **centralize sessions on the orchestrator and stream
-session ops over IPC** — option (a) in the track README. The worker
-calls `save` / `load` / `saveCheckpoint` via two new IPC frames; the
-orchestrator-side handler writes through to the existing `SessionStore`
-implementation.
-
-Justification:
-
-- One source of truth for resume across local and remote runs. The
-  centralized-conversation-persistence candidate already calls this
-  out as the eventual shape; phase 2 is a forced trigger to land it
-  at minimum coverage for task scope.
-- Recovery semantics stay the same: `agent_runs.session_id` keeps
-  pointing at one location, regardless of which worker hosted the
-  run. Phase 5's lease/takeover work needs this to be true.
-- Worker filesystems are treated as scratch. Nothing on the worker
-  is authoritative.
-- Per the `centralized-conversation-persistence.md` candidate, the
-  baseline `SessionStore` interface (`src/runtime/sessions/index.ts:35-44`)
-  is already provider-agnostic; we add a remote-side proxy
-  implementation, not a new contract.
+**What:** centralize sessions on the orchestrator and stream session ops over IPC (option (a) in the track README). The worker calls `save` / `load` / `saveCheckpoint` via two new IPC frames; the orchestrator-side handler writes through to the existing `SessionStore`. One source of truth for resume across local and remote runs; phase 5's lease/takeover needs this.
 
 The new IPC frames:
 
@@ -272,13 +201,7 @@ These must be added to the discriminated unions in
 `src/runtime/contracts.ts:412-468` and `:339-410` and to the
 TypeBox schemas added in phase 1's IPC validation work.
 
-`session_op` is state-mutating and therefore carries `fence: number` per the
-README "Fence tokens" cross-cutting decision. The field is declared in
-this step's schema so phase 5 step 5.5 can flip enforcement on without a
-schema migration. Until phase 5 lands, the orchestrator-side handler accepts
-any fence value (workers stamp `0`); after phase 5, mismatched fences are
-dropped. `session_load_request` and `session_load_response` are read-only and
-do not carry a fence.
+`session_op` carries `fence: number` (workers stamp `0` pre-phase-5; phase 5 step 5.5 flips enforcement). Read-only frames omit it.
 
 **Files:**
 
@@ -311,16 +234,7 @@ do not carry a fence.
 
 **Review subagent prompt:**
 
-> Verify centralized session storage: (1) `RemoteSessionStore`
-> implements every method of `SessionStore` from
-> `src/runtime/sessions/index.ts:35` with no method silently
-> downgraded to a no-op; (2) load correlation id collisions are
-> impossible (random + per-run scope) or detected; (3) the
-> orchestrator-side handler tears down on `result` / `error` /
-> transport close, with no leaked correlation tables; (4) frame
-> schemas added to `contracts.ts` are mirrored in the phase-1 TypeBox
-> validator. Flag any path where session writes silently drop on
-> transport close. Under 400 words.
+> Verify `RemoteSessionStore` implements every `SessionStore` method (no silent no-op). Flag any path where session writes silently drop on transport close, or where the orchestrator-side handler leaves correlation tables behind after teardown. Under 250 words.
 
 **Commit:** `feat(runtime/sessions): centralized session storage with IPC proxy`
 
@@ -431,11 +345,7 @@ worker selection — the dispatcher does.
   unchanged.
 - If the chosen worker is remote, dispatch goes through
   `RemoteWsHarness`.
-- Per-dispatch override is **not** added — selection is a property of
-  the worker, not the dispatch. (Per-dispatch flags would push
-  scheduling decisions into runtime-construction code; we want them
-  in one place. Phase 3's capacity-aware dispatcher is the right
-  layer to extend if a "force-local" knob ever becomes necessary.)
+- Per-dispatch override is **not** added — selection is a worker property.
 
 The transport-aware `LocalWorkerPool` (`src/runtime/worker-pool.ts:62+`)
 gets a wrapper that holds both harnesses and routes by worker
@@ -477,15 +387,7 @@ is unchanged — phase 2 keeps the seam stable.
 
 **Review subagent prompt:**
 
-> Verify transport selection: (1) `MultiHarnessPool` exposes the
-> exact same `RuntimePort` surface — no extra public methods leak
-> in; (2) the live-runs map is shared so control ops route by
-> `agentRunId` regardless of harness kind; (3) `compose.ts` falls
-> back to `LocalWorkerPool` when `distributed.enabled = false`,
-> and the regression-test path for the local-only baseline still
-> exercises the unchanged class; (4) no call site in
-> `dispatch.ts` hard-codes `PiSdkHarness`. Flag any place a remote
-> dispatch falls back silently to local. Under 350 words.
+> Verify the live-runs map is shared so control ops route by `agentRunId` regardless of harness kind. Verify `compose.ts` falls back to `LocalWorkerPool` when `distributed.enabled = false`. Flag any place a remote dispatch falls back silently to local. Under 200 words.
 
 **Commit:** `feat(runtime): MultiHarnessPool routes dispatch by worker capability`
 
@@ -498,22 +400,7 @@ back into its state, and feed them into the squash-merge step that
 already lives in the integration coordinator
 (`src/orchestrator/integration/index.ts:78-117`).
 
-Local task workers commit on the local feature-branch worktree
-directly; remote workers commit on a worktree on a different machine
-and push the resulting branch to the bare repo. The integration
-path needs a single shape for "where does the post-task SHA come
-from?". The answer:
-
-- After a remote task's terminal `result` frame, the harness fetches
-  the task branch from the bare repo into the orchestrator's local
-  feature-branch worktree (`git fetch <bare> <task-branch>`), then
-  performs the same squash-merge against the feature branch that the
-  local path uses.
-- After a local task's terminal `result` frame, the existing path
-  runs unchanged — no fetch needed; the branch is already on local
-  disk.
-
-Both paths converge on the same squash-merge call site.
+Remote runs `git fetch <bare> <task-branch>` first; local runs skip the fetch. Both converge on the same squash-merge call site.
 
 **Files:**
 
@@ -561,22 +448,7 @@ Both paths converge on the same squash-merge call site.
 
 ### Step 2.7 — End-to-end happy-path with a fake remote worker
 
-**What:** an integration test that drives one full task through the
-remote path, end to end, using an in-process "fake remote" worker —
-same harness wiring, same network transport from phase 1, but the
-remote endpoint runs in the same Node process as the orchestrator
-behind a transport that simulates the wire.
-
-This is a sanity check, not a phase blocker — but it is the only
-test in this phase that crosses every seam: registry, harness,
-network IPC, worker-side git client, centralized session storage,
-dispatch routing, branch sync-back. Without it, every previous
-step's tests pass in isolation while the system as a whole could
-silently regress on a wiring mistake.
-
-The fauxModel pattern from `test/integration/harness/` covers the
-agent loop — same `FauxResponse` script as a local-task integration
-test, just running through the new remote stack.
+**What:** an integration test that drives one full task through the remote path end to end, using an in-process "fake remote" worker (same harness wiring, same phase-1 network transport, same Node process). Crosses every seam: registry, harness, network IPC, worker-side git client, centralized session storage, dispatch routing, branch sync-back. Uses the `fauxModel` pattern from `test/integration/harness/`.
 
 **Files:**
 

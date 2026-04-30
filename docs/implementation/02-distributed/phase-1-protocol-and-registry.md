@@ -8,29 +8,7 @@ This phase is intentionally **additive**: every existing test must keep passing 
 
 ## Background
 
-Verified state on `main` after [01-baseline](../01-baseline/README.md):
-
-- `src/runtime/contracts.ts:232-337` defines `RuntimePort` as scope-aware dispatch + control. There is no concept of a worker identity on the wire — every IPC frame is keyed on `(taskId, agentRunId)` and the implicit assumption is "the worker is the child process I just forked."
-- `src/runtime/worker-pool.ts:62-76` constructs the pool with one local `SessionHarness` and a max-concurrency integer; capacity is a single number owned by the pool, not declared by anything outside the orchestrator.
-- `src/runtime/ipc/index.ts:9-19` defines `IpcTransport` / `ChildIpcTransport` as orchestrator↔single-child seams. `NdjsonStdioTransport` is the only implementation; it assumes stdio. There is no transport that accepts an inbound network connection.
-- `src/orchestrator/ports/index.ts:43-58` exposes the `Store` port. It has no notion of worker rows.
-- `src/persistence/migrations/` after phase 0 contains a single consolidated `001_init.ts`. The pinned distributed-track numbering (see [phase 0](./phase-0-migration-consolidation.md)) gives this phase `010_workers.ts`. Baseline phase 1 has not yet shipped its 010, so 010 is free for this track.
-- `src/compose.ts:211-223` instantiates `LocalWorkerPool` directly. There is no separate "worker process" entry point or daemon today — workers are short-lived children created on demand by `PiSdkHarness`.
-- `src/runtime/index.ts` re-exports the public runtime surface; new types added in this phase must be exported here if the TUI / orchestrator need to render them.
-
-What this phase has to land:
-
-1. A worker-identity model the orchestrator can key on, that survives worker restarts.
-2. A network transport carrying a registration handshake, a heartbeat stream, and (eventually) the dispatch frames already defined in `contracts.ts`.
-3. A `WorkerRegistryPort` (read/write) plus SQLite-backed persistence so the registry survives orchestrator restart.
-4. A composition wiring (off-by-default) that boots a registry server alongside `LocalWorkerPool`, observably accepts worker connections, and renders them in the TUI as "registered, idle, not yet dispatchable."
-
-What this phase explicitly **does not** land (those are phase 2+):
-
-- Any change to `RuntimePort.dispatchRun` routing, or to the spawn model.
-- Worker-side execution of tasks fetched from the network.
-- Lease / ownership semantics for runs (phase 5).
-- Replacement of pid-based liveness in `recoverOrphanedRuns` (phase 5).
+After [01-baseline](../01-baseline/README.md), `main` has no worker identity on the wire — `LocalWorkerPool` (`src/runtime/worker-pool.ts:62`) is the only path that runs tasks, IPC is single-child stdio (`src/runtime/ipc/index.ts:9-19`), and `Store` (`src/orchestrator/ports/index.ts:43-58`) has no worker rows. The phase 0 migration slot `010_workers.ts` is free for this track. The registry is purely additive on top of these surfaces.
 
 ## Design decisions
 
@@ -76,24 +54,15 @@ The clock is the orchestrator's `Date.now()` only — workers never push their o
 
 ### D4. Transport: WebSocket
 
-Picked WebSocket (`ws` library; pure JS, no native build). Justification:
+WebSocket via `ws` (pure JS) — bidirectional JSON frames map 1:1 onto existing NDJSON shapes; `WorkerToOrchestratorMessage` / `OrchestratorToWorkerMessage` ride unchanged.
 
-- Bidirectional, framed, message-oriented — maps 1:1 onto the existing NDJSON frame model. Each WS frame carries one JSON object, same as one stdio line; the existing `WorkerToOrchestratorMessage` / `OrchestratorToWorkerMessage` shapes ride unchanged.
-- Mature Node ecosystem; trivially proxyable through nginx / CloudFront if a deployment ever needs it.
-- HTTP+SSE would force a side channel for orchestrator→worker; gRPC adds protobuf and codegen for what is currently a JSON contract; raw TCP loses framing. WS is the minimum viable network seam without giving up the JSON shape.
-
-The transport is encapsulated in a new `WebSocketServerTransport` (orchestrator side) and `WebSocketClientTransport` (worker side), both implementing the same `IpcTransport` shapes from `src/runtime/ipc/index.ts:9-19`. **The contract types in `src/runtime/contracts.ts` do not change.** Two new frames are added to the orchestrator/worker unions only insofar as registry frames need to be carried — those live in a separate `RegistryFrame` union that is multiplexed on the same socket but typed separately so `RuntimePort` and dispatch frames stay transport-agnostic. (See step 1.2 for the framing detail.)
+Encapsulated in `WebSocketServerTransport` / `WebSocketClientTransport` implementing `IpcTransport` (`src/runtime/ipc/index.ts:9-19`). **`src/runtime/contracts.ts` does not change.** Registry frames live in a separate `RegistryFrame` union multiplexed on the same socket but typed separately so `RuntimePort` and dispatch frames stay transport-agnostic (step 1.2).
 
 The transport listens on a config-driven `host` + `port`. Authentication is out of scope here — phase 1 ships with a shared bearer token in config (env-overridable) and a TODO link to the auth/mTLS hardening track from the README "Out of scope" section.
 
 ### D5. Visibility, not dispatchability
 
-At the end of phase 1, registered remote workers:
-
-- Appear as rows in `workers` table.
-- Are surfaced through `WorkerRegistryPort.listWorkers()`.
-- Render in the TUI worker counts panel as `registered: N (remote, not yet dispatchable)`.
-- **Do not** appear in `LocalWorkerPool.idleWorkerCount()` and **do not** receive any `dispatchRun` call. `LocalWorkerPool` continues to compute capacity from `maxConcurrency - liveRuns.size` exactly as today (`src/runtime/worker-pool.ts:572-574`). Phase 2 introduces a `RegistryAwareRuntimePort` that joins the two; the registry data feeding it must already be live before that lands.
+At the end of phase 1, registered remote workers appear in the `workers` table, surface through `WorkerRegistryPort.listWorkers()`, and render in the TUI as `registered: N (remote, not yet dispatchable)`. They do **not** appear in `LocalWorkerPool.idleWorkerCount()` and do **not** receive any `dispatchRun` call.
 
 ## Steps
 
@@ -124,7 +93,7 @@ The phase ships as **6 commits**, each shippable on its own with the test suite 
 
 **Review subagent:**
 
-> Verify the registry port: (1) every method of `WorkerRegistryPort` has a clear contract for `workerId`-not-found vs. stale-`bootEpoch` cases; (2) the in-memory impl never mutates returned `RegisteredWorker` objects (callers should treat them as immutable); (3) `subscribe` listeners are isolated — one listener throwing does not stop others; (4) types are re-exported from `src/runtime/index.ts`. Flag any field added to `RegisteredWorker` that has no producer or no consumer in this step. Under 300 words.
+> Verify the step body; additionally flag fields added to `RegisteredWorker` with no producer or no consumer, and any path where one throwing `subscribe` listener stops others. Under 200 words.
 
 **Commit:** `feat(orchestrator/ports): worker registry port and in-memory impl`
 
@@ -134,12 +103,16 @@ The phase ships as **6 commits**, each shippable on its own with the test suite 
 
 **What:** define the wire shapes for the registry plane as a separate `RegistryFrame` union, with TypeBox validation that mirrors the validator added in baseline phase 1 step 1.1. The new frames are deliberately NOT added to `WorkerToOrchestratorMessage` / `OrchestratorToWorkerMessage` — those unions remain about runs. The worker connection multiplexes the two frame families on one socket, distinguished by their `type` discriminator.
 
-The full registry-plane variant set (see the README "Wire planes" table for the cross-reference):
+The full registry-plane variant set (see the README "Wire planes" table for cross-phase semantics):
 
-- `register` / `register_ack` / `register_reject` — handshake (this phase, step 1.4).
-- `heartbeat` / `heartbeat_ack` — recurring liveness; phase 5 extends `heartbeat` with `leases: Array<{ agentRunId, fence }>` as the canonical lease carrier.
-- `reconnect` / `reconnect_ack` — worker volunteers held `(agentRunId, fence)` after a transport drop. Schema lands here; the orchestrator-side reconcile algorithm lands in step 1.4 (see `INVESTIGATION-architectural.md` §D7).
-- `worker_shutdown` / `worker_shutdown_ack` — voluntary release. Schema lands here as a no-op pre-phase-5 frame (orchestrator logs and acks); phase 5 step 5.4 wires release semantics (`state = 'released'`, skip grace).
+- `register` / `register_ack` / `register_reject` — handshake.
+- `heartbeat` / `heartbeat_ack` — recurring liveness.
+- `reconnect` / `reconnect_ack` — worker volunteers held `(agentRunId, fence)` after a transport drop.
+- `worker_shutdown` / `worker_shutdown_ack` — voluntary release.
+
+Schemas land here; behaviour is no-op acks (phase 5 fills in lease semantics).
+
+**Forward-phase semantics (preview, not implemented this phase).** Phase 5 extends `heartbeat` with `leases: Array<{ agentRunId, fence }>` so that the recurring frame becomes the canonical lease carrier (no separate lease-renew RPC). On `reconnect`, same-`bootEpoch` reattaches by `(agentRunId, fence)` without rotating the fence; a different `bootEpoch` drops every prior lease regardless of TTL. `worker_shutdown` (D15) moves the listed leases to `state='released'`, bumps the fence, and triggers immediate reroute — grace timers are skipped because the worker has volunteered.
 
 The `reconnect` shape:
 
@@ -187,7 +160,7 @@ The `worker_shutdown` shape:
 
 ### Step 1.3 — `workers` table + Store-backed registry
 
-**What:** persistent backing for the registry. Migration `010_workers.ts` adds the table (pinned id from phase 0); a `SqliteWorkerRegistry` decorates `InMemoryWorkerRegistry` semantics with disk persistence. The decorator pattern (in-memory cache fronted by SQL) is intentional — heartbeats hit `lastSeenAt` every few seconds and we don't want a synchronous SQLite write per beat on the hot path; the cache flushes opportunistically.
+**What:** persistent backing for the registry. Migration `010_workers.ts` adds the table (pinned id from phase 0); `SqliteWorkerRegistry` is an in-memory cache fronted by SQL — heartbeats coalesce to avoid per-beat SQLite writes.
 
 **Files:**
 
@@ -207,7 +180,7 @@ The `worker_shutdown` shape:
 
 **Review subagent:**
 
-> Verify the sqlite registry: (1) migration `010_workers.ts` follows the idempotency + index pattern of the consolidated `001_init.ts`; (2) heartbeat flush is bounded — a 10k-heartbeat burst does not produce 10k SQLite writes; (3) status is derived (not stored), so retuning `staleAfterMs` does not require a migration; (4) the in-memory cache is populated from disk at construction, not lazily on first read (otherwise startup recovery races the first heartbeat). Flag any place the cache and the table can disagree without a path back to convergence. Under 350 words.
+> Flag any place the in-memory cache and the table can disagree without a path back to convergence. Verify the cache is populated from disk at construction (not lazily) and heartbeat flushes are bounded under burst. Under 200 words.
 
 **Commit:** `feat(persistence): workers table and sqlite-backed worker registry`
 
@@ -222,9 +195,9 @@ The `worker_shutdown` shape:
 - `src/runtime/registry/server.ts` — new. `class WorkerRegistryServer { constructor(deps: { registry: WorkerRegistryPort; auth: AuthPolicy; now: () => number; log: Logger }, opts: { host; port; heartbeatIntervalMs; staleAfterMs; evictAfterMs }) }`. Uses the `ws` library. Per-connection state: `workerId | null` until `register`. Maintains a `connection ↔ workerId` map so phase 2 can route run-plane frames (`run`, `abort`, `manual_input`, results, etc.) to the registered worker. Frame routing:
   - `validateRegistryFrame` first; on `ok: false`, send `register_reject` if pre-registration, else log + close with code 1003.
   - `register`: auth check → `registry.register(...)` → `register_ack`. Stash `workerId` on the connection.
-  - `heartbeat`: must be post-register; updates `registry.heartbeat(...)`. Phase 5 step 5.3 extends the handler to renew leases from the `leases` field; this phase only updates `lastSeenAt`.
-  - `reconnect`: must be post-register on the same connection. The reconcile algorithm runs per `INVESTIGATION-architectural.md` §D7: same `bootEpoch` as the just-completed `register` → reattach per-lease (active + matching `worker_id` + fence ≥ claimed → reattach; otherwise `abort` for that `agentRunId`); different `bootEpoch` → drop all prior leases regardless of TTL (worker process restarted; in-memory state is gone). Reply with `reconnect_ack` listing the leases successfully reattached. Pre-phase-5 the algorithm is a no-op shell (no `run_leases` table yet) — log the intent and ack empty; phase 5 step 5.4 fills the body.
-  - `worker_shutdown`: must be post-register. Pre-phase-5 the orchestrator logs and acks immediately (no lease layer to release). Phase 5 step 5.4 wires release semantics: mark each `inFlightLeases` entry `state = 'released'`, bump fence, trigger immediate reroute without waiting for grace.
+  - `heartbeat`: must be post-register; updates `registry.heartbeat(...)` (`lastSeenAt` only this phase).
+  - `reconnect`: must be post-register; pre-phase-5 the algorithm is a no-op shell — log the intent and ack empty (phase 5 step 5.4 fills the reconcile body).
+  - `worker_shutdown`: must be post-register; log + ack immediately (phase 5 fills release semantics).
   - any other frame: log at debug, drop. (Phase 2 routes them.)
 - `src/runtime/registry/auth.ts` — new. `AuthPolicy` interface with `verify(headers, register): { ok: true } | { ok: false; reason: RegistryRejectReason }`. Ship a `SharedSecretAuthPolicy` that compares the `Authorization: Bearer <token>` header against a config value.
 - `src/runtime/registry/staleness.ts` — new. A `StalenessSweeper` that periodically (every 1s) walks `registry.listWorkers()` and lets the registry recompute `status`. Pure for testability.
@@ -256,7 +229,7 @@ The `worker_shutdown` shape:
 - `src/runtime/registry/null.ts` — new. `NullWorkerRegistry` returns empty lists / no-ops. Keeps the port shape uniform.
 - `src/runtime/registry/client.ts` — new. `WorkerRegistryClient` for use in tests and as the worker-side reference impl: dial server, send `register`, await `register_ack`, start heartbeat interval, expose `close()`. Pure: no spawn, no agent loop. Phase 2 wraps this in a real worker daemon.
 - `src/orchestrator/ports/index.ts` — flip `workerRegistry` from optional (step 1.1) to required.
-- `src/tui/worker-counts.ts` (or wherever the worker counts panel lives — verify path during implementation) — read `workerRegistry.listWorkers()` and render `registered: N` next to the existing `running/idle/total`. Mark them visually as remote. **Do not** include them in any "available capacity" rollup.
+- `src/tui/worker-counts.ts` — read `workerRegistry.listWorkers()` and render `registered: N` next to the existing `running/idle/total`. Mark them visually as remote. **Do not** include them in any "available capacity" rollup.
 - `src/runtime/index.ts` — re-export `WorkerRegistryClient` and `NullWorkerRegistry`.
 
 **Tests:**
@@ -268,7 +241,7 @@ The `worker_shutdown` shape:
 
 **Review subagent:**
 
-> Verify the wiring: (1) default config (`workerProtocol.enabled: false`) is byte-identical to baseline behaviour — no port bound, no extra threads, no extra rows written; (2) shutdown order is `scheduler.stop → server.close → db.close` and a half-closed connection during shutdown does not throw out of `app.stop`; (3) `NullWorkerRegistry` is used everywhere a no-op is appropriate so ports stay non-nullable; (4) the TUI does not include remote workers in any rollup that would mislead a human into thinking dispatch is happening; (5) `WorkerRegistryClient` does not import anything from `@runtime/harness` — it must stay independent of the spawn model. Flag any path that already routes a *run* through the network in this phase. Under 400 words.
+> Verify default-config byte-identity (no port bound, no rows written). Confirm `WorkerRegistryClient` imports nothing from `@runtime/harness`. Flag any path that already routes a *run* through the network in this phase. Under 250 words.
 
 **Commit:** `feat(runtime/registry): compose wiring, config gate, and worker client`
 
@@ -291,7 +264,7 @@ The `worker_shutdown` shape:
 
 **Review subagent:**
 
-> Read the new `distributed-worker-protocol.md` and verify against the code: (1) every claim about a frame shape matches `src/runtime/registry/frames.ts`; (2) every claim about persistence matches `src/persistence/migrations/010_workers.ts` and the codec; (3) the "not yet dispatchable" boundary is stated unambiguously and the path to phase 2 is named. Flag any sentence that overstates the current state ("the orchestrator dispatches to remote workers" — false in phase 1). Under 300 words.
+> Verify the doc matches the code (frame shapes, persistence schema). Flag any sentence that overstates the current state. Under 200 words.
 
 **Commit:** `docs(architecture): distributed worker protocol and registry`
 
@@ -299,9 +272,8 @@ The `worker_shutdown` shape:
 
 ## Phase exit criteria
 
-- All six commits land in order on a feature branch.
-- `npm run verify` passes on the final commit.
-- With `workerProtocol.enabled: false` (default), the full existing test suite is byte-identical to pre-phase behaviour: no listening port, no `workers` rows, no extra log lines.
-- With `workerProtocol.enabled: true`, the end-to-end integration test from step 1.5 demonstrates: connect → register → ack → heartbeat → registry visible → disconnect → stale → lost.
-- A registered remote worker is reachable via `ports.workerRegistry.listWorkers()` and rendered in the TUI, but **never** receives a `dispatchRun` call. The next phase wires that.
-- A final cross-cutting review subagent confirms (a) the new `RegistryFrame` union does not pollute `RuntimePort` or the existing run-frame unions; (b) the `workers` table has no FK into `agent_runs` (ownership wiring is phase 5, not phase 1); (c) every new module is reachable from `src/runtime/index.ts` so phase 2 doesn't have to refactor exports; (d) no production code path imports `ws` outside `src/runtime/registry/`.
+- All six commits land in order; `npm run verify` passes on the final commit.
+- With `workerProtocol.enabled: false` (default), behaviour is byte-identical to baseline (no port, no rows, no extra log lines).
+- With `workerProtocol.enabled: true`, the end-to-end test from step 1.5 demonstrates connect → register → heartbeat → stale → lost.
+- A registered remote worker never receives a `dispatchRun` call (phase 2 wires that).
+- A final cross-cutting review subagent confirms: the `RegistryFrame` unions stay isolated from `WorkerToOrchestratorMessage` / `OrchestratorToWorkerMessage` (no shared `type` discriminators); `workers` carries no FK to `agent_runs` (and vice versa); every new public symbol is reachable from a barrel or contracts re-export; `import 'ws'` appears only inside `src/runtime/registry/transport/`.
