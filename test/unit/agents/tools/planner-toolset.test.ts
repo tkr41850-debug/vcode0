@@ -96,6 +96,32 @@ describe('createPlannerToolset', () => {
     expect(host.wasSubmitted()).toBe(true);
   });
 
+  it('allows submit tool to be invoked multiple times (checkpoint-style)', async () => {
+    const graph = createGraphWithFeature();
+    const host = createProposalToolHost(graph, 'plan');
+    const toolset = createPlannerToolset(host);
+
+    await requireTool(toolset, 'addTask').execute({
+      featureId: 'f-1',
+      description: 'first',
+    });
+    await requireTool(toolset, 'submit').execute(proposalDetails);
+
+    await requireTool(toolset, 'addTask').execute({
+      featureId: 'f-1',
+      description: 'second',
+    });
+    await expect(
+      requireTool(toolset, 'submit').execute({
+        ...proposalDetails,
+        summary: 'second pass',
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(host.getProposalDetails().summary).toBe('second pass');
+    expect(host.buildProposal().ops).toHaveLength(2);
+  });
+
   it('formats tool text for representative operations', async () => {
     const graph = createGraphWithFeature();
     const host = createProposalToolHost(graph, 'plan');

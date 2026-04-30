@@ -417,6 +417,45 @@ describe('FeaturePhaseOrchestrator', () => {
     expect(store.listEvents({ entityId: feature.id })).toEqual([]);
   });
 
+  it('accepts checkpoint-style multi-submit; result reflects latest details + accumulated ops', async () => {
+    faux.setResponses([
+      fauxAssistantMessage(
+        [
+          fauxToolCall('addTask', {
+            featureId: 'f-1',
+            description: 'first task',
+          }),
+          fauxToolCall('submit', proposalDetails),
+          fauxToolCall('addTask', {
+            featureId: 'f-1',
+            description: 'second task',
+          }),
+          fauxToolCall('submit', {
+            ...proposalDetails,
+            summary: 'Revised plan.',
+          }),
+        ],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage([fauxText('Plan revised.')]),
+    ]);
+
+    const { feature, run, runtime } = createRuntimeFixture('plan');
+
+    const result = await runtime.planFeature(feature, { agentRunId: run.id });
+
+    expect(result.summary).toBe('Revised plan.');
+    expect(result.proposal.ops).toHaveLength(2);
+    expect(result.proposal.ops[0]).toMatchObject({
+      kind: 'add_task',
+      description: 'first task',
+    });
+    expect(result.proposal.ops[1]).toMatchObject({
+      kind: 'add_task',
+      description: 'second task',
+    });
+  });
+
   it('returns structured verify repair-needed failures from submitVerify', async () => {
     const criteriaEvidence: VerificationCriterionEvidence[] = [
       {
@@ -599,6 +638,28 @@ describe('FeaturePhaseOrchestrator', () => {
       ) => runtime.summarizeFeature(feature, { agentRunId }),
       expectedError:
         'summarize phase must call submitSummarize before completion',
+    },
+    {
+      phase: 'plan' as const,
+      response: 'Plan notes only.',
+      runPhase: 'plan' as const,
+      invoke: (
+        runtime: FeaturePhaseOrchestrator,
+        feature: Feature,
+        agentRunId: string,
+      ) => runtime.planFeature(feature, { agentRunId }),
+      expectedError: 'plan phase must call submit before completion',
+    },
+    {
+      phase: 'replan' as const,
+      response: 'Replan notes only.',
+      runPhase: 'replan' as const,
+      invoke: (
+        runtime: FeaturePhaseOrchestrator,
+        feature: Feature,
+        agentRunId: string,
+      ) => runtime.replanFeature(feature, 'Test reason.', { agentRunId }),
+      expectedError: 'replan phase must call submit before completion',
     },
   ])('requires $phase submit tool before phase completion', async ({
     response,

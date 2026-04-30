@@ -100,7 +100,8 @@ describe('promptLibrary', () => {
     expect(planPrompt).toContain('inspect current persisted feature state');
     expect(planPrompt).toContain('proposal tools');
     expect(planPrompt).toContain('`addMilestone(...)`');
-    expect(planPrompt).toContain('`submit(...)` exactly once');
+    expect(planPrompt).toContain('`submit(...)` is checkpoint-style');
+    expect(planPrompt).not.toContain('`submit(...)` exactly once');
     expect(planPrompt).toContain('concise rationale after tool use');
     expect(planPrompt).toContain('chosen approach');
     expect(planPrompt).toContain('verification expectations');
@@ -109,10 +110,16 @@ describe('promptLibrary', () => {
     expect(planPrompt).not.toContain(
       'Reason: Dependency seam changed after execution evidence.',
     );
+    expect(replanPrompt).toContain('## Replan Input');
+    expect(replanPrompt).toContain("source: 'verify'");
+    expect(replanPrompt).toContain("source: 'ci_check'");
+    expect(replanPrompt).toContain("source: 'rebase'");
+    expect(planPrompt).not.toContain('## Replan Input');
     expect(replanPrompt).toContain('Replanning mode.');
     expect(replanPrompt).toContain('proposal tools');
     expect(replanPrompt).toContain('`addMilestone(...)`');
-    expect(replanPrompt).toContain('`submit(...)` exactly once');
+    expect(replanPrompt).toContain('`submit(...)` is checkpoint-style');
+    expect(replanPrompt).not.toContain('`submit(...)` exactly once');
     expect(replanPrompt).toContain('concise rationale after tool use');
     expect(replanPrompt).toContain(
       'Reason: Dependency seam changed after execution evidence.',

@@ -53,7 +53,7 @@ Replan input — `VerifyIssue[]`:
 - `source: 'rebase'` — integration-time rebase conflict; propose reconciliation on `conflictedFiles`; prefer merging upstream changes over discarding them
 - total `VerifyIssue[]` payload capped at 32KB with severity-ranked retention (blocking > concern > nit, most-recent first within severity); missing lower-severity items are expected, not bugs
 
-Output should use `submit(...)` exactly once after building draft proposal with available tools and include:
+Output should call `submit(...)` after building draft proposal with available tools and include:
 - summary
 - chosen approach
 - key constraints shaping plan
@@ -62,6 +62,8 @@ Output should use `submit(...)` exactly once after building draft proposal with 
 - verification expectations
 - risks, trade-offs, and assumptions that still matter downstream
 - concise rationale after tool use so downstream summary text stays readable
+
+`submit(...)` is checkpoint-style: call it once when initial proposal is ready; if you receive follow-up input (chat, request_help response, replan reason) and need to revise, mutate the proposal further and call `submit(...)` again with updated details. Each submit replaces the prior pending proposal payload.
 
 Do not:
 - present many equivalent options without recommendation

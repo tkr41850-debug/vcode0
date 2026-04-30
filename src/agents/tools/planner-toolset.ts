@@ -107,7 +107,7 @@ export function createPlannerToolset(
       {
         name: 'submit',
         description:
-          'Finalize the proposal graph for approval. Call exactly once after all proposal mutations (addFeature/addTask/addDependency/...) are complete; this is not a progress checkpoint and cannot be called more than once. After submit the proposal is sealed and further mutations are rejected.',
+          'Submit the proposal graph for approval. May be called more than once: each submit() records a checkpoint of all proposal mutations made so far, replacing any prior pending submission. Subsequent mutations after a submit() accumulate into the next submission. Call submit() once initial proposal is ready; call again after any revisions made in response to chat or request_help feedback.',
         execute: (args: SubmitProposalOptions) => {
           host.submit(args);
           return Promise.resolve(undefined);

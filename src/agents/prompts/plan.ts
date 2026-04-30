@@ -43,7 +43,7 @@ When replanning:
 - keep capability set same as planning; this is not weaker or separate mode
 - express feature restructuring by composing proposal tools (\`addFeature\`, \`removeFeature\`, \`editFeature\`, \`addDependency\`, \`removeDependency\`); there is no split/merge primitive
 
-Output should use \`submit(...)\` exactly once after building draft proposal with available tools and include:
+Output should call \`submit(...)\` after building draft proposal with available tools and include:
 - summary
 - chosen approach
 - key constraints shaping plan
@@ -53,6 +53,8 @@ Output should use \`submit(...)\` exactly once after building draft proposal wit
 - risks, trade-offs, and assumptions that still matter downstream
 - concise rationale after tool use so downstream summary text stays readable
 
+\`submit(...)\` is checkpoint-style: call it once when initial proposal is ready; if you receive follow-up input (chat, request_help response, replan reason) and need to revise, mutate the proposal further and call \`submit(...)\` again with updated details. Each submit replaces the prior pending proposal payload.
+
 Do not:
 - present many equivalent options without recommendation
 - over-decompose simple work
@@ -60,6 +62,13 @@ Do not:
 - treat replanning as ad hoc patching with no coherent model
 - skip proposal tools and jump straight to free-text plan
 - end with free-text plan instead of \`submit(...)\``;
+
+const REPLAN_INPUT_GUIDANCE = `Replan input — \`VerifyIssue[]\`:
+- each issue carries a \`source\` discriminator; branch decisions by source
+- \`source: 'verify'\` — agent-raised semantic issues; address with smallest coherent change tied to feature spec
+- \`source: 'ci_check'\` — shell check failed (\`phase: 'feature'\` pre-verify, \`phase: 'post_rebase'\` during integration); propose fix tasks keyed off \`checkName\` + \`command\`; treat truncated \`output\` (4KB cap) as evidence, not prescription
+- \`source: 'rebase'\` — integration-time rebase conflict; propose reconciliation on \`conflictedFiles\`; prefer merging upstream changes over discarding them
+- total \`VerifyIssue[]\` payload capped at 32KB with severity-ranked retention (blocking > concern > nit, most-recent first within severity); missing lower-severity items are expected, not bugs`;
 
 function renderPlanningPrompt(
   name: 'plan' | 'replan',
@@ -78,9 +87,15 @@ function renderPlanningPrompt(
           .filter((line): line is string => line !== undefined)
           .join('\n');
 
+  const replanInputBlock =
+    name === 'replan'
+      ? renderSection('Replan Input', REPLAN_INPUT_GUIDANCE)
+      : undefined;
+
   return joinSections(
     PLANNING_DOCTRINE,
     renderSection('Planning Mode', planningMode),
+    replanInputBlock,
     renderFeatureSection(input),
     renderRunSection(input),
     renderBlockSection('Planning Inputs', [

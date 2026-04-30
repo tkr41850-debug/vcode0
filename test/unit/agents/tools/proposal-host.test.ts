@@ -1,4 +1,7 @@
-import { createProposalToolHost } from '@agents/tools';
+import {
+  createProposalToolHost,
+  type GraphProposalHostEvent,
+} from '@agents/tools';
 import { applyGraphProposal } from '@core/proposals/index';
 import type { ProposalPhaseDetails } from '@core/types/index';
 import { describe, expect, it } from 'vitest';
@@ -327,20 +330,216 @@ describe('GraphProposalToolHost', () => {
     expect(graph.features.get('f-2')?.name).toBe('Second');
   });
 
-  it('rejects duplicate submit and post-submit mutation', () => {
+  it('allows multiple submit() calls (checkpoint-style); last details win', () => {
+    const graph = createGraphWithFeature();
+    const host = createProposalToolHost(graph, 'plan');
+
+    host.addTask({ featureId: 'f-1', description: 'first' });
+    host.submit(proposalDetails);
+
+    expect(host.wasSubmitted()).toBe(true);
+
+    host.addTask({ featureId: 'f-1', description: 'second' });
+    const revisedDetails: ProposalPhaseDetails = {
+      ...proposalDetails,
+      summary: 'Revised plan.',
+    };
+    expect(() => host.submit(revisedDetails)).not.toThrow();
+
+    expect(host.getProposalDetails().summary).toBe('Revised plan.');
+    const proposal = host.buildProposal();
+    expect(proposal.ops).toHaveLength(2);
+    expect(proposal.ops[0]).toMatchObject({
+      kind: 'add_task',
+      description: 'first',
+    });
+    expect(proposal.ops[1]).toMatchObject({
+      kind: 'add_task',
+      description: 'second',
+    });
+  });
+
+  it('allows mutations after submit; they accumulate into next buildProposal', () => {
     const graph = createGraphWithFeature();
     const host = createProposalToolHost(graph, 'plan');
 
     host.submit(proposalDetails);
 
-    expect(() => host.submit(proposalDetails)).toThrow(
-      'proposal already submitted',
-    );
     expect(() =>
       host.addTask({
         featureId: 'f-1',
         description: 'late task',
       }),
-    ).toThrow('proposal already submitted');
+    ).not.toThrow();
+
+    expect(host.buildProposal().ops).toHaveLength(1);
+  });
+
+  describe('subscribe()', () => {
+    it('notifies subscribers in op order with op_recorded events', () => {
+      const graph = createGraphWithMilestone();
+      const host = createProposalToolHost(graph, 'plan');
+      const events: GraphProposalHostEvent[] = [];
+      host.subscribe((event) => {
+        events.push(event);
+      });
+
+      const feature = host.addFeature({
+        milestoneId: 'm-1',
+        name: 'F',
+        description: 'd',
+      });
+      host.addTask({ featureId: feature.id, description: 'T' });
+
+      expect(events).toHaveLength(2);
+      expect(events[0]).toMatchObject({
+        kind: 'op_recorded',
+        op: { kind: 'add_feature' },
+      });
+      expect(events[1]).toMatchObject({
+        kind: 'op_recorded',
+        op: { kind: 'add_task' },
+      });
+    });
+
+    it('op_recorded carries draft snapshot reflecting prefix of mutations', () => {
+      const graph = createGraphWithMilestone();
+      const host = createProposalToolHost(graph, 'plan');
+      const snapshots: number[] = [];
+      host.subscribe((event) => {
+        if (event.kind === 'op_recorded') {
+          snapshots.push(event.draftSnapshot.features.length);
+        }
+      });
+
+      host.addFeature({
+        milestoneId: 'm-1',
+        name: 'A',
+        description: 'd',
+      });
+      host.addFeature({
+        milestoneId: 'm-1',
+        name: 'B',
+        description: 'd',
+      });
+
+      expect(snapshots).toEqual([1, 2]);
+    });
+
+    it('returned unsubscribe stops further callbacks', () => {
+      const graph = createGraphWithMilestone();
+      const host = createProposalToolHost(graph, 'plan');
+      const events: GraphProposalHostEvent[] = [];
+      const unsubscribe = host.subscribe((event) => {
+        events.push(event);
+      });
+
+      host.addFeature({ milestoneId: 'm-1', name: 'A', description: 'd' });
+      unsubscribe();
+      host.addFeature({ milestoneId: 'm-1', name: 'B', description: 'd' });
+
+      expect(events).toHaveLength(1);
+    });
+
+    it('listener that unsubscribes itself mid-emission does not break peers and stops on next op', () => {
+      const graph = createGraphWithMilestone();
+      const host = createProposalToolHost(graph, 'plan');
+      const eventsA: GraphProposalHostEvent[] = [];
+      const eventsB: GraphProposalHostEvent[] = [];
+      const eventsC: GraphProposalHostEvent[] = [];
+
+      host.subscribe((e) => eventsA.push(e));
+      let unsubB: (() => void) | undefined;
+      unsubB = host.subscribe((e) => {
+        eventsB.push(e);
+        unsubB?.();
+      });
+      host.subscribe((e) => eventsC.push(e));
+
+      host.addFeature({ milestoneId: 'm-1', name: 'A', description: 'd' });
+      host.addFeature({ milestoneId: 'm-1', name: 'B', description: 'd' });
+
+      expect(eventsA).toHaveLength(2);
+      expect(eventsB).toHaveLength(1);
+      expect(eventsC).toHaveLength(2);
+    });
+
+    it('preserves registration order across multiple ops', () => {
+      const graph = createGraphWithMilestone();
+      const host = createProposalToolHost(graph, 'plan');
+      const order: string[] = [];
+
+      host.subscribe(() => order.push('A'));
+      host.subscribe(() => order.push('B'));
+      host.subscribe(() => order.push('C'));
+
+      host.addFeature({ milestoneId: 'm-1', name: 'F1', description: 'd' });
+      host.addFeature({ milestoneId: 'm-1', name: 'F2', description: 'd' });
+
+      expect(order).toEqual(['A', 'B', 'C', 'A', 'B', 'C']);
+    });
+
+    it('multiple subscribers each receive the full op stream', () => {
+      const graph = createGraphWithMilestone();
+      const host = createProposalToolHost(graph, 'plan');
+      const eventsA: GraphProposalHostEvent[] = [];
+      const eventsB: GraphProposalHostEvent[] = [];
+      host.subscribe((e) => eventsA.push(e));
+      host.subscribe((e) => eventsB.push(e));
+
+      host.addFeature({ milestoneId: 'm-1', name: 'A', description: 'd' });
+
+      expect(eventsA).toHaveLength(1);
+      expect(eventsB).toHaveLength(1);
+      expect(eventsA[0]).toEqual(eventsB[0]);
+    });
+
+    it('emits submitted event with submissionIndex on each submit', () => {
+      const graph = createGraphWithFeature();
+      const host = createProposalToolHost(graph, 'plan');
+      const events: GraphProposalHostEvent[] = [];
+      host.subscribe((event) => {
+        events.push(event);
+      });
+
+      host.addTask({ featureId: 'f-1', description: 'first' });
+      host.submit(proposalDetails);
+      host.addTask({ featureId: 'f-1', description: 'second' });
+      host.submit({ ...proposalDetails, summary: 'second pass' });
+
+      const submissionEvents = events.filter((e) => e.kind === 'submitted');
+      expect(submissionEvents).toHaveLength(2);
+      expect(submissionEvents[0]).toMatchObject({
+        kind: 'submitted',
+        submissionIndex: 1,
+        details: { summary: 'Plan ready.' },
+      });
+      expect(submissionEvents[1]).toMatchObject({
+        kind: 'submitted',
+        submissionIndex: 2,
+        details: { summary: 'second pass' },
+      });
+      expect(
+        (
+          submissionEvents[1] as Extract<
+            GraphProposalHostEvent,
+            { kind: 'submitted' }
+          >
+        ).proposal.ops,
+      ).toHaveLength(2);
+    });
+
+    it('does not fire op_recorded if mutation throws', () => {
+      const graph = createGraphWithFeature();
+      const host = createProposalToolHost(graph, 'plan');
+      const events: GraphProposalHostEvent[] = [];
+      host.subscribe((e) => events.push(e));
+
+      expect(() =>
+        host.removeFeature({ featureId: 'f-does-not-exist' as never }),
+      ).toThrow();
+
+      expect(events).toHaveLength(0);
+    });
   });
 });

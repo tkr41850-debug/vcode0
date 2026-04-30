@@ -13,7 +13,7 @@ This means the graph is validated as it's constructed
 reason step-by-step, while the authoritative graph remains
 unchanged until a human approves the proposal.
 
-`GraphProposalToolHost` (created via `createProposalToolHost()` helper in `src/agents/tools/proposal-host.ts`) holds an `InMemoryFeatureGraph` draft and a `GraphProposalBuilder` that records each tool-call mutation as an ordered operation. It maintains the distinction between mutable drafting (before `submit()`) and immutable finalization, allowing the planner and replanner agents to reason about graph changes step-by-step while keeping the proposal in a reviewable form. The host is instantiated by the planner/replanner runtime in `src/agents/runtime.ts` and by the TUI proposal controller in `src/tui/proposal-controller.ts` to provide the feature-graph tools to the agent.
+`GraphProposalToolHost` (created via `createProposalToolHost()` helper in `src/agents/tools/proposal-host.ts`) holds an `InMemoryFeatureGraph` draft and a `GraphProposalBuilder` that records each tool-call mutation as an ordered operation. It allows the planner and replanner agents to reason about graph changes step-by-step while keeping the proposal in a reviewable form. The host is instantiated by the planner/replanner runtime in `src/agents/runtime.ts` and by the TUI proposal controller in `src/tui/proposal-controller.ts` to provide the feature-graph tools to the agent. The host also exposes `subscribe(listener)` so observers (e.g. live TUI mirror) can stream each recorded op and each `submit()` checkpoint as it happens.
 
 Each tool call mutates only the in-memory proposal graph and is
 recorded as an ordered graph-modification step that can later be
@@ -34,7 +34,7 @@ const plannerTools = [
   'setFeatureDoD',       // (SetFeatureDoDOptions) → Feature
   'addDependency',       // (DependencyOptions) → void — validated immediately
   'removeDependency',    // (DependencyOptions) → void
-  'submit',              // (SubmitProposalOptions) → void — finalize for approval
+  'submit',              // (SubmitProposalOptions) → void — checkpoint proposal; callable multiple times (each call replaces prior pending proposal)
 ];
 ```
 
@@ -66,11 +66,15 @@ their own objective.
 The planner receives the spec text as its prompt
 and must use these proposal tools to build the proposal graph.
 Free-text rationale is not source of truth.
-Planner and replanner call `submit()` exactly once when the proposal is complete.
+`submit()` is checkpoint-style: planner and replanner call it once when the
+initial proposal is ready, and may call it again after revising the proposal
+in response to chat input, `request_help` answers, or replan reasons. Each
+`submit()` replaces the prior pending payload; further mutations after a
+submit accumulate into the next checkpoint.
 The orchestrator watches the proposal graph evolve in real time
 and may render that draft state in the TUI, but it does not apply
 those mutations to the authoritative graph yet.
-When the planner calls `submit()`, the proposal is stored in
+When the planner calls `submit()`, the latest proposal is stored in
 `agent_runs.payload_json` and the planning run enters
 `await_approval`.
 If the user approves it, the orchestrator applies the recorded

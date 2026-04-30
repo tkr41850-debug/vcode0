@@ -11,6 +11,10 @@ export {
   DefaultFeaturePhaseToolHost,
 } from './feature-phase-host.js';
 export { createPlannerToolset } from './planner-toolset.js';
+export type {
+  GraphProposalHostEvent,
+  GraphProposalHostListener,
+} from './proposal-host.js';
 export {
   createProposalToolHost,
   GraphProposalToolHost,

@@ -1,9 +1,14 @@
-import type { FeatureGraph, PlannerFeatureEditPatch } from '@core/graph/index';
+import type {
+  FeatureGraph,
+  GraphSnapshot,
+  PlannerFeatureEditPatch,
+} from '@core/graph/index';
 import { InMemoryFeatureGraph } from '@core/graph/index';
 import {
   type GraphProposal,
   GraphProposalBuilder,
   type GraphProposalMode,
+  type GraphProposalOp,
 } from '@core/proposals/index';
 import type {
   Feature,
@@ -28,11 +33,28 @@ import type {
   SubmitProposalOptions,
 } from './types.js';
 
+export type GraphProposalHostEvent =
+  | {
+      kind: 'op_recorded';
+      op: GraphProposalOp;
+      draftSnapshot: GraphSnapshot;
+    }
+  | {
+      kind: 'submitted';
+      details: SubmitProposalOptions;
+      proposal: GraphProposal;
+      submissionIndex: number;
+    };
+
+export type GraphProposalHostListener = (event: GraphProposalHostEvent) => void;
+
 export class GraphProposalToolHost {
   readonly draft: InMemoryFeatureGraph;
   private readonly builder: GraphProposalBuilder;
   private submitted = false;
+  private submissionCount = 0;
   private proposalDetails: SubmitProposalOptions | undefined;
+  private readonly listeners: GraphProposalHostListener[] = [];
 
   constructor(
     graph: FeatureGraph,
@@ -42,8 +64,28 @@ export class GraphProposalToolHost {
     this.builder = new GraphProposalBuilder(mode);
   }
 
+  subscribe(listener: GraphProposalHostListener): () => void {
+    this.listeners.push(listener);
+    return () => {
+      const idx = this.listeners.indexOf(listener);
+      if (idx >= 0) {
+        this.listeners.splice(idx, 1);
+      }
+    };
+  }
+
+  private recordOp(op: GraphProposalOp): void {
+    this.builder.addOp(op);
+    if (this.listeners.length === 0) {
+      return;
+    }
+    const draftSnapshot = this.draft.snapshot();
+    for (const listener of [...this.listeners]) {
+      listener({ kind: 'op_recorded', op, draftSnapshot });
+    }
+  }
+
   addMilestone(args: AddMilestoneOptions): Milestone {
-    this.assertMutable();
     const milestoneId = this.nextMilestoneId();
     const milestone = this.draft.createMilestone({
       id: milestoneId,
@@ -51,7 +93,7 @@ export class GraphProposalToolHost {
       description: args.description,
     });
     const alias = this.builder.allocateMilestoneId(milestone.id);
-    this.builder.addOp({
+    this.recordOp({
       kind: 'add_milestone',
       milestoneId: alias as unknown as MilestoneId,
       name: args.name,
@@ -61,7 +103,6 @@ export class GraphProposalToolHost {
   }
 
   addFeature(args: AddFeatureOptions): Feature {
-    this.assertMutable();
     const featureId = this.nextFeatureId();
     const feature = this.draft.createFeature({
       id: featureId,
@@ -70,7 +111,7 @@ export class GraphProposalToolHost {
       description: args.description,
     });
     const alias = this.builder.allocateFeatureId(feature.id);
-    this.builder.addOp({
+    this.recordOp({
       kind: 'add_feature',
       featureId: alias as unknown as FeatureId,
       milestoneId: this.refMilestone(args.milestoneId),
@@ -81,16 +122,14 @@ export class GraphProposalToolHost {
   }
 
   removeFeature(args: RemoveFeatureOptions): void {
-    this.assertMutable();
     this.draft.removeFeature(args.featureId);
-    this.builder.addOp({
+    this.recordOp({
       kind: 'remove_feature',
       featureId: this.refFeature(args.featureId),
     });
   }
 
   editFeature(args: EditFeatureOptions): Feature {
-    this.assertMutable();
     const current = this.draft.features.get(args.featureId);
     if (current === undefined) {
       return this.draft.editFeature(args.featureId, args.patch);
@@ -100,7 +139,7 @@ export class GraphProposalToolHost {
     if (Object.keys(diff).length === 0) {
       return feature;
     }
-    this.builder.addOp({
+    this.recordOp({
       kind: 'edit_feature',
       featureId: this.refFeature(args.featureId),
       patch: diff,
@@ -109,7 +148,6 @@ export class GraphProposalToolHost {
   }
 
   addTask(args: AddTaskOptions): Task {
-    this.assertMutable();
     const plannerFields = {
       ...(args.weight !== undefined ? { weight: args.weight } : {}),
       ...(args.reservedWritePaths !== undefined
@@ -131,7 +169,7 @@ export class GraphProposalToolHost {
       ...plannerFields,
     });
     const alias = this.builder.allocateTaskId(task.id);
-    this.builder.addOp({
+    this.recordOp({
       kind: 'add_task',
       taskId: alias as unknown as TaskId,
       featureId: this.refFeature(args.featureId),
@@ -156,18 +194,16 @@ export class GraphProposalToolHost {
   }
 
   removeTask(args: RemoveTaskOptions): void {
-    this.assertMutable();
     this.draft.removeTask(args.taskId);
-    this.builder.addOp({
+    this.recordOp({
       kind: 'remove_task',
       taskId: this.refTask(args.taskId),
     });
   }
 
   editTask(args: EditTaskOptions): Task {
-    this.assertMutable();
     const task = this.draft.editTask(args.taskId, args.patch);
-    this.builder.addOp({
+    this.recordOp({
       kind: 'edit_task',
       taskId: this.refTask(args.taskId),
       patch: args.patch,
@@ -176,9 +212,8 @@ export class GraphProposalToolHost {
   }
 
   addDependency(args: DependencyOptions): void {
-    this.assertMutable();
     this.draft.addDependency(args);
-    this.builder.addOp({
+    this.recordOp({
       kind: 'add_dependency',
       fromId: this.refEndpoint(args.from),
       toId: this.refEndpoint(args.to),
@@ -186,9 +221,8 @@ export class GraphProposalToolHost {
   }
 
   removeDependency(args: DependencyOptions): void {
-    this.assertMutable();
     this.draft.removeDependency(args);
-    this.builder.addOp({
+    this.recordOp({
       kind: 'remove_dependency',
       fromId: this.refEndpoint(args.from),
       toId: this.refEndpoint(args.to),
@@ -196,15 +230,30 @@ export class GraphProposalToolHost {
   }
 
   submit(args: SubmitProposalOptions): void {
-    if (this.submitted) {
-      throw new Error('proposal already submitted');
-    }
     this.submitted = true;
+    this.submissionCount += 1;
     this.proposalDetails = args;
+    if (this.listeners.length === 0) {
+      return;
+    }
+    const proposal = this.builder.build();
+    const submissionIndex = this.submissionCount;
+    for (const listener of [...this.listeners]) {
+      listener({
+        kind: 'submitted',
+        details: args,
+        proposal,
+        submissionIndex,
+      });
+    }
   }
 
   wasSubmitted(): boolean {
     return this.submitted;
+  }
+
+  submissionIndex(): number {
+    return this.submissionCount;
   }
 
   buildProposal(): GraphProposal {
@@ -219,12 +268,6 @@ export class GraphProposalToolHost {
       throw new Error('proposal details not submitted');
     }
     return this.proposalDetails;
-  }
-
-  private assertMutable(): void {
-    if (this.submitted) {
-      throw new Error('proposal already submitted');
-    }
   }
 
   private refMilestone(id: MilestoneId): MilestoneId {
