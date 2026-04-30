@@ -126,6 +126,42 @@ export async function executeSlashCommand(params: {
     case 'cancel':
       await params.commandContext.cancelSelectedFeature();
       return params.notice ?? 'cancelled feature';
+    case 'attach': {
+      const featureId = params.currentSelection.featureId;
+      if (featureId === undefined) {
+        throw new Error('select a feature in planning or replanning to attach');
+      }
+      const snapshot = params.dataSource.snapshot();
+      const feature = snapshot.features.find((entry) => entry.id === featureId);
+      if (feature === undefined) {
+        throw new Error(`feature "${featureId}" not found`);
+      }
+      const phase = phaseForFeature(feature);
+      if (phase === undefined) {
+        throw new Error(
+          `feature "${featureId}" is not in planning or replanning`,
+        );
+      }
+      return params.dataSource.attachFeaturePhaseRun(featureId, phase);
+    }
+    case 'release-to-scheduler': {
+      const featureId = params.currentSelection.featureId;
+      if (featureId === undefined) {
+        throw new Error('select a feature with attached planner to release');
+      }
+      const snapshot = params.dataSource.snapshot();
+      const feature = snapshot.features.find((entry) => entry.id === featureId);
+      if (feature === undefined) {
+        throw new Error(`feature "${featureId}" not found`);
+      }
+      const phase = phaseForFeature(feature);
+      if (phase === undefined) {
+        throw new Error(
+          `feature "${featureId}" is not in planning or replanning`,
+        );
+      }
+      return params.dataSource.releaseFeaturePhaseToScheduler(featureId, phase);
+    }
     case 'quit':
       params.commandContext.requestQuit();
       return 'quitting';

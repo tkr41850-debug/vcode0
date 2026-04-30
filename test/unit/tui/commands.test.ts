@@ -63,6 +63,8 @@ function createDataSource(taskRun?: TaskAgentRun) {
     listPendingFeaturePhaseHelp: vi.fn(
       () => [] as readonly { toolCallId: string; query: string }[],
     ),
+    attachFeaturePhaseRun: vi.fn(() => Promise.resolve('attached')),
+    releaseFeaturePhaseToScheduler: vi.fn(() => Promise.resolve('released')),
     quit: vi.fn(async () => {}),
   };
 }
@@ -306,6 +308,99 @@ describe('buildComposerSlashCommands', () => {
       'replan',
       { kind: 'answer', text: 'use approach 2' },
     );
+  });
+
+  it('routes /attach on a planning feature to attachFeaturePhaseRun', async () => {
+    const dataSource = createDataSource();
+    dataSource.snapshot = () => ({
+      milestones: [],
+      features: [createFeatureFixture({ id: 'f-1', workControl: 'planning' })],
+      tasks: [],
+    });
+    const proposalController = { execute: vi.fn() };
+
+    await expect(
+      executeSlashCommand({
+        input: '/attach',
+        commandContext: {} as never,
+        notice: undefined,
+        dataSource,
+        proposalController: proposalController as never,
+        currentSelection: { featureId: 'f-1' },
+        setSelectedNodeId: vi.fn(),
+      }),
+    ).resolves.toBe('attached');
+    expect(dataSource.attachFeaturePhaseRun).toHaveBeenCalledWith(
+      'f-1',
+      'plan',
+    );
+  });
+
+  it('rejects /attach when selected feature is not in planning or replanning', async () => {
+    const dataSource = createDataSource();
+    dataSource.snapshot = () => ({
+      milestones: [],
+      features: [createFeatureFixture({ id: 'f-1', workControl: 'executing' })],
+      tasks: [],
+    });
+    const proposalController = { execute: vi.fn() };
+
+    await expect(
+      executeSlashCommand({
+        input: '/attach',
+        commandContext: {} as never,
+        notice: undefined,
+        dataSource,
+        proposalController: proposalController as never,
+        currentSelection: { featureId: 'f-1' },
+        setSelectedNodeId: vi.fn(),
+      }),
+    ).rejects.toThrow(/planning or replanning/);
+    expect(dataSource.attachFeaturePhaseRun).not.toHaveBeenCalled();
+  });
+
+  it('routes /release-to-scheduler on a replanning feature to releaseFeaturePhaseToScheduler', async () => {
+    const dataSource = createDataSource();
+    dataSource.snapshot = () => ({
+      milestones: [],
+      features: [
+        createFeatureFixture({ id: 'f-1', workControl: 'replanning' }),
+      ],
+      tasks: [],
+    });
+    const proposalController = { execute: vi.fn() };
+
+    await executeSlashCommand({
+      input: '/release-to-scheduler',
+      commandContext: {} as never,
+      notice: undefined,
+      dataSource,
+      proposalController: proposalController as never,
+      currentSelection: { featureId: 'f-1' },
+      setSelectedNodeId: vi.fn(),
+    });
+
+    expect(dataSource.releaseFeaturePhaseToScheduler).toHaveBeenCalledWith(
+      'f-1',
+      'replan',
+    );
+  });
+
+  it('rejects /attach with no feature selected', async () => {
+    const dataSource = createDataSource();
+    const proposalController = { execute: vi.fn() };
+
+    await expect(
+      executeSlashCommand({
+        input: '/attach',
+        commandContext: {} as never,
+        notice: undefined,
+        dataSource,
+        proposalController: proposalController as never,
+        currentSelection: {},
+        setSelectedNodeId: vi.fn(),
+      }),
+    ).rejects.toThrow(/select.+feature/i);
   });
 
   it('rejects /reply when selected feature is not in planning or replanning', async () => {

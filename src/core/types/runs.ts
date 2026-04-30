@@ -25,7 +25,7 @@ export type AgentRunStatus =
 
 export type RunOwner = 'system' | 'manual';
 
-export type RunAttention = 'none' | 'crashloop_backoff';
+export type RunAttention = 'none' | 'crashloop_backoff' | 'operator';
 
 interface BaseAgentRun {
   id: string;

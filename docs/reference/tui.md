@@ -231,6 +231,5 @@ Illustrative layout:
 
 - composer currently supports a minimal milestone authoring flow (`/milestone-add`) but still lacks milestone edit/remove commands
 - agent monitor is read-only; no worker steer or abort controls are exposed
-- manual run ownership (operator attach, `manual_input` drop-in, `release_to_scheduler` to return a run to automatic execution) is described in `docs/operations/verification-and-recovery.md` but no TUI command surface is wired yet
-  > **DEFERRED**: Operator attach / run ownership not yet implemented in TuiApp (no `attach` methods in `src/tui/app.ts` or `src/tui/app-deps.ts`).
+- task-run operator attach (subprocess scope) is not wired in the TUI; only feature-phase plan/replan attach is currently exposed via `/attach` and `/release-to-scheduler` (see `docs/operations/feature-phase-operator-attach.md`)
 

@@ -216,6 +216,35 @@ describe('TuiViewModelBuilder', () => {
     expect(vm.detail).toBe('live planner f-2 replan 12 ops 2 submitted');
   });
 
+  it('attached composer shows reply guidance when await_response', () => {
+    const builder = new TuiViewModelBuilder();
+    const vm = builder.buildComposer({
+      text: '',
+      focusMode: 'composer',
+      attachedFeatureId: 'f-1',
+      attachedPhase: 'plan',
+      attachedRunStatus: 'await_response',
+    });
+    expect(vm.mode).toBe('attached');
+    expect(vm.detail).toContain('attached f-1 plan await_response');
+    expect(vm.detail).toContain('/reply');
+    expect(vm.detail).toContain('/release-to-scheduler');
+  });
+
+  it('attached composer shows chat hint when running', () => {
+    const builder = new TuiViewModelBuilder();
+    const vm = builder.buildComposer({
+      text: '',
+      focusMode: 'composer',
+      attachedFeatureId: 'f-2',
+      attachedPhase: 'replan',
+      attachedRunStatus: 'running',
+    });
+    expect(vm.mode).toBe('attached');
+    expect(vm.detail).toContain('attached f-2 replan running');
+    expect(vm.detail).toContain('[type to chat]');
+  });
+
   it('manual draft takes precedence over live-planner mode in composer', () => {
     const builder = new TuiViewModelBuilder();
     const vm = builder.buildComposer({

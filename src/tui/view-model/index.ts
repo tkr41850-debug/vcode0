@@ -66,7 +66,7 @@ export interface StatusBarViewModel extends WorkerCountsViewModel {
 }
 
 export interface ComposerViewModel {
-  mode: 'command' | 'draft' | 'approval' | 'task' | 'live-planner';
+  mode: 'command' | 'draft' | 'approval' | 'task' | 'live-planner' | 'attached';
   focusMode: 'composer' | 'graph';
   text: string;
   detail: string;
@@ -325,6 +325,9 @@ export class TuiViewModelBuilder {
     liveProposalPhase?: 'plan' | 'replan';
     liveProposalOpCount?: number;
     liveProposalSubmissionCount?: number;
+    attachedFeatureId?: FeatureId;
+    attachedPhase?: 'plan' | 'replan';
+    attachedRunStatus?: 'running' | 'await_response';
   }): ComposerViewModel {
     if (
       input.pendingProposalPhase !== undefined &&
@@ -367,6 +370,23 @@ export class TuiViewModelBuilder {
         focusMode: input.focusMode,
         text: input.text,
         detail: `draft ${input.draftPhase} ${input.draftFeatureId} ${input.draftCommandCount ?? 0} ops /submit /discard`,
+      };
+    }
+
+    if (
+      input.attachedFeatureId !== undefined &&
+      input.attachedPhase !== undefined &&
+      input.attachedRunStatus !== undefined
+    ) {
+      const commands =
+        input.attachedRunStatus === 'await_response'
+          ? '/reply --text "..." /release-to-scheduler'
+          : '[type to chat] /release-to-scheduler';
+      return {
+        mode: 'attached',
+        focusMode: input.focusMode,
+        text: input.text,
+        detail: `attached ${input.attachedFeatureId} ${input.attachedPhase} ${input.attachedRunStatus} ${commands}`,
       };
     }
 

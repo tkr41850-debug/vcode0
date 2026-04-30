@@ -282,6 +282,14 @@ export function buildComposerSlashCommands({
     staticSlashCommand('help', 'Show keyboard help.'),
     staticSlashCommand('deps', 'Show dependency detail for selected feature.'),
     staticSlashCommand('cancel', 'Cancel selected feature.'),
+    staticSlashCommand(
+      'attach',
+      'Attach operator to running plan/replan run on selected feature.',
+    ),
+    staticSlashCommand(
+      'release-to-scheduler',
+      'Release attached plan/replan run back to scheduler ownership.',
+    ),
     staticSlashCommand('quit', 'Quit TUI.'),
     {
       name: 'init',

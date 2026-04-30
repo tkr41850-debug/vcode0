@@ -226,6 +226,36 @@ export class TuiApp implements UiPort {
       draftSnapshot,
       liveProposalEntry?.snapshot,
     );
+
+    // Detect operator-attached run on the selected feature for composer-strip
+    // feedback. Persisted state is the source of truth (Phase 6.2 marker:
+    // owner='manual' AND attention='operator' AND phase ∈ {plan,replan}).
+    const attachedFeature =
+      selectedFeatureIdResolved !== undefined
+        ? baseSnapshot.features.find((f) => f.id === selectedFeatureIdResolved)
+        : undefined;
+    const attachedPhase =
+      attachedFeature?.workControl === 'planning'
+        ? 'plan'
+        : attachedFeature?.workControl === 'replanning'
+          ? 'replan'
+          : undefined;
+    const attachedRun =
+      selectedFeatureIdResolved !== undefined && attachedPhase !== undefined
+        ? this.deps.getFeatureRun(selectedFeatureIdResolved, attachedPhase)
+        : undefined;
+    const attachedView =
+      attachedRun !== undefined &&
+      attachedRun.owner === 'manual' &&
+      attachedRun.attention === 'operator' &&
+      (attachedRun.runStatus === 'running' ||
+        attachedRun.runStatus === 'await_response')
+        ? {
+            featureId: selectedFeatureIdResolved as FeatureId,
+            phase: attachedPhase as 'plan' | 'replan',
+            runStatus: attachedRun.runStatus,
+          }
+        : undefined;
     const nodes = this.viewModels.buildMilestoneTree(
       snapshot.milestones,
       snapshot.features,
@@ -242,9 +272,11 @@ export class TuiApp implements UiPort {
     const dagTitle =
       draftState !== undefined
         ? 'gvc0 progress [draft]'
-        : liveProposalEntry !== undefined
-          ? 'gvc0 progress [live planner]'
-          : 'gvc0 progress';
+        : attachedView !== undefined
+          ? 'gvc0 progress [attached]'
+          : liveProposalEntry !== undefined
+            ? 'gvc0 progress [live planner]'
+            : 'gvc0 progress';
 
     this.dagView.setModel(
       nodes,
@@ -300,6 +332,13 @@ export class TuiApp implements UiPort {
               liveProposalPhase: liveProposalEntry.scope.phase,
               liveProposalOpCount: liveProposalEntry.opCount,
               liveProposalSubmissionCount: liveProposalEntry.submissionCount,
+            }
+          : {}),
+        ...(attachedView !== undefined
+          ? {
+              attachedFeatureId: attachedView.featureId,
+              attachedPhase: attachedView.phase,
+              attachedRunStatus: attachedView.runStatus,
             }
           : {}),
       }),

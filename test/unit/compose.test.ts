@@ -10,11 +10,13 @@ import type {
 import { openDatabase } from '@persistence/db';
 import { PersistentFeatureGraph } from '@persistence/feature-graph';
 import {
+  attachFeaturePhaseRunImpl,
   cancelFeatureRunWork,
   composeApplication,
   decidePendingTaskApproval,
   formatWorkerOutput,
   initializeProjectGraph,
+  releaseFeaturePhaseToSchedulerImpl,
   respondToPendingTaskHelp,
   summarizeApprovalPayload,
 } from '@root/compose';
@@ -208,19 +210,23 @@ describe('compose helpers', () => {
       collabControl: 'suspended',
       suspendReason: 'cross_feature_overlap',
     });
-    expect(runtime.abortRun).toHaveBeenCalledTimes(1);
+    expect(runtime.abortRun).toHaveBeenCalledTimes(2);
     expect(runtime.abortRun).toHaveBeenCalledWith('run-task:t-1');
+    expect(runtime.abortRun).toHaveBeenCalledWith('run-feature:f-1:plan');
     expect(store.updateAgentRun).toHaveBeenCalledWith('run-task:t-1', {
       runStatus: 'cancelled',
       owner: 'system',
+      attention: 'none',
     });
     expect(store.updateAgentRun).toHaveBeenCalledWith('run-task:t-2', {
       runStatus: 'cancelled',
       owner: 'system',
+      attention: 'none',
     });
     expect(store.updateAgentRun).toHaveBeenCalledWith('run-feature:f-1:plan', {
       runStatus: 'cancelled',
       owner: 'system',
+      attention: 'none',
     });
   });
 });
@@ -429,5 +435,204 @@ describe('composeApplication', () => {
       db.close();
       await app.stop();
     }
+  });
+});
+
+describe('compose feature-phase attach/release helpers', () => {
+  function makeStore(initial: AgentRun[]) {
+    const runs = new Map(initial.map((run) => [run.id, run]));
+    const events: Array<{
+      eventType: string;
+      entityId: string;
+      payload: unknown;
+    }> = [];
+    return {
+      getAgentRun: (runId: string) => runs.get(runId),
+      updateAgentRun: vi.fn((runId: string, patch: Partial<AgentRun>) => {
+        const existing = runs.get(runId);
+        if (existing !== undefined) {
+          runs.set(runId, { ...existing, ...patch } as AgentRun);
+        }
+      }),
+      appendEvent: vi.fn(
+        (event: {
+          eventType: string;
+          entityId: string;
+          timestamp: number;
+          payload?: unknown;
+        }) => {
+          events.push({
+            eventType: event.eventType,
+            entityId: event.entityId,
+            payload: event.payload,
+          });
+        },
+      ),
+      runs,
+      events,
+    };
+  }
+
+  it('attachFeaturePhaseRunImpl flips running run to manual/operator + appends audit event + refreshes UI', async () => {
+    const store = makeStore([
+      makeFeaturePhaseRun({
+        runStatus: 'running',
+        owner: 'system',
+        attention: 'none',
+      }),
+    ]);
+    const ui = { refresh: vi.fn() };
+
+    const message = await attachFeaturePhaseRunImpl(
+      { store, ui },
+      'f-1',
+      'plan',
+    );
+
+    expect(message).toBe('Attached to f-1 planner.');
+    expect(store.runs.get('run-feature:f-1:plan')).toMatchObject({
+      owner: 'manual',
+      attention: 'operator',
+    });
+    expect(store.events).toEqual([
+      {
+        eventType: 'feature_phase_attached',
+        entityId: 'f-1',
+        payload: { phase: 'plan' },
+      },
+    ]);
+    expect(ui.refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('attachFeaturePhaseRunImpl rejects when run is in await_approval (not_running)', async () => {
+    const store = makeStore([
+      makeFeaturePhaseRun({
+        runStatus: 'await_approval',
+        owner: 'manual',
+        attention: 'none',
+      }),
+    ]);
+    const ui = { refresh: vi.fn() };
+
+    await expect(
+      attachFeaturePhaseRunImpl({ store, ui }, 'f-1', 'plan'),
+    ).rejects.toThrow(/not live/i);
+
+    expect(store.events[0]).toMatchObject({
+      eventType: 'feature_phase_attach_rejected',
+      payload: { phase: 'plan', reason: 'not_running' },
+    });
+    expect(ui.refresh).not.toHaveBeenCalled();
+  });
+
+  it('attachFeaturePhaseRunImpl rejects when already manual', async () => {
+    const store = makeStore([
+      makeFeaturePhaseRun({
+        runStatus: 'running',
+        owner: 'manual',
+        attention: 'operator',
+      }),
+    ]);
+    const ui = { refresh: vi.fn() };
+
+    await expect(
+      attachFeaturePhaseRunImpl({ store, ui }, 'f-1', 'plan'),
+    ).rejects.toThrow(/already attached/i);
+
+    expect(store.events[0]).toMatchObject({
+      eventType: 'feature_phase_attach_rejected',
+      payload: { phase: 'plan', reason: 'already_manual' },
+    });
+  });
+
+  it('releaseFeaturePhaseToSchedulerImpl flips attached run back to system/none + appends audit event', async () => {
+    const store = makeStore([
+      makeFeaturePhaseRun({
+        runStatus: 'running',
+        owner: 'manual',
+        attention: 'operator',
+      }),
+    ]);
+    const runtime = {
+      listPendingFeaturePhaseHelp: vi.fn(() => []),
+    };
+    const ui = { refresh: vi.fn() };
+
+    const message = await releaseFeaturePhaseToSchedulerImpl(
+      { store, runtime, ui },
+      'f-1',
+      'plan',
+    );
+
+    expect(message).toBe('Released f-1 back to scheduler.');
+    expect(store.runs.get('run-feature:f-1:plan')).toMatchObject({
+      owner: 'system',
+      attention: 'none',
+    });
+    expect(store.events).toEqual([
+      {
+        eventType: 'feature_phase_released',
+        entityId: 'f-1',
+        payload: { phase: 'plan' },
+      },
+    ]);
+    expect(ui.refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('releaseFeaturePhaseToSchedulerImpl rejects with pending_help while await_response', async () => {
+    const store = makeStore([
+      makeFeaturePhaseRun({
+        runStatus: 'await_response',
+        owner: 'manual',
+        attention: 'operator',
+        payloadJson: JSON.stringify({
+          toolCallId: 'tool-help-1',
+          query: 'q',
+        }),
+      }),
+    ]);
+    const runtime = {
+      listPendingFeaturePhaseHelp: vi.fn(() => [
+        { toolCallId: 'tool-help-1', query: 'q' },
+      ]),
+    };
+    const ui = { refresh: vi.fn() };
+
+    await expect(
+      releaseFeaturePhaseToSchedulerImpl({ store, runtime, ui }, 'f-1', 'plan'),
+    ).rejects.toThrow(/pending help/i);
+
+    expect(store.events[0]).toMatchObject({
+      eventType: 'feature_phase_release_rejected',
+      payload: {
+        phase: 'plan',
+        reason: 'pending_help',
+        pendingToolCallIds: ['tool-help-1'],
+      },
+    });
+    expect(ui.refresh).not.toHaveBeenCalled();
+  });
+
+  it('releaseFeaturePhaseToSchedulerImpl rejects when not attached', async () => {
+    const store = makeStore([
+      makeFeaturePhaseRun({
+        runStatus: 'running',
+        owner: 'system',
+        attention: 'none',
+      }),
+    ]);
+    const runtime = {
+      listPendingFeaturePhaseHelp: vi.fn(() => []),
+    };
+    const ui = { refresh: vi.fn() };
+
+    await expect(
+      releaseFeaturePhaseToSchedulerImpl({ store, runtime, ui }, 'f-1', 'plan'),
+    ).rejects.toThrow(/not attached/i);
+
+    expect(store.events[0]).toMatchObject({
+      eventType: 'feature_phase_release_rejected',
+      payload: { phase: 'plan', reason: 'not_attached' },
+    });
   });
 });

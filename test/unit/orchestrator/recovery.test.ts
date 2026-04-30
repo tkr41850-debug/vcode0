@@ -2060,4 +2060,76 @@ describe('RecoveryService', () => {
       }),
     );
   });
+
+  it('reclaims orphaned operator-attached plan run to ready/system/none, preserving sessionId when resumable', async () => {
+    const run = makeFeaturePhaseRun({
+      id: 'run-feature:f-1:plan',
+      phase: 'plan',
+      runStatus: 'await_response',
+      owner: 'manual',
+      attention: 'operator',
+      sessionId: 'sess-plan-1',
+      payloadJson: JSON.stringify({ toolCallId: 'tc-1', query: 'q' }),
+    });
+    const { ports, store, graph } = createPorts([run]);
+    await ports.sessionStore.save('sess-plan-1', []);
+    const appendEventMock = ports.store.appendEvent as ReturnType<typeof vi.fn>;
+    const service = new RecoveryService(ports, graph);
+
+    await service.recoverOrphanedRuns();
+
+    expect(store.updateAgentRun).toHaveBeenCalledWith(run.id, {
+      runStatus: 'ready',
+      owner: 'system',
+      attention: 'none',
+      payloadJson: undefined,
+    });
+    const reclaimCall = appendEventMock.mock.calls.find(
+      (call) =>
+        (call[0] as { eventType: string }).eventType ===
+        'feature_phase_orphaned_reclaim',
+    );
+    expect(reclaimCall).toBeDefined();
+    expect(reclaimCall?.[0]).toMatchObject({
+      eventType: 'feature_phase_orphaned_reclaim',
+      entityId: 'f-1',
+      payload: {
+        phase: 'plan',
+        previousRunStatus: 'await_response',
+        resumable: true,
+      },
+    });
+  });
+
+  it('reclaims orphaned operator-attached replan run with no session: clears sessionId for fresh start', async () => {
+    const run = makeFeaturePhaseRun({
+      id: 'run-feature:f-1:replan',
+      phase: 'replan',
+      runStatus: 'running',
+      owner: 'manual',
+      attention: 'operator',
+      sessionId: 'sess-missing',
+    });
+    const { ports, store, graph } = createPorts([run]);
+    const appendEventMock = ports.store.appendEvent as ReturnType<typeof vi.fn>;
+    const service = new RecoveryService(ports, graph);
+
+    await service.recoverOrphanedRuns();
+
+    expect(store.updateAgentRun).toHaveBeenCalledWith(run.id, {
+      runStatus: 'ready',
+      owner: 'system',
+      attention: 'none',
+      payloadJson: undefined,
+      sessionId: undefined,
+    });
+    const reclaimCall = appendEventMock.mock.calls.find(
+      (call) =>
+        (call[0] as { eventType: string }).eventType ===
+        'feature_phase_orphaned_reclaim',
+    );
+    expect(reclaimCall?.[0]).toMatchObject({
+      payload: { resumable: false },
+    });
+  });
 });

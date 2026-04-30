@@ -214,6 +214,43 @@ export class RecoveryService {
       return;
     }
 
+    // Operator-attach orphan reclaim. Feature-phase runs are in-process; if
+    // a run is persisted as `manual/operator` from a previous boot, the
+    // attached agent + session-resolver are gone with the process. Reclaim
+    // BEFORE the existing branches so `running`/`await_response` paths
+    // don't intercept and try to redispatch with stale state. Plan/replan
+    // only — non-proposal phases don't carry attention='operator' today.
+    if (
+      (run.phase === 'plan' || run.phase === 'replan') &&
+      run.attention === 'operator' &&
+      run.owner === 'manual'
+    ) {
+      const previousRunStatus = run.runStatus;
+      const sessionMessages =
+        run.sessionId !== undefined
+          ? await this.ports.sessionStore.load(run.sessionId)
+          : null;
+      const resumable = sessionMessages !== null;
+      this.ports.store.updateAgentRun(run.id, {
+        runStatus: 'ready',
+        owner: 'system',
+        attention: 'none',
+        payloadJson: undefined,
+        ...(resumable ? {} : { sessionId: undefined }),
+      });
+      this.ports.store.appendEvent({
+        eventType: 'feature_phase_orphaned_reclaim',
+        entityId: feature.id,
+        timestamp: Date.now(),
+        payload: {
+          phase: run.phase,
+          previousRunStatus,
+          resumable,
+        },
+      });
+      return;
+    }
+
     if (run.runStatus === 'running') {
       await this.killStaleWorkerIfNeeded(run);
 

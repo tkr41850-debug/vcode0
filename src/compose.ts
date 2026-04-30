@@ -59,7 +59,7 @@ export async function composeApplication(): Promise<GvcApplication> {
     current: undefined,
   };
 
-  const ui = new TuiApp({
+  const ui: TuiApp = new TuiApp({
     snapshot: () => graph.snapshot(),
     listAgentRuns: () => store.listAgentRuns(),
     getWorkerCounts: () => {
@@ -168,6 +168,14 @@ export async function composeApplication(): Promise<GvcApplication> {
     },
     listPendingFeaturePhaseHelp: (featureId, phase) =>
       runtime.listPendingFeaturePhaseHelp(`run-feature:${featureId}:${phase}`),
+    attachFeaturePhaseRun: (featureId, phase) =>
+      attachFeaturePhaseRunImpl({ store, ui }, featureId, phase),
+    releaseFeaturePhaseToScheduler: (featureId, phase) =>
+      releaseFeaturePhaseToSchedulerImpl(
+        { store, runtime, ui },
+        featureId,
+        phase,
+      ),
     sendPlannerChatInput: async (featureId, phase, text) => {
       const runId = `run-feature:${featureId}:${phase}`;
       const run = store.getAgentRun(runId);
@@ -261,6 +269,19 @@ export async function composeApplication(): Promise<GvcApplication> {
         }
       },
       onPhaseEnded: (scope, outcome) => {
+        // Clear attention='operator' on outcome: the agent is gone, so the
+        // attached marker is meaningless. Owner is reset by downstream
+        // persistAwaitingApprovalFeaturePhaseRun (await_approval keeps
+        // manual for the approval flow) or by the scheduler error path
+        // (failed → system).
+        const runId = `run-feature:${scope.featureId}:${scope.phase}`;
+        const run = store.getAgentRun(runId);
+        if (
+          run?.scopeType === 'feature_phase' &&
+          run.attention === 'operator'
+        ) {
+          store.updateAgentRun(runId, { attention: 'none' });
+        }
         ui.onProposalPhaseEnded(scope, outcome);
       },
     },
@@ -385,6 +406,129 @@ export async function decidePendingTaskApproval(
   return decision.kind === 'approved'
     ? `Approved ${taskId}.`
     : `Rejected ${taskId}.`;
+}
+
+export async function attachFeaturePhaseRunImpl(
+  deps: {
+    store: Pick<
+      OrchestratorPorts['store'],
+      'getAgentRun' | 'updateAgentRun' | 'appendEvent'
+    >;
+    ui: Pick<OrchestratorPorts['ui'], 'refresh'>;
+  },
+  featureId: string,
+  phase: 'plan' | 'replan',
+): Promise<string> {
+  const runId = `run-feature:${featureId}:${phase}`;
+  const run = deps.store.getAgentRun(runId);
+  if (run?.scopeType !== 'feature_phase') {
+    deps.store.appendEvent({
+      eventType: 'feature_phase_attach_rejected',
+      entityId: featureId,
+      timestamp: Date.now(),
+      payload: { phase, reason: 'not_running' },
+    });
+    throw new Error(`feature "${featureId}" has no ${phase} run`);
+  }
+  if (run.runStatus !== 'running' && run.runStatus !== 'await_response') {
+    deps.store.appendEvent({
+      eventType: 'feature_phase_attach_rejected',
+      entityId: featureId,
+      timestamp: Date.now(),
+      payload: { phase, reason: 'not_running', runStatus: run.runStatus },
+    });
+    throw new Error(
+      `feature "${featureId}" planner is not live (status="${run.runStatus}")`,
+    );
+  }
+  if (run.owner === 'manual') {
+    deps.store.appendEvent({
+      eventType: 'feature_phase_attach_rejected',
+      entityId: featureId,
+      timestamp: Date.now(),
+      payload: { phase, reason: 'already_manual' },
+    });
+    throw new Error(`feature "${featureId}" planner is already attached`);
+  }
+  deps.store.updateAgentRun(runId, {
+    owner: 'manual',
+    attention: 'operator',
+  });
+  deps.store.appendEvent({
+    eventType: 'feature_phase_attached',
+    entityId: featureId,
+    timestamp: Date.now(),
+    payload: { phase },
+  });
+  deps.ui.refresh();
+  return Promise.resolve(`Attached to ${featureId} planner.`);
+}
+
+export async function releaseFeaturePhaseToSchedulerImpl(
+  deps: {
+    store: Pick<
+      OrchestratorPorts['store'],
+      'getAgentRun' | 'updateAgentRun' | 'appendEvent'
+    >;
+    runtime: Pick<RuntimePort, 'listPendingFeaturePhaseHelp'>;
+    ui: Pick<OrchestratorPorts['ui'], 'refresh'>;
+  },
+  featureId: string,
+  phase: 'plan' | 'replan',
+): Promise<string> {
+  const runId = `run-feature:${featureId}:${phase}`;
+  const run = deps.store.getAgentRun(runId);
+  if (run?.scopeType !== 'feature_phase') {
+    deps.store.appendEvent({
+      eventType: 'feature_phase_release_rejected',
+      entityId: featureId,
+      timestamp: Date.now(),
+      payload: { phase, reason: 'not_attached' },
+    });
+    throw new Error(`feature "${featureId}" has no ${phase} run`);
+  }
+  if (run.owner !== 'manual' || run.attention !== 'operator') {
+    deps.store.appendEvent({
+      eventType: 'feature_phase_release_rejected',
+      entityId: featureId,
+      timestamp: Date.now(),
+      payload: { phase, reason: 'not_attached' },
+    });
+    throw new Error(`feature "${featureId}" planner is not attached`);
+  }
+  if (run.runStatus === 'await_response') {
+    const pending = deps.runtime.listPendingFeaturePhaseHelp(runId);
+    const oldest = pending[0];
+    deps.store.appendEvent({
+      eventType: 'feature_phase_release_rejected',
+      entityId: featureId,
+      timestamp: Date.now(),
+      payload: {
+        phase,
+        reason: 'pending_help',
+        pendingToolCallIds: pending.map((entry) => entry.toolCallId),
+      },
+    });
+    const detail =
+      oldest !== undefined
+        ? ` (pending: "${oldest.query}" — answer via /reply --text "...")`
+        : ' (answer via /reply --text "..." before releasing)';
+    throw new Error(
+      `feature "${featureId}" has pending help; cannot release${detail}`,
+    );
+  }
+  deps.store.updateAgentRun(runId, {
+    owner: 'system',
+    attention: 'none',
+  });
+  deps.store.appendEvent({
+    eventType: 'feature_phase_released',
+    entityId: featureId,
+    timestamp: Date.now(),
+    payload: { phase },
+  });
+  deps.ui.refresh();
+  return Promise.resolve(`Released ${featureId} back to scheduler.`);
 }
 
 function parsePendingTaskToolCallId(
@@ -516,12 +660,18 @@ export async function cancelFeatureRunWork(
   graph.cancelFeature(featureId);
 
   for (const run of affectedRuns) {
-    if (run.scopeType === 'task' && run.runStatus === 'running') {
+    const isTaskRunning =
+      run.scopeType === 'task' && run.runStatus === 'running';
+    const isFeaturePhaseLive =
+      run.scopeType === 'feature_phase' &&
+      (run.runStatus === 'running' || run.runStatus === 'await_response');
+    if (isTaskRunning || isFeaturePhaseLive) {
       await runtime.abortRun(run.id);
     }
     store.updateAgentRun(run.id, {
       runStatus: 'cancelled',
       owner: 'system',
+      attention: 'none',
     });
   }
 }

@@ -70,5 +70,23 @@ export interface TuiAppDeps {
     featureId: FeatureId,
     phase: 'plan' | 'replan',
   ): readonly { toolCallId: string; query: string }[];
+  /**
+   * Attach an operator to a running plan/replan feature-phase run. Flips the
+   * run to `owner=manual, attention=operator` synchronously in-process; the
+   * planner agent itself is unaffected. Returns a notice string.
+   */
+  attachFeaturePhaseRun(
+    featureId: FeatureId,
+    phase: 'plan' | 'replan',
+  ): Promise<string>;
+  /**
+   * Release an attached plan/replan run back to scheduler ownership. Rejects
+   * if the run is in `await_response` (operator must answer pending help
+   * first via `/reply`). Returns a notice string.
+   */
+  releaseFeaturePhaseToScheduler(
+    featureId: FeatureId,
+    phase: 'plan' | 'replan',
+  ): Promise<string>;
   quit(): Promise<void>;
 }
