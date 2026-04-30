@@ -15,7 +15,8 @@ import {
   summarizeProposalApply,
 } from '@orchestrator/proposals/index';
 import type { SummaryCoordinator } from '@orchestrator/summaries/index';
-import { defaultMaxSquashRetries } from '@root/config';
+import { defaultMaxSquashRetries, defaultRetryPolicy } from '@root/config';
+import { decideRetry, type RetryPolicy } from '@runtime/retry-policy';
 import { runtimeUsageToTokenUsageAggregate } from '@runtime/usage';
 
 import type { ActiveLocks } from './active-locks.js';
@@ -144,9 +145,15 @@ export async function handleSchedulerEvent(params: {
     layer: 'feature' | 'task',
     now: number,
   ) => void;
+  retryPolicy?: RetryPolicy;
+  now?: () => number;
+  random?: () => number;
 }): Promise<void> {
   const { event, graph, ports, features, conflicts, summaries, activeLocks } =
     params;
+  const retryPolicy = params.retryPolicy ?? defaultRetryPolicy();
+  const now = params.now ?? Date.now;
+  const random = params.random ?? Math.random;
 
   if (event.type === 'worker_message') {
     const message = event.message;
@@ -280,18 +287,35 @@ export async function handleSchedulerEvent(params: {
 
     if (message.type === 'error') {
       activeLocks.releaseByRun(message.agentRunId);
-      graph.transitionTask(run.scopeId, {
-        status: 'ready',
-      });
-      ports.store.updateAgentRun(run.id, {
-        runStatus: 'retry_await',
-        owner: 'system',
-        retryAt: Date.now() + 1000,
-        ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
-        ...(message.usage !== undefined
+      const decision = decideRetry(
+        { error: message.error, attempt: run.restartCount },
+        retryPolicy,
+        { random },
+      );
+      const usagePatch =
+        message.usage !== undefined
           ? { tokenUsage: runtimeUsageToTokenUsageAggregate(message.usage) }
-          : {}),
-      });
+          : {};
+      if (decision.kind === 'retry') {
+        graph.transitionTask(run.scopeId, {
+          status: 'ready',
+        });
+        ports.store.updateAgentRun(run.id, {
+          runStatus: 'retry_await',
+          owner: 'system',
+          retryAt: now() + decision.delayMs,
+          ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
+          ...usagePatch,
+        });
+      } else {
+        // TODO(phase-1.6): wire `escalate_inbox` into store.appendInboxItem.
+        ports.store.updateAgentRun(run.id, {
+          runStatus: 'failed',
+          owner: 'system',
+          ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
+          ...usagePatch,
+        });
+      }
       return;
     }
 
@@ -628,12 +652,26 @@ export async function handleSchedulerEvent(params: {
       `run-feature:${event.featureId}:${event.phase}`,
     );
     if (run !== undefined) {
-      ports.store.updateAgentRun(run.id, {
-        runStatus: 'retry_await',
-        owner: 'system',
-        retryAt: Date.now() + 1000,
-        ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
-      });
+      const decision = decideRetry(
+        { error: event.error, attempt: run.restartCount },
+        retryPolicy,
+        { random },
+      );
+      if (decision.kind === 'retry') {
+        ports.store.updateAgentRun(run.id, {
+          runStatus: 'retry_await',
+          owner: 'system',
+          retryAt: now() + decision.delayMs,
+          ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
+        });
+      } else {
+        // TODO(phase-1.6): wire `escalate_inbox` into store.appendInboxItem.
+        ports.store.updateAgentRun(run.id, {
+          runStatus: 'failed',
+          owner: 'system',
+          ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
+        });
+      }
     }
     return;
   }

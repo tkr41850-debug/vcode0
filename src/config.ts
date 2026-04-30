@@ -6,6 +6,7 @@ import type {
   GvcConfig,
   HarnessConfig,
   ModelRoutingConfig,
+  RetryPolicy,
   RoutingTier,
   TokenProfile,
   VerificationCheck,
@@ -25,6 +26,7 @@ import {
   DEFAULT_VERIFY_REPLAN_LOOP_THRESHOLD,
   type WarningThresholds,
 } from '@core/warnings/index';
+import { DEFAULT_RETRY_POLICY } from '@runtime/retry-policy';
 
 export const DEFAULT_CONFIG_PATH = '.gvc0/config.json';
 
@@ -74,6 +76,13 @@ export function defaultMaxSquashRetries(): number {
 
 export function defaultWorkerHealthTimeoutMs(): number {
   return DEFAULT_WORKER_HEALTH_TIMEOUT_MS;
+}
+
+export function defaultRetryPolicy(): RetryPolicy {
+  return {
+    ...DEFAULT_RETRY_POLICY,
+    transientPatterns: [...DEFAULT_RETRY_POLICY.transientPatterns],
+  };
 }
 
 export function defaultModelRoutingConfig(
@@ -196,7 +205,67 @@ function normalizeConfig(input: unknown, configPath: string): GvcConfig {
           ),
         }
       : {}),
+    ...(input.retryPolicy !== undefined
+      ? { retryPolicy: parseRetryPolicy(input.retryPolicy, configPath) }
+      : {}),
   };
+}
+
+function parseRetryPolicy(value: unknown, configPath: string): RetryPolicy {
+  if (!isRecord(value)) {
+    throw new Error(`Config at ${configPath} has invalid retryPolicy section.`);
+  }
+  const defaults = DEFAULT_RETRY_POLICY;
+  const transientPatterns =
+    value.transientPatterns !== undefined
+      ? parseTransientPatterns(value.transientPatterns, configPath)
+      : [...defaults.transientPatterns];
+  return {
+    transientPatterns,
+    baseDelayMs: parseNumberOrDefault(
+      value.baseDelayMs,
+      'retryPolicy.baseDelayMs',
+      configPath,
+      defaults.baseDelayMs,
+    ),
+    maxDelayMs: parseNumberOrDefault(
+      value.maxDelayMs,
+      'retryPolicy.maxDelayMs',
+      configPath,
+      defaults.maxDelayMs,
+    ),
+    jitterFraction: parseNumberOrDefault(
+      value.jitterFraction,
+      'retryPolicy.jitterFraction',
+      configPath,
+      defaults.jitterFraction,
+    ),
+    retryCap: parseNumberOrDefault(
+      value.retryCap,
+      'retryPolicy.retryCap',
+      configPath,
+      defaults.retryCap,
+    ),
+  };
+}
+
+function parseTransientPatterns(
+  value: unknown,
+  configPath: string,
+): ReadonlyArray<string | RegExp> {
+  if (!Array.isArray(value)) {
+    throw new Error(
+      `Config at ${configPath} has invalid retryPolicy.transientPatterns.`,
+    );
+  }
+  return value.map((entry, index) => {
+    if (typeof entry === 'string') {
+      return entry;
+    }
+    throw new Error(
+      `Config at ${configPath} has invalid retryPolicy.transientPatterns[${index}].`,
+    );
+  });
 }
 
 function parseTokenProfile(value: unknown, configPath: string): TokenProfile {

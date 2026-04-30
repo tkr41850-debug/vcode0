@@ -7,6 +7,7 @@ export type {
   HarnessConfig,
   HarnessKind,
   ModelRoutingConfig,
+  RetryPolicy,
   RoutingTier,
   TokenProfile,
   WarningConfig,

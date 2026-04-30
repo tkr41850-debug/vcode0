@@ -13,7 +13,7 @@ import { IntegrationCoordinator } from '@orchestrator/integration/index';
 import type { OrchestratorPorts } from '@orchestrator/ports/index';
 import type { ProposalPhase } from '@orchestrator/proposals/index';
 import { SummaryCoordinator } from '@orchestrator/summaries/index';
-import { defaultWarningThresholds } from '@root/config';
+import { defaultRetryPolicy, defaultWarningThresholds } from '@root/config';
 import type { WorkerToOrchestratorMessage } from '@runtime/contracts';
 
 import { ActiveLocks } from './active-locks.js';
@@ -239,6 +239,7 @@ export class SchedulerLoop {
       conflicts: this.conflicts,
       summaries: this.summaries,
       activeLocks: this.activeLocks,
+      retryPolicy: this.ports.config.retryPolicy ?? defaultRetryPolicy(),
       emitEmptyVerificationChecksWarning: (entityId, layer, now) =>
         this.emitEmptyVerificationChecksWarning(entityId, layer, now),
     });

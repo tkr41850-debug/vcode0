@@ -1,5 +1,28 @@
 import type { VerificationConfig } from './verification.js';
 
+export interface RetryPolicy {
+  /**
+   * Patterns that classify an error as transient (retry-eligible). A string
+   * is a case-insensitive substring match; a RegExp is tested as-is.
+   */
+  transientPatterns: ReadonlyArray<RegExp | string>;
+  /** Base backoff for the first transient retry (attempt = 0). */
+  baseDelayMs: number;
+  /** Cap on the exponential growth so backoff stays bounded. */
+  maxDelayMs: number;
+  /**
+   * Symmetric jitter envelope as a fraction of the deterministic backoff.
+   * 0 = deterministic; 0.25 = +/-25%. Bounded so the result never goes
+   * negative.
+   */
+  jitterFraction: number;
+  /**
+   * Hard cap on transient retries. Once `attempt >= retryCap`, decideRetry
+   * returns `escalate_inbox` regardless of classification.
+   */
+  retryCap: number;
+}
+
 export type TokenProfile = 'budget' | 'balanced' | 'quality';
 
 export type RoutingTier = 'heavy' | 'standard' | 'light';
@@ -52,6 +75,7 @@ export interface GvcConfig {
   harness?: HarnessConfig;
   maxSquashRetries?: number;
   workerHealthTimeoutMs?: number;
+  retryPolicy?: RetryPolicy;
 }
 
 export const DEFAULT_MAX_SQUASH_RETRIES = 3;

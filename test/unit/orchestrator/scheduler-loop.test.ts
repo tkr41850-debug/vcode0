@@ -1610,7 +1610,7 @@ describe('SchedulerLoop', () => {
         type: 'error',
         taskId: 't-1',
         agentRunId: 'run-task:t-1',
-        error: 'provider overloaded',
+        error: 'provider overloaded: HTTP 503',
       },
     });
     await loop.step(100);
@@ -1741,7 +1741,7 @@ describe('SchedulerLoop', () => {
         type: 'error',
         taskId: 't-1',
         agentRunId: 'run-task:t-1',
-        error: 'provider overloaded',
+        error: 'provider overloaded: HTTP 503',
       },
     });
     await loop.step(100);
@@ -2078,7 +2078,7 @@ describe('SchedulerLoop', () => {
     const order: string[] = [];
     const { ports, runtime } = createPorts(order);
     vi.spyOn(runtime, 'dispatchRun').mockRejectedValueOnce(
-      new Error('feature checks failed to run'),
+      new Error('feature checks failed to run: ECONNRESET'),
     );
     const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
     const graph = createSingleFeatureGraph(
@@ -5510,7 +5510,7 @@ describe('SchedulerLoop', () => {
       type: 'feature_phase_error',
       featureId: 'f-1',
       phase: 'plan',
-      error: 'boom',
+      error: 'boom: ECONNRESET',
     });
     await loop.step(100);
 
