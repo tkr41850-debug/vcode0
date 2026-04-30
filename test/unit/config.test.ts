@@ -44,6 +44,23 @@ describe('JsonConfigLoader', () => {
     expect(JSON.parse(raw) as unknown).toEqual(config);
   });
 
+  it('keeps generated file sparse: no modelRouting/budget/verification on disk', async () => {
+    const configPath = path.join(getTmpDir(), '.gvc0', 'config.json');
+    await new JsonConfigLoader(configPath).load();
+
+    const raw = await fs.readFile(configPath, 'utf-8');
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    expect(Object.keys(parsed).sort()).toEqual([
+      'harness',
+      'tokenProfile',
+      'warnings',
+    ]);
+    expect(parsed.modelRouting).toBeUndefined();
+    expect(parsed.budget).toBeUndefined();
+    expect(parsed.verification).toBeUndefined();
+    expect(parsed.maxSquashRetries).toBeUndefined();
+  });
+
   it('normalizes configured sections and merges stage defaults', async () => {
     const configPath = path.join(getTmpDir(), 'custom-config.json');
     await fs.writeFile(
