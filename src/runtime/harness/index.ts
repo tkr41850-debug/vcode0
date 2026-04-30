@@ -11,6 +11,7 @@ import type {
   WorkerToOrchestratorMessage,
 } from '@runtime/contracts';
 import { NdjsonStdioTransport } from '@runtime/ipc/index';
+import type { Quarantine } from '@runtime/ipc/quarantine';
 import type { SessionStore } from '@runtime/sessions/index';
 
 export interface SessionExitInfo {
@@ -82,13 +83,26 @@ type ForkWorker = (
   options: child_process.ForkOptions,
 ) => child_process.ChildProcess;
 
+export interface PiSdkHarnessOptions {
+  entryPath?: string;
+  forkProcess?: ForkWorker;
+  quarantine?: Quarantine;
+}
+
 export class PiSdkHarness implements SessionHarness {
+  private readonly entryPath: string;
+  private readonly forkProcess: ForkWorker;
+  private readonly quarantine: Quarantine | undefined;
+
   constructor(
     private readonly sessionStore: SessionStore,
     private readonly projectRoot: string,
-    private readonly entryPath: string = WORKER_ENTRY,
-    private readonly forkProcess: ForkWorker = child_process.fork,
-  ) {}
+    options: PiSdkHarnessOptions = {},
+  ) {
+    this.entryPath = options.entryPath ?? WORKER_ENTRY;
+    this.forkProcess = options.forkProcess ?? child_process.fork;
+    this.quarantine = options.quarantine;
+  }
 
   start(taskRun: TaskRunPayload, agentRunId: string): Promise<SessionHandle> {
     // Pin session id to agentRunId so the harness-reported sessionId (which
@@ -100,10 +114,18 @@ export class PiSdkHarness implements SessionHarness {
     const worktreeDir = this.resolveWorktreePath(taskRun.task);
 
     const child = this.spawnWorker(worktreeDir, agentRunId);
-    const transport = new NdjsonStdioTransport({
-      stdin: child.stdin as Writable,
-      stdout: child.stdout as Readable,
-    });
+    const transport = new NdjsonStdioTransport(
+      {
+        stdin: child.stdin as Writable,
+        stdout: child.stdout as Readable,
+      },
+      {
+        ...(this.quarantine !== undefined
+          ? { quarantine: this.quarantine }
+          : {}),
+        agentRunId,
+      },
+    );
 
     const handle = createSessionHandle(
       taskRun.task.id,
@@ -147,10 +169,18 @@ export class PiSdkHarness implements SessionHarness {
 
     const worktreeDir = this.resolveWorktreePath(taskRun.task);
     const child = this.spawnWorker(worktreeDir, run.agentRunId);
-    const transport = new NdjsonStdioTransport({
-      stdin: child.stdin as Writable,
-      stdout: child.stdout as Readable,
-    });
+    const transport = new NdjsonStdioTransport(
+      {
+        stdin: child.stdin as Writable,
+        stdout: child.stdout as Readable,
+      },
+      {
+        ...(this.quarantine !== undefined
+          ? { quarantine: this.quarantine }
+          : {}),
+        agentRunId: run.agentRunId,
+      },
+    );
 
     const handle = createSessionHandle(
       taskRun.task.id,

@@ -106,8 +106,7 @@ describe('PiSdkHarness', () => {
     const harness = new PiSdkHarness(
       createSessionStoreMock(),
       '/tmp/project-root',
-      '/tmp/custom-entry.ts',
-      forkWorker,
+      { entryPath: '/tmp/custom-entry.ts', forkProcess: forkWorker },
     );
     const taskRun = makeTaskRunPayload({
       taskId: 't-1',
@@ -154,8 +153,7 @@ describe('PiSdkHarness', () => {
     const harness = new PiSdkHarness(
       createSessionStoreMock(),
       '/tmp/project-root',
-      '/tmp/custom-entry.ts',
-      forkWorker,
+      { entryPath: '/tmp/custom-entry.ts', forkProcess: forkWorker },
     );
 
     const handle = await harness.start(
@@ -175,8 +173,7 @@ describe('PiSdkHarness', () => {
     const harness = new PiSdkHarness(
       createSessionStoreMock(),
       '/tmp/project-root',
-      '/tmp/custom-entry.ts',
-      forkWorker,
+      { entryPath: '/tmp/custom-entry.ts', forkProcess: forkWorker },
     );
 
     await harness.start(
@@ -203,8 +200,7 @@ describe('PiSdkHarness', () => {
     const harness = new PiSdkHarness(
       createSessionStoreMock(),
       '/tmp/project-root',
-      '/tmp/custom-entry.ts',
-      forkWorker,
+      { entryPath: '/tmp/custom-entry.ts', forkProcess: forkWorker },
     );
     const graph = new InMemoryFeatureGraph();
     graph.createMilestone({ id: 'm-1', name: 'M1', description: 'desc' });
@@ -246,11 +242,9 @@ describe('PiSdkHarness', () => {
 
   it('returns session_not_found when resume store misses', async () => {
     const sessionStore = createSessionStoreMock(null);
-    const harness = new PiSdkHarness(
-      sessionStore,
-      '/tmp/project-root',
-      '/tmp/custom-entry.ts',
-    );
+    const harness = new PiSdkHarness(sessionStore, '/tmp/project-root', {
+      entryPath: '/tmp/custom-entry.ts',
+    });
 
     await expect(
       harness.resume(makeTaskRunPayload({ taskId: 't-1' }), {
@@ -272,8 +266,7 @@ describe('PiSdkHarness', () => {
     const harness = new PiSdkHarness(
       createSessionStoreMock([{ role: 'user', content: 'saved' }]),
       '/tmp/project-root',
-      '/tmp/custom-entry.ts',
-      forkWorker,
+      { entryPath: '/tmp/custom-entry.ts', forkProcess: forkWorker },
     );
 
     const result = await harness.resume(makeTaskRunPayload({ taskId: 't-1' }), {
@@ -318,8 +311,7 @@ describe('PiSdkHarness', () => {
     const harness = new PiSdkHarness(
       createSessionStoreMock([{ role: 'user', content: 'saved' }]),
       '/tmp/project-root',
-      '/tmp/custom-entry.ts',
-      forkWorker,
+      { entryPath: '/tmp/custom-entry.ts', forkProcess: forkWorker },
     );
 
     await harness.start(makeTaskRunPayload({ taskId: 't-1' }), 'run-start');
@@ -362,8 +354,7 @@ describe('PiSdkHarness', () => {
     const harness = new PiSdkHarness(
       createSessionStoreMock(),
       '/tmp/project-root',
-      '/tmp/custom-entry.ts',
-      forkWorker,
+      { entryPath: '/tmp/custom-entry.ts', forkProcess: forkWorker },
     );
     const handle = await harness.start(
       makeTaskRunPayload({ taskId: 't-1' }),
@@ -406,8 +397,7 @@ describe('PiSdkHarness', () => {
     const harness = new PiSdkHarness(
       createSessionStoreMock(),
       '/tmp/project-root',
-      '/tmp/custom-entry.ts',
-      forkWorker,
+      { entryPath: '/tmp/custom-entry.ts', forkProcess: forkWorker },
     );
     const handle = await harness.start(
       makeTaskRunPayload({ taskId: 't-1' }),
@@ -433,8 +423,7 @@ describe('PiSdkHarness', () => {
     const harness = new PiSdkHarness(
       createSessionStoreMock(),
       '/tmp/project-root',
-      '/tmp/custom-entry.ts',
-      forkWorker,
+      { entryPath: '/tmp/custom-entry.ts', forkProcess: forkWorker },
     );
     const handle = await harness.start(
       makeTaskRunPayload({ taskId: 't-1' }),

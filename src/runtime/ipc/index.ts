@@ -9,6 +9,7 @@ import {
   validateOrchestratorFrame,
   validateWorkerFrame,
 } from '@runtime/ipc/frame-schema';
+import type { Quarantine } from '@runtime/ipc/quarantine';
 
 export interface IpcTransport {
   send(message: OrchestratorToWorkerMessage): void;
@@ -22,13 +23,25 @@ export interface ChildIpcTransport {
   close(): void;
 }
 
+export interface NdjsonStdioTransportOptions {
+  quarantine?: Quarantine;
+  agentRunId?: string;
+}
+
 export class NdjsonStdioTransport implements IpcTransport {
   private readonly rl: readline.Interface;
   private readonly writable: Writable;
+  private readonly quarantine: Quarantine | undefined;
+  private readonly agentRunId: string | undefined;
 
-  constructor(streams: { stdin: Writable; stdout: Readable }) {
+  constructor(
+    streams: { stdin: Writable; stdout: Readable },
+    options: NdjsonStdioTransportOptions = {},
+  ) {
     this.writable = streams.stdin;
     this.rl = readline.createInterface({ input: streams.stdout });
+    this.quarantine = options.quarantine;
+    this.agentRunId = options.agentRunId;
   }
 
   send(message: OrchestratorToWorkerMessage): void {
@@ -40,15 +53,13 @@ export class NdjsonStdioTransport implements IpcTransport {
       let parsed: unknown;
       try {
         parsed = JSON.parse(line);
-      } catch {
-        process.stderr.write(`[ipc] failed to parse worker message: ${line}\n`);
+      } catch (err) {
+        this.quarantineFrame(line, `parse error: ${stringifyError(err)}`);
         return;
       }
       const result = validateWorkerFrame(parsed);
       if (!result.ok) {
-        process.stderr.write(
-          `[ipc] invalid frame shape: ${result.error}: ${line}\n`,
-        );
+        this.quarantineFrame(line, result.error);
         return;
       }
       handler(result.frame);
@@ -59,18 +70,45 @@ export class NdjsonStdioTransport implements IpcTransport {
     this.rl.close();
     this.writable.end();
   }
+
+  private quarantineFrame(raw: string, errorMessage: string): void {
+    if (this.quarantine !== undefined) {
+      this.quarantine.record({
+        direction: 'worker_to_orchestrator',
+        ...(this.agentRunId !== undefined
+          ? { agentRunId: this.agentRunId }
+          : {}),
+        raw,
+        errorMessage,
+      });
+      return;
+    }
+    process.stderr.write(
+      `[ipc] invalid worker frame: ${errorMessage}: ${raw}\n`,
+    );
+  }
+}
+
+export interface ChildNdjsonStdioTransportOptions {
+  quarantine?: Quarantine;
+  agentRunId?: string;
 }
 
 export class ChildNdjsonStdioTransport implements ChildIpcTransport {
   private readonly rl: readline.Interface;
   private readonly writable: Writable;
+  private readonly quarantine: Quarantine | undefined;
+  private readonly agentRunId: string | undefined;
 
   constructor(
     input: Readable = process.stdin,
     output: Writable = process.stdout,
+    options: ChildNdjsonStdioTransportOptions = {},
   ) {
     this.writable = output;
     this.rl = readline.createInterface({ input });
+    this.quarantine = options.quarantine;
+    this.agentRunId = options.agentRunId;
   }
 
   send(message: WorkerToOrchestratorMessage): void {
@@ -82,17 +120,13 @@ export class ChildNdjsonStdioTransport implements ChildIpcTransport {
       let parsed: unknown;
       try {
         parsed = JSON.parse(line);
-      } catch {
-        process.stderr.write(
-          `[ipc] failed to parse orchestrator message: ${line}\n`,
-        );
+      } catch (err) {
+        this.quarantineFrame(line, `parse error: ${stringifyError(err)}`);
         return;
       }
       const result = validateOrchestratorFrame(parsed);
       if (!result.ok) {
-        process.stderr.write(
-          `[ipc] invalid frame shape: ${result.error}: ${line}\n`,
-        );
+        this.quarantineFrame(line, result.error);
         return;
       }
       handler(result.frame);
@@ -102,4 +136,26 @@ export class ChildNdjsonStdioTransport implements ChildIpcTransport {
   close(): void {
     this.rl.close();
   }
+
+  private quarantineFrame(raw: string, errorMessage: string): void {
+    if (this.quarantine !== undefined) {
+      this.quarantine.record({
+        direction: 'orchestrator_to_worker',
+        ...(this.agentRunId !== undefined
+          ? { agentRunId: this.agentRunId }
+          : {}),
+        raw,
+        errorMessage,
+      });
+      return;
+    }
+    process.stderr.write(
+      `[ipc] invalid orchestrator frame: ${errorMessage}: ${raw}\n`,
+    );
+  }
+}
+
+function stringifyError(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  return String(err);
 }

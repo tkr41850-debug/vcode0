@@ -7,6 +7,7 @@ import {
   ChildNdjsonStdioTransport,
   NdjsonStdioTransport,
 } from '@runtime/ipc/index';
+import { Quarantine } from '@runtime/ipc/quarantine';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const tick = () => new Promise<void>((r) => process.nextTick(r));
@@ -324,5 +325,57 @@ describe('ChildNdjsonStdioTransport (worker side)', () => {
       expect(received[0]).toBeDefined();
       expect(received[0]?.type).toBe('manual_input');
     });
+  });
+});
+
+describe('quarantine integration', () => {
+  it('orchestrator transport routes invalid worker frames to Quarantine', async () => {
+    const { stdin, stdout } = createStreamPair();
+    const quarantine = new Quarantine();
+    const transport = new NdjsonStdioTransport(
+      { stdin, stdout },
+      { quarantine, agentRunId: 'run-7' },
+    );
+    const received: WorkerToOrchestratorMessage[] = [];
+    transport.onMessage((m) => received.push(m));
+
+    stdout.write('{"type":"unknown","taskId":"t","agentRunId":"r"}\n');
+    stdout.write('not-json\n');
+    await tick();
+
+    const recent = quarantine.recent();
+    expect(recent).toHaveLength(2);
+    expect(recent[0]?.direction).toBe('worker_to_orchestrator');
+    expect(recent[0]?.agentRunId).toBe('run-7');
+    expect(received).toHaveLength(0);
+
+    transport.close();
+    stdin.destroy();
+    stdout.destroy();
+  });
+
+  it('worker transport routes invalid orchestrator frames to Quarantine', async () => {
+    const input = new PassThrough();
+    const output = new PassThrough();
+    const quarantine = new Quarantine();
+    const transport = new ChildNdjsonStdioTransport(input, output, {
+      quarantine,
+      agentRunId: 'run-8',
+    });
+    const received: OrchestratorToWorkerMessage[] = [];
+    transport.onMessage((m) => received.push(m));
+
+    input.write('{"type":"bogus"}\n');
+    await tick();
+
+    const recent = quarantine.recent();
+    expect(recent).toHaveLength(1);
+    expect(recent[0]?.direction).toBe('orchestrator_to_worker');
+    expect(recent[0]?.agentRunId).toBe('run-8');
+    expect(received).toHaveLength(0);
+
+    transport.close();
+    input.destroy();
+    output.destroy();
   });
 });

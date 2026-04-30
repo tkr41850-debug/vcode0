@@ -16,11 +16,17 @@ console.warn = stderrWrite;
 
 import type { OrchestratorToWorkerMessage } from '@runtime/contracts';
 import { ChildNdjsonStdioTransport } from '@runtime/ipc/index';
+import { Quarantine } from '@runtime/ipc/quarantine';
 import { FileSessionStore } from '@runtime/sessions/index';
 import { WorkerRuntime } from '@runtime/worker/index';
 import { resolveWorkerProjectRoot } from '@runtime/worker/project-root';
 
-const transport = new ChildNdjsonStdioTransport();
+const workerAgentRunId = process.env.GVC0_AGENT_RUN_ID;
+const quarantine = new Quarantine();
+const transport = new ChildNdjsonStdioTransport(process.stdin, process.stdout, {
+  quarantine,
+  ...(workerAgentRunId !== undefined ? { agentRunId: workerAgentRunId } : {}),
+});
 const projectRoot = resolveWorkerProjectRoot();
 const sessionStore = new FileSessionStore(projectRoot);
 

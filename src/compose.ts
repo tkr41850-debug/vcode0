@@ -34,6 +34,7 @@ import {
   DiscussFeaturePhaseBackend,
   PiSdkHarness,
 } from '@runtime/harness/index';
+import { Quarantine } from '@runtime/ipc/quarantine';
 import { FileSessionStore } from '@runtime/sessions/index';
 import { LocalWorkerPool } from '@runtime/worker-pool';
 import { GitWorktreeProvisioner } from '@runtime/worktree/index';
@@ -285,8 +286,11 @@ export async function composeApplication(): Promise<GvcApplication> {
     },
   });
   const verification = new VerificationService({ config }, projectRoot);
+  const quarantine = new Quarantine({
+    sink: (entry) => store.appendQuarantinedFrame(entry),
+  });
   const runtime = new LocalWorkerPool(
-    new PiSdkHarness(sessionStore, projectRoot),
+    new PiSdkHarness(sessionStore, projectRoot, { quarantine }),
     maxWorkers,
     (message) => {
       const workerOutput = formatWorkerOutput(message);
