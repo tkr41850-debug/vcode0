@@ -1,13 +1,23 @@
+import type { GraphSnapshot } from '@core/graph/index';
+import type { GraphProposal, GraphProposalOp } from '@core/proposals/index';
 import type {
   AgentRun,
   EventRecord,
+  FeatureId,
   GvcConfig,
   IntegrationState,
+  ProposalPhaseDetails,
 } from '@core/types/index';
 import type { VerificationService } from '@orchestrator/services/verification-service';
 import type { RuntimePort } from '@runtime';
 import type { SessionStore } from '@runtime/sessions/index';
 import type { WorktreeProvisioner } from '@runtime/worktree/index';
+
+export interface ProposalOpScopeRef {
+  featureId: FeatureId;
+  phase: 'plan' | 'replan';
+  agentRunId: string;
+}
 
 export interface AgentRunQuery {
   scopeType?: AgentRun['scopeType'];
@@ -51,6 +61,21 @@ export interface UiPort {
   show(): Promise<void>;
   refresh(): void;
   dispose(): void;
+  onProposalOp(
+    scope: ProposalOpScopeRef,
+    op: GraphProposalOp,
+    draftSnapshot: GraphSnapshot,
+  ): void;
+  onProposalSubmitted(
+    scope: ProposalOpScopeRef,
+    details: ProposalPhaseDetails,
+    proposal: GraphProposal,
+    submissionIndex: number,
+  ): void;
+  onProposalPhaseEnded(
+    scope: ProposalOpScopeRef,
+    outcome: 'completed' | 'failed',
+  ): void;
 }
 
 export interface OrchestratorPorts {

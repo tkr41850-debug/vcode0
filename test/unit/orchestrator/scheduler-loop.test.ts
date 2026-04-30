@@ -395,6 +395,9 @@ function createUiMock(order: string[]): UiPort & {
       order.push('refresh');
     }),
     dispose: () => {},
+    onProposalOp: () => {},
+    onProposalSubmitted: () => {},
+    onProposalPhaseEnded: () => {},
   };
 }
 

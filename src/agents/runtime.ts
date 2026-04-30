@@ -7,13 +7,15 @@ import {
   createProposalToolHost,
   type DefaultFeaturePhaseToolHost,
 } from '@agents/tools';
-import type { FeatureGraph } from '@core/graph/index';
+import type { FeatureGraph, GraphSnapshot } from '@core/graph/index';
+import type { GraphProposal, GraphProposalOp } from '@core/proposals/index';
 import type {
   AgentRun,
   DiscussPhaseDetails,
   DiscussPhaseResult,
   EventRecord,
   Feature,
+  FeatureId,
   FeaturePhaseResult,
   FeaturePhaseRunContext,
   GvcConfig,
@@ -34,6 +36,27 @@ import type { SessionStore } from '@runtime/sessions/index';
 import { messagesToTokenUsageAggregate } from '@runtime/usage';
 import type { TSchema } from '@sinclair/typebox';
 
+export interface ProposalOpScope {
+  featureId: FeatureId;
+  phase: 'plan' | 'replan';
+  agentRunId: string;
+}
+
+export interface ProposalOpSink {
+  onOpRecorded(
+    scope: ProposalOpScope,
+    op: GraphProposalOp,
+    draftSnapshot: GraphSnapshot,
+  ): void;
+  onSubmitted(
+    scope: ProposalOpScope,
+    details: ProposalPhaseDetails,
+    proposal: GraphProposal,
+    submissionIndex: number,
+  ): void;
+  onPhaseEnded(scope: ProposalOpScope, outcome: 'completed' | 'failed'): void;
+}
+
 export interface FeatureAgentRuntimeConfig {
   modelId: string;
   config: GvcConfig;
@@ -42,6 +65,7 @@ export interface FeatureAgentRuntimeConfig {
   store: Store;
   sessionStore: SessionStore;
   projectRoot?: string;
+  proposalOpSink?: ProposalOpSink;
   getApiKey?: (
     provider: string,
   ) => Promise<string | undefined> | string | undefined;
@@ -177,18 +201,46 @@ export class FeaturePhaseOrchestrator {
       messages,
     );
 
-    await this.executeAgent(agent, feature.description);
-    if (!host.wasSubmitted()) {
-      throw new Error(`${phase} phase must call submit before completion`);
+    const sink = this.deps.proposalOpSink;
+    const scope: ProposalOpScope = {
+      featureId: feature.id,
+      phase,
+      agentRunId: run.agentRunId,
+    };
+    const unsubscribe =
+      sink === undefined
+        ? undefined
+        : host.subscribe((event) => {
+            if (event.kind === 'op_recorded') {
+              sink.onOpRecorded(scope, event.op, event.draftSnapshot);
+              return;
+            }
+            sink.onSubmitted(
+              scope,
+              event.details as ProposalPhaseDetails,
+              event.proposal,
+              event.submissionIndex,
+            );
+          });
+
+    let outcome: 'completed' | 'failed' = 'failed';
+    try {
+      await this.executeAgent(agent, feature.description);
+      if (!host.wasSubmitted()) {
+        throw new Error(`${phase} phase must call submit before completion`);
+      }
+
+      const finalMessages = agent.state.messages;
+      await this.persistMessages(run, finalMessages, model.provider, model.id);
+      const proposal = host.buildProposal();
+      const details = host.getProposalDetails();
+      const summary = details.summary;
+      outcome = 'completed';
+      return { summary, proposal, details };
+    } finally {
+      unsubscribe?.();
+      sink?.onPhaseEnded(scope, outcome);
     }
-
-    const finalMessages = agent.state.messages;
-    await this.persistMessages(run, finalMessages, model.provider, model.id);
-    const proposal = host.buildProposal();
-    const details = host.getProposalDetails();
-    const summary = details.summary;
-
-    return { summary, proposal, details };
   }
 
   private async runVerifyPhase(

@@ -177,6 +177,17 @@ export async function composeApplication(): Promise<GvcApplication> {
     sessionStore,
     projectRoot,
     getApiKey,
+    proposalOpSink: {
+      onOpRecorded: (scope, op, draftSnapshot) => {
+        ui.onProposalOp(scope, op, draftSnapshot);
+      },
+      onSubmitted: (scope, details, proposal, submissionIndex) => {
+        ui.onProposalSubmitted(scope, details, proposal, submissionIndex);
+      },
+      onPhaseEnded: (scope, outcome) => {
+        ui.onProposalPhaseEnded(scope, outcome);
+      },
+    },
   });
   const verification = new VerificationService({ config }, projectRoot);
   const runtime = new LocalWorkerPool(

@@ -2,7 +2,7 @@
   "$schema": "https://biomejs.dev/schemas/2.4.10/schema.json",
   "files": {
     "ignoreUnknown": true,
-    "includes": ["**", "!!**/.tui-test", "!!**/.claude"]
+    "includes": ["**", "!!**/.tui-test", "!!**/.claude", "!!**/.bg-shell"]
   },
   "formatter": {
     "enabled": true,

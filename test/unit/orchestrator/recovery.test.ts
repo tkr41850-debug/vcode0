@@ -439,6 +439,9 @@ function createPorts(
     show: vi.fn(async () => {}),
     refresh: vi.fn(),
     dispose: vi.fn(),
+    onProposalOp: vi.fn(),
+    onProposalSubmitted: vi.fn(),
+    onProposalPhaseEnded: vi.fn(),
   };
   const verification = {
     verifyFeature: vi.fn(() => Promise.resolve({ ok: true })),

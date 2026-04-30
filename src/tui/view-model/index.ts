@@ -60,13 +60,13 @@ export interface StatusBarViewModel extends WorkerCountsViewModel {
   keybindHints: readonly TuiKeybindHint[];
   selectedLabel?: string;
   notice?: string;
-  dataMode?: 'live' | 'draft';
+  dataMode?: 'live' | 'draft' | 'live-planner';
   focusMode?: 'composer' | 'graph';
   pendingProposalPhase?: FeaturePhaseAgentRun['phase'];
 }
 
 export interface ComposerViewModel {
-  mode: 'command' | 'draft' | 'approval' | 'task';
+  mode: 'command' | 'draft' | 'approval' | 'task' | 'live-planner';
   focusMode: 'composer' | 'graph';
   text: string;
   detail: string;
@@ -102,7 +102,7 @@ export interface StatusBarBuildInput {
   keybindHints: readonly TuiKeybindHint[];
   selectedLabel?: string;
   notice?: string;
-  dataMode?: 'live' | 'draft';
+  dataMode?: 'live' | 'draft' | 'live-planner';
   focusMode?: 'composer' | 'graph';
   pendingProposalPhase?: FeaturePhaseAgentRun['phase'];
 }
@@ -321,6 +321,10 @@ export class TuiViewModelBuilder {
     pendingTaskRunStatus?: TaskAgentRun['runStatus'];
     pendingTaskOwner?: TaskAgentRun['owner'];
     pendingTaskPayloadJson?: string;
+    liveProposalFeatureId?: FeatureId;
+    liveProposalPhase?: 'plan' | 'replan';
+    liveProposalOpCount?: number;
+    liveProposalSubmissionCount?: number;
   }): ComposerViewModel {
     if (
       input.pendingProposalPhase !== undefined &&
@@ -363,6 +367,22 @@ export class TuiViewModelBuilder {
         focusMode: input.focusMode,
         text: input.text,
         detail: `draft ${input.draftPhase} ${input.draftFeatureId} ${input.draftCommandCount ?? 0} ops /submit /discard`,
+      };
+    }
+
+    if (
+      input.liveProposalFeatureId !== undefined &&
+      input.liveProposalPhase !== undefined
+    ) {
+      const opCount = input.liveProposalOpCount ?? 0;
+      const submissions = input.liveProposalSubmissionCount ?? 0;
+      const submittedSuffix =
+        submissions > 0 ? ` ${submissions} submitted` : '';
+      return {
+        mode: 'live-planner',
+        focusMode: input.focusMode,
+        text: input.text,
+        detail: `live planner ${input.liveProposalFeatureId} ${input.liveProposalPhase} ${opCount} ops${submittedSuffix}`,
       };
     }
 

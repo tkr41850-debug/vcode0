@@ -17,7 +17,11 @@ export {
 } from '@agents/prompts';
 export type { ProposalAgent, ProposalPhaseResult } from '@agents/proposal';
 export type { ReplannerAgent } from '@agents/replanner';
-export type { FeatureAgentRuntimeConfig } from '@agents/runtime';
+export type {
+  FeatureAgentRuntimeConfig,
+  ProposalOpScope,
+  ProposalOpSink,
+} from '@agents/runtime';
 export {
   FeaturePhaseOrchestrator,
   persistPhaseOutputToFeature,

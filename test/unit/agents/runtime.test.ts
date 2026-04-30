@@ -4,6 +4,7 @@ import {
   createPromptLibrary,
   FeaturePhaseOrchestrator,
   type PromptLibrary,
+  type ProposalOpSink,
   promptLibrary,
 } from '@agents';
 import type {
@@ -70,6 +71,7 @@ function createRuntimeFixture(
   options: {
     config?: Partial<GvcConfig>;
     promptLibrary?: PromptLibrary;
+    proposalOpSink?: ProposalOpSink;
   } = {},
 ): {
   graph: ReturnType<typeof createGraphWithFeature>;
@@ -93,6 +95,9 @@ function createRuntimeFixture(
     store,
     sessionStore,
     projectRoot: '/repo',
+    ...(options.proposalOpSink !== undefined
+      ? { proposalOpSink: options.proposalOpSink }
+      : {}),
   });
 
   return { graph, feature, store, sessionStore, run, runtime };
@@ -415,6 +420,124 @@ describe('FeaturePhaseOrchestrator', () => {
       expect.objectContaining({ sessionId: run.id }),
     );
     expect(store.listEvents({ entityId: feature.id })).toEqual([]);
+  });
+
+  it('forwards proposal mutations + submit + phase-ended to injected sink', async () => {
+    type SinkEvent =
+      | {
+          kind: 'op';
+          scope: {
+            featureId: string;
+            phase: 'plan' | 'replan';
+            agentRunId: string;
+          };
+          opKind: string;
+          featureCount: number;
+        }
+      | {
+          kind: 'submit';
+          scope: {
+            featureId: string;
+            phase: 'plan' | 'replan';
+            agentRunId: string;
+          };
+          submissionIndex: number;
+          opCount: number;
+        }
+      | {
+          kind: 'ended';
+          scope: {
+            featureId: string;
+            phase: 'plan' | 'replan';
+            agentRunId: string;
+          };
+          outcome: 'completed' | 'failed';
+        };
+
+    const events: SinkEvent[] = [];
+    const sink: ProposalOpSink = {
+      onOpRecorded: (scope, op, draftSnapshot) => {
+        events.push({
+          kind: 'op',
+          scope,
+          opKind: op.kind,
+          featureCount: draftSnapshot.features.length,
+        });
+      },
+      onSubmitted: (scope, _details, proposal, submissionIndex) => {
+        events.push({
+          kind: 'submit',
+          scope,
+          submissionIndex,
+          opCount: proposal.ops.length,
+        });
+      },
+      onPhaseEnded: (scope, outcome) => {
+        events.push({ kind: 'ended', scope, outcome });
+      },
+    };
+
+    faux.setResponses([
+      fauxAssistantMessage(
+        [
+          fauxToolCall('addTask', {
+            featureId: 'f-1',
+            description: 'first task',
+          }),
+          fauxToolCall('submit', proposalDetails),
+        ],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage([fauxText('Plan ready.')]),
+    ]);
+
+    const { feature, run, runtime } = createRuntimeFixture('plan', {
+      proposalOpSink: sink,
+    });
+
+    await runtime.planFeature(feature, { agentRunId: run.id });
+
+    expect(events.map((e) => e.kind)).toEqual(['op', 'submit', 'ended']);
+    expect(events[0]).toMatchObject({
+      kind: 'op',
+      scope: { featureId: 'f-1', phase: 'plan', agentRunId: run.id },
+      opKind: 'add_task',
+      featureCount: 1,
+    });
+    expect(events[1]).toMatchObject({
+      kind: 'submit',
+      scope: { featureId: 'f-1', phase: 'plan', agentRunId: run.id },
+      submissionIndex: 1,
+      opCount: 1,
+    });
+    expect(events[2]).toMatchObject({
+      kind: 'ended',
+      scope: { featureId: 'f-1', phase: 'plan', agentRunId: run.id },
+      outcome: 'completed',
+    });
+  });
+
+  it('sink onPhaseEnded fires with outcome=failed when planner never submits', async () => {
+    const endedEvents: Array<{ outcome: 'completed' | 'failed' }> = [];
+    const sink: ProposalOpSink = {
+      onOpRecorded: () => {},
+      onSubmitted: () => {},
+      onPhaseEnded: (_scope, outcome) => {
+        endedEvents.push({ outcome });
+      },
+    };
+
+    faux.setResponses([fauxAssistantMessage([fauxText('No proposal.')])]);
+
+    const { feature, run, runtime } = createRuntimeFixture('plan', {
+      proposalOpSink: sink,
+    });
+
+    await expect(
+      runtime.planFeature(feature, { agentRunId: run.id }),
+    ).rejects.toThrow('plan phase must call submit before completion');
+
+    expect(endedEvents).toEqual([{ outcome: 'failed' }]);
   });
 
   it('accepts checkpoint-style multi-submit; result reflects latest details + accumulated ops', async () => {

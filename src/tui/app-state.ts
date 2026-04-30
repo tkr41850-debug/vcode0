@@ -15,10 +15,11 @@ import {
 } from '@tui/view-model/index';
 
 export function displayedSnapshot(
-  liveSnapshot: GraphSnapshot,
+  authoritativeSnapshot: GraphSnapshot,
   draftSnapshot: GraphSnapshot | undefined,
+  livePlannerSnapshot: GraphSnapshot | undefined,
 ): GraphSnapshot {
-  return draftSnapshot ?? liveSnapshot;
+  return draftSnapshot ?? livePlannerSnapshot ?? authoritativeSnapshot;
 }
 
 export function buildFlattenedNodes(

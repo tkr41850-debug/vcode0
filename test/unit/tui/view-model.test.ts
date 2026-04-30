@@ -185,6 +185,68 @@ describe('TuiViewModelBuilder', () => {
     });
   });
 
+  it('builds live-planner composer status with op + submission counts', () => {
+    const builder = new TuiViewModelBuilder();
+    const vm = builder.buildComposer({
+      text: '',
+      focusMode: 'composer',
+      liveProposalFeatureId: 'f-1',
+      liveProposalPhase: 'plan',
+      liveProposalOpCount: 7,
+      liveProposalSubmissionCount: 0,
+    });
+
+    expect(vm).toMatchObject({
+      mode: 'live-planner',
+      detail: 'live planner f-1 plan 7 ops',
+    });
+  });
+
+  it('live-planner composer detail surfaces submission count when ≥1 submitted', () => {
+    const builder = new TuiViewModelBuilder();
+    const vm = builder.buildComposer({
+      text: '',
+      focusMode: 'composer',
+      liveProposalFeatureId: 'f-2',
+      liveProposalPhase: 'replan',
+      liveProposalOpCount: 12,
+      liveProposalSubmissionCount: 2,
+    });
+
+    expect(vm.detail).toBe('live planner f-2 replan 12 ops 2 submitted');
+  });
+
+  it('manual draft takes precedence over live-planner mode in composer', () => {
+    const builder = new TuiViewModelBuilder();
+    const vm = builder.buildComposer({
+      text: '',
+      focusMode: 'composer',
+      draftFeatureId: 'f-1',
+      draftPhase: 'plan',
+      draftCommandCount: 3,
+      liveProposalFeatureId: 'f-1',
+      liveProposalPhase: 'plan',
+      liveProposalOpCount: 99,
+      liveProposalSubmissionCount: 0,
+    });
+
+    expect(vm.mode).toBe('draft');
+    expect(vm.detail).toContain('draft plan f-1 3 ops');
+  });
+
+  it('status bar accepts live-planner dataMode', () => {
+    const builder = new TuiViewModelBuilder();
+    const vm = builder.buildStatusBar({
+      tasks: [],
+      workerCounts: { runningWorkers: 0, idleWorkers: 1, totalWorkers: 1 },
+      autoExecutionEnabled: false,
+      keybindHints: [],
+      dataMode: 'live-planner',
+    });
+
+    expect(vm.dataMode).toBe('live-planner');
+  });
+
   it('includes milestone drafting command in idle composer hint', () => {
     const builder = new TuiViewModelBuilder();
     const composer = builder.buildComposer({

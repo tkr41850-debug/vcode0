@@ -1,12 +1,17 @@
 import type { GraphSnapshot } from '@core/graph/index';
-import type { FeatureId, MilestoneId } from '@core/types/index';
+import type { GraphProposal, GraphProposalOp } from '@core/proposals/index';
+import type {
+  FeatureId,
+  MilestoneId,
+  ProposalPhaseDetails,
+} from '@core/types/index';
 import {
   CombinedAutocompleteProvider,
   Editor,
   ProcessTerminal,
   TUI,
 } from '@mariozechner/pi-tui';
-import type { UiPort } from '@orchestrator/ports/index';
+import type { ProposalOpScopeRef, UiPort } from '@orchestrator/ports/index';
 import {
   buildComposerSlashCommands,
   CommandRegistry,
@@ -21,6 +26,10 @@ import {
   HelpOverlay,
   StatusBar,
 } from '@tui/components/index';
+import {
+  type LivePlannerEntry,
+  LivePlannerSessions,
+} from '@tui/live-planner-sessions';
 import { ComposerProposalController } from '@tui/proposal-controller';
 import { TuiViewModelBuilder } from '@tui/view-model/index';
 
@@ -95,6 +104,8 @@ export class TuiApp implements UiPort {
   private focusMode: 'composer' | 'graph' = 'composer';
   private composerText = '';
   private readonly commandContext: TuiCommandContext;
+  private readonly livePlannerSessions = new LivePlannerSessions();
+  private activeLivePlannerEntry: LivePlannerEntry | undefined;
 
   constructor(private readonly deps: TuiAppDeps) {
     this.proposalController = new ComposerProposalController({
@@ -172,22 +183,25 @@ export class TuiApp implements UiPort {
   }
 
   refresh(): void {
-    const snapshot = this.displayedSnapshot();
     const runs = this.deps.listAgentRuns();
-    const nodes = this.viewModels.buildMilestoneTree(
-      snapshot.milestones,
-      snapshot.features,
-      snapshot.tasks,
+    const draftState = this.proposalController.getDraftState();
+    const draftSnapshot = this.proposalController.getDraftSnapshot();
+    const baseSnapshot = draftSnapshot ?? this.deps.snapshot();
+    const baseFlattened = buildFlattenedNodes(
+      this.viewModels,
+      baseSnapshot,
       runs,
     );
-    const flattened = buildFlattenedNodes(this.viewModels, snapshot, runs);
-    this.selectedNodeId = resolveSelectedNodeId(flattened, this.selectedNodeId);
+    this.selectedNodeId = resolveSelectedNodeId(
+      baseFlattened,
+      this.selectedNodeId,
+    );
+    const selectedNode = findSelectedNode(baseFlattened, this.selectedNodeId);
+    const selectedFeatureIdResolved = selectedFeatureIdFromNode(selectedNode);
 
-    const selectedNode = findSelectedNode(flattened, this.selectedNodeId);
-    const draftState = this.proposalController.getDraftState();
     const pendingRun = pendingProposalForSelection({
       draftState,
-      selectedFeatureId: this.selectedFeatureId(),
+      selectedFeatureId: selectedFeatureIdResolved,
       authoritativeSnapshot: this.deps.snapshot(),
       getFeatureRun: (featureId, phase) =>
         this.deps.getFeatureRun(featureId, phase),
@@ -197,11 +211,40 @@ export class TuiApp implements UiPort {
       selectedTaskId: selectedNode?.taskId,
       getTaskRun: (taskId) => this.deps.getTaskRun(taskId),
     });
+    this.activeLivePlannerEntry =
+      draftState === undefined && pendingRun === undefined
+        ? this.livePlannerSessions.findForFeature(selectedFeatureIdResolved)
+        : undefined;
+    const liveProposalEntry = this.activeLivePlannerEntry;
+    const snapshot = displayedSnapshot(
+      this.deps.snapshot(),
+      draftSnapshot,
+      liveProposalEntry?.snapshot,
+    );
+    const nodes = this.viewModels.buildMilestoneTree(
+      snapshot.milestones,
+      snapshot.features,
+      snapshot.tasks,
+      runs,
+    );
+
+    const dataMode: 'live' | 'draft' | 'live-planner' =
+      draftState !== undefined
+        ? 'draft'
+        : liveProposalEntry !== undefined
+          ? 'live-planner'
+          : 'live';
+    const dagTitle =
+      draftState !== undefined
+        ? 'gvc0 progress [draft]'
+        : liveProposalEntry !== undefined
+          ? 'gvc0 progress [live planner]'
+          : 'gvc0 progress';
 
     this.dagView.setModel(
       nodes,
       this.selectedNodeId,
-      draftState !== undefined ? 'gvc0 progress [draft]' : 'gvc0 progress',
+      dagTitle,
       nodes.length === 0 ? this.viewModels.buildEmptyState() : undefined,
     );
     this.statusBar.setModel(
@@ -214,7 +257,7 @@ export class TuiApp implements UiPort {
           ? { selectedLabel: selectedNode.label }
           : {}),
         ...(this.notice !== undefined ? { notice: this.notice } : {}),
-        dataMode: draftState !== undefined ? 'draft' : 'live',
+        dataMode,
         focusMode: this.focusMode,
         ...(pendingRun !== undefined
           ? { pendingProposalPhase: pendingRun.phase }
@@ -246,6 +289,14 @@ export class TuiApp implements UiPort {
               pendingTaskPayloadJson: pendingTaskRun.payloadJson,
             }
           : {}),
+        ...(liveProposalEntry !== undefined
+          ? {
+              liveProposalFeatureId: liveProposalEntry.scope.featureId,
+              liveProposalPhase: liveProposalEntry.scope.phase,
+              liveProposalOpCount: liveProposalEntry.opCount,
+              liveProposalSubmissionCount: liveProposalEntry.submissionCount,
+            }
+          : {}),
       }),
     );
 
@@ -256,8 +307,8 @@ export class TuiApp implements UiPort {
           ? undefined
           : this.viewModels.buildDependencyDetail(
               selectedFeatureId,
-              snapshot.milestones,
-              snapshot.features,
+              baseSnapshot.milestones,
+              baseSnapshot.features,
             ),
       );
     }
@@ -265,7 +316,7 @@ export class TuiApp implements UiPort {
     this.composer.setAutocompleteProvider(
       new CombinedAutocompleteProvider(
         buildComposerSlashCommands({
-          snapshot,
+          snapshot: baseSnapshot,
           selection: this.currentSelection(),
         }),
       ),
@@ -294,6 +345,60 @@ export class TuiApp implements UiPort {
       text,
     });
     this.refresh();
+  }
+
+  onProposalOp(
+    scope: ProposalOpScopeRef,
+    _op: GraphProposalOp,
+    draftSnapshot: GraphSnapshot,
+  ): void {
+    this.livePlannerSessions.recordOp(scope, draftSnapshot);
+    this.refresh();
+  }
+
+  onProposalSubmitted(
+    scope: ProposalOpScopeRef,
+    _details: ProposalPhaseDetails,
+    _proposal: GraphProposal,
+    submissionIndex: number,
+  ): void {
+    this.livePlannerSessions.recordSubmit(
+      scope,
+      submissionIndex,
+      this.deps.snapshot(),
+    );
+    this.refresh();
+  }
+
+  onProposalPhaseEnded(
+    scope: ProposalOpScopeRef,
+    _outcome: 'completed' | 'failed',
+  ): void {
+    this.livePlannerSessions.end(scope.agentRunId);
+    this.refresh();
+  }
+
+  /**
+   * @internal Test/inspection accessor: exposes current live-planner mirror
+   * state (tracked sessions count + active entry resolved against current
+   * selection). Updated as part of refresh(). Production code MUST NOT call.
+   */
+  getLivePlannerStateForTests(): {
+    sessionCount: number;
+    activeEntry: LivePlannerEntry | undefined;
+  } {
+    return {
+      sessionCount: this.livePlannerSessions.size(),
+      activeEntry: this.activeLivePlannerEntry,
+    };
+  }
+
+  /**
+   * @internal Test seam: drives the selection state that refresh() resolves
+   * against. Production code MUST NOT call.
+   */
+  setSelectedNodeIdForTests(nodeId: string | undefined): void {
+    this.selectedNodeId = nodeId;
   }
 
   private handleInput(data: string): boolean {
@@ -330,6 +435,7 @@ export class TuiApp implements UiPort {
     return displayedSnapshot(
       this.deps.snapshot(),
       this.proposalController.getDraftSnapshot(),
+      this.activeLivePlannerEntry?.snapshot,
     );
   }
 

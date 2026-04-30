@@ -2,7 +2,11 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { FeaturePhaseOrchestrator, promptLibrary } from '@agents';
+import {
+  FeaturePhaseOrchestrator,
+  type ProposalOpSink,
+  promptLibrary,
+} from '@agents';
 import { InMemoryFeatureGraph } from '@core/graph/index';
 import { worktreePath } from '@core/naming/index';
 import type { GraphProposal } from '@core/proposals/index';
@@ -50,6 +54,9 @@ function createUiStub(): UiPort {
     show: () => Promise.resolve(),
     refresh: () => {},
     dispose: () => {},
+    onProposalOp: () => {},
+    onProposalSubmitted: () => {},
+    onProposalPhaseEnded: () => {},
   };
 }
 
@@ -238,11 +245,13 @@ function createFixture({
   tasks = [],
   configOverrides = {},
   verification,
+  proposalOpSink,
 }: {
   featureOverrides?: Partial<Feature>;
   tasks?: Task[];
   configOverrides?: Partial<GvcConfig>;
   verification?: OrchestratorPorts['verification'];
+  proposalOpSink?: ProposalOpSink;
 } = {}) {
   const graph = createSingleFeatureGraph(featureOverrides, tasks);
   const store = new InMemoryStore();
@@ -261,6 +270,7 @@ function createFixture({
     store,
     sessionStore,
     projectRoot: '/repo',
+    ...(proposalOpSink !== undefined ? { proposalOpSink } : {}),
   });
   const runtime = new LocalWorkerPool(
     createUnusedTaskHarness(),
@@ -575,6 +585,123 @@ describe('feature-phase agent flow', () => {
     await expect(
       sessionStore.load('run-feature:f-1:plan'),
     ).resolves.not.toBeNull();
+  });
+
+  it('streams proposal ops through ProposalOpSink during scheduler-dispatched plan run', async () => {
+    type SinkEvent =
+      | {
+          kind: 'op';
+          opKind: string;
+          featureCount: number;
+          phaseCompletedSeen: boolean;
+        }
+      | {
+          kind: 'submit';
+          submissionIndex: number;
+          opCount: number;
+          phaseCompletedSeen: boolean;
+        }
+      | {
+          kind: 'ended';
+          outcome: 'completed' | 'failed';
+          phaseCompletedSeen: boolean;
+        };
+
+    let storeRef: InMemoryStore | undefined;
+    const phaseCompleteSeen = (): boolean => {
+      if (storeRef === undefined) {
+        return false;
+      }
+      return storeRef
+        .listEvents({ entityId: 'f-1' })
+        .some((event) => event.eventType === 'feature_phase_completed');
+    };
+
+    const events: SinkEvent[] = [];
+    const sink: ProposalOpSink = {
+      onOpRecorded: (_scope, op, draftSnapshot) => {
+        events.push({
+          kind: 'op',
+          opKind: op.kind,
+          featureCount: draftSnapshot.features.length,
+          phaseCompletedSeen: phaseCompleteSeen(),
+        });
+      },
+      onSubmitted: (_scope, _details, proposal, submissionIndex) => {
+        events.push({
+          kind: 'submit',
+          submissionIndex,
+          opCount: proposal.ops.length,
+          phaseCompletedSeen: phaseCompleteSeen(),
+        });
+      },
+      onPhaseEnded: (_scope, outcome) => {
+        events.push({
+          kind: 'ended',
+          outcome,
+          phaseCompletedSeen: phaseCompleteSeen(),
+        });
+      },
+    };
+
+    faux.setResponses([
+      fauxAssistantMessage(
+        [
+          fauxToolCall('addMilestone', {
+            name: 'Milestone 2',
+            description: 'Second milestone',
+          }),
+          fauxToolCall('addFeature', {
+            milestoneId: 'm-2',
+            name: 'Follow-up feature',
+            description: 'Added under new milestone',
+          }),
+          fauxToolCall('submit', proposalDetails),
+        ],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage([fauxText('Planning complete.')]),
+    ]);
+
+    const { loop, store } = createFixture({
+      featureOverrides: { workControl: 'planning' },
+      proposalOpSink: sink,
+    });
+    storeRef = store;
+
+    await loop.step(100);
+
+    expect(store.getAgentRun('run-feature:f-1:plan')).toEqual(
+      expect.objectContaining({ runStatus: 'await_approval' }),
+    );
+
+    const opKinds = events
+      .filter((e): e is Extract<SinkEvent, { kind: 'op' }> => e.kind === 'op')
+      .map((e) => e.opKind);
+    expect(opKinds).toEqual(['add_milestone', 'add_feature']);
+
+    const submits = events.filter(
+      (e): e is Extract<SinkEvent, { kind: 'submit' }> => e.kind === 'submit',
+    );
+    expect(submits).toHaveLength(1);
+    expect(submits[0]).toMatchObject({ submissionIndex: 1, opCount: 2 });
+
+    const last = events[events.length - 1];
+    expect(last).toMatchObject({ kind: 'ended', outcome: 'completed' });
+
+    // Ordering: ops + submit must fire BEFORE feature_phase_completed lands in store.
+    const opAndSubmitEvents = events.filter(
+      (e) => e.kind === 'op' || e.kind === 'submit',
+    );
+    for (const event of opAndSubmitEvents) {
+      expect(event.phaseCompletedSeen).toBe(false);
+    }
+    // After end, scheduler eventually persists feature_phase_completed; sanity check it happened.
+    expect(
+      store
+        .listEvents({ entityId: 'f-1' })
+        .some((e) => e.eventType === 'feature_phase_completed'),
+    ).toBe(true);
   });
 
   it('runs normal post-merge summarization from awaiting_merge to work_complete', async () => {
