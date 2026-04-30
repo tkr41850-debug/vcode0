@@ -422,6 +422,60 @@ describe('FeaturePhaseOrchestrator', () => {
     expect(store.listEvents({ entityId: feature.id })).toEqual([]);
   });
 
+  it('startPlanFeature returns a LiveProposalPhaseSession exposing send/abort + awaitable outcome', async () => {
+    faux.setResponses([
+      fauxAssistantMessage(
+        [
+          fauxToolCall('addTask', {
+            featureId: 'f-1',
+            description: 'Draft task',
+          }),
+          fauxToolCall('submit', proposalDetails),
+        ],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage([fauxText('Plan ready.')]),
+    ]);
+
+    const { feature, run, runtime } = createRuntimeFixture('plan');
+
+    const session = runtime.startPlanFeature(feature, { agentRunId: run.id });
+
+    expect(session.scope).toEqual({
+      featureId: 'f-1',
+      phase: 'plan',
+      agentRunId: run.id,
+    });
+    expect(typeof session.sendUserMessage).toBe('function');
+    expect(typeof session.abort).toBe('function');
+
+    // Mid-flight sendUserMessage should not throw (queues followUp on agent).
+    expect(() => session.sendUserMessage('keep going')).not.toThrow();
+
+    const result = await session.awaitOutcome();
+    expect(result.summary).toBe('Plan ready.');
+    expect(result.proposal.ops).toHaveLength(1);
+  });
+
+  it('startReplanFeature carries replan reason into prompt + returns live session', async () => {
+    faux.setResponses([
+      fauxAssistantMessage([fauxToolCall('submit', proposalDetails)], {
+        stopReason: 'toolUse',
+      }),
+      fauxAssistantMessage([fauxText('Replanned.')]),
+    ]);
+
+    const { feature, run, runtime } = createRuntimeFixture('replan');
+
+    const session = runtime.startReplanFeature(feature, 'CI flapped', {
+      agentRunId: run.id,
+    });
+
+    expect(session.scope.phase).toBe('replan');
+    const result = await session.awaitOutcome();
+    expect(result.summary).toBe('Plan ready.');
+  });
+
   it('forwards proposal mutations + submit + phase-ended to injected sink', async () => {
     type SinkEvent =
       | {

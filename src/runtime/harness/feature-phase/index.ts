@@ -1,6 +1,7 @@
 import type { PlannerAgent } from '@agents/planner';
 import type { ProposalPhaseResult } from '@agents/proposal';
 import type { ReplannerAgent } from '@agents/replanner';
+import type { LiveProposalPhaseSession } from '@agents/runtime';
 import type { FeatureGraph } from '@core/graph/index';
 import type {
   Feature,
@@ -59,6 +60,18 @@ export interface FeaturePhaseBackend {
   ): Promise<ResumeFeaturePhaseResult>;
 }
 
+export interface ProposalPhaseAgent {
+  startPlanFeature(
+    feature: Feature,
+    run: FeaturePhaseRunContext,
+  ): LiveProposalPhaseSession;
+  startReplanFeature(
+    feature: Feature,
+    reason: string,
+    run: FeaturePhaseRunContext,
+  ): LiveProposalPhaseSession;
+}
+
 export class DiscussFeaturePhaseBackend implements FeaturePhaseBackend {
   constructor(
     private readonly graph: Pick<FeatureGraph, 'features'>,
@@ -70,7 +83,8 @@ export class DiscussFeaturePhaseBackend implements FeaturePhaseBackend {
       | 'verifyFeature'
       | 'summarizeFeature'
     > &
-      Pick<ReplannerAgent, 'replanFeature'>,
+      Pick<ReplannerAgent, 'replanFeature'> &
+      Partial<ProposalPhaseAgent>,
     private readonly verification: Pick<
       { verifyFeature(feature: Feature): Promise<VerificationSummary> },
       'verifyFeature'
@@ -142,24 +156,44 @@ export class DiscussFeaturePhaseBackend implements FeaturePhaseBackend {
             .researchFeature(feature, runContext)
             .then((result) => textPhaseOutcome('research', result)),
         });
-      case 'plan':
+      case 'plan': {
+        if (this.agent.startPlanFeature !== undefined) {
+          const session = this.agent.startPlanFeature(feature, runContext);
+          return createProposalPhaseSessionHandle({
+            sessionId,
+            session,
+            phase: 'plan',
+          });
+        }
         return createFeaturePhaseHandle({
           sessionId,
           outcome: this.agent
             .planFeature(feature, runContext)
             .then((result) => proposalOutcome('plan', result)),
         });
-      case 'replan':
+      }
+      case 'replan': {
+        const reason =
+          payload.replanReason ?? 'Scheduler requested replanning.';
+        if (this.agent.startReplanFeature !== undefined) {
+          const session = this.agent.startReplanFeature(
+            feature,
+            reason,
+            runContext,
+          );
+          return createProposalPhaseSessionHandle({
+            sessionId,
+            session,
+            phase: 'replan',
+          });
+        }
         return createFeaturePhaseHandle({
           sessionId,
           outcome: this.agent
-            .replanFeature(
-              feature,
-              payload.replanReason ?? 'Scheduler requested replanning.',
-              runContext,
-            )
+            .replanFeature(feature, reason, runContext)
             .then((result) => proposalOutcome('replan', result)),
         });
+      }
       case 'verify':
         return createFeaturePhaseHandle({
           sessionId,
@@ -324,6 +358,89 @@ export function createFeaturePhaseHandle(params: {
       _handler: (message: WorkerToOrchestratorMessage) => void,
     ): void {
       // Synthetic handles do not emit worker messages.
+    },
+    onExit(handler: (info: SessionExitInfo) => void): void {
+      if (exitInfo !== undefined) {
+        handler(exitInfo);
+        return;
+      }
+      exitHandlers.push(handler);
+    },
+    awaitOutcome(): Promise<FeaturePhaseDispatchOutcome> {
+      return outcome;
+    },
+  };
+}
+
+/**
+ * Builds a feature-phase handle backed by a {@link LiveProposalPhaseSession}.
+ * sendInput delegates to {@link LiveProposalPhaseSession.sendUserMessage} so
+ * planner chat input lands as a follow-up turn on the running agent. abort
+ * routes to {@link LiveProposalPhaseSession.abort}. onWorkerMessage stays a
+ * no-op until Phase 5 wires the agent event stream.
+ */
+export function createProposalPhaseSessionHandle(params: {
+  sessionId: string;
+  session: LiveProposalPhaseSession;
+  phase: 'plan' | 'replan';
+  harnessKind?: HarnessKind;
+  workerPid?: number;
+  workerBootEpoch?: number;
+}): FeaturePhaseSessionHandle {
+  const outcome = params.session
+    .awaitOutcome()
+    .then((result) => proposalOutcome(params.phase, result));
+  let exitInfo: SessionExitInfo | undefined;
+  const exitHandlers: Array<(info: SessionExitInfo) => void> = [];
+
+  const fireExit = (info: SessionExitInfo): void => {
+    if (exitInfo !== undefined) {
+      return;
+    }
+    exitInfo = info;
+    for (const handler of exitHandlers) {
+      handler(info);
+    }
+  };
+
+  void outcome.then(
+    () => {
+      fireExit({ code: 0, signal: null });
+    },
+    (error: unknown) => {
+      fireExit({
+        code: 1,
+        signal: null,
+        error:
+          error instanceof Error
+            ? error
+            : new Error(String(error ?? 'unknown')),
+      });
+    },
+  );
+
+  return {
+    sessionId: params.sessionId,
+    harnessKind: params.harnessKind ?? 'pi-sdk',
+    ...(params.workerPid !== undefined ? { workerPid: params.workerPid } : {}),
+    ...(params.workerBootEpoch !== undefined
+      ? { workerBootEpoch: params.workerBootEpoch }
+      : {}),
+    abort(): void {
+      params.session.abort();
+    },
+    sendInput(text: string): Promise<void> {
+      params.session.sendUserMessage(text);
+      return Promise.resolve();
+    },
+    send(_message: OrchestratorToWorkerMessage): void {
+      // Phase 5 wires help_response / approval_decision; in-process planner
+      // does not consume worker IPC today.
+    },
+    onWorkerMessage(
+      _handler: (message: WorkerToOrchestratorMessage) => void,
+    ): void {
+      // Phase 5 wires Agent.subscribe → worker-message adapter.
     },
     onExit(handler: (info: SessionExitInfo) => void): void {
       if (exitInfo !== undefined) {

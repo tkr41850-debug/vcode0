@@ -31,6 +31,12 @@ interface LiveSession {
   handle: SessionHandle;
 }
 
+interface FeaturePhaseLiveSession {
+  scope: Extract<RunScope, { kind: 'feature_phase' }>;
+  agentRunId: string;
+  handle: SessionHandle;
+}
+
 function dispatchMetadata(
   handle: Pick<SessionHandle, 'harnessKind' | 'workerPid' | 'workerBootEpoch'>,
 ): {
@@ -55,6 +61,10 @@ export type TaskCompleteCallback = (
 
 export class LocalWorkerPool implements RuntimePort {
   private readonly liveRuns = new Map<string, LiveSession>();
+  private readonly featurePhaseLiveSessions = new Map<
+    string,
+    FeaturePhaseLiveSession
+  >();
   private readonly modelRouter = new ModelRouter();
 
   constructor(
@@ -97,23 +107,32 @@ export class LocalWorkerPool implements RuntimePort {
             reason: resumeResult.reason,
           };
         }
-        const outcome = await resumeResult.handle.awaitOutcome();
-        if (outcome.kind === 'completed_inline') {
+        this.featurePhaseLiveSessions.set(dispatch.agentRunId, {
+          scope,
+          agentRunId: dispatch.agentRunId,
+          handle: resumeResult.handle,
+        });
+        try {
+          const outcome = await resumeResult.handle.awaitOutcome();
+          if (outcome.kind === 'completed_inline') {
+            return {
+              kind: 'completed_inline',
+              agentRunId: dispatch.agentRunId,
+              sessionId: resumeResult.handle.sessionId,
+              output: outcome.output,
+              ...dispatchMetadata(resumeResult.handle),
+            };
+          }
           return {
-            kind: 'completed_inline',
+            kind: 'awaiting_approval',
             agentRunId: dispatch.agentRunId,
             sessionId: resumeResult.handle.sessionId,
             output: outcome.output,
             ...dispatchMetadata(resumeResult.handle),
           };
+        } finally {
+          this.featurePhaseLiveSessions.delete(dispatch.agentRunId);
         }
-        return {
-          kind: 'awaiting_approval',
-          agentRunId: dispatch.agentRunId,
-          sessionId: resumeResult.handle.sessionId,
-          output: outcome.output,
-          ...dispatchMetadata(resumeResult.handle),
-        };
       }
 
       const handle = await this.featurePhaseBackend.start(
@@ -121,23 +140,32 @@ export class LocalWorkerPool implements RuntimePort {
         payload,
         dispatch.agentRunId,
       );
-      const outcome = await handle.awaitOutcome();
-      if (outcome.kind === 'completed_inline') {
+      this.featurePhaseLiveSessions.set(dispatch.agentRunId, {
+        scope,
+        agentRunId: dispatch.agentRunId,
+        handle,
+      });
+      try {
+        const outcome = await handle.awaitOutcome();
+        if (outcome.kind === 'completed_inline') {
+          return {
+            kind: 'completed_inline',
+            agentRunId: dispatch.agentRunId,
+            sessionId: handle.sessionId,
+            output: outcome.output,
+            ...dispatchMetadata(handle),
+          };
+        }
         return {
-          kind: 'completed_inline',
+          kind: 'awaiting_approval',
           agentRunId: dispatch.agentRunId,
           sessionId: handle.sessionId,
           output: outcome.output,
           ...dispatchMetadata(handle),
         };
+      } finally {
+        this.featurePhaseLiveSessions.delete(dispatch.agentRunId);
       }
-      return {
-        kind: 'awaiting_approval',
-        agentRunId: dispatch.agentRunId,
-        sessionId: handle.sessionId,
-        output: outcome.output,
-        ...dispatchMetadata(handle),
-      };
     }
     if (payload.kind !== 'task') {
       throw new Error(
@@ -366,16 +394,35 @@ export class LocalWorkerPool implements RuntimePort {
     agentRunId: string,
     text: string,
   ): Promise<TaskControlResult> {
-    return Promise.resolve(
-      this.controlRun(agentRunId, (session) => {
-        session.handle.send({
-          type: 'manual_input',
-          taskId: session.ref.taskId ?? '',
-          agentRunId,
-          text,
-        });
-      }),
-    );
+    const taskSession = this.liveRuns.get(agentRunId);
+    if (taskSession !== undefined) {
+      taskSession.handle.send({
+        type: 'manual_input',
+        taskId: taskSession.ref.taskId ?? '',
+        agentRunId,
+        text,
+      });
+      return Promise.resolve({
+        kind: 'delivered',
+        taskId: taskSession.ref.taskId ?? agentRunId,
+        agentRunId,
+      });
+    }
+
+    const featurePhase = this.featurePhaseLiveSessions.get(agentRunId);
+    if (featurePhase !== undefined) {
+      void featurePhase.handle.sendInput(text);
+      return Promise.resolve({
+        kind: 'delivered',
+        taskId: agentRunId,
+        agentRunId,
+      });
+    }
+
+    return Promise.resolve({
+      kind: 'not_running',
+      taskId: this.findTaskIdForRun(agentRunId) ?? agentRunId,
+    });
   }
 
   respondToRunClaim(
@@ -400,20 +447,30 @@ export class LocalWorkerPool implements RuntimePort {
 
   abortRun(agentRunId: string): Promise<TaskControlResult> {
     const session = this.liveRuns.get(agentRunId);
-    if (session === undefined) {
+    if (session !== undefined) {
+      session.handle.abort();
+      this.liveRuns.delete(agentRunId);
       return Promise.resolve({
-        kind: 'not_running',
-        taskId: this.findTaskIdForRun(agentRunId) ?? agentRunId,
+        kind: 'delivered',
+        taskId: session.ref.taskId ?? agentRunId,
+        agentRunId,
       });
     }
 
-    session.handle.abort();
-    this.liveRuns.delete(agentRunId);
+    const featurePhase = this.featurePhaseLiveSessions.get(agentRunId);
+    if (featurePhase !== undefined) {
+      featurePhase.handle.abort();
+      this.featurePhaseLiveSessions.delete(agentRunId);
+      return Promise.resolve({
+        kind: 'delivered',
+        taskId: agentRunId,
+        agentRunId,
+      });
+    }
 
     return Promise.resolve({
-      kind: 'delivered',
-      taskId: session.ref.taskId ?? agentRunId,
-      agentRunId,
+      kind: 'not_running',
+      taskId: this.findTaskIdForRun(agentRunId) ?? agentRunId,
     });
   }
 

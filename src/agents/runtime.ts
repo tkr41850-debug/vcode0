@@ -57,6 +57,16 @@ export interface ProposalOpSink {
   onPhaseEnded(scope: ProposalOpScope, outcome: 'completed' | 'failed'): void;
 }
 
+export interface LiveProposalPhaseSession {
+  readonly scope: ProposalOpScope;
+  /** Queue a user follow-up turn on the running planner agent. */
+  sendUserMessage(text: string): void;
+  /** Abort the running planner agent. */
+  abort(): void;
+  /** Resolves with the final ProposalPhaseResult after the agent settles. */
+  awaitOutcome(): Promise<ProposalPhaseResult>;
+}
+
 export interface FeatureAgentRuntimeConfig {
   modelId: string;
   config: GvcConfig;
@@ -89,6 +99,81 @@ type PhaseResultExtra<Phase extends TextPhase> = Phase extends 'discuss'
     ? ResearchPhaseDetails
     : SummarizePhaseDetails;
 
+/**
+ * @internal
+ * LiveProposalPhaseSession implementation. The agent binding is deferred so
+ * the session reference can be returned synchronously from startProposalPhase
+ * before the (async) message-loading + agent-creation step begins. Calls to
+ * sendUserMessage / abort issued before bind queue onto the agent the moment
+ * it becomes available. Exported only for direct testing of pre-bind queuing
+ * semantics; production code should obtain instances via
+ * {@link FeaturePhaseOrchestrator.startPlanFeature} /
+ * {@link FeaturePhaseOrchestrator.startReplanFeature}.
+ */
+export class ProposalPhaseSessionImpl implements LiveProposalPhaseSession {
+  private agent: Agent | undefined;
+  private outcome: Promise<ProposalPhaseResult> | undefined;
+  private readonly pendingFollowUps: string[] = [];
+  private pendingAbort = false;
+
+  constructor(readonly scope: ProposalOpScope) {}
+
+  bindAgent(agent: Agent): void {
+    this.agent = agent;
+    if (this.pendingAbort) {
+      this.pendingAbort = false;
+      // Defer to microtask: bindAgent runs before `executeAgent` calls
+      // `agent.prompt()`, which is what sets the agent's activeRun + signal.
+      // If we called abort() here directly it would be a no-op and the run
+      // would proceed despite the pending abort request.
+      queueMicrotask(() => {
+        agent.abort();
+      });
+    }
+    while (this.pendingFollowUps.length > 0) {
+      const text = this.pendingFollowUps.shift();
+      if (text !== undefined) {
+        this.dispatchFollowUp(agent, text);
+      }
+    }
+  }
+
+  bindOutcome(outcome: Promise<ProposalPhaseResult>): void {
+    this.outcome = outcome;
+  }
+
+  sendUserMessage(text: string): void {
+    if (this.agent === undefined) {
+      this.pendingFollowUps.push(text);
+      return;
+    }
+    this.dispatchFollowUp(this.agent, text);
+  }
+
+  abort(): void {
+    if (this.agent === undefined) {
+      this.pendingAbort = true;
+      return;
+    }
+    this.agent.abort();
+  }
+
+  awaitOutcome(): Promise<ProposalPhaseResult> {
+    if (this.outcome === undefined) {
+      throw new Error('proposal phase outcome not bound');
+    }
+    return this.outcome;
+  }
+
+  private dispatchFollowUp(agent: Agent, text: string): void {
+    agent.followUp({
+      role: 'user',
+      content: text,
+      timestamp: Date.now(),
+    });
+  }
+}
+
 export class FeaturePhaseOrchestrator {
   constructor(private readonly deps: FeatureAgentRuntimeConfig) {}
 
@@ -106,11 +191,26 @@ export class FeaturePhaseOrchestrator {
     return this.runTextPhase('research', feature, run);
   }
 
-  async planFeature(
+  startPlanFeature(
+    feature: Feature,
+    run: FeaturePhaseRunContext,
+  ): LiveProposalPhaseSession {
+    return this.startProposalPhase('plan', feature, run);
+  }
+
+  startReplanFeature(
+    feature: Feature,
+    reason: string,
+    run: FeaturePhaseRunContext,
+  ): LiveProposalPhaseSession {
+    return this.startProposalPhase('replan', feature, run, reason);
+  }
+
+  planFeature(
     feature: Feature,
     run: FeaturePhaseRunContext,
   ): Promise<ProposalPhaseResult> {
-    return this.runProposalPhase('plan', feature, run);
+    return this.startPlanFeature(feature, run).awaitOutcome();
   }
 
   verifyFeature(
@@ -127,12 +227,12 @@ export class FeaturePhaseOrchestrator {
     return this.runTextPhase('summarize', feature, run);
   }
 
-  async replanFeature(
+  replanFeature(
     feature: Feature,
     reason: string,
     run: FeaturePhaseRunContext,
   ): Promise<ProposalPhaseResult> {
-    return this.runProposalPhase('replan', feature, run, reason);
+    return this.startReplanFeature(feature, reason, run).awaitOutcome();
   }
 
   private async runTextPhase<
@@ -173,12 +273,12 @@ export class FeaturePhaseOrchestrator {
     return result;
   }
 
-  private async runProposalPhase(
+  private startProposalPhase(
     phase: Extract<PromptTemplateName, 'plan' | 'replan'>,
     feature: Feature,
     run: FeaturePhaseRunContext,
     reason?: string,
-  ): Promise<ProposalPhaseResult> {
+  ): LiveProposalPhaseSession {
     const prompt = this.renderPrompt({
       feature,
       run,
@@ -192,14 +292,6 @@ export class FeaturePhaseOrchestrator {
       this.deps.store,
     );
     const tools = buildProposalAgentToolset(host, inspectionHost);
-    const messages = await this.loadMessages(run.sessionId);
-    const { agent, model } = this.createAgent(
-      phase,
-      prompt,
-      tools,
-      run,
-      messages,
-    );
 
     const sink = this.deps.proposalOpSink;
     const scope: ProposalOpScope = {
@@ -207,40 +299,64 @@ export class FeaturePhaseOrchestrator {
       phase,
       agentRunId: run.agentRunId,
     };
-    const unsubscribe =
-      sink === undefined
-        ? undefined
-        : host.subscribe((event) => {
-            if (event.kind === 'op_recorded') {
-              sink.onOpRecorded(scope, event.op, event.draftSnapshot);
-              return;
-            }
-            sink.onSubmitted(
-              scope,
-              event.details as ProposalPhaseDetails,
-              event.proposal,
-              event.submissionIndex,
-            );
-          });
 
-    let outcome: 'completed' | 'failed' = 'failed';
-    try {
-      await this.executeAgent(agent, feature.description);
-      if (!host.wasSubmitted()) {
-        throw new Error(`${phase} phase must call submit before completion`);
+    const session = new ProposalPhaseSessionImpl(scope);
+
+    // Run the agent on a deferred kick-off so subscribers can attach via the
+    // returned session before any op fires. The promise stays internal until
+    // awaitOutcome() is called.
+    const settled = (async (): Promise<ProposalPhaseResult> => {
+      const messages = await this.loadMessages(run.sessionId);
+      const { agent, model } = this.createAgent(
+        phase,
+        prompt,
+        tools,
+        run,
+        messages,
+      );
+      session.bindAgent(agent);
+
+      const unsubscribe =
+        sink === undefined
+          ? undefined
+          : host.subscribe((event) => {
+              if (event.kind === 'op_recorded') {
+                sink.onOpRecorded(scope, event.op, event.draftSnapshot);
+                return;
+              }
+              sink.onSubmitted(
+                scope,
+                event.details as ProposalPhaseDetails,
+                event.proposal,
+                event.submissionIndex,
+              );
+            });
+
+      let outcome: 'completed' | 'failed' = 'failed';
+      try {
+        await this.executeAgent(agent, feature.description);
+        if (!host.wasSubmitted()) {
+          throw new Error(`${phase} phase must call submit before completion`);
+        }
+        const finalMessages = agent.state.messages;
+        await this.persistMessages(
+          run,
+          finalMessages,
+          model.provider,
+          model.id,
+        );
+        const proposal = host.buildProposal();
+        const details = host.getProposalDetails();
+        outcome = 'completed';
+        return { summary: details.summary, proposal, details };
+      } finally {
+        unsubscribe?.();
+        sink?.onPhaseEnded(scope, outcome);
       }
+    })();
 
-      const finalMessages = agent.state.messages;
-      await this.persistMessages(run, finalMessages, model.provider, model.id);
-      const proposal = host.buildProposal();
-      const details = host.getProposalDetails();
-      const summary = details.summary;
-      outcome = 'completed';
-      return { summary, proposal, details };
-    } finally {
-      unsubscribe?.();
-      sink?.onPhaseEnded(scope, outcome);
-    }
+    session.bindOutcome(settled);
+    return session;
   }
 
   private async runVerifyPhase(

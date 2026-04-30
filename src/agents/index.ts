@@ -19,11 +19,13 @@ export type { ProposalAgent, ProposalPhaseResult } from '@agents/proposal';
 export type { ReplannerAgent } from '@agents/replanner';
 export type {
   FeatureAgentRuntimeConfig,
+  LiveProposalPhaseSession,
   ProposalOpScope,
   ProposalOpSink,
 } from '@agents/runtime';
 export {
   FeaturePhaseOrchestrator,
+  ProposalPhaseSessionImpl,
   persistPhaseOutputToFeature,
 } from '@agents/runtime';
 export type {
