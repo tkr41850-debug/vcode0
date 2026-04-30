@@ -446,7 +446,6 @@ export class TuiApp implements UiPort {
     return handleGraphInput({
       data,
       focusMode: this.focusMode,
-      composerText: this.composerText,
       hasVisibleOverlay: this.hasVisibleOverlay(),
       hideTopOverlay: () => this.hideTopOverlay(),
       focusGraph: () => this.focusGraph(),

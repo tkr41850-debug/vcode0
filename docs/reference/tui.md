@@ -86,7 +86,7 @@ Focus changes:
 
 - startup begins in composer focus
 - `esc` hides top overlay first
-- `esc` from empty composer switches to graph focus
+- `esc` from composer switches to graph focus
 - `esc` from graph focus switches back to composer focus
 - `/` from graph focus switches to composer focus and seeds input with `/`
 
@@ -98,7 +98,7 @@ Most single-key commands only work in graph focus. While composer is focused, re
 
 | Key | Action |
 |---|---|
-| `esc` | Hide top overlay. If no overlay is open: empty composer switches to graph focus; graph switches back to composer focus. |
+| `esc` | Hide top overlay. If no overlay is open: composer switches to graph focus; graph switches back to composer focus. |
 | `/` | From graph focus, move to composer focus and seed `/` for slash-command entry. |
 | `q` | If an overlay is open, hide overlay first instead of quitting. |
 

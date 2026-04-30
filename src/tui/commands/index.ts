@@ -34,7 +34,7 @@ export const NAVIGATION_KEYBINDS: readonly TuiKeybindHint[] = [
   {
     key: 'esc',
     label: 'close',
-    description: 'Hide active overlay.',
+    description: 'Hide active overlay, then toggle composer/graph focus.',
   },
 ];
 

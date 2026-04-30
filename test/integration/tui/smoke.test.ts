@@ -86,6 +86,30 @@ test('initializes starter milestone and planning feature from empty workspace', 
   });
 });
 
+test('esc toggles composer/graph focus and preserves typed text', async ({
+  terminal,
+}) => {
+  const workspace = await createWorkspace();
+
+  startTui(terminal, workspace);
+  await waitForTuiReady(terminal);
+
+  await expect(terminal.getByText('focus: composer')).toBeVisible({
+    timeout: tuiReadyTimeoutMs,
+  });
+
+  terminal.write('/he');
+
+  terminal.keyEscape();
+  await expect(terminal.getByText('focus: graph')).toBeVisible();
+
+  terminal.keyEscape();
+  await expect(terminal.getByText('focus: composer')).toBeVisible();
+
+  terminal.submit('lp');
+  await expect(terminal.getByText('Help [h/q/esc hide]')).toBeVisible();
+});
+
 test('autocompletes slash commands in composer', async ({ terminal }) => {
   const workspace = await createWorkspace();
 

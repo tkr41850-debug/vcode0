@@ -87,7 +87,6 @@ export function currentSelection(params: {
 export function handleGraphInput(params: {
   data: string;
   focusMode: 'composer' | 'graph';
-  composerText: string;
   hasVisibleOverlay: boolean;
   hideTopOverlay: () => boolean;
   focusGraph: () => void;
@@ -104,10 +103,7 @@ export function handleGraphInput(params: {
     if (params.hideTopOverlay()) {
       return true;
     }
-    if (
-      params.focusMode === 'composer' &&
-      params.composerText.trim().length === 0
-    ) {
+    if (params.focusMode === 'composer') {
       params.focusGraph();
       return true;
     }
