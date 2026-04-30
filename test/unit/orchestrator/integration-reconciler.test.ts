@@ -100,6 +100,7 @@ function makePorts(initialMarker: IntegrationState | undefined): {
     } as unknown as OrchestratorPorts['store'],
     verification: {} as OrchestratorPorts['verification'],
     worktree: {
+      ensureFeatureBranch: () => Promise.resolve(),
       ensureFeatureWorktree: () => Promise.resolve(''),
       ensureTaskWorktree: () => Promise.resolve(''),
     },

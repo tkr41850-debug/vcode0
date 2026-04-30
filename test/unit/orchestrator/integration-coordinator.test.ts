@@ -116,6 +116,7 @@ function makePorts(opts: { cwd: string; verification?: VerificationSummary }): {
       verifyFeature: vi.fn(() => Promise.resolve(verifyResult)),
     } as unknown as OrchestratorPorts['verification'],
     worktree: {
+      ensureFeatureBranch: () => Promise.resolve(),
       ensureFeatureWorktree: () => Promise.resolve(opts.cwd),
       ensureTaskWorktree: () => Promise.resolve(opts.cwd),
     },

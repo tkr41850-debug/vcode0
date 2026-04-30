@@ -435,6 +435,7 @@ function createPorts(
       ...base,
       verification,
       worktree: {
+        ensureFeatureBranch: () => Promise.resolve(),
         ensureFeatureWorktree: () => Promise.resolve('/repo'),
         ensureTaskWorktree: () => Promise.resolve('/repo'),
       },
@@ -2565,6 +2566,103 @@ describe('SchedulerLoop', () => {
           appliedCount: 3,
           skippedCount: 0,
           warningCount: 0,
+        }),
+      }),
+    );
+  });
+
+  it('approving plan ensures feature branch before branch_open', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const ensureFeatureBranch = vi.fn(() => Promise.resolve());
+    let branchOpenObservedAt = -1;
+    let branchEnsuredAt = -1;
+    let counter = 0;
+    ports.worktree = {
+      ...ports.worktree,
+      ensureFeatureBranch: () => {
+        branchEnsuredAt = counter++;
+        return ensureFeatureBranch();
+      },
+    };
+    const graph = createProposalApprovalGraph();
+    const originalTransition = graph.transitionFeature.bind(graph);
+    graph.transitionFeature = ((id, patch) => {
+      const result = originalTransition(id, patch);
+      if (
+        (patch as { collabControl?: string }).collabControl === 'branch_open'
+      ) {
+        branchOpenObservedAt = counter++;
+      }
+      return result;
+    }) as typeof graph.transitionFeature;
+    ports.store.createAgentRun(
+      makeFeaturePhaseRun('plan', {
+        runStatus: 'await_approval',
+        owner: 'manual',
+        payloadJson: serializeStoredProposalPayload({
+          proposal: makeProposal('plan'),
+        }),
+      }),
+    );
+
+    const loop = new SchedulerLoop(graph, ports);
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
+      type: 'feature_phase_approval_decision',
+      featureId: 'f-1',
+      phase: 'plan',
+      decision: 'approved',
+    });
+    await loop.step(100);
+
+    expect(ensureFeatureBranch).toHaveBeenCalledTimes(1);
+    expect(branchEnsuredAt).toBeGreaterThanOrEqual(0);
+    expect(branchOpenObservedAt).toBeGreaterThan(branchEnsuredAt);
+    expect(graph.features.get('f-1')).toEqual(
+      expect.objectContaining({ collabControl: 'branch_open' }),
+    );
+  });
+
+  it('approval routes branch-bootstrap failure through proposal_apply_failed', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const appendEvent = vi.spyOn(ports.store, 'appendEvent');
+    ports.worktree = {
+      ...ports.worktree,
+      ensureFeatureBranch: () => Promise.reject(new Error('git boom')),
+    };
+    const graph = createProposalApprovalGraph();
+    ports.store.createAgentRun(
+      makeFeaturePhaseRun('plan', {
+        runStatus: 'await_approval',
+        owner: 'manual',
+        payloadJson: serializeStoredProposalPayload({
+          proposal: makeProposal('plan'),
+        }),
+      }),
+    );
+
+    const loop = new SchedulerLoop(graph, ports);
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
+      type: 'feature_phase_approval_decision',
+      featureId: 'f-1',
+      phase: 'plan',
+      decision: 'approved',
+    });
+    await loop.step(100);
+
+    const feature = graph.features.get('f-1');
+    expect(feature?.collabControl).not.toBe('branch_open');
+    expect(feature?.workControl).toBe('planning');
+    expect(appendEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'proposal_apply_failed',
+        entityId: 'f-1',
+        payload: expect.objectContaining({
+          phase: 'plan',
+          error: 'git boom',
         }),
       }),
     );

@@ -88,6 +88,7 @@ export function parseStoredProposalPayload(
 export interface ProposalApprovalOutcome {
   result: ProposalApplyResult;
   cancelled: boolean;
+  shouldAdvance: boolean;
   cancelReason?: 'empty_proposal';
 }
 
@@ -105,15 +106,20 @@ export function approveFeatureProposal(
   }
   if (featureTasks.length === 0) {
     graph.cancelFeature(featureId);
-    return { result, cancelled: true, cancelReason: 'empty_proposal' };
+    return {
+      result,
+      cancelled: true,
+      cancelReason: 'empty_proposal',
+      shouldAdvance: false,
+    };
   }
   promoteReadyTasks(graph, featureTasks);
   featureTasks = tasksForFeature(graph, featureId);
-  if (!shouldAdvanceAfterApproval(phase, result, featureTasks)) {
-    return { result, cancelled: false };
-  }
-  advanceFeatureAfterApproval(graph, featureId);
-  return { result, cancelled: false };
+  return {
+    result,
+    cancelled: false,
+    shouldAdvance: shouldAdvanceAfterApproval(phase, result, featureTasks),
+  };
 }
 
 function tasksForFeature(graph: FeatureGraph, featureId: FeatureId): Task[] {
@@ -181,7 +187,7 @@ function shouldAdvanceAfterApproval(
   return result.applied.length > 0;
 }
 
-function advanceFeatureAfterApproval(
+export function advanceFeatureAfterApproval(
   graph: FeatureGraph,
   featureId: FeatureId,
 ): void {

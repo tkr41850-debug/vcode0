@@ -460,6 +460,7 @@ function createPorts(
       sessionStore: new InMemorySessionStore(),
       verification,
       worktree: {
+        ensureFeatureBranch: () => Promise.resolve(),
         ensureFeatureWorktree: () => Promise.resolve('/repo'),
         ensureTaskWorktree: () => Promise.resolve('/repo'),
       },

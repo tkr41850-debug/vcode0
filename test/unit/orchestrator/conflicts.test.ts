@@ -32,6 +32,7 @@ function createPorts(root: string): OrchestratorPorts {
     store: {} as OrchestratorPorts['store'],
     verification: {} as OrchestratorPorts['verification'],
     worktree: {
+      ensureFeatureBranch: () => Promise.resolve(),
       ensureFeatureWorktree: () => Promise.resolve(root),
       ensureTaskWorktree: () => Promise.resolve(root),
     },

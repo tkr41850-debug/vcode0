@@ -5,6 +5,7 @@ import type { ConflictCoordinator } from '@orchestrator/conflicts/index';
 import type { FeatureLifecycleCoordinator } from '@orchestrator/features/index';
 import type { OrchestratorPorts } from '@orchestrator/ports/index';
 import {
+  advanceFeatureAfterApproval,
   approveFeatureProposal,
   parseStoredProposalPayload,
   serializeStoredProposalPayload,
@@ -203,6 +204,16 @@ export async function handleSchedulerEvent(params: {
           event.phase,
           stored.proposal,
         );
+        if (outcome.shouldAdvance) {
+          const feature = graph.features.get(event.featureId);
+          if (feature === undefined) {
+            throw new Error(
+              `feature "${event.featureId}" does not exist after approval`,
+            );
+          }
+          await ports.worktree.ensureFeatureBranch(feature);
+          advanceFeatureAfterApproval(graph, event.featureId);
+        }
         const appliedSummary = outcome.result.summary;
         const appliedExtra = summarizeProposalApply(outcome.result);
         completeTaskRun(

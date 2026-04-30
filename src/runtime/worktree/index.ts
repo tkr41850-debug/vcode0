@@ -5,6 +5,7 @@ import type { Feature, Task } from '@core/types/index';
 import { type SimpleGit, simpleGit } from 'simple-git';
 
 export interface WorktreeProvisioner {
+  ensureFeatureBranch(feature: Feature): Promise<void>;
   ensureFeatureWorktree(feature: Feature): Promise<string>;
   ensureTaskWorktree(task: Task, feature: Feature): Promise<string>;
 }
@@ -16,7 +17,24 @@ export class GitWorktreeProvisioner implements WorktreeProvisioner {
     this.git = simpleGit(projectRoot);
   }
 
+  async ensureFeatureBranch(feature: Feature): Promise<void> {
+    if (await this.hasLocalBranch(feature.featureBranch)) return;
+    try {
+      await this.git.raw(['branch', feature.featureBranch, 'main']);
+    } catch (err: unknown) {
+      // Idempotent fallback for concurrent creators.
+      if (
+        isAlreadyExistsError(err) &&
+        (await this.hasLocalBranch(feature.featureBranch))
+      ) {
+        return;
+      }
+      throw err;
+    }
+  }
+
   async ensureFeatureWorktree(feature: Feature): Promise<string> {
+    await this.ensureFeatureBranch(feature);
     const target = path.join(
       this.projectRoot,
       worktreePath(feature.featureBranch),
@@ -57,6 +75,16 @@ export class GitWorktreeProvisioner implements WorktreeProvisioner {
       }
       throw err;
     }
+  }
+
+  private async hasLocalBranch(branch: string): Promise<boolean> {
+    const output = await this.git.raw([
+      'for-each-ref',
+      '--count=1',
+      '--format=%(refname:short)',
+      `refs/heads/${branch}`,
+    ]);
+    return output.trim() === branch;
   }
 
   private async hasRegisteredWorktree(target: string): Promise<boolean> {

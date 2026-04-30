@@ -127,13 +127,51 @@ describe('GitWorktreeProvisioner', () => {
     expect(second).toBe(first);
   });
 
-  it('propagates git errors when feature branch is missing', async () => {
+  it('ensureFeatureBranch creates a missing feature branch from main', async () => {
+    const root = getTmp();
+    await initRepo(root);
+    const git = simpleGit(root);
+    const mainSha = (await git.raw(['rev-parse', 'main'])).trim();
+
+    const provisioner = new GitWorktreeProvisioner(root);
+    const feature = makeFeature({ featureBranch: 'feat-fresh-001' });
+
+    await provisioner.ensureFeatureBranch(feature);
+
+    const branchSha = (
+      await git.raw(['rev-parse', 'refs/heads/feat-fresh-001'])
+    ).trim();
+    expect(branchSha).toBe(mainSha);
+  });
+
+  it('ensureFeatureBranch is idempotent', async () => {
     const root = getTmp();
     await initRepo(root);
 
     const provisioner = new GitWorktreeProvisioner(root);
-    const feature = makeFeature({ featureBranch: 'feat-missing-xxx' });
+    const feature = makeFeature({ featureBranch: 'feat-fresh-002' });
 
-    await expect(provisioner.ensureFeatureWorktree(feature)).rejects.toThrow();
+    await provisioner.ensureFeatureBranch(feature);
+    await expect(
+      provisioner.ensureFeatureBranch(feature),
+    ).resolves.toBeUndefined();
+  });
+
+  it('ensureFeatureWorktree bootstraps the branch when missing', async () => {
+    const root = getTmp();
+    await initRepo(root);
+    const git = simpleGit(root);
+
+    const provisioner = new GitWorktreeProvisioner(root);
+    const feature = makeFeature({ featureBranch: 'feat-bootstrap-003' });
+    const expected = path.join(root, worktreePath(feature.featureBranch));
+
+    const result = await provisioner.ensureFeatureWorktree(feature);
+    expect(result).toBe(expected);
+
+    const stat = await fs.stat(expected);
+    expect(stat.isDirectory()).toBe(true);
+    const list = await git.raw(['worktree', 'list', '--porcelain']);
+    expect(list).toContain(expected);
   });
 });

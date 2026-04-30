@@ -62,6 +62,7 @@ function createUiStub(): UiPort {
 
 function createWorktreeStub(): OrchestratorPorts['worktree'] {
   return {
+    ensureFeatureBranch: () => Promise.resolve(),
     ensureFeatureWorktree: () => Promise.resolve('/repo'),
     ensureTaskWorktree: () => Promise.resolve('/repo'),
   };
