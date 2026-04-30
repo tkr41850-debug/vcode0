@@ -33,7 +33,7 @@ The track distinguishes three multiplexed frame families on the worker↔orchest
 
 ## Scope
 
-Six phases. Phase 0 is a track-level pre-phase that clears migration-numbering anxiety; phases 1–5 stand on their own and ship in order; later phases assume earlier ones merged.
+Seven phases. Phase 0 is a track-level pre-phase that clears migration-numbering anxiety; phases 1–6 stand on their own and ship in order; later phases assume earlier ones merged.
 
 | Phase | Theme | Outcome | Risk |
 |-------|-------|---------|------|
@@ -43,6 +43,7 @@ Six phases. Phase 0 is a track-level pre-phase that clears migration-numbering a
 | [Phase 3](./phase-3-multi-worker-scheduling.md) | Multi-worker scheduling | Many workers concurrently; capacity-aware dispatch; ownership of a run is explicit and queryable. | High — scheduler model change |
 | [Phase 4](./phase-4-remote-feature-phases.md) | Remote feature-phase agents | Planner, replanner, verifier, summarizer, researcher, discusser dispatch to remote workers via the same plane as task execution. After this phase, the orchestrator process hosts zero agent loops. | High — surfaces every place a feature-phase agent currently runs in-process |
 | [Phase 5](./phase-5-leases-and-recovery.md) | Ownership leases & remote recovery | Leases, takeover on worker death, stale-lease reclamation, reroute on disconnect. Replaces pid/proc liveness with network liveness. | High — recovery semantics change |
+| [Phase 6](./phase-6-deployment-packaging.md) | Deployment packaging | `npm run worker` is a real deployment surface: SIGTERM drains cleanly via `worker_shutdown`, transient transport drops absorbed by an in-process reconnect loop, env validated fail-fast, structured logs, canonical systemd unit + env template under `deploy/`. | Low — packaging on top of the now-feature-complete worker runtime |
 
 ## Cross-cutting concerns
 
