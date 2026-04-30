@@ -5,12 +5,7 @@ import type {
   MilestoneId,
   ProposalPhaseDetails,
 } from '@core/types/index';
-import {
-  CombinedAutocompleteProvider,
-  Editor,
-  ProcessTerminal,
-  TUI,
-} from '@mariozechner/pi-tui';
+import { Editor, ProcessTerminal, TUI } from '@mariozechner/pi-tui';
 import type { ProposalOpScopeRef, UiPort } from '@orchestrator/ports/index';
 import {
   buildComposerSlashCommands,
@@ -26,6 +21,7 @@ import {
   HelpOverlay,
   StatusBar,
 } from '@tui/components/index';
+import { DelegatingAutocompleteProvider } from '@tui/composer-autocomplete';
 import {
   type LivePlannerEntry,
   LivePlannerSessions,
@@ -128,6 +124,15 @@ export class TuiApp implements UiPort {
       },
     });
 
+    this.composer.setAutocompleteProvider(
+      new DelegatingAutocompleteProvider(() => ({
+        commands: buildComposerSlashCommands({
+          snapshot:
+            this.proposalController.getDraftSnapshot() ?? this.deps.snapshot(),
+          selection: this.currentSelection(),
+        }),
+      })),
+    );
     this.composer.onChange = (text) => {
       this.composerText = text;
       this.refresh();
@@ -357,14 +362,6 @@ export class TuiApp implements UiPort {
       );
     }
 
-    this.composer.setAutocompleteProvider(
-      new CombinedAutocompleteProvider(
-        buildComposerSlashCommands({
-          snapshot: baseSnapshot,
-          selection: this.currentSelection(),
-        }),
-      ),
-    );
     this.monitorOverlay.setSelectedWorker(this.selectedWorkerId);
     if (this.started && this.interactiveTerminal) {
       this.tui.requestRender();

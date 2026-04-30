@@ -1,9 +1,10 @@
 import type { GraphSnapshot } from '@core/graph/index';
 import type { GraphProposal, GraphProposalOp } from '@core/proposals/index';
 import type { ProposalPhaseDetails } from '@core/types/index';
+import { Editor } from '@mariozechner/pi-tui';
 import type { ProposalOpScopeRef } from '@orchestrator/ports/index';
 import { TuiApp, type TuiAppDeps } from '@tui/app';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   createFeatureFixture,
@@ -160,6 +161,43 @@ describe('TuiApp live-planner wiring', () => {
     expect(app.getLivePlannerStateForTests()).toEqual({
       sessionCount: 0,
       activeEntry: undefined,
+    });
+  });
+
+  describe('autocomplete provider stability', () => {
+    let setProviderSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      setProviderSpy = vi.spyOn(Editor.prototype, 'setAutocompleteProvider');
+    });
+
+    afterEach(() => {
+      setProviderSpy.mockRestore();
+    });
+
+    it('installs the autocomplete provider exactly once across refreshes', async () => {
+      const app = new TuiApp(createStubDeps());
+      app.setSelectedNodeIdForTests('f-1');
+      const initialCalls = setProviderSpy.mock.calls.length;
+      expect(initialCalls).toBe(1);
+
+      app.refresh();
+      app.refresh();
+      app.onWorkerOutput('run-1', 't-1', 'log line');
+      app.onProposalOp(scopeF1, dummyOp, liveSnapshotWithExtra());
+      app.onProposalSubmitted(scopeF1, dummyDetails, dummyProposal, 1);
+      app.onProposalPhaseEnded(scopeF1, 'completed');
+
+      expect(setProviderSpy.mock.calls.length).toBe(initialCalls);
+
+      const installed = setProviderSpy.mock.calls[0]?.[0];
+      expect(installed).toBeDefined();
+
+      const result = await installed?.getSuggestions(['/'], 0, 1, {
+        signal: new AbortController().signal,
+      });
+      expect(result).not.toBeNull();
+      expect(result?.items.length ?? 0).toBeGreaterThan(0);
     });
   });
 
