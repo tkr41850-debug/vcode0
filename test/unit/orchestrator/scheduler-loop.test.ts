@@ -2422,6 +2422,38 @@ describe('SchedulerLoop', () => {
     });
   });
 
+  it('does not provision feature worktree for plan dispatch', async () => {
+    const order: string[] = [];
+    const { ports, runtime } = createPorts(order);
+    const ensureFeatureWorktree = vi.fn(() =>
+      Promise.reject(new Error('feature worktree must not be provisioned')),
+    );
+    ports.worktree = {
+      ...ports.worktree,
+      ensureFeatureWorktree,
+    };
+    const graph = createProposalApprovalGraph({
+      status: 'pending',
+      workControl: 'planning',
+      collabControl: 'none',
+    });
+
+    const loop = new ObservingSchedulerLoop(graph, ports);
+    await loop.step(100);
+
+    expect(ensureFeatureWorktree).not.toHaveBeenCalled();
+    expect(runtime.dispatchRun).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'feature_phase', phase: 'plan' }),
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(
+      loop.handledEvents.find((e) => e.type === 'feature_phase_error'),
+    ).toBeUndefined();
+    const run = ports.store.getAgentRun('run-feature:f-1:plan');
+    expect(run?.runStatus).toBe('await_approval');
+  });
+
   it('does not redispatch a feature phase whose run is already running', async () => {
     const order: string[] = [];
     const { ports, runtime } = createPorts(order);

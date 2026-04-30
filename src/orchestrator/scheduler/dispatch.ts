@@ -398,6 +398,17 @@ function isRuntimeDispatchedFeaturePhase(
   );
 }
 
+function featurePhaseRequiresFeatureWorktree(phase: AgentRunPhase): boolean {
+  // discuss/research/plan/replan use proposal+inspection hosts and projectRoot,
+  // not a feature worktree. execute, verify, ci_check, summarize do.
+  return (
+    phase === 'execute' ||
+    phase === 'verify' ||
+    phase === 'ci_check' ||
+    phase === 'summarize'
+  );
+}
+
 async function dispatchFeaturePhaseRun(params: {
   feature: Feature;
   phase:
@@ -490,7 +501,9 @@ export async function dispatchFeaturePhaseUnit(params: {
   params.markFeaturePhaseRunning(params.feature);
 
   try {
-    await params.ports.worktree.ensureFeatureWorktree(params.feature);
+    if (featurePhaseRequiresFeatureWorktree(params.phase)) {
+      await params.ports.worktree.ensureFeatureWorktree(params.feature);
+    }
 
     if (params.phase === 'execute') {
       return true;
