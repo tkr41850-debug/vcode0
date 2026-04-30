@@ -44,6 +44,7 @@ Seven phases. Phase 0 is a track-level pre-phase that clears migration-numbering
 | [Phase 4](./phase-4-remote-feature-phases.md) | Remote feature-phase agents | Planner, replanner, verifier, summarizer, researcher, discusser dispatch to remote workers via the same plane as task execution. After this phase, the orchestrator process hosts zero agent loops. | High — surfaces every place a feature-phase agent currently runs in-process |
 | [Phase 5](./phase-5-leases-and-recovery.md) | Ownership leases & remote recovery | Leases, takeover on worker death, stale-lease reclamation, reroute on disconnect. Replaces pid/proc liveness with network liveness. | High — recovery semantics change |
 | [Phase 6](./phase-6-deployment-packaging.md) | Deployment packaging | `npm run worker` is a real deployment surface: SIGTERM drains cleanly via `worker_shutdown`, transient transport drops absorbed by an in-process reconnect loop, env validated fail-fast, structured logs, canonical systemd unit + env template under `deploy/`. | Low — packaging on top of the now-feature-complete worker runtime |
+| [Phase 7](./phase-7-usage-documentation.md) | End-user usage doc | `docs/usage.md` is the single setup-and-use entry point covering all three deployment topologies (distributed, single-machine dual-process, single-machine task-only) plus daily operations. | Low — documentation only, no code change |
 
 ## Cross-cutting concerns
 
