@@ -350,7 +350,7 @@ a missing-pointer rather than a stale code block.
 
 **Files:**
 
-- `deploy/systemd/gvc0-worker.service` — new. Canonical unit. Includes `TimeoutStopSec=120` (60s drain fits; default varies per distro and SIGKILLs the drain on Alpine). Top comment points at `docs/deployment/worker-systemd.md`.
+- `deploy/systemd/gvc0-worker.service` — new. Canonical unit. Required directives: `User=gvc0`, `Group=gvc0` (worker and every spawned descendant — pi-sdk `Agent`, verification `bash`, `git` against the bare repo — inherit the unprivileged uid; never run as root); `WorkingDirectory=/opt/gvc0`; `EnvironmentFile=/etc/gvc0/worker.env`; `NoNewPrivileges=true` (blocks setuid escalation in any descendant); `ProtectSystem=strict` + `ReadWritePaths=/var/lib/gvc0` (writes confined to the scratch root / `GVC0_WORKER_FS_ROOT`; repo checkout is RO at runtime); `ProtectHome=true`; `PrivateTmp=true`; `TimeoutStopSec=120` (60s drain fits; default varies per distro and SIGKILLs the drain on Alpine); `Restart=always`. Top comment points at `docs/deployment/worker-systemd.md`.
 - `deploy/systemd/worker.env.example` — new. Documented env
   template covering every key the validator from step 6.2
   recognizes, with required keys uncommented at sentinel values
@@ -379,7 +379,7 @@ a missing-pointer rather than a stale code block.
 
 **Review subagent:**
 
-> Verify deploy artifacts: (1) the canonical unit file and the doc's fenced preview are byte-identical (diff empty); (2) env template covers exactly the keys `parseWorkerEnv` recognizes; defaults match the validator; (3) `TimeoutStopSec=120` is in the unit; (4) no real secrets in the example file (placeholders only); (5) `worker-systemd.md` cites `deploy/systemd/...` as canonical. Under 250 words.
+> Verify deploy artifacts: (1) the canonical unit file and the doc's fenced preview are byte-identical (diff empty); (2) env template covers exactly the keys `parseWorkerEnv` recognizes; defaults match the validator; (3) `TimeoutStopSec=120` is in the unit; (4) `User=gvc0` and `Group=gvc0` are present (the unit MUST NOT run as root) and `NoNewPrivileges=true` / `ProtectSystem=strict` / `ReadWritePaths=/var/lib/gvc0` / `ProtectHome=true` / `PrivateTmp=true` are all present; (5) no real secrets in the example file (placeholders only); (6) `worker-systemd.md` cites `deploy/systemd/...` as canonical. Under 250 words.
 
 **Commit:** `chore(deploy): canonical systemd unit + env template`
 
@@ -388,7 +388,7 @@ a missing-pointer rather than a stale code block.
 ## Phase exit criteria
 
 - All six commits land in order; `npm run verify` passes on the final commit.
-- Clean-VM install path works: `npm ci && cp deploy/systemd/worker.env.example /etc/gvc0/worker.env && (edit) && cp deploy/systemd/gvc0-worker.service /etc/systemd/system/ && systemctl daemon-reload && systemctl start gvc0-worker` — worker registers, takes a run, drains cleanly on `systemctl stop gvc0-worker`.
+- Clean-VM install path works: `useradd --system --home-dir /var/lib/gvc0 --shell /usr/sbin/nologin gvc0 && install -d -o gvc0 -g gvc0 /var/lib/gvc0/scratch && install -d -o root -g gvc0 -m 0750 /etc/gvc0 && npm ci && install -o root -g gvc0 -m 0640 deploy/systemd/worker.env.example /etc/gvc0/worker.env && (edit) && cp deploy/systemd/gvc0-worker.service /etc/systemd/system/ && systemctl daemon-reload && systemctl start gvc0-worker` — worker registers as `gvc0:gvc0`, takes a run, drains cleanly on `systemctl stop gvc0-worker`. Verified post-install by `systemctl show -p MainPID gvc0-worker` + `ps -o user= -p <pid>` returning `gvc0` (not `root`); subprocess inheritance means the agent and its descendants run as the same uid.
 - Integration suite covers: missing-env → exit 64; spawn → register → run; SIGTERM → `worker_shutdown` → released → exit 0; transient drop → same-`bootEpoch` reconnect → run continues; orchestrator-down-at-boot → eventual register; reconnect give-up → exit 2.
 - Source-side grep for `GVC_` returns nothing outside git history.
 
