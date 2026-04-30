@@ -169,7 +169,7 @@ npm run check:fix && npm run check
 
 **Review subagent:**
 
-> Verify inbox kind extensions: (1) the `kind` union is the canonical TS string-literal union, not free-form; (2) the retry-policy integration in `events.ts` writes to inbox on every escalation path (semantic + retry-cap exhausted + `request_help`) — grep for any escalation that still sets `runStatus = 'failed'` without an inbox row; (3) no consumer assumed to exist (this is a producer-only step); (4) the `inbox_items` table and Store methods from Phase 5 step 5.2 are not duplicated. Under 350 words.
+> Verify inbox kind extensions: (1) the `kind` union is the canonical TS string-literal union, not free-form; (2) the retry-policy integration in `events.ts` writes to inbox on every escalation path covered by this step — `'semantic_failure'` (semantic worker error) and `'retry_exhausted'` (retry-cap hit). `request_help` operator escalations are out of scope for Step 1.6 — they are a planner-side IPC frame, not a scheduler retry outcome, and are wired separately. Grep for any escalation in `events.ts` that still sets `runStatus = 'failed'` without an inbox row; (3) no consumer assumed to exist (this is a producer-only step); (4) the `inbox_items` table and Store methods from Phase 5 step 5.2 are not duplicated. Under 350 words.
 
 **Commit:** `feat(scheduler): wire retry escalation to inbox_items`
 
