@@ -5,6 +5,10 @@ import type {
   OrchestratorToWorkerMessage,
   WorkerToOrchestratorMessage,
 } from '@runtime/contracts';
+import {
+  validateOrchestratorFrame,
+  validateWorkerFrame,
+} from '@runtime/ipc/frame-schema';
 
 export interface IpcTransport {
   send(message: OrchestratorToWorkerMessage): void;
@@ -33,11 +37,21 @@ export class NdjsonStdioTransport implements IpcTransport {
 
   onMessage(handler: (message: WorkerToOrchestratorMessage) => void): void {
     this.rl.on('line', (line: string) => {
+      let parsed: unknown;
       try {
-        handler(JSON.parse(line) as WorkerToOrchestratorMessage);
+        parsed = JSON.parse(line);
       } catch {
         process.stderr.write(`[ipc] failed to parse worker message: ${line}\n`);
+        return;
       }
+      const result = validateWorkerFrame(parsed);
+      if (!result.ok) {
+        process.stderr.write(
+          `[ipc] invalid frame shape: ${result.error}: ${line}\n`,
+        );
+        return;
+      }
+      handler(result.frame);
     });
   }
 
@@ -65,13 +79,23 @@ export class ChildNdjsonStdioTransport implements ChildIpcTransport {
 
   onMessage(handler: (message: OrchestratorToWorkerMessage) => void): void {
     this.rl.on('line', (line: string) => {
+      let parsed: unknown;
       try {
-        handler(JSON.parse(line) as OrchestratorToWorkerMessage);
+        parsed = JSON.parse(line);
       } catch {
         process.stderr.write(
           `[ipc] failed to parse orchestrator message: ${line}\n`,
         );
+        return;
       }
+      const result = validateOrchestratorFrame(parsed);
+      if (!result.ok) {
+        process.stderr.write(
+          `[ipc] invalid frame shape: ${result.error}: ${line}\n`,
+        );
+        return;
+      }
+      handler(result.frame);
     });
   }
 
