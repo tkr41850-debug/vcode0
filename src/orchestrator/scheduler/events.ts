@@ -3,7 +3,12 @@ import * as path from 'node:path';
 import { persistPhaseOutputToFeature } from '@agents';
 import type { FeatureGraph } from '@core/graph/index';
 import { resolveTaskWorktreeBranch, worktreePath } from '@core/naming/index';
-import type { AgentRun, FeatureId } from '@core/types/index';
+import {
+  type AgentRun,
+  DEFAULT_MAX_SQUASH_RETRIES,
+  type FeatureId,
+  type RebaseVerifyIssue,
+} from '@core/types/index';
 import type { ConflictCoordinator } from '@orchestrator/conflicts/index';
 import type { FeatureLifecycleCoordinator } from '@orchestrator/features/index';
 import type { OrchestratorPorts } from '@orchestrator/ports/index';
@@ -49,6 +54,85 @@ function buildSquashCommitMessage(
   const summary = result.summary.trim();
   const headline = summary.length > 0 ? summary : `task ${taskId}`;
   return `${headline}\n\nTask: ${taskId}\n`;
+}
+
+export interface SquashAttempt {
+  taskBranch: string;
+  featureBranch: string;
+  featureWorktreePath: string;
+  taskWorktreePath: string;
+  commitMessage: string;
+}
+
+export interface SquashAttemptResult {
+  ok: boolean;
+  sha?: string;
+  conflictedFiles: string[];
+  attempts: number;
+  rebaseAttempts: number;
+}
+
+export async function squashWithRetry(
+  conflicts: ConflictCoordinator,
+  attempt: SquashAttempt,
+  maxRetries: number,
+  log: (line: string) => void,
+): Promise<SquashAttemptResult> {
+  const initial = await conflicts.squashMergeTaskIntoFeature(
+    attempt.taskBranch,
+    attempt.featureBranch,
+    attempt.featureWorktreePath,
+    attempt.commitMessage,
+  );
+  if (initial.ok) {
+    return {
+      ok: true,
+      sha: initial.sha,
+      conflictedFiles: [],
+      attempts: 1,
+      rebaseAttempts: 0,
+    };
+  }
+
+  let lastConflict = initial.conflictedFiles;
+  let rebaseAttempts = 0;
+  for (let i = 0; i < maxRetries; i++) {
+    log(
+      `task squash retry, attempt ${i + 1}/${maxRetries} for branch ${attempt.taskBranch}`,
+    );
+    const rebase = await conflicts.rebaseTaskWorktree(
+      attempt.taskWorktreePath,
+      attempt.featureBranch,
+    );
+    rebaseAttempts++;
+    if (rebase.kind !== 'clean') {
+      lastConflict =
+        rebase.kind === 'conflict' ? rebase.conflictedFiles : lastConflict;
+      continue;
+    }
+    const next = await conflicts.squashMergeTaskIntoFeature(
+      attempt.taskBranch,
+      attempt.featureBranch,
+      attempt.featureWorktreePath,
+      attempt.commitMessage,
+    );
+    if (next.ok) {
+      return {
+        ok: true,
+        sha: next.sha,
+        conflictedFiles: [],
+        attempts: i + 2,
+        rebaseAttempts,
+      };
+    }
+    lastConflict = next.conflictedFiles;
+  }
+  return {
+    ok: false,
+    conflictedFiles: lastConflict,
+    attempts: maxRetries + 1,
+    rebaseAttempts,
+  };
 }
 
 export async function handleSchedulerEvent(params: {
@@ -122,21 +206,55 @@ export async function handleSchedulerEvent(params: {
         ports.projectRoot,
         worktreePath(feature.featureBranch),
       );
+      const taskWorktreePath = path.join(
+        ports.projectRoot,
+        worktreePath(taskBranch),
+      );
       const commitMessage = buildSquashCommitMessage(
         taskRow.id,
         message.result,
       );
-      const squash = await conflicts.squashMergeTaskIntoFeature(
-        taskBranch,
-        feature.featureBranch,
-        featureWorktreePath,
-        commitMessage,
+      const maxRetries =
+        ports.config.maxSquashRetries ?? DEFAULT_MAX_SQUASH_RETRIES;
+      const outcome = await squashWithRetry(
+        conflicts,
+        {
+          taskBranch,
+          featureBranch: feature.featureBranch,
+          featureWorktreePath,
+          taskWorktreePath,
+          commitMessage,
+        },
+        maxRetries,
+        (line) => {
+          console.warn(`[scheduler] ${line}`);
+        },
       );
 
-      if (!squash.ok) {
-        // Phase 5.2 will run the rebase + retry loop here. For 5.1, leave the
-        // task in `running` state and the worker run unfinished so the next
-        // tick can replay; do not flip `merged`.
+      if (!outcome.ok) {
+        const issue: RebaseVerifyIssue = {
+          source: 'squash',
+          id: `sq-${taskRow.id}-1`,
+          severity: 'blocking',
+          description: `Task ${taskRow.id} failed to squash-merge into feature after ${outcome.attempts} attempts`,
+          conflictedFiles: outcome.conflictedFiles,
+        };
+        ports.store.appendInboxItem({
+          kind: 'squash_retry_exhausted',
+          taskId: taskRow.id,
+          agentRunId: run.id,
+          featureId: taskRow.featureId,
+          payload: {
+            attempts: outcome.attempts,
+            rebaseAttempts: outcome.rebaseAttempts,
+            conflictedFiles: outcome.conflictedFiles,
+          },
+        });
+        graph.transitionTask(run.scopeId, { status: 'failed' });
+        features.rerouteToReplan(taskRow.featureId, [issue]);
+        completeTaskRun(ports, run, 'system', {
+          tokenUsage: runtimeUsageToTokenUsageAggregate(message.usage),
+        });
         return;
       }
 

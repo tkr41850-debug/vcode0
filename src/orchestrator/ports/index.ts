@@ -5,6 +5,9 @@ import type {
   EventRecord,
   FeatureId,
   GvcConfig,
+  InboxItem,
+  InboxItemAppend,
+  InboxItemQuery,
   IntegrationState,
   ProposalPhaseDetails,
 } from '@core/types/index';
@@ -55,6 +58,11 @@ export interface Store {
   getIntegrationState(): IntegrationState | undefined;
   writeIntegrationState(state: IntegrationState): void;
   clearIntegrationState(): void;
+
+  // Operator inbox (squash exhaustion, semantic failures, etc.).
+  appendInboxItem(item: InboxItemAppend): InboxItem;
+  listInboxItems(query?: InboxItemQuery): InboxItem[];
+  resolveInboxItem(id: number, resolution: string): void;
 }
 
 export interface UiPort {

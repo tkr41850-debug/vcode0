@@ -149,6 +149,9 @@ function createStoreMock(runs: AgentRun[]): Store {
     getIntegrationState: vi.fn(() => undefined),
     writeIntegrationState: vi.fn(),
     clearIntegrationState: vi.fn(),
+    appendInboxItem: vi.fn(),
+    listInboxItems: vi.fn(() => []),
+    resolveInboxItem: vi.fn(),
   };
 }
 

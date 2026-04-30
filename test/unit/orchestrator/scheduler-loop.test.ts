@@ -152,6 +152,13 @@ function createStoreMock(): Store {
     getIntegrationState: () => undefined,
     writeIntegrationState: () => {},
     clearIntegrationState: () => {},
+    appendInboxItem: vi.fn(() => ({
+      id: 0,
+      ts: 0,
+      kind: 'squash_retry_exhausted' as const,
+    })),
+    listInboxItems: () => [],
+    resolveInboxItem: () => {},
   };
 }
 

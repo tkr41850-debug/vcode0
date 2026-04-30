@@ -1,6 +1,9 @@
 import type {
   AgentRun,
   EventRecord,
+  InboxItem,
+  InboxItemAppend,
+  InboxItemQuery,
   IntegrationState,
 } from '@core/types/index';
 import type {
@@ -24,6 +27,8 @@ export class InMemoryStore implements Store {
   private readonly runs = new Map<string, AgentRun>();
   private readonly events: EventRecord[] = [];
   private integration: IntegrationState | undefined;
+  private readonly inbox: InboxItem[] = [];
+  private nextInboxId = 1;
 
   getAgentRun(id: string): AgentRun | undefined {
     return this.runs.get(id);
@@ -102,6 +107,49 @@ export class InMemoryStore implements Store {
 
   clearIntegrationState(): void {
     this.integration = undefined;
+  }
+
+  appendInboxItem(item: InboxItemAppend): InboxItem {
+    const stored: InboxItem = {
+      id: this.nextInboxId++,
+      ts: item.ts ?? Date.now(),
+      kind: item.kind,
+      ...(item.taskId !== undefined ? { taskId: item.taskId } : {}),
+      ...(item.agentRunId !== undefined ? { agentRunId: item.agentRunId } : {}),
+      ...(item.featureId !== undefined ? { featureId: item.featureId } : {}),
+      ...(item.payload !== undefined ? { payload: item.payload } : {}),
+    };
+    this.inbox.push(stored);
+    return stored;
+  }
+
+  listInboxItems(query?: InboxItemQuery): InboxItem[] {
+    return this.inbox.filter((item) => {
+      if (query?.unresolvedOnly === true && item.resolution !== undefined) {
+        return false;
+      }
+      if (query?.taskId !== undefined && item.taskId !== query.taskId) {
+        return false;
+      }
+      if (
+        query?.featureId !== undefined &&
+        item.featureId !== query.featureId
+      ) {
+        return false;
+      }
+      if (query?.kind !== undefined && item.kind !== query.kind) {
+        return false;
+      }
+      return true;
+    });
+  }
+
+  resolveInboxItem(id: number, resolution: string): void {
+    const item = this.inbox.find((entry) => entry.id === id);
+    if (item === undefined) {
+      throw new Error(`inbox item "${id}" does not exist`);
+    }
+    item.resolution = resolution;
   }
 }
 

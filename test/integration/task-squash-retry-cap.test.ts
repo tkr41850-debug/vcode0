@@ -14,13 +14,12 @@ import { InMemorySessionStore } from './harness/in-memory-session-store.js';
 import { InMemoryStore } from './harness/store-memory.js';
 
 const FEATURE_ID = 'f-1';
-const FEATURE_BRANCH = 'feat-shared-1';
-const TASK_A_ID = 't-a';
-const TASK_A_BRANCH = 'feat-shared-1-a';
-const TASK_B_ID = 't-b';
-const TASK_B_BRANCH = 'feat-shared-1-b';
+const FEATURE_BRANCH = 'feat-cap-1';
+const TASK_ID = 't-cap';
+const TASK_BRANCH = 'feat-cap-1-cap';
+const MAX_SQUASH_RETRIES = 2;
 
-async function initSharedRepo(projectRoot: string): Promise<void> {
+async function initRepo(projectRoot: string): Promise<void> {
   const git = simpleGit(projectRoot);
   await git.init();
   await git.addConfig('user.email', 'test@example.com');
@@ -33,19 +32,19 @@ async function initSharedRepo(projectRoot: string): Promise<void> {
   const featureDir = path.join(projectRoot, worktreePath(FEATURE_BRANCH));
   await git.raw(['worktree', 'add', '-b', FEATURE_BRANCH, featureDir, 'main']);
 
-  const aDir = path.join(projectRoot, worktreePath(TASK_A_BRANCH));
-  await git.raw(['worktree', 'add', '-b', TASK_A_BRANCH, aDir, FEATURE_BRANCH]);
-  await fs.writeFile(path.join(aDir, 'a.txt'), 'A\n');
-  const aGit = simpleGit(aDir);
-  await aGit.add('a.txt');
-  await aGit.commit('task A');
-
-  const bDir = path.join(projectRoot, worktreePath(TASK_B_BRANCH));
-  await git.raw(['worktree', 'add', '-b', TASK_B_BRANCH, bDir, FEATURE_BRANCH]);
-  await fs.writeFile(path.join(bDir, 'b.txt'), 'B\n');
-  const bGit = simpleGit(bDir);
-  await bGit.add('b.txt');
-  await bGit.commit('task B');
+  const taskDir = path.join(projectRoot, worktreePath(TASK_BRANCH));
+  await git.raw([
+    'worktree',
+    'add',
+    '-b',
+    TASK_BRANCH,
+    taskDir,
+    FEATURE_BRANCH,
+  ]);
+  await fs.writeFile(path.join(taskDir, 'work.txt'), 'work\n');
+  const taskGit = simpleGit(taskDir);
+  await taskGit.add('work.txt');
+  await taskGit.commit('task work');
 }
 
 function buildPorts(projectRoot: string): {
@@ -83,10 +82,10 @@ function buildPorts(projectRoot: string): {
       ensureFeatureWorktree: () =>
         Promise.resolve(path.join(projectRoot, worktreePath(FEATURE_BRANCH))),
       ensureTaskWorktree: () =>
-        Promise.resolve(path.join(projectRoot, worktreePath(TASK_A_BRANCH))),
+        Promise.resolve(path.join(projectRoot, worktreePath(TASK_BRANCH))),
     },
     ui,
-    config: { tokenProfile: 'balanced' },
+    config: { tokenProfile: 'balanced', maxSquashRetries: MAX_SQUASH_RETRIES },
     projectRoot,
   };
   return { ports, store };
@@ -108,7 +107,7 @@ function buildGraph(): InMemoryFeatureGraph {
         id: FEATURE_ID,
         milestoneId: 'm-1',
         orderInMilestone: 0,
-        name: 'Shared',
+        name: 'Cap',
         description: 'd',
         dependsOn: [],
         status: 'in_progress',
@@ -119,69 +118,36 @@ function buildGraph(): InMemoryFeatureGraph {
     ],
     tasks: [
       {
-        id: TASK_A_ID,
+        id: TASK_ID,
         featureId: FEATURE_ID,
         orderInFeature: 0,
-        description: 'task A',
+        description: 'capped task',
         dependsOn: [],
         status: 'running',
         collabControl: 'branch_open',
-        worktreeBranch: TASK_A_BRANCH,
-      },
-      {
-        id: TASK_B_ID,
-        featureId: FEATURE_ID,
-        orderInFeature: 1,
-        description: 'task B',
-        dependsOn: [],
-        status: 'running',
-        collabControl: 'branch_open',
-        worktreeBranch: TASK_B_BRANCH,
+        worktreeBranch: TASK_BRANCH,
       },
     ],
   });
 }
 
-function seedTaskRun(store: InMemoryStore, taskId: `t-${string}`): void {
+function seedTaskRun(store: InMemoryStore): void {
   store.createAgentRun({
-    id: `run-task:${taskId}`,
+    id: `run-task:${TASK_ID}`,
     scopeType: 'task',
-    scopeId: taskId,
+    scopeId: TASK_ID,
     phase: 'execute',
     runStatus: 'running',
     owner: 'system',
     attention: 'none',
     restartCount: 0,
     maxRetries: 3,
-    sessionId: `sess-${taskId}`,
+    sessionId: `sess-${TASK_ID}`,
   });
 }
 
-function submittedResultEvent(
-  taskId: string,
-): Parameters<SchedulerLoop['enqueue']>[0] {
-  return {
-    type: 'worker_message',
-    message: {
-      type: 'result',
-      taskId,
-      agentRunId: `run-task:${taskId}`,
-      result: { summary: `task ${taskId} done`, filesChanged: ['shared.txt'] },
-      usage: {
-        provider: 'test',
-        model: 'fake',
-        inputTokens: 1,
-        outputTokens: 2,
-        totalTokens: 3,
-        usd: 0,
-      },
-      completionKind: 'submitted',
-    },
-  };
-}
-
-describe('two tasks: first lands, second conflicts then resolves', () => {
-  const getTmp = useTmpDir('two-tasks-conflict-resolve');
+describe('task squash retry cap', () => {
+  const getTmp = useTmpDir('task-squash-retry-cap');
   let originalCwd = '';
 
   beforeEach(() => {
@@ -196,33 +162,22 @@ describe('two tasks: first lands, second conflicts then resolves', () => {
     vi.restoreAllMocks();
   });
 
-  it('rebases between two squash attempts so the second succeeds', async () => {
+  it('caps squash retries, fails the task, appends inbox, and routes to replan', async () => {
     const projectRoot = getTmp();
     process.chdir(projectRoot);
-    await initSharedRepo(projectRoot);
+    await initRepo(projectRoot);
 
     const { ports, store } = buildPorts(projectRoot);
     const graph = buildGraph();
-    seedTaskRun(store, TASK_A_ID);
-    seedTaskRun(store, TASK_B_ID);
+    seedTaskRun(store);
 
-    // Spy on the conflict coordinator's git operations so we can deterministically
-    // exercise the conflict-then-resolve path without crafting a real-git scenario
-    // where rebase resolves what `merge --squash` rejected (rare in practice).
+    // Every squash conflicts; every rebase is clean — exhausts the retry cap.
     const squashSpy = vi
       .spyOn(ConflictCoordinator.prototype, 'squashMergeTaskIntoFeature')
-      .mockImplementation(async (taskBranch) => {
-        if (taskBranch === TASK_A_BRANCH) {
-          return { ok: true, sha: 'sha-after-A' };
-        }
-        // Task B: first call conflicts, second call (after rebase) succeeds.
-        const callCount = squashSpy.mock.calls.filter(
-          (c) => c[0] === TASK_B_BRANCH,
-        ).length;
-        if (callCount === 1) {
-          return { ok: false, conflict: true, conflictedFiles: ['b.txt'] };
-        }
-        return { ok: true, sha: 'sha-after-B' };
+      .mockResolvedValue({
+        ok: false,
+        conflict: true,
+        conflictedFiles: ['work.txt'],
       });
     const rebaseSpy = vi
       .spyOn(ConflictCoordinator.prototype, 'rebaseTaskWorktree')
@@ -231,28 +186,57 @@ describe('two tasks: first lands, second conflicts then resolves', () => {
     const loop = new SchedulerLoop(graph, ports);
     loop.setAutoExecutionEnabled(false);
 
-    loop.enqueue(submittedResultEvent(TASK_A_ID));
+    loop.enqueue({
+      type: 'worker_message',
+      message: {
+        type: 'result',
+        taskId: TASK_ID,
+        agentRunId: `run-task:${TASK_ID}`,
+        result: { summary: 'task done', filesChanged: ['work.txt'] },
+        usage: {
+          provider: 'test',
+          model: 'fake',
+          inputTokens: 1,
+          outputTokens: 2,
+          totalTokens: 3,
+          usd: 0,
+        },
+        completionKind: 'submitted',
+      },
+    });
     await loop.step(100);
-    expect(graph.tasks.get(TASK_A_ID)).toEqual(
-      expect.objectContaining({ status: 'done', collabControl: 'merged' }),
-    );
 
-    loop.enqueue(submittedResultEvent(TASK_B_ID));
-    await loop.step(200);
+    // 1 initial + maxSquashRetries retries; maxSquashRetries rebases.
+    expect(squashSpy).toHaveBeenCalledTimes(MAX_SQUASH_RETRIES + 1);
+    expect(rebaseSpy).toHaveBeenCalledTimes(MAX_SQUASH_RETRIES);
 
-    expect(graph.tasks.get(TASK_B_ID)).toEqual(
-      expect.objectContaining({ status: 'done', collabControl: 'merged' }),
-    );
+    // Task did NOT merge.
+    const task = graph.tasks.get(TASK_ID);
+    expect(task?.status).toBe('failed');
+    expect(task?.collabControl).not.toBe('merged');
 
-    const taskBSquashCalls = squashSpy.mock.calls.filter(
-      (c) => c[0] === TASK_B_BRANCH,
-    );
-    expect(taskBSquashCalls.length).toBe(2);
-    const taskBRebaseCalls = rebaseSpy.mock.calls.filter((c) =>
-      c[0].endsWith(TASK_B_BRANCH),
-    );
-    expect(taskBRebaseCalls.length).toBe(1);
+    // Inbox row appended with canonical kind.
+    const inbox = store.listInboxItems();
+    expect(inbox).toHaveLength(1);
+    const row = inbox[0];
+    if (row === undefined) throw new Error('inbox row missing');
+    expect(row.kind).toBe('squash_retry_exhausted');
+    expect(row.taskId).toBe(TASK_ID);
+    expect(row.featureId).toBe(FEATURE_ID);
+    expect(row.payload?.attempts).toBe(MAX_SQUASH_RETRIES + 1);
+    expect(row.payload?.rebaseAttempts).toBe(MAX_SQUASH_RETRIES);
+    expect(row.payload?.conflictedFiles).toEqual(['work.txt']);
 
-    expect(store.listInboxItems()).toEqual([]);
+    // Feature routed to replan with source: 'squash'.
+    const feature = graph.features.get(FEATURE_ID);
+    expect(feature?.workControl).toBe('replanning');
+    const issues = feature?.verifyIssues ?? [];
+    expect(issues).toHaveLength(1);
+    expect(issues[0]?.source).toBe('squash');
+    expect(issues[0]?.severity).toBe('blocking');
+
+    // Agent run closed.
+    const run = store.getAgentRun(`run-task:${TASK_ID}`);
+    expect(run?.runStatus).toBe('completed');
   });
 });

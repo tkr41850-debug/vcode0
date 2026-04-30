@@ -1,7 +1,13 @@
 import type {
   AgentRun,
   EventRecord,
+  FeatureId,
+  InboxItem,
+  InboxItemAppend,
+  InboxItemKind,
+  InboxItemQuery,
   IntegrationState,
+  TaskId,
 } from '@core/types/index';
 import type {
   AgentRunPatch,
@@ -29,6 +35,20 @@ const EVENT_COLUMNS = 'id, timestamp, event_type, entity_id, payload';
 
 const INTEGRATION_STATE_COLUMNS =
   'id, feature_id, expected_parent_sha, feature_branch_pre_integration_sha, feature_branch_post_rebase_sha, config_snapshot, intent, started_at';
+
+const INBOX_ITEM_COLUMNS =
+  'id, ts, kind, task_id, agent_run_id, feature_id, payload, resolution';
+
+interface InboxItemRow {
+  id: number;
+  ts: number;
+  kind: string;
+  task_id: string | null;
+  agent_run_id: string | null;
+  feature_id: string | null;
+  payload: string | null;
+  resolution: string | null;
+}
 
 interface AgentRunInsertParams {
   id: string;
@@ -91,6 +111,8 @@ export class SqliteStore implements Store {
   private readonly getIntegrationStateStmt;
   private readonly upsertIntegrationStateStmt;
   private readonly clearIntegrationStateStmt;
+  private readonly insertInboxItemStmt;
+  private readonly resolveInboxItemStmt;
   private readonly updateAgentRunTxn: (
     runId: string,
     patch: AgentRunPatch,
@@ -168,6 +190,22 @@ export class SqliteStore implements Store {
 
     this.clearIntegrationStateStmt = db.prepare(
       'DELETE FROM integration_state WHERE id = 1',
+    );
+
+    this.insertInboxItemStmt = db.prepare<{
+      ts: number;
+      kind: string;
+      task_id: string | null;
+      agent_run_id: string | null;
+      feature_id: string | null;
+      payload: string | null;
+    }>(
+      `INSERT INTO inbox_items (ts, kind, task_id, agent_run_id, feature_id, payload)
+       VALUES (:ts, :kind, :task_id, :agent_run_id, :feature_id, :payload)`,
+    );
+
+    this.resolveInboxItemStmt = db.prepare<[string, number]>(
+      'UPDATE inbox_items SET resolution = ? WHERE id = ?',
     );
 
     // Read-modify-write is wrapped in a single transaction so concurrent
@@ -317,4 +355,73 @@ export class SqliteStore implements Store {
   clearIntegrationState(): void {
     this.clearIntegrationStateStmt.run();
   }
+
+  // ---------- Operator inbox ----------
+
+  appendInboxItem(item: InboxItemAppend): InboxItem {
+    const ts = item.ts ?? this.now();
+    const result = this.insertInboxItemStmt.run({
+      ts,
+      kind: item.kind,
+      task_id: item.taskId ?? null,
+      agent_run_id: item.agentRunId ?? null,
+      feature_id: item.featureId ?? null,
+      payload: item.payload !== undefined ? JSON.stringify(item.payload) : null,
+    });
+    return {
+      id: Number(result.lastInsertRowid),
+      ts,
+      kind: item.kind,
+      ...(item.taskId !== undefined ? { taskId: item.taskId } : {}),
+      ...(item.agentRunId !== undefined ? { agentRunId: item.agentRunId } : {}),
+      ...(item.featureId !== undefined ? { featureId: item.featureId } : {}),
+      ...(item.payload !== undefined ? { payload: item.payload } : {}),
+    };
+  }
+
+  listInboxItems(query?: InboxItemQuery): InboxItem[] {
+    const clauses: string[] = [];
+    const params: Record<string, unknown> = {};
+    if (query?.unresolvedOnly === true) {
+      clauses.push('resolution IS NULL');
+    }
+    if (query?.taskId !== undefined) {
+      clauses.push('task_id = :task_id');
+      params.task_id = query.taskId;
+    }
+    if (query?.featureId !== undefined) {
+      clauses.push('feature_id = :feature_id');
+      params.feature_id = query.featureId;
+    }
+    if (query?.kind !== undefined) {
+      clauses.push('kind = :kind');
+      params.kind = query.kind;
+    }
+    const where = clauses.length > 0 ? ` WHERE ${clauses.join(' AND ')}` : '';
+    const stmt = this.db.prepare<Record<string, unknown>, InboxItemRow>(
+      `SELECT ${INBOX_ITEM_COLUMNS} FROM inbox_items${where} ORDER BY id ASC`,
+    );
+    return stmt.all(params).map(rowToInboxItem);
+  }
+
+  resolveInboxItem(id: number, resolution: string): void {
+    this.resolveInboxItemStmt.run(resolution, id);
+  }
+}
+
+function rowToInboxItem(row: InboxItemRow): InboxItem {
+  return {
+    id: row.id,
+    ts: row.ts,
+    kind: row.kind as InboxItemKind,
+    ...(row.task_id !== null ? { taskId: row.task_id as TaskId } : {}),
+    ...(row.agent_run_id !== null ? { agentRunId: row.agent_run_id } : {}),
+    ...(row.feature_id !== null
+      ? { featureId: row.feature_id as FeatureId }
+      : {}),
+    ...(row.payload !== null
+      ? { payload: JSON.parse(row.payload) as Record<string, unknown> }
+      : {}),
+    ...(row.resolution !== null ? { resolution: row.resolution } : {}),
+  };
 }

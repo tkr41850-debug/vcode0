@@ -7,6 +7,7 @@ import { Migration006RenameFeatureCiToCiCheck } from '@persistence/migrations/00
 import { Migration007MergeTrainExecutorState } from '@persistence/migrations/007_merge_train_executor_state';
 import { Migration008IntegrationPostRebaseSha } from '@persistence/migrations/008_integration_post_rebase_sha';
 import { Migration009AgentRunHarnessMetadata } from '@persistence/migrations/009_agent_run_harness_metadata';
+import { Migration010InboxItems } from '@persistence/migrations/010_inbox_items';
 import { MigrationRunner } from '@persistence/migrations/index';
 import Database from 'better-sqlite3';
 
@@ -31,6 +32,7 @@ export function openDatabase(path: string): Database.Database {
     Migration007MergeTrainExecutorState,
     Migration008IntegrationPostRebaseSha,
     Migration009AgentRunHarnessMetadata,
+    Migration010InboxItems,
   ]).run();
 
   return db;

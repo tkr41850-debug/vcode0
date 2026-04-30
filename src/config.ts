@@ -133,6 +133,15 @@ function normalizeConfig(input: unknown, configPath: string): GvcConfig {
     ...(input.harness !== undefined
       ? { harness: parseHarnessConfig(input.harness, configPath) }
       : { harness: defaultHarnessConfig() }),
+    ...(input.maxSquashRetries !== undefined
+      ? {
+          maxSquashRetries: parseNumber(
+            input.maxSquashRetries,
+            'maxSquashRetries',
+            configPath,
+          ),
+        }
+      : {}),
   };
 }
 

@@ -50,4 +50,7 @@ export interface GvcConfig {
   verification?: VerificationConfig;
   warnings?: WarningConfig;
   harness?: HarnessConfig;
+  maxSquashRetries?: number;
 }
+
+export const DEFAULT_MAX_SQUASH_RETRIES = 3;

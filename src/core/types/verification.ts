@@ -45,7 +45,7 @@ export interface VerificationConfig {
 
 export type VerifyIssueSeverity = 'blocking' | 'concern' | 'nit';
 
-export type VerifyIssueSource = 'verify' | 'ci_check' | 'rebase';
+export type VerifyIssueSource = 'verify' | 'ci_check' | 'rebase' | 'squash';
 
 export type CiCheckPhase = 'feature' | 'post_rebase';
 
@@ -71,7 +71,7 @@ export interface CiCheckVerifyIssue extends VerifyIssueBase {
 }
 
 export interface RebaseVerifyIssue extends VerifyIssueBase {
-  source: 'rebase';
+  source: 'rebase' | 'squash';
   conflictedFiles: string[];
 }
 

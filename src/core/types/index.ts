@@ -11,6 +11,7 @@ export type {
   TokenProfile,
   WarningConfig,
 } from './config.js';
+export { DEFAULT_MAX_SQUASH_RETRIES } from './config.js';
 export type {
   BaseGitConflictContext,
   CrossFeatureFeatureRebaseGitConflictContext,
@@ -20,6 +21,12 @@ export type {
 } from './conflicts.js';
 export type { Feature, Milestone, Task } from './domain.js';
 export type { EventRecord } from './events.js';
+export type {
+  InboxItem,
+  InboxItemAppend,
+  InboxItemKind,
+  InboxItemQuery,
+} from './inbox.js';
 export type {
   DiscussPhaseDetails,
   DiscussPhaseResult,

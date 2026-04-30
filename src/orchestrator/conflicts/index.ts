@@ -8,7 +8,11 @@ import {
   releaseCrossFeatureOverlap,
   resumeCrossFeatureTasks,
 } from './cross-feature.js';
-import { type SquashMergeOutcome, squashMergeTaskIntoFeature } from './git.js';
+import {
+  rebaseTaskWorktree,
+  type SquashMergeOutcome,
+  squashMergeTaskIntoFeature,
+} from './git.js';
 import {
   handleSameFeatureOverlap,
   reconcileSameFeatureTasks,
@@ -17,6 +21,11 @@ import type { CrossFeatureReleaseResult, OverlapIncident } from './types.js';
 
 export type { SquashMergeOutcome } from './git.js';
 export type { CrossFeatureReleaseResult, OverlapIncident } from './types.js';
+
+export type RebaseTaskWorktreeOutcome =
+  | { kind: 'clean' }
+  | { kind: 'blocked' }
+  | { kind: 'conflict'; conflictedFiles: string[] };
 
 export class ConflictCoordinator {
   constructor(
@@ -97,5 +106,12 @@ export class ConflictCoordinator {
       featureWorktreePath,
       commitMessage,
     );
+  }
+
+  async rebaseTaskWorktree(
+    taskWorktreePath: string,
+    rebaseTarget: string,
+  ): Promise<RebaseTaskWorktreeOutcome> {
+    return rebaseTaskWorktree(taskWorktreePath, rebaseTarget);
   }
 }
