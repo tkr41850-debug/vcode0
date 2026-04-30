@@ -16,6 +16,7 @@ import {
 } from '@orchestrator/proposals/index';
 import type { SummaryCoordinator } from '@orchestrator/summaries/index';
 import { defaultMaxSquashRetries, defaultRetryPolicy } from '@root/config';
+import type { SynthesizedErrorReason } from '@runtime/error-log/index';
 import { decideRetry, type RetryPolicy } from '@runtime/retry-policy';
 import { runtimeUsageToTokenUsageAggregate } from '@runtime/usage';
 
@@ -287,6 +288,25 @@ export async function handleSchedulerEvent(params: {
 
     if (message.type === 'error') {
       activeLocks.releaseByRun(message.agentRunId);
+      const synthesizedReason: SynthesizedErrorReason | undefined =
+        message.error.startsWith('worker_exited:')
+          ? 'worker_exited'
+          : undefined;
+      const featureIdForLog =
+        message.scopeRef?.kind === 'task'
+          ? message.scopeRef.featureId
+          : task?.featureId;
+      await ports.runErrorLogSink.writeFirstFailure({
+        run,
+        featureId: featureIdForLog,
+        taskId: run.scopeId,
+        error: {
+          message: message.error,
+          ...(message.stack !== undefined ? { stack: message.stack } : {}),
+        },
+        ...(synthesizedReason !== undefined ? { synthesizedReason } : {}),
+        nowMs: now(),
+      });
       const decision = decideRetry(
         { error: message.error, attempt: run.restartCount },
         retryPolicy,
@@ -674,6 +694,13 @@ export async function handleSchedulerEvent(params: {
       `run-feature:${event.featureId}:${event.phase}`,
     );
     if (run !== undefined) {
+      await ports.runErrorLogSink.writeFirstFailure({
+        run,
+        featureId: event.featureId,
+        taskId: undefined,
+        error: { message: event.error },
+        nowMs: now(),
+      });
       const decision = decideRetry(
         { error: event.error, attempt: run.restartCount },
         retryPolicy,

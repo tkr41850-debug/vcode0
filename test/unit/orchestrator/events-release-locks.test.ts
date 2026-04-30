@@ -56,6 +56,7 @@ function buildDeps(params: { task: Task; run: AgentRun }) {
       idleWorkerCount: vi.fn(() => 1),
       stopAll: vi.fn(),
     },
+    runErrorLogSink: { writeFirstFailure: vi.fn(async () => {}) },
   } as unknown as OrchestratorPorts;
 
   const features = {
