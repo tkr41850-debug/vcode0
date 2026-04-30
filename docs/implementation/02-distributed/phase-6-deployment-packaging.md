@@ -392,6 +392,8 @@ a missing-pointer rather than a stale code block.
 - Integration suite covers: missing-env → exit 64; spawn → register → run; SIGTERM → `worker_shutdown` → released → exit 0; transient drop → same-`bootEpoch` reconnect → run continues; orchestrator-down-at-boot → eventual register; reconnect give-up → exit 2.
 - Source-side grep for `GVC_` returns nothing outside git history.
 
-## Out of scope
+## Scope
 
-Container images / `.deb` / `.rpm` packaging, auto-update, TLS termination (operator-managed reverse proxy), bare-repo SSH key provisioning (phase 2 boundary), and a health-check endpoint (lease layer is the liveness source of truth; `sd_notify` deferred).
+**In scope.** `npm run worker` script + `bin/worker.ts` entry; `bootEpoch = Date.now()` generation at process start; fail-fast env validation with `parseWorkerEnv` and exit code 64 on missing/invalid keys; SIGTERM-driven orderly drain (60s budget under `TimeoutStopSec=120`); reconnect loop with exponential backoff (250 ms → 30 s, ±25% jitter, 5 min give-up → exit 2); structured JSON logs to stdout/stderr for journald; canonical systemd unit at `deploy/systemd/gvc0-worker.service` with required directives (`User=gvc0` / `Group=gvc0` / `NoNewPrivileges=true` / `ProtectSystem=strict` / `ReadWritePaths=/var/lib/gvc0` / `ProtectHome=true` / `PrivateTmp=true`); `useradd` + ownership setup in the install path; env-prefix rename `GVC_*` → `GVC0_*`.
+
+**Out of scope.** Container images / `.deb` / `.rpm` packaging, auto-update, TLS termination (operator-managed reverse proxy), bare-repo SSH key provisioning (phase 2 boundary), and a health-check endpoint (lease layer is the liveness source of truth; `sd_notify` deferred).

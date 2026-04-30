@@ -248,6 +248,8 @@ The test is a stop-energy gate: if it passes, the phase outcome holds. If it fai
 - Manual smoke: boot a real second worker process; submit a three-feature graph; observe via the 3.6 operator surface that runs distribute across both workers and that ownership clears on completion.
 - A final review subagent confirms: ownership is persisted, set, and cleared at every transition; sticky resume falls through to fresh start when the previous worker is gone (*not* to a different worker with a stale session id); the picker's fairness behavior holds under heterogeneous capacity.
 
-## Out of scope
+## Scope
 
-Deferred to later phases per the README phase table: lease-based recovery and network-liveness reclamation (phase 5), feature-phase agent distribution (phase 4), cross-worker session migration, and per-task resource caps.
+**In scope.** `agent_runs.owner_worker_id` + `owner_assigned_at` columns (migration `011`) and the partial index `012`; capacity-aware `RuntimePort` (`listWorkers()` + `targetWorkerId`); a worker-aware picker that filters on `capabilities.{scopeKinds, harnessKinds, transportKind}` and breaks ties by `(inFlight / maxConcurrent, lastAssignedAt)`; per-run worker-side filesystem isolation (worktree, scratch, log keyed on `agentRunId`); sticky-resume policy with capacity fallback; an operator-visibility surface (worker panel) with three-tier rendering pre-stubbed for phase 5 enrichment; a multi-worker integration test.
+
+**Out of scope.** Lease-based recovery and network-liveness reclamation (phase 5); feature-phase agent distribution — `discuss` / `verify` / etc. still run on the orchestrator (phase 4); cross-worker session migration (sticky resume falls through to fresh start when the previous worker is gone); per-task CPU/memory/network caps; worker auto-scaling.

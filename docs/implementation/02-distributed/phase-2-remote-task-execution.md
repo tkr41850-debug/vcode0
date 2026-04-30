@@ -485,6 +485,12 @@ Remote runs `git fetch <bare> <task-branch>` first; local runs skip the fetch. B
 
 ---
 
+## Scope
+
+**In scope.** Orchestrator-hosted bare repo + admin command for first-time clone; worker-side git client and worktree management; centralized `RemoteSessionStore` (sessions stay authoritative on the orchestrator); `RemoteWsHarness` implementing `SessionHandle` against the network transport; dispatch transport selection in `MultiHarnessPool` keyed on `capabilities.transportKind`; run-plane router on the registry server (`run` frame outbound, reply frames inbound); branch sync-back into the merge train; end-to-end happy-path test against a faux remote worker.
+
+**Out of scope.** More than one remote worker active at a time — the picker stays single-worker (phase 3 lifts this); feature-phase agents (`discuss` / `research` / `verify` / `plan` / `replan` / `summarize` still run on the orchestrator process, phase 4); lease semantics — `worker_shutdown` and bare-close are dirty closes with no `onExit` (phase 5 wires takeover); fence-token enforcement on the wire (frames carry `fence: 0` placeholder, phase 5 flips enforcement on); SSH key provisioning for the bare repo (operator concern).
+
 ## Phase exit criteria
 
 - All eight commits land in order on a feature branch.

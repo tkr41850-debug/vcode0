@@ -616,6 +616,12 @@ expiry.
 
 ---
 
+## Scope
+
+**In scope.** `run_leases` table, `agent_runs.fence_token`, and `run_lease_events` audit table (migration `013`, single transactional unit); Store API (`grantLease` / `getLease` / `renewLease` / `expireLease` / `releaseLease` / `listExpiredLeases` / `bumpAndReadFence` / `updateRunWithFence`); lease grant on dispatch with pinned ordering (bump fence → send `run` → `harness.start` → `grantLease` → persist `running`); heartbeat-driven lease renewal as the canonical lease carrier (extends phase-1 frames); voluntary release on `worker_shutdown` and clean local exit (skips grace); lease-expiry sweep with reroute or replan; fence-token enforcement at IPC, `RunLeaseStore.updateRunWithFence`, and git-push layers; integration tests for the seven-case crash matrix (worker-crash takeover, orchestrator-crash recovery, network-partition takeover); retirement of `worker_pid` / `/proc` liveness / `RECOVERY_REBASE` / `owner_worker_id` (migration `014`); orphan cleanup that is lease-tied.
+
+**Out of scope.** Multi-orchestrator leadership / split-brain protection (single orchestrator assumed); automatic lease re-grant on a transient flap (covered by `reconnect` reattach within the grace window — flap longer than grace expires the lease); per-run quotas or backoff on chronic takeover; cross-worker session migration mid-run (the new worker streams from `RemoteSessionStore`, not from the prior worker's memory); UI for lease state beyond the phase-3 worker-panel three-tier enrichment.
+
 ## Phase exit criteria
 
 - All nine commits land in order on a feature branch.

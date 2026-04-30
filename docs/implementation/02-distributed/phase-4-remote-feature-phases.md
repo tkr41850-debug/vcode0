@@ -320,6 +320,12 @@ Confirmed call sites today:
 
 ---
 
+## Scope
+
+**In scope.** `FeaturePhaseRunPayload` IPC frame and the worker-side `FeaturePhaseWorkerRuntime` peer to `WorkerRuntime`; `RemoteFeaturePhaseBackend` for `discuss` / `research` / `summarize` text phases; remote `verify` and `ci_check` execution including the `verification` capability advertisement chain (worker → registry → picker filter); worker-side proposal host with live-mirror IPC into the orchestrator's existing `UiPort.onProposalOp` sinks; staged migration of `replan` → `plan` → bootstrap planner with per-scope flags flipped to `true`; retirement of `FeaturePhaseOrchestrator` / `DiscussFeaturePhaseBackend`; lint-rule + runtime-assertion audit guard preventing in-orchestrator-process `Agent` construction.
+
+**Out of scope.** Lease-based recovery for feature-phase runs — phase-1 heartbeat covers liveness while running, but orphan recovery still uses pid/proc and only works for local pids (phase 5 fixes); disconnect handling for in-flight planner runs (phase 5 lease takeover); feature-phase observability beyond the existing `agent_runs` row + proposal-op stream; per-phase resource caps; squid-track / `claude-code` harness kind (open union, separate track).
+
 ## Phase exit criteria
 
 - All commits land in order (4.1 through 4.9; 4.6 splits into 4.6.a/b/c; 4.10 smoke is optional).

@@ -270,6 +270,12 @@ The `worker_shutdown` shape:
 
 ---
 
+## Scope
+
+**In scope.** WebSocket transport scaffolding (server + client classes, no business logic); the `RegistryFrame` union (`register` / `heartbeat` / `reconnect` / `worker_shutdown` and their acks) with TypeBox validation; `workers` table (migration `010`) + `WorkerRegistryPort` + SQLite-backed implementation; status derivation (`live` / `stale` / `lost`) from `last_seen_at`; `workerProtocol.enabled` config flag (default off); a worker-side client that registers and heartbeats but receives no dispatch.
+
+**Out of scope.** Dispatching any work to a remote worker (phase 2 wires `dispatchRun` over the wire); lease semantics — frames carry no lease state and acks are no-ops (phase 5); TLS termination (operator-managed reverse proxy); authn beyond a shared token; multi-worker scheduling (phase 3).
+
 ## Phase exit criteria
 
 - All six commits land in order; `npm run verify` passes on the final commit.
