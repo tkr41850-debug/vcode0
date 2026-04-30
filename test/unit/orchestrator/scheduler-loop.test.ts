@@ -1635,6 +1635,130 @@ describe('SchedulerLoop', () => {
     expect(retryTaskRunPatch?.retryAt).toEqual(expect.any(Number));
   });
 
+  it('escalates a semantic worker error to inbox with semantic_failure kind', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const graph = createSingleFeatureGraph(
+      {
+        status: 'pending',
+        workControl: 'executing',
+        collabControl: 'none',
+      },
+      [
+        createTaskFixture({
+          id: 't-1',
+          description: 'Task 1',
+          status: 'running',
+          collabControl: 'branch_open',
+        }),
+      ],
+    );
+    ports.store.createAgentRun(
+      makeTaskRun({
+        id: 'run-task:t-1',
+        runStatus: 'running',
+        sessionId: 'sess-1',
+        restartCount: 1,
+      }),
+    );
+    const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
+    const appendInboxItem = ports.store.appendInboxItem as ReturnType<
+      typeof vi.fn
+    >;
+
+    const loop = new SchedulerLoop(graph, ports);
+
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
+      type: 'worker_message',
+      message: {
+        type: 'error',
+        taskId: 't-1',
+        agentRunId: 'run-task:t-1',
+        error: 'tool returned malformed JSON',
+      },
+    });
+    await loop.step(100);
+
+    expect(appendInboxItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'semantic_failure',
+        taskId: 't-1',
+        agentRunId: 'run-task:t-1',
+        payload: expect.objectContaining({
+          error: 'tool returned malformed JSON',
+          attempt: 1,
+        }),
+      }),
+    );
+    expect(updateAgentRun).toHaveBeenCalledWith(
+      'run-task:t-1',
+      expect.objectContaining({ runStatus: 'failed', owner: 'system' }),
+    );
+  });
+
+  it('escalates a transient worker error past retryCap to inbox with retry_exhausted kind', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const graph = createSingleFeatureGraph(
+      {
+        status: 'pending',
+        workControl: 'executing',
+        collabControl: 'none',
+      },
+      [
+        createTaskFixture({
+          id: 't-1',
+          description: 'Task 1',
+          status: 'running',
+          collabControl: 'branch_open',
+        }),
+      ],
+    );
+    ports.store.createAgentRun(
+      makeTaskRun({
+        id: 'run-task:t-1',
+        runStatus: 'running',
+        sessionId: 'sess-1',
+        restartCount: 5,
+      }),
+    );
+    const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
+    const appendInboxItem = ports.store.appendInboxItem as ReturnType<
+      typeof vi.fn
+    >;
+
+    const loop = new SchedulerLoop(graph, ports);
+
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
+      type: 'worker_message',
+      message: {
+        type: 'error',
+        taskId: 't-1',
+        agentRunId: 'run-task:t-1',
+        error: 'provider overloaded: HTTP 503',
+      },
+    });
+    await loop.step(100);
+
+    expect(appendInboxItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'retry_exhausted',
+        taskId: 't-1',
+        agentRunId: 'run-task:t-1',
+        payload: expect.objectContaining({
+          error: 'provider overloaded: HTTP 503',
+          attempt: 5,
+        }),
+      }),
+    );
+    expect(updateAgentRun).toHaveBeenCalledWith(
+      'run-task:t-1',
+      expect.objectContaining({ runStatus: 'failed', owner: 'system' }),
+    );
+  });
+
   it('ignores late worker result for cancelled task runs', async () => {
     const order: string[] = [];
     const { ports } = createPorts(order);
@@ -5526,5 +5650,84 @@ describe('SchedulerLoop', () => {
       }),
     );
     expect(retryPlanPatch?.retryAt).toEqual(expect.any(Number));
+  });
+
+  it('escalates a semantic feature-phase error to inbox with semantic_failure kind', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
+    const appendInboxItem = ports.store.appendInboxItem as ReturnType<
+      typeof vi.fn
+    >;
+    const graph = createProposalApprovalGraph();
+    ports.store.createAgentRun(makeFeaturePhaseRun('plan'));
+
+    const loop = new SchedulerLoop(graph, ports);
+
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
+      type: 'feature_phase_error',
+      featureId: 'f-1',
+      phase: 'plan',
+      error: 'planner returned malformed plan',
+    });
+    await loop.step(100);
+
+    expect(appendInboxItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'semantic_failure',
+        featureId: 'f-1',
+        agentRunId: 'run-feature:f-1:plan',
+        payload: expect.objectContaining({
+          phase: 'plan',
+          error: 'planner returned malformed plan',
+          attempt: 0,
+        }),
+      }),
+    );
+    expect(updateAgentRun).toHaveBeenCalledWith(
+      'run-feature:f-1:plan',
+      expect.objectContaining({ runStatus: 'failed', owner: 'system' }),
+    );
+  });
+
+  it('escalates a transient feature-phase error past retryCap to inbox with retry_exhausted kind', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
+    const appendInboxItem = ports.store.appendInboxItem as ReturnType<
+      typeof vi.fn
+    >;
+    const graph = createProposalApprovalGraph();
+    ports.store.createAgentRun(
+      makeFeaturePhaseRun('plan', { restartCount: 5 }),
+    );
+
+    const loop = new SchedulerLoop(graph, ports);
+
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
+      type: 'feature_phase_error',
+      featureId: 'f-1',
+      phase: 'plan',
+      error: 'planner dispatch failed: ECONNRESET',
+    });
+    await loop.step(100);
+
+    expect(appendInboxItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'retry_exhausted',
+        featureId: 'f-1',
+        agentRunId: 'run-feature:f-1:plan',
+        payload: expect.objectContaining({
+          phase: 'plan',
+          attempt: 5,
+        }),
+      }),
+    );
+    expect(updateAgentRun).toHaveBeenCalledWith(
+      'run-feature:f-1:plan',
+      expect.objectContaining({ runStatus: 'failed', owner: 'system' }),
+    );
   });
 });

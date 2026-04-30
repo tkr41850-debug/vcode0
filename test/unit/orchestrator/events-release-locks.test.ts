@@ -34,6 +34,11 @@ function buildDeps(params: { task: Task; run: AgentRun }) {
     createAgentRun: vi.fn(),
     appendEvent: vi.fn(),
     listEvents: vi.fn(() => []),
+    appendInboxItem: vi.fn(() => ({
+      id: 0,
+      ts: 0,
+      kind: 'semantic_failure' as const,
+    })),
   };
 
   const ports = {

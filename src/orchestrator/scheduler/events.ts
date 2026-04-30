@@ -308,7 +308,16 @@ export async function handleSchedulerEvent(params: {
           ...usagePatch,
         });
       } else {
-        // TODO(phase-1.6): wire `escalate_inbox` into store.appendInboxItem.
+        ports.store.appendInboxItem({
+          ts: now(),
+          kind: decision.reason,
+          taskId: run.scopeId,
+          agentRunId: run.id,
+          payload: {
+            error: message.error,
+            attempt: run.restartCount,
+          },
+        });
         ports.store.updateAgentRun(run.id, {
           runStatus: 'failed',
           owner: 'system',
@@ -665,7 +674,17 @@ export async function handleSchedulerEvent(params: {
           ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
         });
       } else {
-        // TODO(phase-1.6): wire `escalate_inbox` into store.appendInboxItem.
+        ports.store.appendInboxItem({
+          ts: now(),
+          kind: decision.reason,
+          featureId: event.featureId,
+          agentRunId: run.id,
+          payload: {
+            phase: event.phase,
+            error: event.error,
+            attempt: run.restartCount,
+          },
+        });
         ports.store.updateAgentRun(run.id, {
           runStatus: 'failed',
           owner: 'system',
