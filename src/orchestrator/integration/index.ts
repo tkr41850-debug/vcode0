@@ -33,7 +33,8 @@ export interface IntegrationDeps {
  * Drives a single feature from `collabControl=integrating` to `merged` (on
  * success) or back to `replanning` (on rebase / post-rebase ci_check
  * failure). Writes a singleton marker row before the rebase so a crash
- * between `git merge` and the DB update can be reconciled at startup.
+ * between the `update-ref` CAS and the DB update can be reconciled at
+ * startup.
  *
  * Runs inline in the scheduler tick; the async-subprocess variant called
  * out in the design is deferred.
@@ -155,15 +156,90 @@ export class IntegrationCoordinator {
       };
     }
 
-    await this.mainGit.checkout(this.mainBranch);
-    await this.mainGit.merge(['--no-ff', feature.featureBranch]);
+    const mergeBase = (
+      await this.mainGit.raw([
+        'merge-base',
+        expectedParentSha,
+        feature.featureBranch,
+      ])
+    ).trim();
+    let mergeTreeSha: string;
+    try {
+      mergeTreeSha = (
+        await this.mainGit.raw([
+          'merge-tree',
+          '--write-tree',
+          `--merge-base=${mergeBase}`,
+          expectedParentSha,
+          postRebaseSha,
+        ])
+      ).trim();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(
+        `[integration] merge-tree conflict after clean rebase featureId=${featureId} error=${message}`,
+      );
+      this.deps.ports.store.clearIntegrationState();
+      this.deps.features.rerouteToReplan(featureId, [
+        {
+          source: 'rebase',
+          id: `rb-${featureId}-1`,
+          severity: 'blocking',
+          description: `merge-tree conflict after clean rebase: ${message}`,
+          conflictedFiles: [],
+        },
+      ]);
+      return { kind: 'rebase_conflict', conflictedFiles: [] };
+    }
 
-    const mainMergeSha = (
-      await this.mainGit.revparse([this.mainBranch])
+    const mergeMessage = `Merge ${feature.featureBranch} into ${this.mainBranch}\n`;
+    const mergeCommitSha = (
+      await this.mainGit.raw([
+        'commit-tree',
+        mergeTreeSha,
+        '-p',
+        expectedParentSha,
+        '-p',
+        postRebaseSha,
+        '-m',
+        mergeMessage,
+      ])
     ).trim();
-    const branchHeadSha = (
-      await featureGit.revparse([feature.featureBranch])
-    ).trim();
+
+    try {
+      await this.mainGit.raw([
+        'update-ref',
+        `refs/heads/${this.mainBranch}`,
+        mergeCommitSha,
+        expectedParentSha,
+      ]);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (!isLeaseFailure(message)) {
+        throw err;
+      }
+      const observedSha = (
+        await this.mainGit.revparse([this.mainBranch])
+      ).trim();
+      this.deps.ports.store.clearIntegrationState();
+      this.deps.features.rerouteToReplan(featureId, [
+        {
+          source: 'rebase',
+          id: `rb-${featureId}-1`,
+          severity: 'blocking',
+          description: `Main moved during integration (${expectedParentSha} → ${observedSha})`,
+          conflictedFiles: [],
+        },
+      ]);
+      return {
+        kind: 'main_moved',
+        expectedSha: expectedParentSha,
+        actualSha: observedSha,
+      };
+    }
+
+    const mainMergeSha = mergeCommitSha;
+    const branchHeadSha = postRebaseSha;
 
     this.deps.graph.editFeature(featureId, {
       mainMergeSha,
@@ -192,6 +268,10 @@ export class IntegrationCoordinator {
       return conflicted;
     }
   }
+}
+
+function isLeaseFailure(message: string): boolean {
+  return message.includes('cannot lock ref');
 }
 
 function postRebaseCiIssues(
