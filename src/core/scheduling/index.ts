@@ -114,9 +114,10 @@ const POST_EXECUTION_PHASES: ReadonlySet<FeatureWorkControl> = new Set([
   'ci_check',
   'verifying',
   'summarizing',
+  'awaiting_merge',
 ]);
 
-function featurePhaseCategory(
+export function featurePhaseCategory(
   wc: FeatureWorkControl,
 ): 'pre' | 'executing' | 'post' | 'done' {
   if (PRE_EXECUTION_PHASES.has(wc)) return 'pre';
