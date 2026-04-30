@@ -34,7 +34,11 @@ import { ComposerProposalController } from '@tui/proposal-controller';
 import { TuiViewModelBuilder } from '@tui/view-model/index';
 
 import { createTuiCommandContext } from './app-command-context.js';
-import { executeSlashCommand, handleComposerSubmit } from './app-composer.js';
+import {
+  executeSlashCommand,
+  handleComposerSubmit,
+  routePlainTextInput,
+} from './app-composer.js';
 import type { TuiAppDeps } from './app-deps.js';
 import {
   currentSelection as buildCurrentSelection,
@@ -132,6 +136,7 @@ export class TuiApp implements UiPort {
       void handleComposerSubmit({
         text,
         executeSlashCommand: (input) => this.executeSlashCommand(input),
+        executePlainText: (input) => this.executePlainText(input),
         addToHistory: (input) => this.composer.addToHistory(input),
         setNotice: (notice) => {
           this.notice = notice;
@@ -428,6 +433,16 @@ export class TuiApp implements UiPort {
       setSelectedNodeId: (nodeId) => {
         this.selectedNodeId = nodeId;
       },
+    });
+  }
+
+  private async executePlainText(text: string): Promise<string> {
+    return routePlainTextInput({
+      text,
+      selection: this.currentSelection(),
+      snapshot: this.deps.snapshot(),
+      dataSource: this.deps,
+      draftActive: this.proposalController.getDraftState() !== undefined,
     });
   }
 

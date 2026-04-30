@@ -125,9 +125,9 @@ Most single-key commands only work in graph focus. While composer is focused, re
 
 ## Composer and Slash Commands
 
-Composer is command-first today. Submitted text must start with `/`. Plain text submit is not wired yet and shows `planner chat not wired yet`.
+Composer accepts both slash commands and plain-text planner chat. Slash-prefixed input goes through the slash-command surface (see below). Plain text on a feature in `planning` or `replanning` with a running plan/replan agent run is routed to the live planner as a follow-up turn (`Agent.followUp`), so the planner can revise its proposal in response. Plain text on a feature outside planning/replanning, or with no live run, is rejected with a notice. Plain text with no feature selected is rejected with a notice. While a manual proposal draft is active (after `/feature-add` etc and before `/submit` or `/discard`), plain text is rejected with `discard manual draft (/discard) before chatting with planner` to avoid two competing proposal sources.
 
-> **DEFERRED**: Planner chat not yet wired (see `src/tui/app-composer.ts`).
+Checkpoint-style `submit(...)` means a chat-driven follow-up that ends with another `submit(...)` replaces the prior pending proposal payload. The TUI's live planner mirror (`view: live-planner`) shows the running planner's incremental graph until the run reaches `await_approval`.
 
 Slash-command parsing is shell-like:
 
@@ -219,7 +219,6 @@ Illustrative layout:
 
 ## Known Limitations
 
-- composer currently supports slash commands only; plain-text planner chat is not wired
 - composer currently supports a minimal milestone authoring flow (`/milestone-add`) but still lacks milestone edit/remove commands
 - agent monitor is read-only; no worker steer or abort controls are exposed
 - manual run ownership (operator attach, `manual_input` drop-in, `release_to_scheduler` to return a run to automatic execution) is described in `docs/operations/verification-and-recovery.md` but no TUI command surface is wired yet

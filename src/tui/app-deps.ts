@@ -51,5 +51,10 @@ export interface TuiAppDeps {
     >,
   ): Promise<string>;
   sendTaskManualInput(taskId: string, text: string): Promise<string>;
+  sendPlannerChatInput(
+    featureId: FeatureId,
+    phase: 'plan' | 'replan',
+    text: string,
+  ): Promise<string>;
   quit(): Promise<void>;
 }

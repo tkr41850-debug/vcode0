@@ -457,6 +457,56 @@ describe('FeaturePhaseOrchestrator', () => {
     expect(result.proposal.ops).toHaveLength(1);
   });
 
+  it('chat-driven sendUserMessage triggers a second planning turn that re-submits with new ops', async () => {
+    faux.setResponses([
+      fauxAssistantMessage(
+        [
+          fauxToolCall('addTask', {
+            featureId: 'f-1',
+            description: 'first task',
+          }),
+          fauxToolCall('submit', proposalDetails),
+        ],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage([fauxText('Plan ready.')]),
+      fauxAssistantMessage(
+        [
+          fauxToolCall('addTask', {
+            featureId: 'f-1',
+            description: 'chat-revised task',
+          }),
+          fauxToolCall('submit', {
+            ...proposalDetails,
+            summary: 'Revised plan.',
+          }),
+        ],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage([fauxText('Revised.')]),
+    ]);
+
+    const { feature, run, runtime } = createRuntimeFixture('plan');
+    const session = runtime.startPlanFeature(feature, { agentRunId: run.id });
+    // Queue a follow-up pre-bind. ProposalPhaseSessionImpl drains the queue
+    // when bindAgent fires inside the kick-off IIFE; pi-agent picks it up at
+    // the natural stop after turn 2 and runs another (turn 3 + turn 4) pass.
+    session.sendUserMessage('add a second task that matches the discussion');
+
+    const result = await session.awaitOutcome();
+
+    expect(result.summary).toBe('Revised plan.');
+    expect(result.proposal.ops).toHaveLength(2);
+    expect(result.proposal.ops[0]).toMatchObject({
+      kind: 'add_task',
+      description: 'first task',
+    });
+    expect(result.proposal.ops[1]).toMatchObject({
+      kind: 'add_task',
+      description: 'chat-revised task',
+    });
+  });
+
   it('startReplanFeature carries replan reason into prompt + returns live session', async () => {
     faux.setResponses([
       fauxAssistantMessage([fauxToolCall('submit', proposalDetails)], {

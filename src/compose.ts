@@ -143,6 +143,24 @@ export async function composeApplication(): Promise<GvcApplication> {
       respondToPendingTaskHelp(store, runtime, taskId, response),
     decideTaskApproval: (taskId, decision) =>
       decidePendingTaskApproval(store, runtime, taskId, decision),
+    sendPlannerChatInput: async (featureId, phase, text) => {
+      const runId = `run-feature:${featureId}:${phase}`;
+      const run = store.getAgentRun(runId);
+      if (run?.scopeType !== 'feature_phase') {
+        throw new Error(`feature "${featureId}" has no ${phase} run`);
+      }
+      if (run.runStatus !== 'running') {
+        throw new Error(
+          `feature "${featureId}" planner is not running (status="${run.runStatus}")`,
+        );
+      }
+
+      const result = await runtime.sendRunManualInput(run.id, text);
+      if (result.kind !== 'delivered') {
+        throw new Error(`feature "${featureId}" planner is not running`);
+      }
+      return `Sent chat to planner for ${featureId}.`;
+    },
     sendTaskManualInput: async (taskId, text) => {
       const run = store.getAgentRun(`run-task:${taskId}`);
       if (run?.scopeType !== 'task') {

@@ -53,6 +53,7 @@ function createDataSource(taskRun?: TaskAgentRun) {
     respondToTaskHelp: vi.fn(async () => 'help sent'),
     decideTaskApproval: vi.fn(async () => 'decision sent'),
     sendTaskManualInput: vi.fn(async () => 'input sent'),
+    sendPlannerChatInput: vi.fn(() => Promise.resolve('planner chat sent')),
     quit: vi.fn(async () => {}),
   };
 }

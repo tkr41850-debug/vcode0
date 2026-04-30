@@ -1,3 +1,4 @@
+import type { GraphSnapshot } from '@core/graph/index';
 import type { ComposerSelection, TuiCommandContext } from '@tui/commands/index';
 import {
   parseInitializeProjectCommand,
@@ -5,11 +6,12 @@ import {
 } from '@tui/commands/index';
 import type { ComposerProposalController } from '@tui/proposal-controller';
 import type { TuiAppDeps } from './app-deps.js';
-import { formatUnknownError } from './app-state.js';
+import { formatUnknownError, phaseForFeature } from './app-state.js';
 
 export async function handleComposerSubmit(params: {
   text: string;
   executeSlashCommand: (input: string) => Promise<string>;
+  executePlainText?: (input: string) => Promise<string>;
   addToHistory: (input: string) => void;
   setNotice: (notice: string | undefined) => void;
   refresh: () => void;
@@ -22,7 +24,18 @@ export async function handleComposerSubmit(params: {
   }
 
   if (!trimmed.startsWith('/')) {
-    params.setNotice('planner chat not wired yet');
+    if (params.executePlainText === undefined) {
+      params.setNotice('planner chat not wired yet');
+      params.refresh();
+      return;
+    }
+    try {
+      const message = await params.executePlainText(trimmed);
+      params.addToHistory(trimmed);
+      params.setNotice(message);
+    } catch (error) {
+      params.setNotice(formatUnknownError(error));
+    }
     params.refresh();
     return;
   }
@@ -35,6 +48,49 @@ export async function handleComposerSubmit(params: {
     params.setNotice(formatUnknownError(error));
   }
   params.refresh();
+}
+
+/**
+ * Route a non-slash composer submission. If the selected feature is in
+ * planning or replanning AND has a running plan/replan agent_run, the text
+ * lands on the running planner as a follow-up turn via
+ * {@link TuiAppDeps.sendPlannerChatInput}. Otherwise returns a helpful
+ * notice without touching runtime state.
+ *
+ * When `draftActive` is true (a manual proposal draft is in flight), plain
+ * text is rejected with a notice so the operator does not accidentally send
+ * follow-up turns to the background planner while editing locally — that
+ * would create two competing proposal sources.
+ */
+export async function routePlainTextInput(params: {
+  text: string;
+  selection: ComposerSelection;
+  snapshot: GraphSnapshot;
+  dataSource: TuiAppDeps;
+  draftActive: boolean;
+}): Promise<string> {
+  const { selection, snapshot, dataSource, text, draftActive } = params;
+  if (draftActive) {
+    return 'discard manual draft (/discard) before chatting with planner';
+  }
+  if (selection.featureId === undefined) {
+    return 'select a feature in planning or replanning to chat with planner';
+  }
+  const feature = snapshot.features.find(
+    (entry) => entry.id === selection.featureId,
+  );
+  if (feature === undefined) {
+    return `feature "${selection.featureId}" not found`;
+  }
+  const phase = phaseForFeature(feature);
+  if (phase === undefined) {
+    return 'planner not running for this feature (not in planning/replanning)';
+  }
+  const run = dataSource.getFeatureRun(selection.featureId, phase);
+  if (run === undefined || run.runStatus !== 'running') {
+    return 'planner not running for this feature';
+  }
+  return dataSource.sendPlannerChatInput(selection.featureId, phase, text);
 }
 
 export async function executeSlashCommand(params: {
