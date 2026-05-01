@@ -6,6 +6,7 @@ Use these pages when evaluating trade-offs or warning signs around baseline beha
 
 Current entries:
 
+- [Concurrent Project-Planner Sessions](./concurrent-project-planner-sessions.md)
 - [Merge-Train Re-entry Cap](./merge-train-reentry-cap.md)
 - [Merge-Train Re-entry Starvation](./merge-train-reentry-starvation.md)
 - [Planner Write-Reservation Accuracy](./planner-write-reservation-accuracy.md)
