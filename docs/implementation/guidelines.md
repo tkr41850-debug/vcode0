@@ -19,37 +19,45 @@ See `guidelines-example.md` for a worked example. Tracks may retrofit existing p
 ## Doc spine
 
 ```
-# Phase <N> — <slug-name>
+# Phase <N> — <display-name>
 
-Status: drafting | active | paused | shipped <SHA> | superseded
-Verified state: main @ <SHA> on <YYYY-MM-DD>
-Depends on: phase-<N>-<slug> (<reason>), ...
-Default verify: npm run check:fix && npm run check
-Phase exit verify: npm run verify
-Phase exit smoke: <manual scenario, or "none">
-Doc-sweep deferred: <docs that will lag this phase, or "none">
+- Status: drafting | active | paused | shipped <SHA> | superseded
+- Verified state: main @ <SHA> on <YYYY-MM-DD>
+- Depends on: phase-<N>-<slug> (<reason>), ...
+- Default verify: npm run check:fix && npm run check
+- Phase exit verify: npm run verify
+- Phase exit smoke: <manual scenario, or "none">
+- Doc-sweep deferred: <docs that will lag this phase, or "none">
+
+Ships as N commits, in order.
 
 ## Contract
 
-Goal: ...
-Scope:
-  In: ...
-  Out: ...
-Exit criteria: ...
+- Goal: <one sentence, observable outcome>
+- Scope:
+  - In: <bullet list of deliverables>
+  - Out: <bullet list of explicit non-goals; cite owner phase id when another phase picks them up>
+- Exit criteria: <bullet list of observable post-conditions, orthogonal to per-step verifies>
 
 ## Plan
 
-Background: ...
-Notes: ...
+- Background: <recon memo, paths + line ranges + current behavior; deltas only>
+- Notes: <open questions and watch items, or "none">
 
 ## Steps
 
 ### X.Y name [risk: ..., size: ...]
-...
+What: <imperative summary of the change>
+Files: <path:line, one per item; new files: path (new)>
+Tests: <test files OR "tests deferred to step X.Y (<reason>)">
+Review goals: 1) ... 2) ... 3) ...
+Commit: <conventional commit subject, ≤72 chars>
 
 ---
 Shipped in <SHA1>..<SHA2> on <YYYY-MM-DD>
 ```
+
+Title `<display-name>` is the human-readable form of the slug (e.g., slug `protocol-and-registry` → display `Worker protocol & registry`). The canonical id stays `phase-<N>-<slug>` and matches the filename; the title is for readers.
 
 The two top-level sections have distinct roles:
 
@@ -57,6 +65,14 @@ The two top-level sections have distinct roles:
 - **Plan** — how the work will get done. Mutable. Revise as understanding deepens — recon notes shift, open questions resolve, step substance moves around. No ceremony required for changes here.
 
 If a discovery during work would change the Contract (scope grew, exit criteria wrong), stop and surface it; do not silently re-shape the Contract to match what was actually built.
+
+**Contract revision recipe** — edit the field in place; append a parenthetical note with date and prior text. Don't delete the prior text — reviewers and the README track what the phase committed to.
+
+```
+- Goal: workers can register, heartbeat, AND receive `dispatchRun` over the wire (revised 2026-04-12: prior Goal stopped at heartbeat; phase-2-remote-task-execution scope-collapsed back into this phase after spike showed wire format is shared).
+```
+
+For Scope.In/Out additions, prefix the new item with `(added 2026-04-12) ...`. For Exit criteria changes, same pattern.
 
 ## Header fields
 
@@ -89,13 +105,13 @@ Tier is implicit from the `[risk: ..., size: ...]` label. Author includes only f
 ### Sizing rubric
 
 - **Size**
-  - `S` — single file, ≲50 LOC, mechanical.
-  - `M` — 1-3 files, ≲300 LOC, narrow feature or refactor.
-  - `L` — 3+ files OR cross-component OR new module surface.
+  - `S` — single file, ≲50 LOC, mechanical. Examples: rename, doc tweak, additive log line, new test fixture.
+  - `M` — 1-3 files, ≲300 LOC, narrow feature or refactor. Examples: new method on existing class, narrow refactor with same external surface, single-table migration.
+  - `L` — 3+ files OR cross-component OR new module surface. Examples: new IPC frame end-to-end, new module + tests + integration wiring, cutover replacing old path with new.
 - **Risk**
-  - `low` — additive, reversible by `git revert` with no side effects.
-  - `med` — touches behavior on a hot path, or shared types/contracts in-process.
-  - `high` — schema/migration/protocol/irreversible/cross-process invariant.
+  - `low` — additive, reversible by `git revert` with no side effects. Examples: new file, additive log, doc edit, new test, new optional config field.
+  - `med` — touches behavior on a hot path, or shared types/contracts in-process. Examples: branch on hot path, refactor with same external surface, new method on widely-used class.
+  - `high` — schema/migration/protocol/irreversible/cross-process invariant. Examples: schema migration, IPC frame change, env-var rename, signal handler, security-posture change, deploy artifact.
 
 When in doubt, round up. A bigger label costs a few extra fields; a smaller label hides risk.
 
@@ -122,7 +138,6 @@ Files: ...                 # omit if obvious from What
 Tests: ...
 Review goals: 1) ... 2) ...
 Commit: ...
-Rollback: revert
 ```
 
 ### Heavy — `risk: high` OR `size: L`
@@ -136,20 +151,55 @@ Files: ...
 Tests: ...
 Review goals: 1) ... 2) ...
 Commit: ...
-Rollback: <explicit recipe, tested if possible>
-Behavior diff: before → after
+Rollback: <recipe, only if undo ≠ git revert>
 Smoke: <manual scenario>
 Migration ordering: <multi-commit dance, if any>
 Crash matrix: <if recovery-relevant>
 ```
 
+**Rollback** — include only when `git revert` does NOT fully undo the step: schema migrations needing a down-step or snapshot, env-var renames or config flips operators must reverse, deploy artifacts already shipped (systemd units, install scripts), published packages, or other out-of-band side effects. Pure code edits — additive frames, new modules, refactors — omit the field; revert is implied.
+
+**Behavior diff** is intentionally NOT a field. The phase Goal and the step's `What:` already carry before/after. If a step's effect is non-obvious from those, fix the `What:` rather than add a parallel field. Cutover ordering — when old and new paths must NOT coexist across commits — goes in `Migration ordering:`.
+
 ### Step rules
 
-- One logical change per commit. Green tree between commits.
-- Phase header states total commits: "Ships as N commits, in order."
-- Step numbering is `X.Y`. Half-steps (`X.Y.a`, `X.Y.b`) are allowed when a single logical step splits cleanly into ordered substeps; prefer splitting into two `X.Y` entries when feasible.
-- `Commit:` field carries the verbatim conventional commit subject.
-- `Review goals:` is a numbered list of what the reviewer must check. Default word cap **250 words** unless the phase header sets another. Tool-agnostic; the subagent prompt is assembled from these goals at review time.
+- **One step = one commit.** Verbatim conventional subject in `Commit:`. If a step needs two commits, it's two steps.
+- Green tree between commits (Default verify passes).
+- Phase header states total commits: "Ships as N commits, in order." If `Doc-sweep deferred` is non-empty, the closing doc-only commit is included in the count.
+- Step numbering is `X.Y`. Half-steps (`X.Y.a`, `X.Y.b`) are still **separate steps with separate commits** — the shared `X.Y` prefix only signals "these substeps land together as one logical change" for review. They do not violate one-step = one-commit. Prefer splitting into two `X.Y` entries when the substeps are independently reviewable.
+- **Commit scope** — module-scoped: `feat(runtime/ipc): ...`, `fix(persistence): ...`, `docs(implementation): ...`. Bare `feat: improvements` is banned. Subject ≤72 chars; details in the body.
+- **`Files:` format** — one path per item. Anchor with `:line` when the edit lands at a specific site (`src/runtime/ipc/frames.ts:204`); omit `:line` for whole-file rewrites or new files. New files: `src/runtime/registry/transport.ts (new)`. Multi-line lists indent under the `Files:` label, two-space indent per continuation line. Omit the field entirely when fully redundant with `What:`.
+- **`Tests:` rubric** —
+  - Standard / Heavy: list test files OR `tests deferred to step X.Y (<reason>)`. Silence is not allowed.
+  - Light: optional. Pure-doc step: omit.
+  - Refactor with no behavior change: name the existing test file that already covers the surface (`covered by test/unit/foo.test.ts`).
+- **`Review goals:`** is a numbered list of what the reviewer must check. Default word cap **250 words** unless the phase or step overrides (`Review goals: (cap 400 words) 1) ...`). Tool-agnostic; the subagent prompt is assembled from these goals at review time.
+- **`Smoke:` (per-step)** is distinct from the **`Phase exit smoke`** header field. Per-step smoke is a manual scenario that exercises just this step's behavior in isolation; phase-exit smoke exercises the phase's user-visible outcome end-to-end. A step may carry its own `Smoke:` even when the phase-exit smoke is `none`, and vice versa.
+
+## Anti-patterns
+
+Concrete shapes to reject in review.
+
+- **Goal names implementation, not outcome**
+  - bad: `Add the workers table and heartbeat frame.`
+  - good: `Workers can register, declare capacity, and heartbeat; the orchestrator persists them as a queryable seam.`
+- **Exit criteria duplicate per-step verifies**
+  - bad: `All tests pass. Build is green. No lint errors.` (already covered by Default / Phase exit verify)
+  - good: `Grep for legacy 'HELP:' prefix returns zero hits. agent_events row exists after smoke. TUI renders without unknown-event fallback.`
+- **Background restates architecture**
+  - bad: `The runtime uses a process-per-task model with squash-merge feature branches...` (in `docs/architecture/`; link there)
+  - good: `submitFeature() at src/orchestrator/planner-host.ts:142 sets status before validating input; tests at test/unit/planner-host.test.ts:88 only assert post-state, masking the order bug.`
+- **Notes are TODOs disguised as questions**
+  - bad: `Open: should we also clean up zombie worktrees?` (this is deferred work; move to `Scope.Out` with owner phase or to `docs/concerns/`)
+  - good: ``Open: should `urgency` be a free string or an enum? Draft uses enum; revisit if more levels surface.`` (a real open design question with a default)
+- **Cosmetic step splits**
+  - bad: `1.1 Add type. 1.2 Add export.` (one logical change in two commits)
+  - good: split only when each commit leaves a green tree AND ships a coherent slice.
+- **Vague commit subjects**
+  - bad: `feat: improvements`, `fix: misc cleanup`, `chore: updates`
+  - good: `feat(runtime/ipc): add help_request frame and event-kind migration`
+- **Unbounded scope creep into Out**
+  - `Out:` is a boundary against tempting nearby work; if it grows past ~6 items, ask whether the phase is too narrow or another phase is missing.
 
 ## Style
 
@@ -157,7 +207,7 @@ Crash matrix: <if recovery-relevant>
 - Pseudocode only when sequencing is load-bearing.
 - Imperative tone. Say what NOT to do and why.
 - Warn about drift: re-read file at edit time.
-- Bold labels (`**What:**` vs `What:`) are author choice. Pick one and stay consistent within a phase.
+- Bold labels — applies to step-field labels (`**What:**` vs `What:`, `**Files:**` vs `Files:`, etc.). Author choice; pick one and stay consistent within a phase. Header-bullet field names (`- Status:`, `- Verified state:`) and Contract/Plan field names (`- Goal:`, `- Background:`) are always plain (no bolding) because they sit inside bullet lists where bolding fights the bullet structure.
 - Hoist defaults to the phase header; per-step only when deviating.
 
 ## Glossary
