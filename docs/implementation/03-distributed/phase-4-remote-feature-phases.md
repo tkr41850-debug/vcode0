@@ -7,7 +7,7 @@
 - Phase exit: npm run verify; boot a real remote worker; submit a fresh project; observe bootstrap-plan, discuss, research, plan, verify, and ci_check all execute on the worker with the orchestrator instantiating zero pi-sdk `Agent` instances; confirm the TUI live-planner mirror renders proposal ops in real time as they stream from the worker.
 - Doc-sweep deferred: docs/architecture/worker-model.md (where-do-agents-run section flips at step 4.7), docs/architecture/planner.md (line 16 host-location note), docs/operations/recovery.md (disconnect-handling gap until phase-5-leases-and-recovery lands)
 
-Ships as 9 commits, in order. Step 4.6 splits into 3 sub-commits (4.6.a / 4.6.b / 4.6.c), for an effective total of 11 commits on the feature branch; step 4.7.5 is a mechanical retarget that ships alongside 4.7; step 4.10 is an optional smoke. Each commit stands on its own and the suite stays green between commits. The first three steps are infra (no functional change). Steps 4.4–4.7 migrate one scope at a time behind a per-scope flag. Step 4.9 enforces the non-negotiable.
+Ships as 12 commits, in order, plus an optional smoke (4.10). Steps 4.6 and 4.7 each split into substeps that share their X.Y prefix: 4.6.a / 4.6.b / 4.6.c stage the planner-scope flag flips; 4.7.a is the `verifyFeature` retarget that lands between 4.7's flag flip and 4.8's deletion. Each commit stands on its own and the suite stays green between commits. The first three steps are infra (no functional change). Steps 4.4–4.7 migrate one scope at a time behind a per-scope flag. Step 4.9 enforces the non-negotiable.
 
 ## Contract
 
@@ -31,7 +31,7 @@ Ships as 9 commits, in order. Step 4.6 splits into 3 sub-commits (4.6.a / 4.6.b 
     - Per-phase resource caps on worker side (no owner phase in this track).
     - `squid-track` / `claude-code` harness kind (separate track).
 - Exit criteria:
-  - All commits land in order (4.1 through 4.9; 4.6 splits into 4.6.a/b/c; 4.10 smoke is optional).
+  - All commits land in order (4.1, 4.2, 4.3, 4.4, 4.5, 4.6.a, 4.6.b, 4.6.c, 4.7, 4.7.a, 4.8, 4.9; 4.10 smoke is optional).
   - `npm run verify` passes on the final commit with default config (no flag overrides).
   - Orchestrator process instantiates zero pi-sdk `Agent` instances end-to-end (audit-guard test at-rest; optional smoke in motion).
   - `grep -RIn 'new Agent(' src/orchestrator src/agents/runtime.ts` returns zero hits after step 4.8.
@@ -228,7 +228,7 @@ Commit: feat(distributed): default all feature-phase agents to remote
 
 Rollback: revert flips the six defaults back to `false`. Operators who already shipped this build but want to fall back without redeploying can set the six keys to `false` in config; documentation must call out this escape hatch in the doc-sweep at phase exit.
 
-### 4.7.5 Pre-retire trace: `verifyFeature` call sites [risk: med, size: M]
+### 4.7.a Pre-retire trace: `verifyFeature` call sites [risk: med, size: M]
 
 What: before deleting `VerificationService.verifyFeature` in step 4.8, trace every call site and retarget it. Greppping for `verifyFeature(` and naive deletion miss the orchestrator-side direct caller; this step makes the rewiring explicit so the deletion is mechanical.
 
@@ -248,11 +248,11 @@ Review goals (cap 250 words):
   2. The merge-queue contract `{ ok, summary, failedChecks? }` is byte-identical pre/post.
   3. The test asserts the source of the `VerificationSummary`, not just its shape.
 
-Commit: refactor(orchestrator/integration): consume verification result from remote agent_runs row
+Commit: refactor(orchestrator/integration): consume remote verification rows
 
 ### 4.8 Retire the in-process FeaturePhaseOrchestrator [risk: high, size: L]
 
-What: delete `FeaturePhaseOrchestrator` (`src/agents/runtime.ts:177`), `DiscussFeaturePhaseBackend` (`src/runtime/harness/feature-phase/index.ts:75`), and the local body of `VerificationService.verifyFeature` (`src/orchestrator/services/verification-service.ts:25`). Step 4.7.5 already retargeted every external `verifyFeature` caller; this step is mechanical deletion to make the non-negotiable structural.
+What: delete `FeaturePhaseOrchestrator` (`src/agents/runtime.ts:177`), `DiscussFeaturePhaseBackend` (`src/runtime/harness/feature-phase/index.ts:75`), and the local body of `VerificationService.verifyFeature` (`src/orchestrator/services/verification-service.ts:25`). Step 4.7.a already retargeted every external `verifyFeature` caller; this step is mechanical deletion to make the non-negotiable structural.
 
 `ProposalPhaseSessionImpl` (`src/agents/runtime.ts:113`) stays as the session-handle abstraction. Repurpose `bindAgent` → `bindRemoteRun`, wrapping `SessionHandle` instead of an in-process `Agent`. `persistPhaseOutputToFeature` (`src/agents/runtime.ts:528`) also stays — it is not an agent loop.
 
@@ -290,7 +290,7 @@ Tests:
   - `test/unit/runtime/audit-no-local-agents.test.ts` — at-rest scan of `src/` asserting zero matches for `new Agent(` under `src/orchestrator/**` and `src/agents/runtime.ts`. Lints alone catch new imports; this catches dynamic patterns the linter misses (e.g. `Reflect.construct(Agent, ...)`).
   - `eslint` runs as part of `npm run lint:ci` — confirm coverage by adding a small fixture that imports `Agent` directly and asserting the rule fires (use `eslint --rulesdir` or a scoped fixture under `test/fixtures/eslint/`).
 
-Verify (override): `npm run check:fix && npm run check && npm run lint:ci`.
+Verification: `npm run check:fix && npm run check && npm run lint:ci`.
 
 Review goals (cap 250 words):
   1. `allowTypeImports` is enabled so IPC-contract type-only imports of `Agent` still work.

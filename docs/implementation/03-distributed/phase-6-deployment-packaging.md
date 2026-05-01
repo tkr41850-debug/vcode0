@@ -193,7 +193,6 @@ Review goals (cap 250 words):
 
 Commit: chore(deploy): canonical systemd unit + env template
 Rollback: deploy artifacts already shipped — `git revert` removes the canonical files from the repo, but operators who copied `gvc0-worker.service` into `/etc/systemd/system/` must `systemctl stop gvc0-worker && systemctl disable gvc0-worker && rm /etc/systemd/system/gvc0-worker.service && systemctl daemon-reload` manually. `/etc/gvc0/worker.env` is operator-owned.
-Smoke: see phase-exit smoke in the header — clean-VM install path; `systemctl show -p MainPID gvc0-worker` + `ps -o user= -p <pid>` returns `gvc0`.
 
 ---
 Shipped in <SHA1>..<SHA6> on <YYYY-MM-DD>

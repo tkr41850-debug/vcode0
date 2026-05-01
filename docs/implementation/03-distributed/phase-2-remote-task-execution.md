@@ -2,9 +2,10 @@
 
 - Status: drafting
 - Verified state: main @ dac6449 on 2026-05-01
-- Depends on: phase-0-migration-consolidation (migration numbering baseline), phase-1-protocol-and-registry (`WorkerRegistry`, network IPC transport, `agent_runs.worker_id`, IPC schema validation gate)
+- Depends on: phase-0-migration-consolidation (migration numbering baseline), phase-1-protocol-and-registry (`WorkerRegistry`, network IPC transport), 01-baseline phase-1-safety (IPC schema validation gate)
 - Default verify: npm run check:fix && npm run check
-- Phase exit: npm run verify; run the end-to-end remote-task test from step 2.7 against an in-process fake remote worker; confirm the task dispatches over the remote harness, the worker clones / commits / pushes, the centralized session store has a saved checkpoint, the orchestrator fetches and squash-merges, and the feature-branch tip is the squash commit.
+- Phase exit: npm run verify; run the end-to-end remote-task test from step 2.8 against an in-process fake remote worker; confirm the task dispatches over the remote harness, the worker clones / commits / pushes, the centralized session store has a saved checkpoint, the orchestrator fetches and squash-merges, and the feature-branch tip is the squash commit.
+- Doc-sweep deferred: `docs/architecture/worker-model.md` (local-spawn-only narrative; `FileSessionStore`-only session-persistence claims), `docs/architecture/persistence.md` (`FileSessionStore` references). Reconcile in one doc-only commit at phase exit.
 
 Ships as 8 commits, in order.
 
@@ -32,7 +33,7 @@ Ships as 8 commits, in order.
 - Exit criteria:
   - All eight commits land in order on a feature branch.
   - `npm run verify` passes on the final commit.
-  - The end-to-end test from step 2.7 runs green.
+  - The end-to-end test from step 2.8 runs green.
   - A final review subagent confirms the eight commits compose into one coherent transport seam: local and remote dispatch coexist, no path silently degrades to local when remote was requested, and no branch on the bare repo can be force-pushed by either side.
   - Open follow-ups are recorded in `docs/concerns/` if surfaced during review:
     - Multi-worker capacity and queueing → phase-3-multi-worker-scheduling.
@@ -143,11 +144,11 @@ Review goals (cap 250 words):
 
 Commit: feat(runtime/sessions): centralized session storage with IPC proxy
 
-### 2.3.a Make live worker connections dispatchable [risk: high, size: L]
+### 2.4 Make live worker connections dispatchable [risk: high, size: L]
 
 What: the phase-1-protocol-and-registry registry server (`src/runtime/registry/server.ts`) currently accepts `register` / `heartbeat` / `reconnect` / `worker_shutdown` and drops every other frame. To dispatch a task to a remote worker, the orchestrator needs to send a `run` frame over the same socket and route the worker's reply frames (`progress`, `result`, `error`, `manual_input`, `claim_lock`, `request_help`, `request_approval`, `session_op`) back to the harness that owns the run. This step extends the server with a `connection ↔ workerId` map (already stashed by `register` per phase-1-protocol-and-registry step 1.4) plus a run-plane router that forwards inbound run frames to the appropriate per-run handler and outbound `OrchestratorToWorkerMessage` frames to the right connection.
 
-This is plumbing, not policy. The harness from step 2.4 plugs into the resulting `WorkerNetworkTransport` shape; the dispatcher in step 2.5 picks the worker; this step makes the channel bidirectional for run traffic.
+This is plumbing, not policy. The harness from step 2.5 plugs into the resulting `WorkerNetworkTransport` shape; the dispatcher in step 2.6 picks the worker; this step makes the channel bidirectional for run traffic.
 
 Files:
   - `src/runtime/registry/server.ts` — extend the per-connection state with a `Map<agentRunId, RunFrameSink>` for the runs the worker is currently hosting. On inbound run-plane frame (`progress`, `result`, etc.), validate the discriminator against `WorkerToOrchestratorMessage`, look up the sink by `agentRunId`, and forward. On terminal frame, drop the entry.
@@ -161,11 +162,11 @@ Review goals (cap 350 words):
   1. Verify inbound frames addressed to an unknown `agentRunId` are dropped with a log, not silently swallowed.
   2. Verify the connection map survives `heartbeat` / `reconnect` cycles — a transient drop must not leave dangling sinks. The reconnect handler from phase-1-protocol-and-registry step 1.4 reattaches sinks for leases the worker still holds.
   3. Verify outbound `dispatchRun` against an unknown `workerId` returns a typed error, not `undefined`.
-  4. Verify the router does not import any harness module — harness wiring belongs to step 2.4.
+  4. Verify the router does not import any harness module — harness wiring belongs to step 2.5.
 
 Commit: feat(runtime/registry): route run-plane frames to live worker connections
 
-### 2.4 RemoteWsHarness [risk: high, size: L]
+### 2.5 RemoteWsHarness [risk: high, size: L]
 
 What: the remote analogue of `PiSdkHarness`. Implements `SessionHarness` (`src/runtime/harness/index.ts:48-54`) by addressing a worker over the phase-1-protocol-and-registry network IPC transport. `start(...)` and `resume(...)` send a `run` frame across the wire just like the local path.
 
@@ -179,7 +180,7 @@ This is intentionally *unlike* `PiSdkHarness`'s `child.on('exit')` wiring (`src/
 Worker addressing: phase-1-protocol-and-registry introduced a `WorkerRegistry`. The harness consumes a `WorkerLease` (or whatever phase-1-protocol-and-registry called the addressable handle) at `start` time. The harness does **not** own worker selection — the dispatcher does.
 
 Files:
-  - `src/runtime/harness/remote-ws.ts` — new. `RemoteWsHarness` class. Constructor takes the registry port from phase-1-protocol-and-registry, the `WorkerNetworkTransport` from step 2.3.a, and the centralized session-side handler factory from step 2.3.
+  - `src/runtime/harness/remote-ws.ts` — new. `RemoteWsHarness` class. Constructor takes the registry port from phase-1-protocol-and-registry, the `WorkerNetworkTransport` from step 2.4, and the centralized session-side handler factory from step 2.3.
   - `src/runtime/harness/index.ts` — re-export `RemoteWsHarness`. Touch the file only for the export; the existing `PiSdkHarness` class is unchanged.
   - `src/runtime/remote/worker-protocol.ts` — new. Worker-bootstrap frames (`worker_ready`, `worker_init_ack`) that ride on top of the phase-1-protocol-and-registry transport, so this harness knows when the worker is past its own startup. These frames stay separate from the task IPC unions in `contracts.ts` — they are connection-level, not task-level.
 
@@ -195,7 +196,7 @@ Review goals (cap 400 words):
 
 Commit: feat(runtime/harness): RemoteWsHarness over network IPC
 
-### 2.5 Dispatch transport selection [risk: high, size: L]
+### 2.6 Dispatch transport selection [risk: high, size: L]
 
 What: the dispatcher picks between `PiSdkHarness` and `RemoteWsHarness` per run. Selection rule:
   - A worker capability declared in phase-1-protocol-and-registry (`capabilities.transportKind` — `local-spawn` vs `remote-ws`) determines which harness can service that worker.
@@ -223,7 +224,7 @@ Review goals (cap 200 words):
 
 Commit: feat(runtime): MultiHarnessPool routes dispatch by worker capability
 
-### 2.6 Branch sync-back into integration [risk: high, size: L]
+### 2.7 Branch sync-back into integration [risk: high, size: L]
 
 What: make the orchestrator read worker-pushed task-branch SHAs back into its state, and feed them into the squash-merge step that already lives in the integration coordinator (`src/orchestrator/integration/index.ts:78-117`).
 
@@ -244,9 +245,9 @@ Review goals (cap 400 words):
   3. Verify `mergeTaskBranchIntoFeature` never force-pushes or rewrites history on the feature branch.
   4. Verify rebase-conflict handling in the integration coordinator (`src/orchestrator/integration/index.ts:178-194`) still owns conflict reroute, and the new helper does not duplicate it.
 
-Commit: feat(orchestrator/integration): fetch and squash-merge remote task branches
+Commit: feat(orchestrator/integration): squash-merge remote task branches
 
-### 2.7 End-to-end happy-path with a fake remote worker [risk: med, size: M]
+### 2.8 End-to-end happy-path with a fake remote worker [risk: med, size: M]
 
 What: an integration test that drives one full task through the remote path end to end, using an in-process "fake remote" worker (same harness wiring, same phase-1-protocol-and-registry network transport, same Node process). Crosses every seam: registry, harness, network IPC, worker-side git client, centralized session storage, dispatch routing, branch sync-back. Uses the `fauxModel` pattern from `test/integration/harness/`.
 

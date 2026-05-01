@@ -2,9 +2,10 @@
 
 - Status: drafting
 - Verified state: main @ dac6449 on 2026-05-01
-- Depends on: phase-0-migration-consolidation (pins migration ids `013` and `014` for this track), phase-1-protocol-and-registry (registry plane, `heartbeat` / `reconnect` / `worker_shutdown` frame surface, `bootEpoch` semantics), phase-2-remote-task-execution (`RemoteSessionStore`, bare-repo and pre-receive hook plumbing), phase-3-multi-worker-scheduling (`selectWorker` and the worker-panel three-tier rendering this phase enriches), phase-4-remote-feature-phases (proposal-host model that takeover resumability consults)
+- Depends on: phase-0-migration-consolidation (pins migration ids `005` and `006` for this track), phase-1-protocol-and-registry (registry plane, `heartbeat` / `reconnect` / `worker_shutdown` frame surface, `bootEpoch` semantics), phase-2-remote-task-execution (`RemoteSessionStore`, bare-repo and pre-receive hook plumbing), phase-3-multi-worker-scheduling (`selectWorker` and the worker-panel three-tier rendering this phase enriches), phase-4-remote-feature-phases (proposal-host model that takeover resumability consults)
 - Default verify: npm run check:fix && npm run check
 - Phase exit: npm run verify; boot two workers; dispatch a task to worker A; kill worker A without graceful shutdown; observe the lease pass grace, fence bump, and run resume on worker B from the persisted `sessionId` to completion.
+- Doc-sweep deferred: `docs/architecture/worker-model.md` (pid/proc liveness, `RECOVERY_REBASE` marker, `FileSessionStore`-as-sole-persistence narrative), `docs/architecture/persistence.md` (`worker_pid` / `worker_boot_epoch` / `owner_worker_id` / `owner_assigned_at` references; recovery-metadata schema; new `run_leases` / `run_lease_events` / `fence_token` surfaces), `docs/operations/verification-and-recovery.md` (lease-based reclamation and crash-matrix copy). Reconcile in one doc-only commit at phase exit.
 
 Ships as 9 commits, in order.
 
@@ -13,14 +14,14 @@ Ships as 9 commits, in order.
 - Goal: replace local-machine pid/proc liveness with persisted ownership leases as the authoritative record of "which worker owns which run"; heartbeats from the registry plane renew leases, expired leases are reclaimed and rerouted via the phase-3-multi-worker-scheduling picker, and every state-mutating worker frame is fenced.
 - Scope:
   - In:
-    - New `run_leases` and `run_lease_events` tables, `agent_runs.fence_token` column (migration `013`), with Store API: `grantLease`, `getLease`, `renewLease`, `expireLease`, `releaseLease`, `listExpiredLeases`, `bumpAndReadFence`, `RunLeaseStore.updateRunWithFence`.
+    - New `run_leases` and `run_lease_events` tables, `agent_runs.fence_token` column (migration `005`), with Store API: `grantLease`, `getLease`, `renewLease`, `expireLease`, `releaseLease`, `listExpiredLeases`, `bumpAndReadFence`, `RunLeaseStore.updateRunWithFence`.
     - Lease grant on dispatch with pinned ordering (bump fence → send `run` frame with fence → `harness.start` → `grantLease` → persist `running`); rollback closes handle and aborts on grant failure.
     - Heartbeat-driven lease renewal as the canonical lease carrier; `health_pong` stays local-stdio liveness with no lease semantics (D6 reversal).
     - Voluntary release on `worker_shutdown` D15 frame and clean local-spawn `child.on('exit')` (skips grace).
     - Lease-expiry sweep with reroute or replan, sweep-on-boot synchronous before first scheduler tick.
     - Fence-token enforcement at IPC, `RunLeaseStore.updateRunWithFence`, and bare-repo `git push` layers.
     - Integration tests for the worker-crash, orchestrator-crash (seven D7 / D15 cases), and network-partition crash matrix.
-    - Retirement of `worker_pid`, `worker_boot_epoch`, `owner_worker_id`, `owner_assigned_at`, `tasks.worker_id`, `idx_agent_runs_owner_worker`, `/proc/<pid>/environ` probes, orchestrator-side `process.kill`, and `RECOVERY_REBASE` markers (migration `014` table-rebuild).
+    - Retirement of `worker_pid`, `worker_boot_epoch`, `owner_worker_id`, `owner_assigned_at`, `tasks.worker_id`, `idx_agent_runs_owner_worker`, `/proc/<pid>/environ` probes, orchestrator-side `process.kill`, and `RECOVERY_REBASE` markers (migration `006` table-rebuild).
     - Lease-tied orphan-branch cleanup helper that runs only after takeover or explicit cancel.
   - Out:
     - Multi-orchestrator leadership / split-brain protection (single-orchestrator authority is a 03-distributed track non-negotiable; no owner phase in this track).
@@ -55,7 +56,7 @@ Ships as 9 commits, in order.
     | Worker ↔ bare repo | `git push` fails → worker reports `error: git_unreachable`. Phase-1-protocol-and-registry retry classifies transient; lease is *not* expired unless heartbeats also stop. | within 5.6 |
     | Both simultaneously | Stateless reboot; lease rows on disk are expired. Reconciler sweeps on boot *before* scheduler runs; reroute on first tick. | 5.7 (case 2) |
 
-  - **Retirement of pid/proc liveness.** Step 5.9 deletes `killStaleWorkerIfNeeded`, `readProcEnvironmentMarkers`, `parseProcEnvironment`, `rebaseTaskWorktree` / `RECOVERY_REBASE`, and the `workerPid` / `workerBootEpoch` plumbing through harness, worker-pool, and scheduler dispatch (replaced by `workerId` + `fence`). Migration `014_drop_legacy_run_columns.ts` uses `CREATE TABLE … AS SELECT` rebuild (SQLite `DROP COLUMN` unreliable on Alpine 3.34.x) to drop `agent_runs.{worker_pid, worker_boot_epoch, owner_worker_id, owner_assigned_at}`, `tasks.worker_id`, and `idx_agent_runs_owner_worker`. Downgrade requires restoring from a pre-this-phase SQLite backup.
+  - **Retirement of pid/proc liveness.** Step 5.9 deletes `killStaleWorkerIfNeeded`, `readProcEnvironmentMarkers`, `parseProcEnvironment`, `rebaseTaskWorktree` / `RECOVERY_REBASE`, and the `workerPid` / `workerBootEpoch` plumbing through harness, worker-pool, and scheduler dispatch (replaced by `workerId` + `fence`). Migration `006_drop_legacy_run_columns.ts` uses `CREATE TABLE … AS SELECT` rebuild (SQLite `DROP COLUMN` unreliable on Alpine 3.34.x) to drop `agent_runs.{worker_pid, worker_boot_epoch, owner_worker_id, owner_assigned_at}`, `tasks.worker_id`, and `idx_agent_runs_owner_worker`. Downgrade requires restoring from a pre-this-phase SQLite backup.
   - **Orphaned branches.** A dead worker may leave a feature/task branch on the bare repo with no live owner. Branches are lease-tied: each branch ref is owned by whichever run currently holds the lease for that scope. Cleanup runs only after a takeover *or* an explicit cancel — never on mere lease expiry, because the takeover may itself fail and the branch must remain available for retry. When a feature moves to `cancelled` or a task run is rerouted *and* the new worker has acked its first heartbeat with the new fence, the cleanup step in `WorktreeProvisioner` runs `git update-ref -d` against any task branch whose owning run is `cancelled` / `completed` and which no live worker reports holding open. Hooks into the disposal logic from `01-baseline/phase-4-recovery.md` step 4.1 and respects the same idempotency contract. This phase does *not* introduce a generic branch GC.
 
 ## Steps
@@ -64,10 +65,10 @@ Nine commits, lease-lifecycle order: schema → grant → renew → expire → t
 
 ### 5.1 run_leases table + fence_token column + Store API [risk: high, size: L]
 
-What: durable lease store. Schema only. Producer/consumer wiring lands in steps 5.2 and 5.4. Migration `013_run_leases_fence_token.ts` is one transactional unit creating `run_leases`, `run_lease_events`, indexes, and adding `agent_runs.fence_token NOT NULL DEFAULT 0`. Pinned id `013` per phase-0-migration-consolidation chain (phase-1-protocol-and-registry = `010_workers.ts`, phase-3-multi-worker-scheduling = `011_agent_run_owner_columns.ts` / `012_agent_run_owner_index.ts`, this step = `013`, step 5.9 = `014`).
+What: durable lease store. Schema only. Producer/consumer wiring lands in steps 5.2 and 5.4. Migration `005_run_leases_fence_token.ts` is one transactional unit creating `run_leases`, `run_lease_events`, indexes, and adding `agent_runs.fence_token NOT NULL DEFAULT 0`. Pinned id `005` per phase-0-migration-consolidation chain (phase-1-protocol-and-registry = `002_workers.ts`, phase-3-multi-worker-scheduling = `003_agent_run_owner_columns.ts` / `004_agent_run_owner_index.ts`, this step = `005`, step 5.9 = `006`).
 
 Files:
-  - `src/persistence/migrations/013_run_leases_fence_token.ts` (new) — register `Migration013RunLeasesFenceToken`. Creates:
+  - `src/persistence/migrations/005_run_leases_fence_token.ts` (new) — register `Migration005RunLeasesFenceToken`. Creates:
 
     ```sql
     CREATE TABLE run_leases (
@@ -97,7 +98,7 @@ Files:
     ```
 
     The `run_lease_events` audit table lands here (not in step 5.4) so the migration is one transactional unit; consumers turn on in step 5.4.
-  - `src/persistence/db.ts` — register in the `migrations` array (same wiring as the `010` entry from phase-1-protocol-and-registry step 1.3).
+  - `src/persistence/db.ts` — register in the `migrations` array (same wiring as the `002` entry from phase-1-protocol-and-registry step 1.3).
   - `src/orchestrator/ports/index.ts` — extend `Store` with `grantLease`, `getLease`, `renewLease` (fence-checked, refuses on stale fence), `expireLease` (transactional: lease mutation + fence bump in one tx), `releaseLease` (voluntary, marks `state='released'`, skips grace; used by `worker_shutdown` from phase-1-protocol-and-registry step 1.2 and by clean local-spawn `child.on('exit')`), `listExpiredLeases(now, graceMs)`, and `bumpAndReadFence(agentRunId)` (transactional: increment `agent_runs.fence_token`, return new value; called by step 5.2 dispatch path before the `run` frame is sent).
   - `src/persistence/sqlite-store.ts` — implement. `expireLease` and `releaseLease` each wrap in `db.transaction(...)`.
   - `src/core/types/runs.ts` — add `RunLease` (with `state: 'active' | 'expired' | 'released'`); add `fenceToken: number` to `AgentRun` (default 0 for pre-migration rows).
@@ -155,7 +156,7 @@ Per D6 reversal: `heartbeat` is the canonical lease carrier; `health_ping` / `he
 Files:
   - `src/runtime/contracts.ts` — `RegistryFrame.heartbeat` (added in phase-1-protocol-and-registry step 1.2) gains `leases: Array<{ agentRunId: string; fence: number }>`. `health_pong` schema is untouched — it stays lease-free local liveness.
   - `src/runtime/ipc/frame-schema.ts` (01-baseline phase-1-safety step 1.1) — add `leases` to the registry-plane TypeBox branch only.
-  - `src/runtime/registry/server.ts` (phase-1-protocol-and-registry step 1.4) — heartbeat handler iterates `leases[]` and calls `store.renewLease` per entry. On renew rejection (stale fence), logs and dispatches `abort` over the run plane (registry server holds the `connection ↔ workerId` map; the run-plane router from phase-2-remote-task-execution step 2.3.5 has the `(workerId, agentRunId) → connection` mapping).
+  - `src/runtime/registry/server.ts` (phase-1-protocol-and-registry step 1.4) — heartbeat handler iterates `leases[]` and calls `store.renewLease` per entry. On renew rejection (stale fence), logs and dispatches `abort` over the run plane (registry server holds the `connection ↔ workerId` map; the run-plane router from phase-2-remote-task-execution step 2.4 has the `(workerId, agentRunId) → connection` mapping).
   - `src/runtime/registry/client.ts` (phase-1-protocol-and-registry step 1.4) — registry client and run executor share an in-process atomic `Map<agentRunId, fence>` (one-process-per-worker constraint makes this safe). On every `run` frame received, set the entry; on every heartbeat tick, snapshot the map into the outgoing `leases[]`.
   - `src/orchestrator/scheduler/lease-keeper.ts` (new, or fold into registry server's `onHeartbeat`) — subscribes to heartbeat events; calls `store.renewLease` per entry.
 
@@ -308,7 +309,7 @@ Files:
   - `src/runtime/contracts.ts:95-96` — remove `workerPid` / `workerBootEpoch` from `DispatchHarnessMetadata`.
   - `src/runtime/worker-pool.ts:41-55, 264-284` and `src/orchestrator/scheduler/dispatch.ts:160-262` — `dispatchMetadata`, `runningRunPatch`, `proposalAwaitingApprovalPatch` drop legacy fields. `liveRuns` keys on `workerId`.
   - `src/core/types/runs.ts:38-39`, `src/persistence/sqlite-store.ts:43-44, 69-70, 110, 124-125, 190-191`, `src/persistence/codecs.ts:281-282, 307-308`, `src/persistence/queries/index.ts:111-112` — drop columns from the type and SQL surfaces.
-  - `src/persistence/migrations/014_drop_legacy_run_columns.ts` (new) — pinned id `014` per phase-0-migration-consolidation chain. First table-rebuild migration post-consolidation (the consolidated `001_init.ts` from phase-0-migration-consolidation absorbed the old `006_rename_feature_ci_to_ci_check.ts` rebuild precedent, so cite the pattern abstractly rather than pointing at a now-collapsed migration). Use `CREATE TABLE … AS SELECT` to rebuild `agent_runs` without `worker_pid`, `worker_boot_epoch`, `owner_worker_id`, `owner_assigned_at`; rebuild `tasks` without `worker_id`; drop `idx_agent_runs_owner_worker`. Migration docstring enumerates the post-rebuild `agent_runs` schema verbatim so future readers can audit. Downgrade out of scope.
+  - `src/persistence/migrations/006_drop_legacy_run_columns.ts` (new) — pinned id `006` per phase-0-migration-consolidation chain. First table-rebuild migration post-consolidation (the consolidated `001_init.ts` from phase-0-migration-consolidation absorbed the old `006_rename_feature_ci_to_ci_check.ts` rebuild precedent, so cite the pattern abstractly rather than pointing at a now-collapsed migration). Use `CREATE TABLE … AS SELECT` to rebuild `agent_runs` without `worker_pid`, `worker_boot_epoch`, `owner_worker_id`, `owner_assigned_at`; rebuild `tasks` without `worker_id`; drop `idx_agent_runs_owner_worker`. Migration docstring enumerates the post-rebuild `agent_runs` schema verbatim so future readers can audit. Downgrade out of scope.
   - `src/persistence/db.ts` — register the new migration.
   - `src/runtime/worktree/index.ts` — add the lease-tied orphan-branch cleanup helper from the Plan section. Hooks from the baseline phase-4-recovery disposal sites (`docs/implementation/01-baseline/phase-4-recovery.md` step 4.1) plus the takeover path in step 5.4.
   - `test/unit/orchestrator/recovery.test.ts:1145` — delete the `RECOVERY_REBASE` assertion; update the surrounding test to assert resumed worker pulls feature-branch HEAD via the dispatch payload. Replace `killStaleWorkerIfNeeded` cases with lease-based equivalents (substantive coverage already comes from steps 5.4–5.8).

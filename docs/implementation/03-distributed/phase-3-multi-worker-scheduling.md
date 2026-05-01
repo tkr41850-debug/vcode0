@@ -2,9 +2,10 @@
 
 - Status: drafting
 - Verified state: main @ dac6449 on 2026-05-01
-- Depends on: phase-0-migration-consolidation (pins migration ids 011 and 012 for this track), phase-1-protocol-and-registry (worker registry, capability advertisement, and health views), phase-2-remote-task-execution (remote worker runtime, `RemoteSessionStore`, and worker-side worktree provisioning)
+- Depends on: phase-0-migration-consolidation (pins migration ids 003 and 004 for this track), phase-1-protocol-and-registry (worker registry, capability advertisement, and health views), phase-2-remote-task-execution (remote worker runtime, `RemoteSessionStore`, and worker-side worktree provisioning)
 - Default verify: npm run check:fix && npm run check
 - Phase exit: npm run verify; boot a real second worker process; submit a three-feature graph; observe via the worker panel from step 3.6 that runs distribute across both workers and ownership clears on completion.
+- Doc-sweep deferred: `docs/architecture/worker-model.md` (single-worker scheduler narrative), `docs/architecture/persistence.md` (recovery-metadata schema; `owner_worker_id` / `owner_assigned_at` columns and index). Reconcile in one doc-only commit at phase exit.
 
 Ships as 7 commits, in order.
 
@@ -47,18 +48,18 @@ Ships as 7 commits, in order.
 
 ### 3.1 Persist run ownership [risk: med, size: M]
 
-What: add `owner_worker_id` and `owner_assigned_at` columns to `agent_runs` and surface them on `BaseAgentRun`. Migration is `011_agent_run_owner_columns.ts`; numbering is pinned by `phase-0-migration-consolidation`, with `010_workers.ts` as the predecessor. New columns default `NULL`; set them on dispatch and clear them on terminal completion. Keep them as direct columns, not a join table, because ownership is 1:1 with the run.
+What: add `owner_worker_id` and `owner_assigned_at` columns to `agent_runs` and surface them on `BaseAgentRun`. Migration is `003_agent_run_owner_columns.ts`; numbering is pinned by `phase-0-migration-consolidation`, with `002_workers.ts` as the predecessor. New columns default `NULL`; set them on dispatch and clear them on terminal completion. Keep them as direct columns, not a join table, because ownership is 1:1 with the run.
 
 Files:
-  - `src/persistence/migrations/011_agent_run_owner_columns.ts` — new TS migration. `ALTER TABLE agent_runs ADD COLUMN owner_worker_id TEXT` and `ADD COLUMN owner_assigned_at INTEGER`. No backfill; `NULL` is the correct value for historic rows. Rollback is two `ALTER TABLE ... DROP COLUMN` statements (SQLite >=3.35) or the rebuild pattern later reused by `phase-5-leases-and-recovery` step 5.9 if the local SQLite predates that.
-  - `src/persistence/db.ts` — register `Migration011AgentRunOwnerColumns` in the imports and `migrations` array alongside `Migration010Workers`.
+  - `src/persistence/migrations/003_agent_run_owner_columns.ts` — new TS migration. `ALTER TABLE agent_runs ADD COLUMN owner_worker_id TEXT` and `ADD COLUMN owner_assigned_at INTEGER`. No backfill; `NULL` is the correct value for historic rows. Rollback is two `ALTER TABLE ... DROP COLUMN` statements (SQLite >=3.35) or the rebuild pattern later reused by `phase-5-leases-and-recovery` step 5.9 if the local SQLite predates that.
+  - `src/persistence/db.ts` — register `Migration003AgentRunOwnerColumns` in the imports and `migrations` array alongside `Migration002Workers`.
   - `src/persistence/sqlite-store.ts` — extend `AGENT_RUN_COLUMNS` (`:25-26`), `AgentRunInsertParams` and `AgentRunUpdateParams` (`:33-79`), and the prepared insert / update statements (`:107-134`) to include both columns. Update `agentRunToRow` and `rowToAgentRun` codecs.
   - `src/core/types/runs.ts` — add `ownerWorkerId?: string` and `ownerAssignedAt?: number` to `BaseAgentRun`.
   - `src/orchestrator/ports/index.ts` — update `AgentRunQuery` to allow `ownerWorkerId?: string`. `AgentRunPatch` extends automatically through the existing `Omit`.
 
 Tests:
   - `test/unit/persistence/sqlite-store.test.ts` — extend with insert, update, and query round-trip coverage for `ownerWorkerId` / `ownerAssignedAt`. Confirm a `NULL` ownership row reads back as `undefined` for both fields.
-  - `test/unit/persistence/migrations.test.ts` — assert applying `011_agent_run_owner_columns` to a DB with a populated `agent_runs` row leaves the row valid with `owner_worker_id IS NULL`.
+  - `test/unit/persistence/migrations.test.ts` — assert applying `003_agent_run_owner_columns` to a DB with a populated `agent_runs` row leaves the row valid with `owner_worker_id IS NULL`.
 
 Review goals (cap 200 words):
   1. Confirm `AGENT_RUN_COLUMNS`, insert / update prepared statements, and the codec all list the two new columns in matching order; column-order mismatch silently writes the wrong field.
@@ -148,7 +149,7 @@ Tests:
   - `test/unit/runtime/worker/concurrent-run-isolation.test.ts` — new. Drive two concurrent `handleStart` calls with distinct `agentRunId` values; assert the resulting worktree roots do not overlap and each run’s `RemoteSessionStore` proxy uses a distinct correlation scope. Drive a third call when `maxConcurrent === 2`; assert the structured `worker_full` rejection.
   - `test/integration/worker-side-concurrency.test.ts` — boot a faux remote worker with `maxConcurrent: 2`, submit three runs, assert two land and one bounces back as `not_dispatchable` for the picker to handle.
 
-Review goals (cap 450 words):
+Review goals:
   1. Verify every per-run filesystem path — worktree, scratch, and logs — is keyed on `agentRunId`, never on `taskId` alone. Two retries of the same task have different `agentRunId`s and must not collide.
   2. Verify the `worker_full` rejection path is fast-fail: provisioning happens after the gate, with no partial worktree creation followed by rollback.
   3. Verify abort / cleanup tears down per-run scratch fully, including dangling git refs from a partially created worktree.
@@ -179,7 +180,7 @@ Tests:
   - `test/unit/orchestrator/scheduler/sticky-resume.test.ts` — new. (a) `ownerWorkerId: 'A'` plus a healthy worker A with capacity resumes on A. (b) Same run with worker A full falls through to B. (c) Same run with worker A unknown falls back to `mode: 'start'`, with ownership cleared. (d) Run with no prior `ownerWorkerId` uses the normal capacity picker.
   - `test/integration/orchestrator-restart-sticky.test.ts` — start a run on worker A, kill the orchestrator, restart it, and assert the recovery path routes the resume back to A.
 
-Review goals (cap 450 words):
+Review goals (cap 250 words):
   1. Verify sticky preference only applies when dispatch is in resume mode; a fresh start must never bias toward a stale `ownerWorkerId`.
   2. Verify the fallback from `not_dispatchable: 'unknown_worker'` is `mode: 'start'`, not resume on a different worker with the old session id.
   3. Verify the fallback path clears `sessionId` and `ownerWorkerId` so the next persist reflects the new owner.
@@ -200,8 +201,8 @@ The “who owns run X?” question is answered by reading `agent_runs.owner_work
 Keep the UI surface intentionally small. This phase needs enough operator visibility to debug capacity decisions, but the long-term observability product is out of scope per `03-distributed/README.md`.
 
 Files:
-  - `src/persistence/migrations/012_agent_run_owner_index.ts` — new TS migration adding `CREATE INDEX idx_agent_runs_owner_worker ON agent_runs(owner_worker_id) WHERE owner_worker_id IS NOT NULL`. The migration id is pinned by `phase-0-migration-consolidation`. The partial index keeps the structure small because most historic rows have `NULL` ownership. `phase-5-leases-and-recovery` step 5.9 drops this index if it later drops the column.
-  - `src/persistence/db.ts` — register `Migration012AgentRunOwnerIndex` in the imports and `migrations` array.
+  - `src/persistence/migrations/004_agent_run_owner_index.ts` — new TS migration adding `CREATE INDEX idx_agent_runs_owner_worker ON agent_runs(owner_worker_id) WHERE owner_worker_id IS NOT NULL`. The migration id is pinned by `phase-0-migration-consolidation`. The partial index keeps the structure small because most historic rows have `NULL` ownership. `phase-5-leases-and-recovery` step 5.9 drops this index if it later drops the column.
+  - `src/persistence/db.ts` — register `Migration004AgentRunOwnerIndex` in the imports and `migrations` array.
   - `src/orchestrator/ports/index.ts` — add `Store.listRunsByOwner(workerId: string): AgentRun[]`.
   - `src/persistence/sqlite-store.ts` — implement the query with a prepared statement.
   - `src/tui/...` or `src/cli/...`, whichever already hosts operator tooling — add the worker panel / debug surface. For any worker hosting a `runStatus === 'running'` run, keep the three-tier rendering forward-shaped even though lease state does not land until `phase-5-leases-and-recovery`: lease `active` plus heartbeat fresh → `active`; lease `active` plus heartbeat in the grace window → `delayed`; lease `expired` / `released` → `in recovery`. That includes the stranded case where `owner_worker_id` points at a worker absent from `listWorkers()`. Until `phase-5-leases-and-recovery` step 5.1 lands, render the `runStatus` tier only and leave the lease side stubbed.

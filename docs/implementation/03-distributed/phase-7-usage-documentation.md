@@ -63,7 +63,7 @@ Review goals (cap 350 words):
   4. Daily-operations "drain" and "recover from crash" copy matches `phase-5-leases-and-recovery` lease semantics: 60s drain → `worker_shutdown` → released; orchestrator-crash sweep on boot.
   5. Every cross-link resolves to an existing file. Flag any command that would not work as written.
 
-Commit: `docs(usage): single setup-and-use entry point for the distributed system`
+Commit: docs(usage): single setup-and-use entry point for the distributed system
 
 ---
 Shipped in <SHA1>..<SHA1> on <YYYY-MM-DD>

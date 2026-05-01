@@ -1,4 +1,4 @@
-# 02-distributed — Distributed worker runtime
+# 03-distributed — Distributed worker runtime
 
 Implementation track to lift the runtime from local-machine (process-per-task children of the orchestrator) to a fleet of remote workers reachable over the network. Motivated by deployment on many weak VMs where horizontal scale is the only path to useful parallelism.
 
@@ -33,11 +33,11 @@ The track distinguishes three multiplexed frame families on the worker↔orchest
 
 ## Scope
 
-Seven phases. Phase 0 is a track-level pre-phase that clears migration-numbering anxiety; phases 1–6 stand on their own and ship in order; later phases assume earlier ones merged.
+Seven phases. Phase 0 is a track-level pre-phase that clears migration-numbering anxiety; phases 1–7 stand on their own and ship in order; later phases assume earlier ones merged.
 
 | Phase | Theme | Outcome | Risk |
 |-------|-------|---------|------|
-| [Phase 0](./phase-0-migration-consolidation.md) | Migration consolidation | Existing `001_init.ts` … `009_agent_run_harness_metadata.ts` collapse into a single `001_init.ts` carrying the union shape. Distributed-track migrations extend it directly without numbering negotiation. | Low — fresh-db schema is byte-identical to pre-phase; no production deployments at 0.0.0 |
+| [Phase 0](./phase-0-migration-consolidation.md) | Migration consolidation | Existing `001_init.ts` … `012_graph_meta.ts` collapse into a single `001_init.ts` carrying the union shape. Distributed-track migrations extend it directly without numbering negotiation. | Low — fresh-db schema is byte-identical to pre-phase; no production deployments at 0.0.0 |
 | [Phase 1](./phase-1-protocol-and-registry.md) | Worker protocol & registry | Workers register, heartbeat, and report capacity to the orchestrator; orchestrator still spawns local children for actual work. Pure additive seam. | Medium — new transport surface, but no behavior change yet |
 | [Phase 2](./phase-2-remote-task-execution.md) | Remote task execution | A registered remote worker can run one task end-to-end: network IPC, worker-side worktree, branch synced back to the orchestrator. Local spawn becomes one transport among others. | High — touches the worker hot path and the git sync model |
 | [Phase 3](./phase-3-multi-worker-scheduling.md) | Multi-worker scheduling | Many workers concurrently; capacity-aware dispatch; ownership of a run is explicit and queryable. | High — scheduler model change |
