@@ -1,10 +1,18 @@
 import type { FeatureGraph } from '@core/graph/index';
+import {
+  applyGraphProposal,
+  type ProposalApplyResult,
+} from '@core/proposals/index';
 import type {
   AgentRun,
   AgentRunPhase,
+  EventRecord,
   Feature,
   FeatureId,
   MilestoneId,
+  PlannerSessionMode,
+  Task,
+  TaskId,
   VerificationSummary,
   VerifyIssue,
 } from '@core/types/index';
@@ -15,14 +23,18 @@ import {
   approveFeatureProposal,
   type ProposalPhase,
   parseGraphProposalPayload,
+  readTopPlannerProposalMetadata,
   summarizeProposalApply,
+  type TopPlannerProposalMetadata,
 } from '@orchestrator/proposals/index';
 import type { SummaryCoordinator } from '@orchestrator/summaries/index';
 import type { WorkerToOrchestratorMessage } from '@runtime/contracts';
+import { buildRetryPolicyConfig, decideRetry } from '@runtime/retry-policy';
 import { runtimeUsageToTokenUsageAggregate } from '@runtime/usage';
 
 import type { ActiveLocks } from './active-locks.js';
 import { handleClaimLock } from './claim-lock-handler.js';
+import { dispatchTopPlannerUnit } from './dispatch.js';
 
 // === Phase-agent graph-mutation payload ===
 // Plan 04-01 routes `PiFeatureAgentRuntime` mutations through the serial
@@ -66,6 +78,21 @@ export type SchedulerEvent =
       reason?: string;
     }
   | {
+      type: 'top_planner_requested';
+      prompt: string;
+      sessionMode: PlannerSessionMode;
+    }
+  | {
+      type: 'top_planner_approval_decision';
+      decision: 'approved' | 'rejected';
+      comment?: string;
+    }
+  | {
+      type: 'top_planner_rerun_requested';
+      reason?: string;
+      sessionMode: PlannerSessionMode;
+    }
+  | {
       type: 'feature_phase_error';
       featureId: FeatureId;
       phase: AgentRunPhase;
@@ -85,7 +112,24 @@ export type SchedulerEvent =
       milestoneId: MilestoneId;
     }
   | {
+      type: 'ui_set_merge_train_position';
+      featureId: FeatureId;
+      position: number | undefined;
+    }
+  | {
       type: 'ui_cancel_feature_run_work';
+      featureId: FeatureId;
+    }
+  | {
+      type: 'ui_cancel_task_preserve_worktree';
+      taskId: TaskId;
+    }
+  | {
+      type: 'ui_cancel_task_clean_worktree';
+      taskId: TaskId;
+    }
+  | {
+      type: 'ui_abandon_feature_branch';
       featureId: FeatureId;
     }
   | {
@@ -111,11 +155,144 @@ function completeTaskRun(
   });
 }
 
+const TOP_PLANNER_RUN_ID = 'run-top-planner';
+const TOP_PLANNER_ENTITY_ID = 'top-planner';
+
 function isFeatureCancelled(
   graph: FeatureGraph,
   featureId: FeatureId,
 ): boolean {
   return graph.features.get(featureId)?.collabControl === 'cancelled';
+}
+
+function findLatestTopPlannerPrompt(
+  ports: OrchestratorPorts,
+): string | undefined {
+  const events = ports.store.listEvents({
+    entityId: TOP_PLANNER_ENTITY_ID,
+  });
+
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const prompt = readTopPlannerPrompt(events[index]);
+    if (prompt !== undefined) {
+      return prompt;
+    }
+  }
+
+  return undefined;
+}
+
+function readTopPlannerPrompt(
+  event: EventRecord | undefined,
+): string | undefined {
+  if (
+    event === undefined ||
+    (event.eventType !== 'top_planner_requested' &&
+      event.eventType !== 'top_planner_prompt_recorded')
+  ) {
+    return undefined;
+  }
+
+  const prompt = event.payload?.prompt;
+  return typeof prompt === 'string' && prompt.length > 0 ? prompt : undefined;
+}
+
+function topPlannerMetadataPayload(
+  metadata: TopPlannerProposalMetadata,
+): Record<string, unknown> {
+  return {
+    prompt: metadata.prompt,
+    sessionMode: metadata.sessionMode,
+    runId: metadata.runId,
+    sessionId: metadata.sessionId,
+    ...(metadata.previousSessionId !== undefined
+      ? { previousSessionId: metadata.previousSessionId }
+      : {}),
+    featureIds: metadata.featureIds,
+    milestoneIds: metadata.milestoneIds,
+    collidedFeatureRuns: metadata.collidedFeatureRuns,
+  };
+}
+
+async function resetFeatureProposalRunForRerun(
+  ports: OrchestratorPorts,
+  run: Extract<AgentRun, { scopeType: 'feature_phase' }>,
+): Promise<string | undefined> {
+  const previousSessionId = run.sessionId;
+  if (previousSessionId !== undefined) {
+    await ports.sessionStore.delete(previousSessionId);
+  }
+  ports.store.updateAgentRun(run.id, {
+    runStatus: 'ready',
+    owner: 'system',
+    sessionId: undefined,
+    payloadJson: undefined,
+  });
+  return previousSessionId;
+}
+
+function collidedFeatureIds(
+  metadata: TopPlannerProposalMetadata | undefined,
+): FeatureId[] {
+  return metadata === undefined
+    ? []
+    : [
+        ...new Set(metadata.collidedFeatureRuns.map((run) => run.featureId)),
+      ].sort((left, right) => left.localeCompare(right));
+}
+
+function appendTopPlannerPromptRecorded(
+  ports: OrchestratorPorts,
+  metadata: TopPlannerProposalMetadata,
+): void {
+  ports.store.appendEvent({
+    eventType: 'top_planner_prompt_recorded',
+    entityId: TOP_PLANNER_ENTITY_ID,
+    timestamp: Date.now(),
+    payload: {
+      phase: 'plan',
+      ...topPlannerMetadataPayload(metadata),
+    },
+  });
+}
+
+function featureSupportsImmediateTaskDispatch(feature: Feature): boolean {
+  return (
+    feature.collabControl !== 'cancelled' &&
+    (feature.workControl === 'executing' ||
+      feature.workControl === 'replanning' ||
+      feature.workControl === 'executing_repair')
+  );
+}
+
+function taskCanBecomeReady(graph: FeatureGraph, task: Task): boolean {
+  if (task.status !== 'pending' || task.collabControl !== 'none') {
+    return false;
+  }
+
+  const feature = graph.features.get(task.featureId);
+  if (feature === undefined || !featureSupportsImmediateTaskDispatch(feature)) {
+    return false;
+  }
+
+  return task.dependsOn.every(
+    (depId) => graph.tasks.get(depId)?.status === 'done',
+  );
+}
+
+function promoteReadyTasksAfterTopPlannerApply(
+  graph: FeatureGraph,
+  result: ProposalApplyResult,
+): void {
+  if (result.applied.length === 0) {
+    return;
+  }
+
+  for (const task of graph.tasks.values()) {
+    if (taskCanBecomeReady(graph, task)) {
+      graph.transitionTask(task.id, { status: 'ready' });
+    }
+  }
 }
 
 export async function handleSchedulerEvent(params: {
@@ -131,7 +308,10 @@ export async function handleSchedulerEvent(params: {
     layer: 'feature' | 'task' | 'mergeTrain',
     now: number,
   ) => void;
-  cancelFeatureRunWork: (featureId: FeatureId) => Promise<void>;
+  cancelFeatureRunWork?: (featureId: FeatureId) => Promise<void>;
+  cancelTaskPreserveWorktree?: (taskId: TaskId) => Promise<void>;
+  cancelTaskCleanWorktree?: (taskId: TaskId) => Promise<void>;
+  abandonFeatureBranch?: (featureId: FeatureId) => Promise<void>;
   onShutdown: () => void;
 }): Promise<void> {
   const { event, graph, ports, features, conflicts, summaries, activeLocks } =
@@ -171,6 +351,67 @@ export async function handleSchedulerEvent(params: {
     if (message.type === 'result') {
       activeLocks.releaseByRun(message.agentRunId);
       const taskLanded = message.completionKind === 'submitted';
+      if (taskLanded) {
+        const observedAt = ports.store.getTrailerObservedAt(run.id);
+        if (observedAt === undefined) {
+          const now = Date.now();
+          const taskRunAttempts = run.restartCount + 1;
+          const decision = decideRetry(
+            'no_commit: no trailer-ok commit observed before submitted completion',
+            taskRunAttempts,
+            buildRetryPolicyConfig(ports.config),
+          );
+          ports.store.appendEvent({
+            eventType: 'task_completion_rejected_no_commit',
+            entityId: run.scopeId,
+            timestamp: now,
+            payload: {
+              agentRunId: run.id,
+              reason: 'no_trailer_ok_commit_observed',
+            },
+          });
+          if (decision.kind === 'retry') {
+            graph.transitionTask(run.scopeId, {
+              status: 'ready',
+            });
+            ports.store.updateAgentRun(run.id, {
+              runStatus: 'retry_await',
+              owner: 'system',
+              retryAt: now + decision.delayMs,
+              ...(run.sessionId !== undefined
+                ? { sessionId: run.sessionId }
+                : {}),
+              tokenUsage: runtimeUsageToTokenUsageAggregate(message.usage),
+            });
+            return;
+          }
+          graph.transitionTask(run.scopeId, {
+            status: 'failed',
+          });
+          ports.store.updateAgentRun(run.id, {
+            runStatus: 'failed',
+            owner: 'system',
+            ...(run.sessionId !== undefined
+              ? { sessionId: run.sessionId }
+              : {}),
+            tokenUsage: runtimeUsageToTokenUsageAggregate(message.usage),
+          });
+          ports.store.appendInboxItem({
+            id: `inbox-${run.id}-${now}`,
+            ts: now,
+            taskId: run.scopeId,
+            agentRunId: run.id,
+            kind: 'semantic_failure',
+            payload: {
+              reason: decision.reason,
+              error:
+                'no_commit: no trailer-ok commit observed before submitted completion',
+              attempts: taskRunAttempts,
+            },
+          });
+          return;
+        }
+      }
       graph.transitionTask(run.scopeId, {
         status: 'done',
         ...(taskLanded ? { collabControl: 'merged' as const } : {}),
@@ -206,6 +447,34 @@ export async function handleSchedulerEvent(params: {
 
     if (message.type === 'error') {
       activeLocks.releaseByRun(message.agentRunId);
+      if (message.recovery?.kind === 'resume_incomplete') {
+        const now = Date.now();
+        graph.transitionTask(run.scopeId, {
+          status: 'stuck',
+        });
+        ports.store.updateAgentRun(run.id, {
+          runStatus: 'failed',
+          owner: 'system',
+          ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
+          ...(message.usage !== undefined
+            ? { tokenUsage: runtimeUsageToTokenUsageAggregate(message.usage) }
+            : {}),
+        });
+        ports.store.appendInboxItem({
+          id: `inbox-${run.id}-${now}`,
+          ts: now,
+          taskId: run.scopeId,
+          agentRunId: run.id,
+          ...(task !== undefined ? { featureId: task.featureId } : {}),
+          kind: 'semantic_failure',
+          payload: {
+            reason: 'resume_incomplete',
+            recoveryReason: message.recovery.reason,
+            error: message.error,
+          },
+        });
+        return;
+      }
       graph.transitionTask(run.scopeId, {
         status: 'ready',
       });
@@ -222,40 +491,74 @@ export async function handleSchedulerEvent(params: {
     }
 
     if (message.type === 'request_help') {
+      const now = Date.now();
       ports.store.updateAgentRun(run.id, {
         runStatus: 'await_response',
         owner: 'manual',
-        payloadJson: JSON.stringify({ query: message.query }),
+        payloadJson: JSON.stringify({
+          query: message.query,
+          toolCallId: message.toolCallId,
+        }),
         ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
+      });
+      ports.store.appendInboxItem({
+        id: `inbox-${message.agentRunId}-${now}`,
+        ts: now,
+        taskId: run.scopeId,
+        agentRunId: run.id,
+        ...(task !== undefined ? { featureId: task.featureId } : {}),
+        kind: 'agent_help',
+        payload: {
+          query: message.query,
+        },
       });
       return;
     }
 
     if (message.type === 'request_approval') {
+      const now = Date.now();
       ports.store.updateAgentRun(run.id, {
         runStatus: 'await_approval',
         owner: 'manual',
-        payloadJson: JSON.stringify(message.payload),
+        payloadJson: JSON.stringify({
+          ...message.payload,
+          toolCallId: message.toolCallId,
+        }),
         ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
       });
 
-      // === Destructive-op inbox stub (plan 03-04) ===
-      // REQ-EXEC-04: every blocked destructive git op routes to an
-      // `inbox_items` row with `kind: 'destructive_action'`. Phase 7
-      // materializes the resolution UI; Phase 3 only appends.
-      if (message.payload.kind === 'destructive_action') {
-        ports.store.appendInboxItem({
-          id: `inbox-${message.agentRunId}-${Date.now()}`,
-          ts: Date.now(),
-          taskId: run.scopeId,
-          agentRunId: run.id,
-          kind: 'destructive_action',
-          payload: {
-            description: message.payload.description,
-            affectedPaths: message.payload.affectedPaths,
-          },
-        });
-      }
+      ports.store.appendInboxItem({
+        id: `inbox-${message.agentRunId}-${now}`,
+        ts: now,
+        taskId: run.scopeId,
+        agentRunId: run.id,
+        ...(task !== undefined ? { featureId: task.featureId } : {}),
+        kind:
+          message.payload.kind === 'destructive_action'
+            ? 'destructive_action'
+            : 'agent_approval',
+        payload:
+          message.payload.kind === 'destructive_action'
+            ? {
+                description: message.payload.description,
+                affectedPaths: message.payload.affectedPaths,
+              }
+            : message.payload,
+      });
+      return;
+    }
+
+    if (message.type === 'wait_checkpointed') {
+      activeLocks.releaseByRun(message.agentRunId);
+      ports.store.updateAgentRun(run.id, {
+        runStatus:
+          message.waitKind === 'await_response'
+            ? 'checkpointed_await_response'
+            : 'checkpointed_await_approval',
+        owner: 'manual',
+        ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
+      });
+      return;
     }
 
     // === Commit trailer + commit_done (plan 03-03) ===
@@ -264,6 +567,9 @@ export async function handleSchedulerEvent(params: {
     // A false `trailerOk` is a correctness bug — surface it as an event
     // so the TUI can warn and Wave 3 diagnostics can flag the run.
     if (message.type === 'commit_done') {
+      if (message.trailerOk) {
+        ports.store.setTrailerObservedAt(run.id, Date.now());
+      }
       ports.store.setLastCommitSha(run.id, message.sha);
       if (!message.trailerOk) {
         ports.store.appendEvent({
@@ -278,6 +584,195 @@ export async function handleSchedulerEvent(params: {
       }
       return;
     }
+    return;
+  }
+
+  if (event.type === 'top_planner_requested') {
+    ports.store.appendEvent({
+      eventType: 'top_planner_requested',
+      entityId: TOP_PLANNER_ENTITY_ID,
+      timestamp: Date.now(),
+      payload: {
+        prompt: event.prompt,
+        sessionMode: event.sessionMode,
+      },
+    });
+    const metadata = await dispatchTopPlannerUnit({
+      prompt: event.prompt,
+      graph,
+      ports,
+      sessionMode: event.sessionMode,
+    });
+    appendTopPlannerPromptRecorded(ports, metadata);
+    return;
+  }
+
+  if (event.type === 'top_planner_rerun_requested') {
+    const run = ports.store.getAgentRun(TOP_PLANNER_RUN_ID);
+    if (run?.scopeType !== 'top_planner') {
+      return;
+    }
+
+    const prompt = findLatestTopPlannerPrompt(ports);
+    if (prompt === undefined) {
+      return;
+    }
+
+    const previousSessionId = run.sessionId;
+    if (event.sessionMode === 'fresh' && previousSessionId !== undefined) {
+      await ports.sessionStore.delete(previousSessionId);
+    }
+    ports.store.updateAgentRun(run.id, {
+      runStatus: 'ready',
+      owner: 'system',
+      ...(event.sessionMode === 'fresh' ? { sessionId: undefined } : {}),
+      payloadJson: undefined,
+    });
+    ports.store.appendEvent({
+      eventType: 'proposal_rerun_requested',
+      entityId: TOP_PLANNER_ENTITY_ID,
+      timestamp: Date.now(),
+      payload: {
+        phase: 'plan',
+        sessionMode: event.sessionMode,
+        ...(event.reason !== undefined ? { summary: event.reason } : {}),
+      },
+    });
+    const metadata = await dispatchTopPlannerUnit({
+      prompt,
+      graph,
+      ports,
+      sessionMode: event.sessionMode,
+      ...(previousSessionId !== undefined ? { previousSessionId } : {}),
+    });
+    appendTopPlannerPromptRecorded(ports, metadata);
+    return;
+  }
+
+  if (event.type === 'top_planner_approval_decision') {
+    const run = ports.store.getAgentRun(TOP_PLANNER_RUN_ID);
+    if (
+      run?.scopeType !== 'top_planner' ||
+      run.runStatus !== 'await_approval'
+    ) {
+      return;
+    }
+
+    const metadata = readTopPlannerProposalMetadata(run.payloadJson);
+    const plannerCollisionFeatureIds = collidedFeatureIds(metadata);
+
+    if (event.decision === 'approved') {
+      try {
+        const proposal = parseGraphProposalPayload(run.payloadJson, 'plan');
+        const resolvedFeatureRuns: Array<{
+          featureId: FeatureId;
+          runId: string;
+          phase: AgentRunPhase;
+          previousSessionId?: string;
+        }> = [];
+        for (const collidedRun of metadata?.collidedFeatureRuns ?? []) {
+          const currentRun = ports.store.getAgentRun(collidedRun.runId);
+          if (
+            currentRun?.scopeType !== 'feature_phase' ||
+            currentRun.scopeId !== collidedRun.featureId ||
+            currentRun.phase !== collidedRun.phase ||
+            currentRun.runStatus === 'completed' ||
+            currentRun.runStatus === 'failed' ||
+            currentRun.runStatus === 'cancelled'
+          ) {
+            continue;
+          }
+          const previousSessionId = await resetFeatureProposalRunForRerun(
+            ports,
+            currentRun,
+          );
+          resolvedFeatureRuns.push({
+            featureId: collidedRun.featureId,
+            runId: collidedRun.runId,
+            phase: collidedRun.phase,
+            ...(previousSessionId !== undefined ? { previousSessionId } : {}),
+          });
+        }
+        if ((metadata?.collidedFeatureRuns.length ?? 0) > 0) {
+          ports.store.appendEvent({
+            eventType: 'proposal_collision_resolved',
+            entityId: TOP_PLANNER_ENTITY_ID,
+            timestamp: Date.now(),
+            payload: {
+              phase: 'plan',
+              featureIds: plannerCollisionFeatureIds,
+              collidedFeatureRuns: metadata?.collidedFeatureRuns ?? [],
+              resolvedFeatureRuns,
+            },
+          });
+        }
+        const result = applyGraphProposal(graph, proposal, {
+          additiveOnly: true,
+          ...(plannerCollisionFeatureIds.length > 0
+            ? { plannerCollisionFeatureIds }
+            : {}),
+        });
+        promoteReadyTasksAfterTopPlannerApply(graph, result);
+        completeTaskRun(
+          ports,
+          run,
+          'system',
+          run.payloadJson !== undefined ? { payloadJson: run.payloadJson } : {},
+        );
+        ports.store.appendEvent({
+          eventType: 'proposal_applied',
+          entityId: TOP_PLANNER_ENTITY_ID,
+          timestamp: Date.now(),
+          payload: {
+            phase: 'plan',
+            summary: result.summary,
+            ...summarizeProposalApply(result),
+            ...(metadata !== undefined
+              ? { extra: topPlannerMetadataPayload(metadata) }
+              : {}),
+          },
+        });
+      } catch (error) {
+        completeTaskRun(
+          ports,
+          run,
+          'manual',
+          run.payloadJson !== undefined ? { payloadJson: run.payloadJson } : {},
+        );
+        ports.store.appendEvent({
+          eventType: 'proposal_apply_failed',
+          entityId: TOP_PLANNER_ENTITY_ID,
+          timestamp: Date.now(),
+          payload: {
+            phase: 'plan',
+            error: error instanceof Error ? error.message : String(error),
+            ...(metadata !== undefined
+              ? { extra: topPlannerMetadataPayload(metadata) }
+              : {}),
+          },
+        });
+      }
+      return;
+    }
+
+    completeTaskRun(
+      ports,
+      run,
+      'manual',
+      run.payloadJson !== undefined ? { payloadJson: run.payloadJson } : {},
+    );
+    ports.store.appendEvent({
+      eventType: 'proposal_rejected',
+      entityId: TOP_PLANNER_ENTITY_ID,
+      timestamp: Date.now(),
+      payload: {
+        phase: 'plan',
+        ...(event.comment !== undefined ? { comment: event.comment } : {}),
+        ...(metadata !== undefined
+          ? { extra: topPlannerMetadataPayload(metadata) }
+          : {}),
+      },
+    });
     return;
   }
 
@@ -416,6 +911,9 @@ export async function handleSchedulerEvent(params: {
         runStatus: 'completed',
         owner: 'system',
         ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
+        ...(event.phase === 'verify' && event.verification !== undefined
+          ? { payloadJson: JSON.stringify(event.verification) }
+          : {}),
       });
     }
 
@@ -495,7 +993,32 @@ export async function handleSchedulerEvent(params: {
   }
 
   if (event.type === 'feature_integration_failed') {
-    features.failIntegration(event.featureId, event.error);
+    features.failIntegration(event.featureId, ports, event.error);
+    // Symmetric with feature_integration_complete: release any secondaries that
+    // were blocked by this primary. The loop body below is intentionally identical
+    // to the one in the complete handler — update both together when changing.
+    const releases = await conflicts.releaseCrossFeatureOverlap(
+      event.featureId,
+    );
+    for (const release of releases) {
+      if (release.kind === 'repair_needed') {
+        const conflictedFiles = release.conflictedFiles ?? [];
+        const summary =
+          conflictedFiles.length > 0
+            ? `Rebase onto main conflicted in ${conflictedFiles.join(', ')}`
+            : (release.summary ?? 'Rebase onto main conflicted');
+        features.createIntegrationRepair(release.featureId, summary);
+        continue;
+      }
+
+      if (release.kind === 'blocked') {
+        features.createIntegrationRepair(
+          release.featureId,
+          release.summary ?? 'Feature worktree missing before rebase onto main',
+        );
+      }
+      // release.kind === 'resumed': no action needed — tasks are already unblocked
+    }
     return;
   }
 
@@ -511,8 +1034,43 @@ export async function handleSchedulerEvent(params: {
     return;
   }
 
+  if (event.type === 'ui_set_merge_train_position') {
+    const feature = graph.features.get(event.featureId);
+    if (feature === undefined) {
+      throw new Error(`feature "${event.featureId}" does not exist`);
+    }
+    if (feature.collabControl !== 'merge_queued') {
+      throw new Error(`feature "${event.featureId}" is not merge queued`);
+    }
+    if (
+      event.position !== undefined &&
+      (!Number.isInteger(event.position) || event.position < 1)
+    ) {
+      throw new Error('merge-train position must be a positive integer');
+    }
+    graph.updateMergeTrainState(event.featureId, {
+      mergeTrainManualPosition: event.position,
+    });
+    return;
+  }
+
   if (event.type === 'ui_cancel_feature_run_work') {
-    await params.cancelFeatureRunWork(event.featureId);
+    await params.cancelFeatureRunWork?.(event.featureId);
+    return;
+  }
+
+  if (event.type === 'ui_cancel_task_preserve_worktree') {
+    await params.cancelTaskPreserveWorktree?.(event.taskId);
+    return;
+  }
+
+  if (event.type === 'ui_cancel_task_clean_worktree') {
+    await params.cancelTaskCleanWorktree?.(event.taskId);
+    return;
+  }
+
+  if (event.type === 'ui_abandon_feature_branch') {
+    await params.abandonFeatureBranch?.(event.featureId);
     return;
   }
 

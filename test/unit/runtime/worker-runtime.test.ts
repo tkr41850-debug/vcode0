@@ -47,10 +47,14 @@ function createMockHandle(sessionId = 'sess-1'): MockHandle {
       }) => void)
     | undefined;
   const abort = vi.fn();
+  const release = vi.fn(() => {
+    exitHandler?.({ code: null, signal: 'SIGKILL' });
+  });
 
   return {
     sessionId,
     abort,
+    release,
     sendInput: vi.fn().mockResolvedValue(undefined),
     send(msg: OrchestratorToWorkerMessage) {
       sentMessages.push(msg);
@@ -128,6 +132,12 @@ function createSessionStoreMock(): SessionStore {
     save: vi.fn().mockResolvedValue(undefined),
     load: vi.fn().mockResolvedValue(null),
     delete: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
+function createRetryStoreMock() {
+  return {
+    appendInboxItem: vi.fn(),
   };
 }
 
@@ -459,6 +469,20 @@ describe('LocalWorkerPool', () => {
 
       expect(pool.idleWorkerCount()).toBe(1);
     });
+
+    it('uses an updated worker cap for future worker counts', async () => {
+      const { pool } = setupPool('sess-1', 4);
+
+      await pool.dispatchTask(makeTask('t-a'), {
+        mode: 'start',
+        agentRunId: 'r-1',
+      });
+
+      pool.setMaxConcurrency(2);
+
+      expect(pool.maxWorkerCount()).toBe(2);
+      expect(pool.idleWorkerCount()).toBe(1);
+    });
   });
 
   describe('stopAll', () => {
@@ -632,6 +656,170 @@ describe('LocalWorkerPool', () => {
 
       expect(messages).toHaveLength(1);
       expect(pool.idleWorkerCount()).toBe(3);
+    });
+
+    it('emits wait_checkpointed without a synthetic exit error when release triggers onExit', async () => {
+      const messages: WorkerToOrchestratorMessage[] = [];
+      const handle = createMockHandle('sess-checkpoint');
+      const harness = createMockHarness(handle);
+      const pool = new LocalWorkerPool(
+        harness,
+        4,
+        (msg) => messages.push(msg),
+        undefined,
+        {
+          hotWindowMs: 5,
+        },
+      );
+
+      await pool.dispatchTask(makeTask(), {
+        mode: 'start',
+        agentRunId: 'run-checkpoint',
+      });
+
+      handle._emitWorkerMessage({
+        type: 'request_help',
+        taskId: 't-task-1',
+        agentRunId: 'run-checkpoint',
+        query: 'Need operator guidance',
+        toolCallId: 'call-help-1',
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 30));
+
+      expect(messages).toContainEqual({
+        type: 'wait_checkpointed',
+        taskId: 't-task-1',
+        agentRunId: 'run-checkpoint',
+        waitKind: 'await_response',
+      });
+      expect(messages.some((message) => message.type === 'error')).toBe(false);
+      expect(pool.idleWorkerCount()).toBe(4);
+    });
+
+    it('uses an updated hot window for newly armed wait timers', async () => {
+      const messages: WorkerToOrchestratorMessage[] = [];
+      const handle = createMockHandle('sess-checkpoint');
+      const harness = createMockHarness(handle);
+      const pool = new LocalWorkerPool(
+        harness,
+        4,
+        (msg) => messages.push(msg),
+        undefined,
+        {
+          hotWindowMs: 1000,
+        },
+      );
+
+      pool.setHotWindowMs(5);
+      await pool.dispatchTask(makeTask(), {
+        mode: 'start',
+        agentRunId: 'run-checkpoint',
+      });
+
+      handle._emitWorkerMessage({
+        type: 'request_help',
+        taskId: 't-task-1',
+        agentRunId: 'run-checkpoint',
+        query: 'Need operator guidance',
+        toolCallId: 'call-help-1',
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 30));
+
+      expect(messages).toContainEqual({
+        type: 'wait_checkpointed',
+        taskId: 't-task-1',
+        agentRunId: 'run-checkpoint',
+        waitKind: 'await_response',
+      });
+    });
+  });
+
+  describe('retry policy updates', () => {
+    it('uses an updated retry policy for future error decisions', async () => {
+      const completedMessages: WorkerToOrchestratorMessage[] = [];
+      const handle = createMockHandle('sess-retry-1');
+      const harness = createMockHarness(handle);
+      const retryStore = createRetryStoreMock();
+      const pool = new LocalWorkerPool(
+        harness,
+        4,
+        (msg) => completedMessages.push(msg),
+        {
+          store: retryStore as never,
+          config: {
+            maxAttempts: 2,
+            baseDelayMs: 0,
+            maxDelayMs: 0,
+            transientErrorPatterns: [/ETIMEDOUT/],
+          },
+        },
+      );
+
+      pool.setRetryPolicyConfig({
+        maxAttempts: 2,
+        baseDelayMs: 0,
+        maxDelayMs: 0,
+        transientErrorPatterns: [],
+      });
+      await pool.dispatchTask(makeTask(), {
+        mode: 'start',
+        agentRunId: 'run-retry-1',
+      });
+
+      handle._emitWorkerMessage({
+        type: 'error',
+        taskId: 't-task-1',
+        agentRunId: 'run-retry-1',
+        error: 'ETIMEDOUT',
+      });
+
+      expect(retryStore.appendInboxItem).toHaveBeenCalledTimes(1);
+      expect(completedMessages).toHaveLength(1);
+      expect(completedMessages[0]).toMatchObject({ type: 'error' });
+    });
+
+    it('bypasses retry escalation for resume_incomplete recovery errors', async () => {
+      const completedMessages: WorkerToOrchestratorMessage[] = [];
+      const handle = createMockHandle('sess-retry-2');
+      const harness = createMockHarness(handle);
+      const retryStore = createRetryStoreMock();
+      const pool = new LocalWorkerPool(
+        harness,
+        4,
+        (msg) => completedMessages.push(msg),
+        {
+          store: retryStore as never,
+          config: {
+            maxAttempts: 2,
+            baseDelayMs: 0,
+            maxDelayMs: 0,
+            transientErrorPatterns: [/ETIMEDOUT/],
+          },
+        },
+      );
+
+      await pool.dispatchTask(makeTask(), {
+        mode: 'start',
+        agentRunId: 'run-retry-2',
+      });
+
+      const errorMessage: WorkerToOrchestratorMessage = {
+        type: 'error',
+        taskId: 't-task-1',
+        agentRunId: 'run-retry-2',
+        error: 'resume_incomplete: assistant-text-terminal',
+        recovery: {
+          kind: 'resume_incomplete',
+          reason: 'assistant-text-terminal',
+        },
+      };
+
+      handle._emitWorkerMessage(errorMessage);
+
+      expect(retryStore.appendInboxItem).not.toHaveBeenCalled();
+      expect(completedMessages).toEqual([errorMessage]);
     });
   });
 });

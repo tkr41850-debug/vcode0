@@ -14,11 +14,11 @@ gvc0's v1 journey is **completing and clarifying** an existing design rather tha
 - [x] **Phase 2: Persistence & Port Contracts** — Lock the Store port + SQLite schema + WAL tuning + typed config schema so nothing downstream rests on shifting ground. ✓ 2026-04-23 (3/3 plans, 106 persistence+config tests, VERIFICATION PASS; 10-min load gate deferred to runbook)
 - [x] **Phase 3: Worker Execution Loop (+ Pi-SDK Spike)** — Process-per-task worker, NDJSON IPC with `claim_lock`, write pre-hook, worktree manager, retry policy; decide pi-sdk Agent resume/replay strategy. ✓ 2026-04-23 (5/5 plans, VERIFICATION 6/6 structural PASS, 1520 unit + 26 phase-3 integration tests green. Spike decision: persist-tool-outputs — Agent.continue() throws on assistant-terminated transcripts across all 5 scenarios. Live-provider re-validation deferred to Phase 7/9.)
 - [x] **Phase 4: Scheduler Tick + Event Queue** — Serial event queue, combined-graph metrics, priority-sort, reservation-overlap penalty, dispatch to worker pool. ✓ 2026-04-24 (3/3 plans, VERIFICATION 4/5 PASS + 1 PARTIAL. SchedulerEvent union with tick-boundary guard, 7-key priority sort with canonical DAG fixtures, feature-dep merge gate, perf smoke both tiers gated behind LOAD_TEST=1.)
-- [ ] **Phase 5: Feature Lifecycle & Feature-Level Planner** — Vertical slice: a feature plans, executes, verifies (agent review), and reaches merge-ready end-to-end.
-- [ ] **Phase 6: Merge Train** — Strict-main merge train with rebase + agent-review verify, re-entry cap, inbox parking on cap.
-- [ ] **Phase 7: Top-Level Planner + Inbox + Pause/Resume** — Prompt-to-feature-DAG; unified inbox; two-tier pause; additive re-plan; two-planner collision handling.
-- [ ] **Phase 8: TUI Surfaces** — Four-surface TUI (feature DAG, inbox, merge-train, task transcript), manual DAG editing, three cancel levers, config editor menu.
-- [ ] **Phase 9: Crash Recovery UX** — Seamless auto-resume, orphan-worktree triage, stale-lock sweep, recovery-summary inbox item.
+- [x] **Phase 5: Feature Lifecycle & Feature-Level Planner** — Vertical slice: a feature plans, executes, verifies (agent review), and reaches merge-ready end-to-end. ✓ 2026-04-25 (4/4 plans, VERIFICATION PASS, branch-level `npm run check` green; 10 non-fatal lint warnings remain)
+- [x] **Phase 6: Merge Train** — Strict-main merge train with rebase + agent-review verify, re-entry cap, inbox parking on cap. ✓ 2026-04-25 (3/3 plans, VERIFICATION PASS, branch-level `npm run check` green; 10 non-fatal lint warnings remain)
+- [x] **Phase 7: Top-Level Planner + Inbox + Pause/Resume** — Prompt-to-feature-DAG; unified inbox; two-tier pause; additive re-plan; two-planner collision handling. ✓ 2026-04-28 (5/5 plans, verification green; top-level planner session audit, checkpointed waits, and collision reset/rerun semantics shipped)
+- [x] **Phase 8: TUI Surfaces** — Four-surface TUI (feature DAG, inbox, merge-train, task transcript), manual DAG editing, three cancel levers, config editor menu. ✓ 2026-04-29 (5/5 plans, verification green on focused runtime/TUI/scheduler-boundary lanes and `npm run check`; separate `@microsoft/tui-test` smoke lane still blocked by the pre-existing workerpool `SIGSEGV` crash across all eight smoke tests.)
+- [ ] **Phase 9: Crash Recovery UX** — Seamless auto-resume, orphan-worktree triage, stale-lock sweep, recovery-summary inbox item. In progress: 09-01 startup recovery substrate completed on 2026-04-29, and 09-02 startup respawn + transcript replay hookup completed on 2026-05-01 with focused verification green.
 - [ ] **Phase 10: Re-plan Flows & Manual Edits Polish** — Continue-vs-fresh planner session picker, audit-log reader, proposal preview, collision-surface polish.
 - [ ] **Phase 11: Documentation & Diagnostic Tooling** — `gvc0 explain` CLI, canonical diagrams matched to shipped code, concerns-to-tests map, newcomer narrative.
 - [ ] **Phase 12: Integration & Polish** — End-to-end scenarios, verify-agent flake-rate audit, TUI e2e smoke tests, source-install runbook.
@@ -104,13 +104,13 @@ Plans:
   3. Verify phase runs a real pi-sdk agent review (not a stub) against the feature branch diff, returning pass or issues
   4. Executing_repair loop turns verify issues into repair tasks; once they land, verify re-runs
   5. Agent "hallucinates progress" case is rejected: task completion without a matching trailer-tagged commit fails
-**Plans**: TBD (~4 plans)
+**Plans**: 4 plans
 
 Plans:
-- [ ] 05-01: Feature-level planner agent + prompt + tool schemas (typebox)
-- [ ] 05-02: Feature lifecycle FSM transitions + guard tests
-- [ ] 05-03: Verify agent (pi-sdk Agent running review on feature branch diff) + pass/issue protocol
-- [ ] 05-04: Executing_repair loop + hallucinated-progress rejection
+- [x] 05-01: Feature-level planner agent + prompt + tool schemas (typebox)
+- [x] 05-02: Feature lifecycle FSM transitions + guard tests
+- [x] 05-03: Verify agent (pi-sdk Agent running review on feature branch diff) + pass/issue protocol
+- [x] 05-04: Executing_repair loop + hallucinated-progress rejection
 
 ### Phase 6: Merge Train
 **Goal**: Strict-main merge train with rebase + agent-review verify + re-entry cap + inbox parking on cap. `main` never advances to an unverified state.
@@ -125,9 +125,9 @@ Plans:
 **Plans**: TBD (~3 plans)
 
 Plans:
-- [ ] 06-01: Merge-train queue + ordering (queued-milestone bucket, auto-priority, manual override)
-- [ ] 06-02: Rebase + merge-train verify + eject-or-merge protocol; re-entry counting
-- [ ] 06-03: Re-entry cap parking + diagnostics payload + cross-feature conflict handoff
+- [x] 06-01: Merge-train queue + ordering (queued-milestone bucket, auto-priority, manual override)
+- [x] 06-02: Rebase + merge-train verify + eject-or-merge protocol; re-entry counting
+- [x] 06-03: Re-entry cap parking + diagnostics payload + cross-feature conflict handoff
 
 ### Phase 7: Top-Level Planner + Inbox + Pause/Resume
 **Goal**: Full user-facing prompt-to-execution loop: top-level planner drafts features via inline chat; agent asks route to a unified inbox; two-tier pause handles short and AFK waits; planner re-invocation is additive; manual edits win; two-planner collisions handled.
@@ -145,11 +145,11 @@ Plans:
 **Plans**: TBD (~5 plans)
 
 Plans:
-- [ ] 07-01: Top-level planner agent + milestone/feature CRUD tools + additive-mutation enforcement
-- [ ] 07-02: Inbox domain model + agent-ask routing + multi-task unblock semantics
-- [ ] 07-03: Two-tier pause + checkpoint + respawn-with-replay (using Phase 3 spike decision)
-- [ ] 07-04: Planner session registry (continue vs fresh) + per-feature audit log
-- [ ] 07-05: Edit-during-planning collision detection + proposal-view flagging + cancel-on-accept
+- [x] 07-01: Top-level planner agent + milestone/feature CRUD tools + additive-mutation enforcement
+- [x] 07-02: Inbox domain model + agent-ask routing + multi-task unblock semantics
+- [x] 07-03: Two-tier pause + checkpoint + respawn-with-replay (using Phase 3 spike decision)
+- [x] 07-04: Planner session registry (continue vs fresh) + per-feature audit log
+- [x] 07-05: Edit-during-planning collision detection + proposal-view flagging + cancel-on-accept
 
 ### Phase 8: TUI Surfaces
 **Goal**: Four-surface TUI bound to derived view-models; manual DAG editing; three cancel levers; config editor; power-user ergonomics.
@@ -161,14 +161,14 @@ Plans:
   3. Manual DAG editing (create / edit / split / merge / cancel / remove / reorder / reweight) works from the TUI and correctly wins over planner output
   4. Three cancel levers are distinct, clearly labeled actions (task-preserve-worktree / task-clean-worktree / feature-abandon-branch)
   5. Config editor menu edits model per role, worker cap, pause timeout, retry cap, and re-entry cap without restart (hot-reloadable)
-**Plans**: TBD (~5 plans)
+**Plans**: 5 plans
 
 Plans:
-- [ ] 08-01: Pi-tui shell + surface orchestration + derived view-model stream
-- [ ] 08-02: Feature DAG surface + manual edit actions (create/edit/split/merge/cancel/reorder/reweight)
-- [ ] 08-03: Inbox surface + merge-train surface
-- [ ] 08-04: Per-task transcript surface + render rate-cap + virtualization
-- [ ] 08-05: Config editor menu (hot-reload keys) + three cancel levers as visible actions
+- [x] 08-01: Inbox surface overlay + direct inbox actions on the existing TUI shell
+- [x] 08-02: Merge-train surface + queue status/actions
+- [x] 08-03: Feature DAG manual edit actions (create/edit/split/merge/cancel/reorder/reweight)
+- [x] 08-04: Per-task transcript surface + render rate-cap + virtualization
+- [x] 08-05: Config editor menu (hot-reload keys) + three cancel levers as visible actions
 
 ### Phase 9: Crash Recovery UX
 **Goal**: Seamless auto-resume on orchestrator crash — no user triage required on restart.
@@ -183,8 +183,8 @@ Plans:
 **Plans**: TBD (~3 plans)
 
 Plans:
-- [ ] 09-01: Stale-lock sweep + orphan-worktree detection + PID reconciliation
-- [ ] 09-02: In-flight worker respawn + transcript replay path (production hookup of Phase 3 strategy)
+- [x] 09-01: Stale-lock sweep + orphan-worktree detection + PID reconciliation
+- [x] 09-02: In-flight worker respawn + transcript replay path (production hookup of Phase 3 strategy)
 - [ ] 09-03: Recovery-summary inbox item + crash fault-injection integration test
 
 ### Phase 10: Re-plan Flows & Manual Edits Polish
@@ -242,19 +242,19 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundations & Clarity | 0/TBD (~3) | Not started | - |
-| 2. Persistence & Port Contracts | 0/TBD (~3) | Not started | - |
+| 1. Foundations & Clarity | 3/3 | ✓ Complete | 2026-04-23 |
+| 2. Persistence & Port Contracts | 3/3 | ✓ Complete | 2026-04-23 |
 | 3. Worker Execution Loop (+ Spike) | 5/5 | ✓ Complete | 2026-04-23 |
 | 4. Scheduler Tick + Event Queue | 3/3 | ✓ Complete | 2026-04-24 |
-| 5. Feature Lifecycle & Feature-Level Planner | 0/TBD (~4) | Not started | - |
-| 6. Merge Train | 0/TBD (~3) | Not started | - |
-| 7. Top-Level Planner + Inbox + Pause/Resume | 0/TBD (~5) | Not started | - |
-| 8. TUI Surfaces | 0/TBD (~5) | Not started | - |
-| 9. Crash Recovery UX | 0/TBD (~3) | Not started | - |
+| 5. Feature Lifecycle & Feature-Level Planner | 4/4 | ✓ Complete | 2026-04-25 |
+| 6. Merge Train | 3/3 | ✓ Complete | 2026-04-25 |
+| 7. Top-Level Planner + Inbox + Pause/Resume | 5/5 | ✓ Complete | 2026-04-28 |
+| 8. TUI Surfaces | 5/5 | ✓ Complete | 2026-04-29 |
+| 9. Crash Recovery UX | 2/TBD (~3) | In progress | - |
 | 10. Re-plan Flows & Manual Edits Polish | 0/TBD (~2) | Not started | - |
 | 11. Documentation & Diagnostic Tooling | 0/TBD (~3) | Not started | - |
 | 12. Integration & Polish | 0/TBD (~3) | Not started | - |
 
 ---
 *Roadmap created: 2026-04-23*
-*Last updated: 2026-04-24 — Phase 4 complete (3/3 plans, VERIFICATION 4/5 PASS + 1 PARTIAL). Advancing to Phase 5.*
+*Last updated: 2026-05-01 — Phase 9 is in progress. Plan 09-02 synced to shipped code: startup now immediately fresh-starts synchronously non-resumable in-flight runs, replay-incomplete resume outcomes carry structured diagnostics, the scheduler parks those cases with inbox visibility instead of `retry_await` churn, and focused verification is green for `npm run typecheck` plus the targeted recovery/scheduler-loop/worker-runtime/TUI/IPC/compose suites. Next slice: 09-03 recovery-summary inbox item + crash fault-injection coverage.*

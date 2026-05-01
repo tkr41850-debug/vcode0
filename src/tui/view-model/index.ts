@@ -1,3 +1,5 @@
+import type { GvcConfig } from '@config';
+import { compareMergeTrainPriority } from '@core/merge-train/index';
 import {
   deriveFeatureUnitStatus,
   deriveMilestoneUnitStatus,
@@ -19,6 +21,7 @@ import type {
   TaskAgentRun,
   TaskId,
 } from '@core/types/index';
+import type { InboxItemRecord } from '@orchestrator/ports/index';
 import {
   INITIALIZE_PROJECT_EXAMPLE_COMMAND,
   type TuiKeybindHint,
@@ -63,6 +66,8 @@ export interface StatusBarViewModel extends WorkerCountsViewModel {
   dataMode?: 'live' | 'draft';
   focusMode?: 'composer' | 'graph';
   pendingProposalPhase?: FeaturePhaseAgentRun['phase'];
+  pendingProposalTarget?: string;
+  pendingProposalHint?: string;
 }
 
 export interface ComposerViewModel {
@@ -95,6 +100,50 @@ export interface DependencyDetailViewModel {
   dependents: string[];
 }
 
+export interface InboxItemViewModel {
+  id: string;
+  kind: string;
+  taskId?: string;
+  featureId?: string;
+  summary: string;
+  ts: number;
+}
+
+export interface InboxOverlayViewModel {
+  items: InboxItemViewModel[];
+  unresolvedCount: number;
+}
+
+export interface MergeTrainItemViewModel {
+  featureId: FeatureId;
+  label: string;
+  state: 'integrating' | 'queued';
+  summary: string;
+  manualPosition?: number;
+  reentryCount: number;
+}
+
+export interface MergeTrainOverlayViewModel {
+  items: MergeTrainItemViewModel[];
+  integratingCount: number;
+  queuedCount: number;
+}
+
+export interface ConfigEntryViewModel {
+  key: string;
+  value: string;
+}
+
+export interface ConfigOverlayViewModel {
+  entries: ConfigEntryViewModel[];
+}
+
+export interface TaskTranscriptViewModel {
+  taskId: TaskId | undefined;
+  label: string;
+  lines: string[];
+}
+
 export interface StatusBarBuildInput {
   tasks: Task[];
   workerCounts: WorkerCountsViewModel;
@@ -105,6 +154,8 @@ export interface StatusBarBuildInput {
   dataMode?: 'live' | 'draft';
   focusMode?: 'composer' | 'graph';
   pendingProposalPhase?: FeaturePhaseAgentRun['phase'];
+  pendingProposalTarget?: string;
+  pendingProposalHint?: string;
 }
 
 export class TuiViewModelBuilder {
@@ -154,7 +205,9 @@ export class TuiViewModelBuilder {
         taskRuns.set(run.scopeId, run);
         continue;
       }
-      featurePhaseRuns.set(`${run.scopeId}:${run.phase}`, run);
+      if (run.scopeType === 'feature_phase') {
+        featurePhaseRuns.set(`${run.scopeId}:${run.phase}`, run);
+      }
     }
 
     const featureStatuses = new Map<FeatureId, DerivedUnitStatus>();
@@ -306,6 +359,12 @@ export class TuiViewModelBuilder {
       ...(input.pendingProposalPhase !== undefined
         ? { pendingProposalPhase: input.pendingProposalPhase }
         : {}),
+      ...(input.pendingProposalTarget !== undefined
+        ? { pendingProposalTarget: input.pendingProposalTarget }
+        : {}),
+      ...(input.pendingProposalHint !== undefined
+        ? { pendingProposalHint: input.pendingProposalHint }
+        : {}),
     };
   }
 
@@ -316,7 +375,8 @@ export class TuiViewModelBuilder {
     draftPhase?: 'plan' | 'replan';
     draftCommandCount?: number;
     pendingProposalPhase?: FeaturePhaseAgentRun['phase'];
-    pendingFeatureId?: FeatureId;
+    pendingProposalTarget?: string;
+    pendingProposalHint?: string;
     pendingTaskId?: TaskId;
     pendingTaskRunStatus?: TaskAgentRun['runStatus'];
     pendingTaskOwner?: TaskAgentRun['owner'];
@@ -324,13 +384,13 @@ export class TuiViewModelBuilder {
   }): ComposerViewModel {
     if (
       input.pendingProposalPhase !== undefined &&
-      input.pendingFeatureId !== undefined
+      input.pendingProposalTarget !== undefined
     ) {
       return {
         mode: 'approval',
         focusMode: input.focusMode,
         text: input.text,
-        detail: `approval ${input.pendingProposalPhase} ${input.pendingFeatureId} /approve /reject /rerun`,
+        detail: `approval ${input.pendingProposalPhase} ${input.pendingProposalTarget}${input.pendingProposalHint !== undefined ? ` (${input.pendingProposalHint})` : ''} /approve /reject /rerun`,
       };
     }
 
@@ -340,9 +400,11 @@ export class TuiViewModelBuilder {
       input.pendingTaskOwner !== undefined
     ) {
       const commands =
-        input.pendingTaskRunStatus === 'await_approval'
+        input.pendingTaskRunStatus === 'await_approval' ||
+        input.pendingTaskRunStatus === 'checkpointed_await_approval'
           ? '/approve /reject'
-          : input.pendingTaskRunStatus === 'await_response'
+          : input.pendingTaskRunStatus === 'await_response' ||
+              input.pendingTaskRunStatus === 'checkpointed_await_response'
             ? '/reply'
             : '/input';
       const prompt = summarizeTaskWaitPayload(
@@ -371,6 +433,91 @@ export class TuiViewModelBuilder {
       focusMode: input.focusMode,
       text: input.text,
       detail: 'composer /help /milestone-add /feature-add /task-add /dep-add',
+    };
+  }
+
+  buildInbox(items: InboxItemRecord[]): InboxOverlayViewModel {
+    const unresolved = items
+      .filter((item) => item.resolution === undefined)
+      .sort((left, right) => right.ts - left.ts)
+      .map((item) => ({
+        id: item.id,
+        kind: item.kind,
+        ...(item.taskId !== undefined ? { taskId: item.taskId } : {}),
+        ...(item.featureId !== undefined ? { featureId: item.featureId } : {}),
+        summary: summarizeInboxItem(item),
+        ts: item.ts,
+      }));
+
+    return {
+      items: unresolved,
+      unresolvedCount: unresolved.length,
+    };
+  }
+
+  buildMergeTrain(features: Feature[]): MergeTrainOverlayViewModel {
+    const integrating = features
+      .filter((feature) => feature.collabControl === 'integrating')
+      .sort(compareMergeTrainFeatures)
+      .map((feature) => buildMergeTrainItem(feature, 'integrating'));
+    const queued = features
+      .filter((feature) => feature.collabControl === 'merge_queued')
+      .sort(compareMergeTrainFeatures)
+      .map((feature) => buildMergeTrainItem(feature, 'queued'));
+
+    return {
+      items: [...integrating, ...queued],
+      integratingCount: integrating.length,
+      queuedCount: queued.length,
+    };
+  }
+
+  buildConfig(config: GvcConfig): ConfigOverlayViewModel {
+    return {
+      entries: [
+        entry('models.topPlanner', formatModelRef(config.models.topPlanner)),
+        entry(
+          'models.featurePlanner',
+          formatModelRef(config.models.featurePlanner),
+        ),
+        entry('models.taskWorker', formatModelRef(config.models.taskWorker)),
+        entry('models.verifier', formatModelRef(config.models.verifier)),
+        entry('workerCap', String(config.workerCap)),
+        entry('retryCap', String(config.retryCap)),
+        entry('reentryCap', String(config.reentryCap)),
+        entry(
+          'pauseTimeouts.hotWindowMs',
+          String(config.pauseTimeouts.hotWindowMs),
+        ),
+      ],
+    };
+  }
+
+  buildTaskTranscript(
+    taskId: TaskId | undefined,
+    logs: WorkerLogViewModel[],
+  ): TaskTranscriptViewModel {
+    if (taskId === undefined) {
+      return {
+        taskId: undefined,
+        label: 'no task selected',
+        lines: [],
+      };
+    }
+
+    const entry = logs.find((log) => log.taskId === taskId);
+    if (entry === undefined) {
+      return {
+        taskId,
+        label: taskId,
+        lines: [],
+      };
+    }
+
+    return {
+      taskId,
+      label: entry.label,
+      lines: [...entry.lines],
     };
   }
 
@@ -446,6 +593,53 @@ function compareTasks(left: Task, right: Task): number {
   return left.id.localeCompare(right.id);
 }
 
+function compareMergeTrainFeatures(left: Feature, right: Feature): number {
+  const priority = compareMergeTrainPriority(left, right);
+  if (priority !== 0) {
+    return priority;
+  }
+  return left.id.localeCompare(right.id);
+}
+
+function buildMergeTrainItem(
+  feature: Feature,
+  state: 'integrating' | 'queued',
+): MergeTrainItemViewModel {
+  return {
+    featureId: feature.id,
+    label: formatFeatureLabel(feature),
+    state,
+    summary: summarizeMergeTrainFeature(feature),
+    reentryCount: feature.mergeTrainReentryCount ?? 0,
+    ...(feature.mergeTrainManualPosition !== undefined
+      ? { manualPosition: feature.mergeTrainManualPosition }
+      : {}),
+  };
+}
+
+function summarizeMergeTrainFeature(feature: Feature): string {
+  const parts = [
+    ...(feature.mergeTrainManualPosition !== undefined
+      ? [`manual: ${feature.mergeTrainManualPosition}`]
+      : []),
+    `reentry: ${feature.mergeTrainReentryCount ?? 0}`,
+    ...(feature.mergeTrainEntrySeq !== undefined
+      ? [`entry: ${feature.mergeTrainEntrySeq}`]
+      : []),
+  ];
+  return parts.join(' ');
+}
+
+function entry(key: string, value: string): ConfigEntryViewModel {
+  return { key, value };
+}
+
+function formatModelRef(
+  modelRef: GvcConfig['models'][keyof GvcConfig['models']],
+): string {
+  return `${modelRef.provider}:${modelRef.model}`;
+}
+
 function summarizeTaskWaitPayload(
   runStatus: TaskAgentRun['runStatus'],
   payloadJson: string | undefined,
@@ -462,10 +656,17 @@ function summarizeTaskWaitPayload(
       summary?: string;
       description?: string;
     };
-    if (runStatus === 'await_response' && typeof parsed.query === 'string') {
+    if (
+      (runStatus === 'await_response' ||
+        runStatus === 'checkpointed_await_response') &&
+      typeof parsed.query === 'string'
+    ) {
       return truncateDetail(`q=${parsed.query}`);
     }
-    if (runStatus === 'await_approval') {
+    if (
+      runStatus === 'await_approval' ||
+      runStatus === 'checkpointed_await_approval'
+    ) {
       if (typeof parsed.label === 'string') {
         return truncateDetail(`ask=${parsed.label}`);
       }
@@ -488,6 +689,81 @@ function summarizeTaskWaitPayload(
 
 function truncateDetail(value: string): string {
   return value.length <= 48 ? value : `${value.slice(0, 45)}...`;
+}
+
+function summarizeInboxItem(item: InboxItemRecord): string {
+  const context = [
+    item.taskId !== undefined ? `task=${item.taskId}` : undefined,
+    item.featureId !== undefined ? `feature=${item.featureId}` : undefined,
+  ]
+    .filter((entry): entry is string => entry !== undefined)
+    .join(' ');
+  const summary = truncateDetail(summarizeInboxPayload(item));
+  return context.length === 0 ? summary : `${context} ${summary}`;
+}
+
+function summarizeInboxPayload(item: InboxItemRecord): string {
+  const payload = item.payload;
+  if (
+    payload === null ||
+    typeof payload !== 'object' ||
+    Array.isArray(payload)
+  ) {
+    return item.kind;
+  }
+
+  const record = payload as {
+    query?: unknown;
+    label?: unknown;
+    detail?: unknown;
+    summary?: unknown;
+    description?: unknown;
+    reason?: unknown;
+    recoveryReason?: unknown;
+    cap?: unknown;
+    reentryCount?: unknown;
+  };
+
+  if (item.kind === 'agent_help' && typeof record.query === 'string') {
+    return `q=${record.query}`;
+  }
+  if (typeof record.label === 'string') {
+    return `ask=${record.label}`;
+  }
+  if (typeof record.summary === 'string') {
+    return `ask=${record.summary}`;
+  }
+  if (typeof record.description === 'string') {
+    return `ask=${record.description}`;
+  }
+  if (typeof record.detail === 'string') {
+    return `ask=${record.detail}`;
+  }
+  if (item.kind === 'merge_train_cap_reached') {
+    const count =
+      typeof record.reentryCount === 'number' ? record.reentryCount : '?';
+    const cap = typeof record.cap === 'number' ? record.cap : '?';
+    const reason = typeof record.reason === 'string' ? ` ${record.reason}` : '';
+    return `merge cap ${count}/${cap}${reason}`;
+  }
+  if (
+    item.kind === 'semantic_failure' &&
+    record.reason === 'resume_incomplete'
+  ) {
+    return `recovery ${formatRecoveryReason(record.recoveryReason)}`;
+  }
+
+  return item.kind;
+}
+
+function formatRecoveryReason(value: unknown): string {
+  if (typeof value !== 'string' || value.length === 0) {
+    return 'incomplete';
+  }
+  if (value.startsWith('missing-tool-outputs:')) {
+    return `missing tool outputs ${value.slice('missing-tool-outputs:'.length)}`;
+  }
+  return value.replaceAll('-', ' ');
 }
 
 function formatFeatureLabel(feature: Feature): string {
@@ -527,7 +803,9 @@ function deriveFeatureBlocked(run: AgentRun | undefined, now: number): boolean {
 
   if (
     run.runStatus === 'await_response' ||
-    run.runStatus === 'await_approval'
+    run.runStatus === 'await_approval' ||
+    run.runStatus === 'checkpointed_await_response' ||
+    run.runStatus === 'checkpointed_await_approval'
   ) {
     return true;
   }

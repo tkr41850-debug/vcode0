@@ -17,9 +17,9 @@ import type {
 } from '@runtime/contracts';
 import type { SessionHandle, SessionHarness } from '@runtime/harness/index';
 import {
+  decideRetry,
   type RetryDecision,
   type RetryPolicyConfig,
-  decideRetry,
 } from '@runtime/retry-policy';
 
 interface LiveSession {
@@ -34,6 +34,13 @@ interface RetryState {
   task: Task;
   dispatch: TaskRuntimeDispatch;
   payload: TaskPayload;
+}
+
+type WaitKind = 'await_response' | 'await_approval';
+
+interface WaitTimer {
+  kind: WaitKind;
+  timeout: NodeJS.Timeout;
 }
 
 export type TaskCompleteCallback = (
@@ -52,17 +59,30 @@ export interface LocalWorkerPoolRetryDeps {
   config: RetryPolicyConfig;
 }
 
+export interface LocalWorkerPoolOptions {
+  hotWindowMs?: number;
+}
+
 export class LocalWorkerPool implements RuntimePort {
   private readonly liveRuns = new Map<string, LiveSession>();
   /** REQ-EXEC-04: per-task attempt counter + cached payload for retry. */
   private readonly retryState = new Map<string, RetryState>();
+  private readonly waitTimers = new Map<string, WaitTimer>();
+  private maxConcurrency: number;
+  private hotWindowMs: number | undefined;
+  private retryDeps: LocalWorkerPoolRetryDeps | undefined;
 
   constructor(
     private readonly harness: SessionHarness,
-    private readonly maxConcurrency: number,
+    maxConcurrency: number,
     private readonly onTaskComplete?: TaskCompleteCallback,
-    private readonly retryDeps?: LocalWorkerPoolRetryDeps,
-  ) {}
+    retryDeps?: LocalWorkerPoolRetryDeps,
+    options: LocalWorkerPoolOptions = {},
+  ) {
+    this.maxConcurrency = maxConcurrency;
+    this.retryDeps = retryDeps;
+    this.hotWindowMs = options.hotWindowMs;
+  }
 
   async dispatchTask(
     task: Task,
@@ -213,6 +233,7 @@ export class LocalWorkerPool implements RuntimePort {
       return Promise.resolve({ kind: 'not_running', taskId });
     }
 
+    this.clearWaitTimer(taskId);
     session.handle.send({
       type: 'help_response',
       taskId,
@@ -240,6 +261,7 @@ export class LocalWorkerPool implements RuntimePort {
       return Promise.resolve({ kind: 'not_running', taskId });
     }
 
+    this.clearWaitTimer(taskId);
     session.handle.send({
       type: 'approval_decision',
       taskId,
@@ -307,6 +329,7 @@ export class LocalWorkerPool implements RuntimePort {
       return Promise.resolve({ kind: 'not_running', taskId });
     }
 
+    this.clearWaitTimer(taskId);
     session.handle.abort();
     this.liveRuns.delete(taskId);
 
@@ -317,12 +340,32 @@ export class LocalWorkerPool implements RuntimePort {
     });
   }
 
+  setMaxConcurrency(maxConcurrency: number): void {
+    this.maxConcurrency = Math.max(1, Math.floor(maxConcurrency));
+  }
+
+  maxWorkerCount(): number {
+    return this.maxConcurrency;
+  }
+
+  setHotWindowMs(hotWindowMs: number | undefined): void {
+    this.hotWindowMs = hotWindowMs;
+  }
+
+  setRetryPolicyConfig(config: RetryPolicyConfig): void {
+    if (this.retryDeps === undefined) {
+      return;
+    }
+    this.retryDeps = { ...this.retryDeps, config };
+  }
+
   idleWorkerCount(): number {
     return Math.max(0, this.maxConcurrency - this.liveRuns.size);
   }
 
   stopAll(): Promise<void> {
     for (const [taskId, session] of this.liveRuns) {
+      this.clearWaitTimer(taskId);
       session.handle.abort();
       this.liveRuns.delete(taskId);
     }
@@ -344,6 +387,7 @@ export class LocalWorkerPool implements RuntimePort {
             };
 
       if (normalizedMessage.type === 'result') {
+        this.clearWaitTimer(taskId);
         this.liveRuns.delete(taskId);
         // Clean retry bookkeeping — a successful run resets the counter.
         this.retryState.delete(taskId);
@@ -352,9 +396,16 @@ export class LocalWorkerPool implements RuntimePort {
       }
 
       if (normalizedMessage.type === 'error') {
+        this.clearWaitTimer(taskId);
         this.liveRuns.delete(taskId);
         this.handleErrorFrame(taskId, normalizedMessage);
         return;
+      }
+
+      if (normalizedMessage.type === 'request_help') {
+        this.armWaitTimer(taskId, session, 'await_response');
+      } else if (normalizedMessage.type === 'request_approval') {
+        this.armWaitTimer(taskId, session, 'await_approval');
       }
 
       this.onTaskComplete?.(normalizedMessage);
@@ -362,6 +413,7 @@ export class LocalWorkerPool implements RuntimePort {
 
     session.handle.onExit((info) => {
       if (!this.liveRuns.has(taskId)) return;
+      this.clearWaitTimer(taskId);
       this.liveRuns.delete(taskId);
       const reason =
         info.error !== undefined
@@ -375,6 +427,47 @@ export class LocalWorkerPool implements RuntimePort {
       };
       this.handleErrorFrame(taskId, errorFrame);
     });
+  }
+
+  private armWaitTimer(
+    taskId: string,
+    session: LiveSession,
+    kind: WaitKind,
+  ): void {
+    this.clearWaitTimer(taskId);
+    const hotWindowMs = this.hotWindowMs;
+    if (hotWindowMs === undefined || hotWindowMs <= 0) {
+      return;
+    }
+    const timeout = setTimeout(() => {
+      const current = this.liveRuns.get(taskId);
+      const activeTimer = this.waitTimers.get(taskId);
+      if (current !== session || activeTimer?.timeout !== timeout) {
+        return;
+      }
+      this.waitTimers.delete(taskId);
+      this.liveRuns.delete(taskId);
+      current.handle.release();
+      this.onTaskComplete?.({
+        type: 'wait_checkpointed',
+        taskId,
+        agentRunId: session.ref.agentRunId,
+        waitKind: kind,
+      });
+    }, hotWindowMs);
+    if (typeof timeout.unref === 'function') {
+      timeout.unref();
+    }
+    this.waitTimers.set(taskId, { kind, timeout });
+  }
+
+  private clearWaitTimer(taskId: string): void {
+    const active = this.waitTimers.get(taskId);
+    if (active === undefined) {
+      return;
+    }
+    clearTimeout(active.timeout);
+    this.waitTimers.delete(taskId);
   }
 
   /**
@@ -397,6 +490,12 @@ export class LocalWorkerPool implements RuntimePort {
 
     const state = this.retryState.get(taskId);
     if (state === undefined) {
+      this.onTaskComplete?.(message);
+      return;
+    }
+
+    if (message.recovery?.kind === 'resume_incomplete') {
+      this.retryState.delete(taskId);
       this.onTaskComplete?.(message);
       return;
     }

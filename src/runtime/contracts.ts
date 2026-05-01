@@ -1,7 +1,6 @@
 import type {
   GitConflictContext,
   Task,
-  TaskResult,
   TaskResumeReason,
   TaskSuspendReason,
 } from '@core/types/index';
@@ -88,6 +87,11 @@ export interface RuntimeUsageDelta {
   totalTokens: number;
   usd: number;
   rawUsage?: unknown;
+}
+
+export interface ResumeRecoveryDiagnostic {
+  kind: 'resume_incomplete';
+  reason: string;
 }
 
 export type ApprovalPayload =

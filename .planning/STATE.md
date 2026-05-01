@@ -5,34 +5,25 @@
 See: .planning/PROJECT.md (updated 2026-04-23)
 
 **Core value:** From one prompt, orchestrate parallel autonomous coding that lands on `main` without breaking it — live-steerable from a single TUI.
-**Current focus:** Phase 5 (Feature Lifecycle) — about to discuss.
+**Current focus:** Phase 9 crash recovery UX is in progress — 09-01 startup recovery substrate completed on 2026-04-29, and 09-02 startup respawn + transcript replay hookup completed on 2026-05-01 with immediate startup fallback for `not_resumable` runs, structured replay-incomplete diagnostics, parked recovery inbox visibility, and readable TUI recovery wording. Next slice: 09-03 recovery-summary inbox item + crash fault-injection coverage.
 
 ## Current Position
 
-Phase: 5 of 12 (Feature Lifecycle)
-Plan: 0 of TBD in current phase
-Status: Pending discuss
-Last activity: 2026-04-24 — Phase 4 complete. VERIFICATION 4/5 PASS + 1 PARTIAL (perf smoke gated behind LOAD_TEST=1; both tiers pass when run). Contract surface stable for Phase 5 to build on.
+Phase: 9 of 12 (Crash Recovery UX) next
+Plan: 5 of 5 completed in Phase 8
+Status: Phase 8 complete. 08-01 inbox, 08-02 merge-train, 08-03 manual DAG edit actions, 08-04 per-task transcript surface, and 08-05 authoritative config plus visible cancel controls are synced to shipped code.
+Last activity: 2026-04-29 — Phase 8 plan 08-05 recorded. The TUI now exposes authoritative config through `/config`, graph keybind `c`, and `/config-set`; supported settings persist and hot-apply without restart; `topPlanner`, `featurePlanner`, `taskWorker`, and `verifier` now map to distinct runtime model consumers; and the three cancel levers now ship as distinct visible actions (`/task-cancel-preserve`, `/task-cancel-clean`, `/feature-abandon`). Verification is green for focused runtime/agent-runtime/feature-lifecycle/TUI/scheduler-boundary lanes and for `npm run check` (`1917 passed`, `3 skipped`). The separate `@microsoft/tui-test` smoke lane remains blocked by the existing workerpool `SIGSEGV` crash across all eight smoke tests.
 
-Progress: [████░░░░░░] 33%
+Progress: [██████████] 100% for Phase 8
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 14
-- Average duration: ~60 min/plan
-- Total execution time: ~10h across phases 1-4
+- Total plans completed: 30
+- Phases completed: 8 of 12
+- Latest focused verification: 2026-04-29 — `npm run typecheck`, runtime/worktree/agent-runtime/feature-lifecycle/TUI/scheduler-boundary lanes green, and `npm run check` green
 
-**By Phase:**
-
-| Phase | Plans | Total | Avg/Plan |
-|-------|-------|-------|----------|
-| 1 (Foundations & Clarity) | 3 | ~45m | ~15m |
-| 2 (Persistence & Port Contracts) | 3 | ~75m | ~25m |
-| 3 (Worker Execution Loop + Spike) | 5 | ~6h | ~70m |
-| 4 (Scheduler Tick + Event Queue) | 3 | ~3h | ~60m |
-
-**Recent Trend:** Phase 4 three serial waves (each wave one plan, no parallelism benefit). Wave 1 (event-queue hygiene + tick-boundary guard), Wave 2 (7-key priority sort + canonical DAG fixtures + retry backoff), Wave 3 (feature-dep merge gate + dispatch guard + perf smoke + E2E). Plan-checker PASS first iteration; verifier 4/5 PASS + 1 PARTIAL.
+**Recent Trend:** Phase 8 is complete: the TUI now exposes inbox, merge-train, transcript, command-first manual DAG edit actions, authoritative config controls, and visible cancel levers directly in the shell. The next phase can focus on crash recovery UX rather than operator-surface gaps.
 
 *Updated after each plan completion.*
 
@@ -53,16 +44,17 @@ Full decision log lives in PROJECT.md Key Decisions table. Highlights from initi
 
 ### Pending Todos
 
-None yet.
+- Research, plan, and execute Phase 9 crash recovery UX: stale-lock sweep, orphan-worktree triage, in-flight worker respawn, and recovery-summary inbox flow.
 
 ### Blockers/Concerns
 
-- **Pi-sdk Agent resume/replay fidelity** RESOLVED 2026-04-23: spike chose persist-tool-outputs fallback (Agent.continue() throws on assistant-terminated transcripts across all 5 scenarios). `@runtime/resume` facade + ToolOutputStore landed for Phase 7. Live-provider re-validation deferred to Phase 7 (07-03) and crash-recovery UX to Phase 9.
+- **Pi-sdk Agent resume/replay fidelity** RESOLVED 2026-04-23: spike chose persist-tool-outputs fallback (Agent.continue() throws on assistant-terminated transcripts across all 5 scenarios). Phase 7 shipped checkpointed waits + replay around that decision; live-provider re-validation remains deferred to Phase 9 crash-recovery UX.
 - **Merge-train serial throughput** (acknowledged): strict-main merge train is a known v1 bottleneck under many parallel features. Optimization deferred (see `docs/feature-candidates/` and REQ-MERGE-V2-01/02).
-- **`@microsoft/tui-test` pre-1.0**: treat TUI e2e coverage as smoke-only in Phase 12; full e2e deferred.
+- **`@microsoft/tui-test` pre-1.0**: treat TUI e2e coverage as smoke-only in Phase 12; full e2e deferred. Current status (2026-04-29): workerpool `SIGSEGV` crash across all eight smoke tests, including pre-existing cases.
 - **Parallel-vitest flakes** (Phase 3): 5 pre-existing unit tests flake under parallel-load (worktree.test.ts x4, tui/view-model.test.ts x1); logged as follow-up in 03-02-SUMMARY.md.
 - **Phase 4 perf smoke gated** (2026-04-24): Both tiers of scheduler-perf-smoke run only under `LOAD_TEST=1`. Default CI doesn't exercise the <100ms p95 budget. Follow-up in `.planning/phases/04-scheduler-tick-event-queue/deferred-items.md`.
-- **Biome format-only churn in ~17 unrelated files** (2026-04-24): `npm run check:fix` normalizes formatting in runtime/agents/config/warnings files; plans 04-01/02/03 left them out of scope. Tree is clean after each plan commit.
+- **AST boundary walker narrowed to compose.ts + agents/runtime.ts** (2026-04-24): follow-up remains open from Phase 4.
+- **`GVC_ASSERT_TICK_BOUNDARY` off by default in CI** (2026-04-24): follow-up remains open from Phase 4.
 
 ## Deferred Items
 
@@ -74,6 +66,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-24 — Phase 4 complete end-to-end (discuss → research → plan → execute → verify). HEAD at `1a6328d`.
-Stopped at: Phase 4 done. Auto-chain advancing to Phase 5 (Feature Lifecycle).
-Resume file: discuss Phase 5 next.
+Last session: 2026-05-01 — Phase 09 plan 09-02 synced to shipped code and artifacts; focused recovery/runtime/TUI verification green for `npm run typecheck` and the targeted recovery, scheduler-loop, worker-runtime, TUI view-model, IPC frame-schema, and compose suites.
+Stopped at: Phase 9 is in progress with 09-01 and 09-02 complete. Next slice is 09-03 recovery-summary inbox item + crash fault-injection coverage.
+Resume file: continue under `.planning/phases/09-crash-recovery-ux/`.

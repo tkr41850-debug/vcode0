@@ -146,16 +146,28 @@ const validError = {
   error: 'boom',
 };
 
+const validRecoveryError = {
+  type: 'error',
+  ...baseTaskFields,
+  error: 'resume_incomplete: assistant-text-terminal',
+  recovery: {
+    kind: 'resume_incomplete',
+    reason: 'assistant-text-terminal',
+  },
+};
+
 const validRequestHelp = {
   type: 'request_help',
   ...baseTaskFields,
   query: '?',
+  toolCallId: 'call-1',
 };
 
 const validRequestApproval = {
   type: 'request_approval',
   ...baseTaskFields,
   payload: { kind: 'custom', label: 'l', detail: 'd' },
+  toolCallId: 'call-2',
 };
 
 const validAssistantOutput = {
@@ -269,6 +281,11 @@ describe('WorkerToOrchestratorFrame — per-variant validation', () => {
     { name: 'result', schema: ResultFrame, value: validResult },
     { name: 'error', schema: ErrorFrame, value: validError },
     {
+      name: 'error with recovery',
+      schema: ErrorFrame,
+      value: validRecoveryError,
+    },
+    {
       name: 'request_help',
       schema: RequestHelpFrame,
       value: validRequestHelp,
@@ -346,6 +363,15 @@ describe('WorkerToOrchestratorFrame — per-variant validation', () => {
       Value.Check(WorkerToOrchestratorFrame, {
         ...validError,
         error: 42,
+      }),
+    ).toBe(false);
+  });
+
+  it('rejects error with malformed recovery payload', () => {
+    expect(
+      Value.Check(WorkerToOrchestratorFrame, {
+        ...validRecoveryError,
+        recovery: { kind: 'resume_incomplete', reason: 42 },
       }),
     ).toBe(false);
   });

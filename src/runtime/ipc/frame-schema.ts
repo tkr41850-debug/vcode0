@@ -25,6 +25,7 @@ import type {
   TaskSuspendReason,
 } from '@core/types/index';
 import type { TaskPayload } from '@runtime/context/index';
+import type { ResumeRecoveryDiagnostic } from '@runtime/contracts';
 import { Type } from '@sinclair/typebox';
 
 // ---------------------------------------------------------------------------
@@ -233,6 +234,11 @@ const RuntimeUsageDelta = Type.Object({
   rawUsage: Type.Optional(Type.Any()),
 });
 
+const ResumeRecoveryDiagnosticSchema = Type.Object({
+  kind: Type.Literal('resume_incomplete'),
+  reason: Type.String(),
+});
+
 // ApprovalPayload / ApprovalDecision / HelpResponse — see @orchestrator/ports.
 const ApprovalPayload = Type.Union([
   Type.Object({
@@ -384,6 +390,7 @@ export const ErrorFrame = Type.Object({
   agentRunId: Type.String(),
   error: Type.String(),
   usage: Type.Optional(RuntimeUsageDelta),
+  recovery: Type.Optional(ResumeRecoveryDiagnosticSchema),
   // REQ-EXEC-03: health-timeout synthesis uses a free-form `kind` discriminator.
   // Keeping `kind` optional + string to avoid locking future values.
   kind: Type.Optional(Type.String()),
@@ -395,6 +402,7 @@ export const RequestHelpFrame = Type.Object({
   taskId: Type.String(),
   agentRunId: Type.String(),
   query: Type.String(),
+  toolCallId: Type.String(),
 });
 
 export const RequestApprovalFrame = Type.Object({
@@ -402,6 +410,7 @@ export const RequestApprovalFrame = Type.Object({
   taskId: Type.String(),
   agentRunId: Type.String(),
   payload: ApprovalPayload,
+  toolCallId: Type.String(),
 });
 
 export const AssistantOutputFrame = Type.Object({
@@ -417,6 +426,16 @@ export const ClaimLockFrame = Type.Object({
   agentRunId: Type.String(),
   claimId: Type.String(),
   paths: Type.Array(Type.String()),
+});
+
+export const WaitCheckpointedFrame = Type.Object({
+  type: Type.Literal('wait_checkpointed'),
+  taskId: Type.String(),
+  agentRunId: Type.String(),
+  waitKind: Type.Union([
+    Type.Literal('await_response'),
+    Type.Literal('await_approval'),
+  ]),
 });
 
 export const HealthPongFrame = Type.Object({
@@ -442,6 +461,7 @@ export const WorkerToOrchestratorFrame = Type.Union([
   RequestApprovalFrame,
   AssistantOutputFrame,
   ClaimLockFrame,
+  WaitCheckpointedFrame,
   HealthPongFrame,
   CommitDoneFrame,
 ]);
@@ -583,6 +603,7 @@ export type WorkerToOrchestratorMessage =
       agentRunId: string;
       error: string;
       usage?: RuntimeUsageDeltaMessage;
+      recovery?: ResumeRecoveryDiagnostic;
       kind?: string;
       message?: string;
     }
@@ -591,12 +612,14 @@ export type WorkerToOrchestratorMessage =
       taskId: string;
       agentRunId: string;
       query: string;
+      toolCallId: string;
     }
   | {
       type: 'request_approval';
       taskId: string;
       agentRunId: string;
       payload: ApprovalPayloadMessage;
+      toolCallId: string;
     }
   | {
       type: 'assistant_output';
@@ -610,6 +633,12 @@ export type WorkerToOrchestratorMessage =
       agentRunId: string;
       claimId: string;
       paths: readonly string[];
+    }
+  | {
+      type: 'wait_checkpointed';
+      taskId: string;
+      agentRunId: string;
+      waitKind: 'await_response' | 'await_approval';
     }
   | { type: 'health_pong'; ts: number }
   | {

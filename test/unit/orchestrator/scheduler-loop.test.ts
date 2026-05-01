@@ -22,6 +22,8 @@ import type {
   SummarizePhaseDetails,
   Task,
   TaskAgentRun,
+  TopPlannerAgentRun,
+  TopPlannerRunContext,
   VerificationSummary,
 } from '@core/types/index';
 import type {
@@ -83,9 +85,26 @@ class ObservingSchedulerLoop extends SchedulerLoop {
   }
 }
 
+/**
+ * Scheduler subclass that skips `runPendingIntegration`.
+ *
+ * Pre-existing tests that set features into `integrating` state were written
+ * before the integration runner existed. They assert on intermediate FSM states
+ * (e.g. feature is `integrating` after one tick) that would be corrupted if the
+ * real runner fired and tried to rebase a non-existent worktree. These tests use
+ * `NoRunnerSchedulerLoop` to keep the tick boundary clean without needing to set
+ * up real git repos just to pass through integration.
+ */
+class NoRunnerSchedulerLoop extends SchedulerLoop {
+  protected override runPendingIntegration(_now: number): Promise<void> {
+    return Promise.resolve();
+  }
+}
+
 function createStoreMock(): Store {
   const runs = new Map<string, AgentRun>();
   const events: EventRecord[] = [];
+  const trailerObservedAts = new Map<string, number>();
 
   return {
     getAgentRun: (id: string) => runs.get(id),
@@ -173,9 +192,27 @@ function createStoreMock(): Store {
     appendInboxItem: () => {
       /* no-op */
     },
+    listInboxItems: () => [],
+    resolveInboxItem: () => {
+      /* no-op */
+    },
     setLastCommitSha: () => {
       /* no-op */
     },
+    setTrailerObservedAt: (agentRunId: string, ts: number) => {
+      if (!trailerObservedAts.has(agentRunId)) {
+        trailerObservedAts.set(agentRunId, ts);
+      }
+      const existing = runs.get(agentRunId);
+      if (existing !== undefined && existing.trailerObservedAt === undefined) {
+        runs.set(agentRunId, {
+          ...existing,
+          trailerObservedAt: trailerObservedAts.get(agentRunId),
+        } as AgentRun);
+      }
+    },
+    getTrailerObservedAt: (agentRunId: string) =>
+      trailerObservedAts.get(agentRunId),
     close: () => {
       /* no-op */
     },
@@ -306,6 +343,12 @@ function createAgentMock(): PlannerAgent & ReplannerAgent {
         proposal: makeProposal('plan'),
         details: proposalDetails,
       }),
+    planTopLevel: (_prompt: string, _run: TopPlannerRunContext) =>
+      Promise.resolve({
+        summary: 'ok',
+        proposal: makeProposal('plan'),
+        details: proposalDetails,
+      }),
     verifyFeature: (_feature: Feature, _run: FeaturePhaseRunContext) =>
       Promise.resolve(verificationResult),
     summarizeFeature: (_feature: Feature, _run: FeaturePhaseRunContext) =>
@@ -372,6 +415,7 @@ function createPorts(
         ensureFeatureWorktree: () => Promise.resolve('/repo'),
         ensureTaskWorktree: () => Promise.resolve('/repo'),
         removeWorktree: () => Promise.resolve(),
+        deleteBranch: () => Promise.resolve(),
         pruneStaleWorktrees: () => Promise.resolve([]),
         sweepStaleLocks: () => Promise.resolve([]),
       },
@@ -434,6 +478,23 @@ function makeFeaturePhaseRun(
     scopeType: 'feature_phase',
     scopeId: 'f-1',
     phase,
+    runStatus: 'ready',
+    owner: 'system',
+    attention: 'none',
+    restartCount: 0,
+    maxRetries: 3,
+    ...overrides,
+  };
+}
+
+function makeTopPlannerRun(
+  overrides: Partial<TopPlannerAgentRun> = {},
+): TopPlannerAgentRun {
+  return {
+    id: 'run-top-planner',
+    scopeType: 'top_planner',
+    scopeId: 'top-planner',
+    phase: 'plan',
     runStatus: 'ready',
     owner: 'system',
     attention: 'none',
@@ -976,6 +1037,8 @@ describe('SchedulerLoop', () => {
 
     const loop = new SchedulerLoop(graph, ports);
 
+    ports.store.setTrailerObservedAt('run-task:t-1', 1);
+
     loop.setAutoExecutionEnabled(false);
     loop.enqueue({
       type: 'worker_message',
@@ -1490,6 +1553,82 @@ describe('SchedulerLoop', () => {
     expect(retryTaskRunPatch?.retryAt).toEqual(expect.any(Number));
   });
 
+  it('parks replay-incomplete worker errors as failed runs with inbox diagnostics', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const graph = createSingleFeatureGraph(
+      {
+        status: 'pending',
+        workControl: 'executing',
+        collabControl: 'none',
+      },
+      [
+        createTaskFixture({
+          id: 't-1',
+          description: 'Task 1',
+          status: 'running',
+          collabControl: 'branch_open',
+        }),
+      ],
+    );
+    ports.store.createAgentRun(
+      makeTaskRun({
+        id: 'run-task:t-1',
+        runStatus: 'running',
+        sessionId: 'sess-1',
+      }),
+    );
+    const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
+    const appendInboxItem = vi.spyOn(ports.store, 'appendInboxItem');
+
+    const loop = new SchedulerLoop(graph, ports);
+
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
+      type: 'worker_message',
+      message: {
+        type: 'error',
+        taskId: 't-1',
+        agentRunId: 'run-task:t-1',
+        error: 'resume_incomplete: missing-tool-outputs:tool-a,tool-b',
+        recovery: {
+          kind: 'resume_incomplete',
+          reason: 'missing-tool-outputs:tool-a,tool-b',
+        },
+      },
+    });
+    await loop.step(100);
+
+    expect(graph.tasks.get('t-1')).toEqual(
+      expect.objectContaining({
+        status: 'stuck',
+        collabControl: 'branch_open',
+      }),
+    );
+    expect(updateAgentRun).toHaveBeenCalledWith('run-task:t-1', {
+      runStatus: 'failed',
+      owner: 'system',
+      sessionId: 'sess-1',
+    });
+    expect(updateAgentRun).not.toHaveBeenCalledWith(
+      'run-task:t-1',
+      expect.objectContaining({ runStatus: 'retry_await' }),
+    );
+    expect(appendInboxItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskId: 't-1',
+        agentRunId: 'run-task:t-1',
+        featureId: 'f-1',
+        kind: 'semantic_failure',
+        payload: {
+          reason: 'resume_incomplete',
+          recoveryReason: 'missing-tool-outputs:tool-a,tool-b',
+          error: 'resume_incomplete: missing-tool-outputs:tool-a,tool-b',
+        },
+      }),
+    );
+  });
+
   it('ignores late worker result for cancelled task runs', async () => {
     const order: string[] = [];
     const { ports } = createPorts(order);
@@ -1612,6 +1751,87 @@ describe('SchedulerLoop', () => {
     );
   });
 
+  it('sets and clears queued feature merge-train manual position via UI events', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const graph = createSchedulerGraph({
+      milestones: [createMilestoneFixture()],
+      features: [
+        createFeatureFixture({
+          id: 'f-1',
+          status: 'in_progress',
+          workControl: 'awaiting_merge',
+          collabControl: 'merge_queued',
+          mergeTrainEntrySeq: 2,
+          mergeTrainReentryCount: 1,
+        }),
+        createFeatureFixture({
+          id: 'f-2',
+          orderInMilestone: 1,
+          status: 'in_progress',
+          workControl: 'awaiting_merge',
+          collabControl: 'integrating',
+          mergeTrainEntrySeq: 1,
+          mergeTrainReentryCount: 0,
+        }),
+      ],
+      tasks: [],
+    });
+
+    const loop = new NoRunnerSchedulerLoop(graph, ports);
+    loop.setAutoExecutionEnabled(false);
+
+    loop.enqueue({
+      type: 'ui_set_merge_train_position',
+      featureId: 'f-1',
+      position: 3,
+    });
+    await loop.step(100);
+    expect(graph.features.get('f-1')).toMatchObject({
+      collabControl: 'merge_queued',
+      mergeTrainManualPosition: 3,
+      mergeTrainEntrySeq: 2,
+      mergeTrainReentryCount: 1,
+    });
+
+    loop.enqueue({
+      type: 'ui_set_merge_train_position',
+      featureId: 'f-1',
+      position: undefined,
+    });
+    await loop.step(200);
+    expect(graph.features.get('f-1')).toMatchObject({
+      collabControl: 'merge_queued',
+      mergeTrainEntrySeq: 2,
+      mergeTrainReentryCount: 1,
+    });
+    expect(graph.features.get('f-1')?.mergeTrainManualPosition).toBeUndefined();
+  });
+
+  it('rejects invalid merge-train manual-position UI events', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const graph = createSingleFeatureGraph(
+      {
+        status: 'in_progress',
+        workControl: 'awaiting_merge',
+        collabControl: 'merge_queued',
+      },
+      [],
+    );
+
+    const loop = new SchedulerLoop(graph, ports);
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
+      type: 'ui_set_merge_train_position',
+      featureId: 'f-1',
+      position: 0,
+    });
+    await expect(loop.step(100)).rejects.toThrow(
+      'merge-train position must be a positive integer',
+    );
+  });
+
   it('moves a task run to await_response manual ownership on request_help', async () => {
     const order: string[] = [];
     const { ports } = createPorts(order);
@@ -1638,6 +1858,7 @@ describe('SchedulerLoop', () => {
       }),
     );
     const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
+    const appendInboxItem = vi.spyOn(ports.store, 'appendInboxItem');
 
     const loop = new SchedulerLoop(graph, ports);
 
@@ -1649,6 +1870,7 @@ describe('SchedulerLoop', () => {
         taskId: 't-1',
         agentRunId: 'run-task:t-1',
         query: 'what should I do?',
+        toolCallId: 'call-help-1',
       },
     });
     await loop.step(100);
@@ -1656,9 +1878,23 @@ describe('SchedulerLoop', () => {
     expect(updateAgentRun).toHaveBeenCalledWith('run-task:t-1', {
       runStatus: 'await_response',
       owner: 'manual',
-      payloadJson: JSON.stringify({ query: 'what should I do?' }),
+      payloadJson: JSON.stringify({
+        query: 'what should I do?',
+        toolCallId: 'call-help-1',
+      }),
       sessionId: 'sess-1',
     });
+    expect(appendInboxItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskId: 't-1',
+        agentRunId: 'run-task:t-1',
+        featureId: 'f-1',
+        kind: 'agent_help',
+        payload: {
+          query: 'what should I do?',
+        },
+      }),
+    );
   });
 
   it('moves a task run to await_approval on request_approval', async () => {
@@ -1687,6 +1923,7 @@ describe('SchedulerLoop', () => {
       }),
     );
     const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
+    const appendInboxItem = vi.spyOn(ports.store, 'appendInboxItem');
 
     const loop = new SchedulerLoop(graph, ports);
 
@@ -1702,6 +1939,7 @@ describe('SchedulerLoop', () => {
           label: 'Need approval',
           detail: 'delete file',
         },
+        toolCallId: 'call-approval-1',
       },
     });
     await loop.step(100);
@@ -1713,9 +1951,132 @@ describe('SchedulerLoop', () => {
         kind: 'custom',
         label: 'Need approval',
         detail: 'delete file',
+        toolCallId: 'call-approval-1',
       }),
       sessionId: 'sess-1',
     });
+    expect(appendInboxItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskId: 't-1',
+        agentRunId: 'run-task:t-1',
+        featureId: 'f-1',
+        kind: 'agent_approval',
+        payload: {
+          kind: 'custom',
+          label: 'Need approval',
+          detail: 'delete file',
+        },
+      }),
+    );
+  });
+
+  it('moves a task run to checkpointed wait state on wait_checkpointed', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const graph = createSingleFeatureGraph(
+      {
+        status: 'pending',
+        workControl: 'executing',
+        collabControl: 'none',
+      },
+      [
+        createTaskFixture({
+          id: 't-1',
+          description: 'Task 1',
+          status: 'running',
+          collabControl: 'branch_open',
+        }),
+      ],
+    );
+    ports.store.createAgentRun(
+      makeTaskRun({
+        id: 'run-task:t-1',
+        runStatus: 'await_response',
+        owner: 'manual',
+        sessionId: 'sess-1',
+      }),
+    );
+    const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
+
+    const loop = new SchedulerLoop(graph, ports);
+
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
+      type: 'worker_message',
+      message: {
+        type: 'wait_checkpointed',
+        taskId: 't-1',
+        agentRunId: 'run-task:t-1',
+        waitKind: 'await_response',
+      },
+    });
+    await loop.step(100);
+
+    expect(updateAgentRun).toHaveBeenCalledWith('run-task:t-1', {
+      runStatus: 'checkpointed_await_response',
+      owner: 'manual',
+      sessionId: 'sess-1',
+    });
+  });
+
+  it('keeps destructive approval inbox items on the legacy destructive_action kind', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const graph = createSingleFeatureGraph(
+      {
+        status: 'pending',
+        workControl: 'executing',
+        collabControl: 'none',
+      },
+      [
+        createTaskFixture({
+          id: 't-1',
+          description: 'Task 1',
+          status: 'running',
+          collabControl: 'branch_open',
+        }),
+      ],
+    );
+    ports.store.createAgentRun(
+      makeTaskRun({
+        id: 'run-task:t-1',
+        runStatus: 'running',
+        sessionId: 'sess-1',
+      }),
+    );
+    const appendInboxItem = vi.spyOn(ports.store, 'appendInboxItem');
+
+    const loop = new SchedulerLoop(graph, ports);
+
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
+      type: 'worker_message',
+      message: {
+        type: 'request_approval',
+        taskId: 't-1',
+        agentRunId: 'run-task:t-1',
+        payload: {
+          kind: 'destructive_action',
+          description: 'delete generated branch',
+          affectedPaths: ['tmp/a', 'tmp/b'],
+        },
+        toolCallId: 'call-approval-2',
+      },
+    });
+    await loop.step(100);
+
+    expect(appendInboxItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskId: 't-1',
+        agentRunId: 'run-task:t-1',
+        featureId: 'f-1',
+        kind: 'destructive_action',
+        payload: {
+          description: 'delete generated branch',
+          affectedPaths: ['tmp/a', 'tmp/b'],
+        },
+      }),
+    );
   });
 
   it('dispatches planning on shared run plane and stores submitted proposal for approval', async () => {
@@ -2105,6 +2466,589 @@ describe('SchedulerLoop', () => {
           warningCount: 0,
         }),
       }),
+    );
+  });
+
+  it('starts a top-level planner run from a queued fresh request and records prompt provenance', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const appendEvent = vi.spyOn(ports.store, 'appendEvent');
+    const planTopLevel = vi.spyOn(ports.agents, 'planTopLevel');
+    const graph = createProposalApprovalGraph();
+    const loop = new SchedulerLoop(graph, ports);
+
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
+      type: 'top_planner_requested',
+      prompt: 'break this milestone into task-ready work',
+      sessionMode: 'fresh',
+    });
+    await loop.step(100);
+
+    expect(planTopLevel).toHaveBeenCalledWith(
+      'break this milestone into task-ready work',
+      expect.objectContaining({
+        agentRunId: 'run-top-planner',
+        sessionMode: 'fresh',
+        sessionId: expect.stringMatching(/^run-top-planner:\d+$/),
+      }),
+    );
+    const run = ports.store.getAgentRun('run-top-planner');
+    expect(run).toEqual(
+      expect.objectContaining({
+        scopeType: 'top_planner',
+        scopeId: 'top-planner',
+        runStatus: 'await_approval',
+        owner: 'manual',
+        sessionId: expect.stringMatching(/^run-top-planner:\d+$/),
+      }),
+    );
+    expect(JSON.parse(run?.payloadJson ?? '{}')).toEqual(
+      expect.objectContaining({
+        mode: 'plan',
+        topPlannerMeta: expect.objectContaining({
+          prompt: 'break this milestone into task-ready work',
+          sessionMode: 'fresh',
+          runId: 'run-top-planner',
+          sessionId: expect.stringMatching(/^run-top-planner:\d+$/),
+          featureIds: ['f-1'],
+          milestoneIds: [],
+          collidedFeatureRuns: [],
+        }),
+      }),
+    );
+    expect(appendEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'top_planner_requested',
+        entityId: 'top-planner',
+        payload: {
+          prompt: 'break this milestone into task-ready work',
+          sessionMode: 'fresh',
+        },
+      }),
+    );
+    expect(appendEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'top_planner_prompt_recorded',
+        entityId: 'top-planner',
+        payload: expect.objectContaining({
+          prompt: 'break this milestone into task-ready work',
+          sessionMode: 'fresh',
+          runId: 'run-top-planner',
+          sessionId: expect.stringMatching(/^run-top-planner:\d+$/),
+          featureIds: ['f-1'],
+          milestoneIds: [],
+          collidedFeatureRuns: [],
+        }),
+      }),
+    );
+  });
+
+  it('approves top-level planning proposal and readies new root tasks on executing features', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
+    const appendEvent = vi.spyOn(ports.store, 'appendEvent');
+    const graph = createProposalApprovalGraph({
+      workControl: 'executing',
+      collabControl: 'branch_open',
+    });
+    ports.store.createAgentRun(
+      makeTopPlannerRun({
+        runStatus: 'await_approval',
+        owner: 'manual',
+        payloadJson: JSON.stringify(makeProposal('plan')),
+      }),
+    );
+
+    const loop = new SchedulerLoop(graph, ports);
+
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
+      type: 'top_planner_approval_decision',
+      decision: 'approved',
+    });
+    await loop.step(100);
+
+    expect(graph.tasks.get('t-1')).toEqual(
+      expect.objectContaining({ status: 'ready', dependsOn: [] }),
+    );
+    expect(graph.tasks.get('t-2')).toEqual(
+      expect.objectContaining({ status: 'pending', dependsOn: ['t-1'] }),
+    );
+    expect(updateAgentRun).toHaveBeenCalledWith('run-top-planner', {
+      runStatus: 'completed',
+      owner: 'system',
+      payloadJson: JSON.stringify(makeProposal('plan')),
+    });
+    expect(appendEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'proposal_applied',
+        entityId: 'top-planner',
+        payload: expect.objectContaining({
+          phase: 'plan',
+          summary: '3 applied, 0 skipped, 0 warnings',
+          mode: 'plan',
+          appliedCount: 3,
+          skippedCount: 0,
+          warningCount: 0,
+        }),
+      }),
+    );
+  });
+
+  it('approves top-level planning proposal in additive-only mode and skips live-work edits', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
+    const appendEvent = vi.spyOn(ports.store, 'appendEvent');
+    const graph = createProposalApprovalGraph({
+      workControl: 'executing',
+      collabControl: 'branch_open',
+    });
+    const topPlannerProposal: GraphProposal = {
+      version: 1,
+      mode: 'plan',
+      aliases: {},
+      ops: [
+        {
+          kind: 'add_milestone',
+          milestoneId: 'm-2',
+          name: 'Milestone 2',
+          description: 'second milestone',
+        },
+        {
+          kind: 'move_feature',
+          featureId: 'f-1',
+          milestoneId: 'm-2',
+        },
+      ],
+    };
+    ports.store.createAgentRun(
+      makeTopPlannerRun({
+        runStatus: 'await_approval',
+        owner: 'manual',
+        payloadJson: JSON.stringify(topPlannerProposal),
+      }),
+    );
+
+    const loop = new SchedulerLoop(graph, ports);
+
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
+      type: 'top_planner_approval_decision',
+      decision: 'approved',
+    });
+    await loop.step(100);
+
+    expect(graph.milestones.get('m-2')).toEqual(
+      expect.objectContaining({ name: 'Milestone 2' }),
+    );
+    expect(graph.features.get('f-1')).toEqual(
+      expect.objectContaining({ milestoneId: 'm-1' }),
+    );
+    expect(updateAgentRun).toHaveBeenCalledWith('run-top-planner', {
+      runStatus: 'completed',
+      owner: 'system',
+      payloadJson: JSON.stringify(topPlannerProposal),
+    });
+    expect(appendEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'proposal_applied',
+        entityId: 'top-planner',
+        payload: expect.objectContaining({
+          phase: 'plan',
+          summary: '1 applied, 1 skipped, 1 warnings',
+          mode: 'plan',
+          appliedCount: 1,
+          skippedCount: 1,
+          warningCount: 1,
+          skipped: [
+            expect.objectContaining({
+              opIndex: 1,
+              kind: 'move_feature',
+              reason: 'Feature "f-1" already has started work',
+            }),
+          ],
+          warnings: [
+            expect.objectContaining({
+              opIndex: 1,
+              code: 'move_started_feature',
+              entityId: 'f-1',
+              message: 'Feature "f-1" already has started work',
+            }),
+          ],
+        }),
+      }),
+    );
+  });
+
+  it('approves collided top-level planning proposal by resetting feature planner runs first', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
+    const appendEvent = vi.spyOn(ports.store, 'appendEvent');
+    const deleteSession = vi.spyOn(ports.sessionStore, 'delete');
+    const graph = createProposalApprovalGraph({
+      workControl: 'planning',
+      collabControl: 'none',
+    });
+    graph.createMilestone({
+      id: 'm-2',
+      name: 'Milestone 2',
+      description: 'second milestone',
+    });
+    ports.store.createAgentRun(
+      makeFeaturePhaseRun('plan', {
+        runStatus: 'await_approval',
+        owner: 'manual',
+        sessionId: 'sess-feature-1',
+        payloadJson: JSON.stringify(makeProposal('plan')),
+      }),
+    );
+    const topPlannerProposal: GraphProposal = {
+      version: 1,
+      mode: 'plan',
+      aliases: {},
+      ops: [
+        {
+          kind: 'move_feature',
+          featureId: 'f-1',
+          milestoneId: 'm-2',
+        },
+      ],
+    };
+    ports.store.createAgentRun(
+      makeTopPlannerRun({
+        runStatus: 'await_approval',
+        owner: 'manual',
+        payloadJson: JSON.stringify({
+          ...topPlannerProposal,
+          topPlannerMeta: {
+            prompt: 'rebalance milestone plan',
+            sessionMode: 'fresh',
+            runId: 'run-top-planner',
+            sessionId: 'sess-top-1',
+            featureIds: ['f-1'],
+            milestoneIds: ['m-2'],
+            collidedFeatureRuns: [
+              {
+                featureId: 'f-1',
+                runId: 'run-feature:f-1:plan',
+                phase: 'plan',
+                runStatus: 'await_approval',
+                sessionId: 'sess-feature-1',
+              },
+            ],
+          },
+        }),
+      }),
+    );
+
+    const loop = new SchedulerLoop(graph, ports);
+
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
+      type: 'top_planner_approval_decision',
+      decision: 'approved',
+    });
+    await loop.step(100);
+
+    expect(deleteSession).toHaveBeenCalledWith('sess-feature-1');
+    expect(updateAgentRun).toHaveBeenCalledWith('run-feature:f-1:plan', {
+      runStatus: 'ready',
+      owner: 'system',
+      sessionId: undefined,
+      payloadJson: undefined,
+    });
+    expect(graph.features.get('f-1')).toEqual(
+      expect.objectContaining({ milestoneId: 'm-2' }),
+    );
+    expect(appendEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'proposal_collision_resolved',
+        entityId: 'top-planner',
+        payload: expect.objectContaining({
+          phase: 'plan',
+          featureIds: ['f-1'],
+          collidedFeatureRuns: [
+            expect.objectContaining({
+              featureId: 'f-1',
+              runId: 'run-feature:f-1:plan',
+              phase: 'plan',
+            }),
+          ],
+          resolvedFeatureRuns: [
+            expect.objectContaining({
+              featureId: 'f-1',
+              runId: 'run-feature:f-1:plan',
+              phase: 'plan',
+              previousSessionId: 'sess-feature-1',
+            }),
+          ],
+        }),
+      }),
+    );
+    expect(appendEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'proposal_applied',
+        entityId: 'top-planner',
+        payload: expect.objectContaining({
+          phase: 'plan',
+          appliedCount: 1,
+          skippedCount: 0,
+          warningCount: 0,
+          extra: expect.objectContaining({
+            collidedFeatureRuns: [
+              expect.objectContaining({
+                featureId: 'f-1',
+                runId: 'run-feature:f-1:plan',
+              }),
+            ],
+          }),
+        }),
+      }),
+    );
+  });
+
+  it('rejects collided top-level planning proposal without resetting feature planner runs', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
+    const appendEvent = vi.spyOn(ports.store, 'appendEvent');
+    const deleteSession = vi.spyOn(ports.sessionStore, 'delete');
+    const graph = createProposalApprovalGraph({
+      workControl: 'planning',
+      collabControl: 'none',
+    });
+    ports.store.createAgentRun(
+      makeFeaturePhaseRun('plan', {
+        runStatus: 'await_approval',
+        owner: 'manual',
+        sessionId: 'sess-feature-1',
+        payloadJson: JSON.stringify(makeProposal('plan')),
+      }),
+    );
+    ports.store.createAgentRun(
+      makeTopPlannerRun({
+        runStatus: 'await_approval',
+        owner: 'manual',
+        payloadJson: JSON.stringify({
+          ...makeProposal('plan'),
+          topPlannerMeta: {
+            prompt: 'rebalance milestone plan',
+            sessionMode: 'fresh',
+            runId: 'run-top-planner',
+            sessionId: 'sess-top-1',
+            featureIds: ['f-1'],
+            milestoneIds: [],
+            collidedFeatureRuns: [
+              {
+                featureId: 'f-1',
+                runId: 'run-feature:f-1:plan',
+                phase: 'plan',
+                runStatus: 'await_approval',
+                sessionId: 'sess-feature-1',
+              },
+            ],
+          },
+        }),
+      }),
+    );
+
+    const loop = new SchedulerLoop(graph, ports);
+
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
+      type: 'top_planner_approval_decision',
+      decision: 'rejected',
+      comment: 'keep the feature-local proposal',
+    });
+    await loop.step(100);
+
+    expect(deleteSession).not.toHaveBeenCalled();
+    expect(updateAgentRun).not.toHaveBeenCalledWith('run-feature:f-1:plan', {
+      runStatus: 'ready',
+      owner: 'system',
+      sessionId: undefined,
+      payloadJson: undefined,
+    });
+    expect(ports.store.getAgentRun('run-feature:f-1:plan')).toEqual(
+      expect.objectContaining({
+        runStatus: 'await_approval',
+        owner: 'manual',
+        sessionId: 'sess-feature-1',
+      }),
+    );
+    expect(
+      ports.store
+        .listEvents({ entityId: 'top-planner' })
+        .some((event) => event.eventType === 'proposal_collision_resolved'),
+    ).toBe(false);
+    expect(appendEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'proposal_rejected',
+        entityId: 'top-planner',
+        payload: expect.objectContaining({
+          phase: 'plan',
+          comment: 'keep the feature-local proposal',
+          extra: expect.objectContaining({
+            collidedFeatureRuns: [
+              expect.objectContaining({
+                featureId: 'f-1',
+                runId: 'run-feature:f-1:plan',
+              }),
+            ],
+          }),
+        }),
+      }),
+    );
+  });
+
+  it('reruns top-level planning in fresh mode from the last recorded prompt', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
+    const deleteSession = vi.spyOn(ports.sessionStore, 'delete');
+    const planTopLevel = vi.spyOn(ports.agents, 'planTopLevel');
+    const graph = createProposalApprovalGraph();
+    ports.store.createAgentRun(
+      makeTopPlannerRun({
+        runStatus: 'await_approval',
+        owner: 'manual',
+        sessionId: 'sess-top-1',
+        payloadJson: JSON.stringify(makeProposal('plan')),
+      }),
+    );
+    ports.store.appendEvent({
+      eventType: 'top_planner_requested',
+      entityId: 'top-planner',
+      timestamp: Date.now(),
+      payload: {
+        prompt: 'retry the portfolio plan',
+        sessionMode: 'fresh',
+      },
+    });
+
+    const loop = new SchedulerLoop(graph, ports);
+
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
+      type: 'top_planner_rerun_requested',
+      reason: 'needs a fresh pass',
+      sessionMode: 'fresh',
+    });
+    await loop.step(100);
+
+    expect(deleteSession).toHaveBeenCalledWith('sess-top-1');
+    expect(updateAgentRun).toHaveBeenCalledWith('run-top-planner', {
+      runStatus: 'ready',
+      owner: 'system',
+      sessionId: undefined,
+      payloadJson: undefined,
+    });
+    expect(planTopLevel).toHaveBeenCalledWith(
+      'retry the portfolio plan',
+      expect.objectContaining({
+        agentRunId: 'run-top-planner',
+        sessionMode: 'fresh',
+        sessionId: expect.stringMatching(/^run-top-planner:\d+$/),
+      }),
+    );
+    expect(ports.store.listEvents({ entityId: 'top-planner' })).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          eventType: 'proposal_rerun_requested',
+          payload: expect.objectContaining({
+            phase: 'plan',
+            summary: 'needs a fresh pass',
+            sessionMode: 'fresh',
+          }),
+        }),
+        expect.objectContaining({
+          eventType: 'top_planner_prompt_recorded',
+          payload: expect.objectContaining({
+            prompt: 'retry the portfolio plan',
+            sessionMode: 'fresh',
+            previousSessionId: 'sess-top-1',
+            sessionId: expect.stringMatching(/^run-top-planner:\d+$/),
+          }),
+        }),
+      ]),
+    );
+  });
+
+  it('reruns top-level planning in continue mode without clearing the prior session', async () => {
+    const order: string[] = [];
+    const { ports } = createPorts(order);
+    const updateAgentRun = vi.spyOn(ports.store, 'updateAgentRun');
+    const deleteSession = vi.spyOn(ports.sessionStore, 'delete');
+    const planTopLevel = vi.spyOn(ports.agents, 'planTopLevel');
+    const graph = createProposalApprovalGraph();
+    ports.store.createAgentRun(
+      makeTopPlannerRun({
+        runStatus: 'await_approval',
+        owner: 'manual',
+        sessionId: 'sess-top-1',
+        payloadJson: JSON.stringify(makeProposal('plan')),
+      }),
+    );
+    ports.store.appendEvent({
+      eventType: 'top_planner_prompt_recorded',
+      entityId: 'top-planner',
+      timestamp: Date.now(),
+      payload: {
+        prompt: 'continue refining the portfolio plan',
+        sessionMode: 'fresh',
+        runId: 'run-top-planner',
+        sessionId: 'sess-top-1',
+      },
+    });
+
+    const loop = new SchedulerLoop(graph, ports);
+
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
+      type: 'top_planner_rerun_requested',
+      reason: 'keep the prior thread',
+      sessionMode: 'continue',
+    });
+    await loop.step(100);
+
+    expect(deleteSession).not.toHaveBeenCalled();
+    expect(updateAgentRun).toHaveBeenCalledWith('run-top-planner', {
+      runStatus: 'ready',
+      owner: 'system',
+      payloadJson: undefined,
+    });
+    expect(planTopLevel).toHaveBeenCalledWith(
+      'continue refining the portfolio plan',
+      expect.objectContaining({
+        agentRunId: 'run-top-planner',
+        sessionMode: 'continue',
+        sessionId: 'sess-top-1',
+      }),
+    );
+    expect(ports.store.listEvents({ entityId: 'top-planner' })).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          eventType: 'proposal_rerun_requested',
+          payload: expect.objectContaining({
+            phase: 'plan',
+            summary: 'keep the prior thread',
+            sessionMode: 'continue',
+          }),
+        }),
+        expect.objectContaining({
+          eventType: 'top_planner_prompt_recorded',
+          payload: expect.objectContaining({
+            prompt: 'continue refining the portfolio plan',
+            sessionMode: 'continue',
+            runId: 'run-top-planner',
+            sessionId: 'sess-top-1',
+          }),
+        }),
+      ]),
     );
   });
 
@@ -2761,7 +3705,9 @@ describe('SchedulerLoop', () => {
     });
     ports.store.createAgentRun(makeFeaturePhaseRun('verify'));
 
-    const loop = new SchedulerLoop(graph, ports);
+    // NoRunnerSchedulerLoop: this test asserts the feature reaches 'integrating'
+    // as a terminal state for this tick; the integration runner must not fire.
+    const loop = new NoRunnerSchedulerLoop(graph, ports);
 
     loop.setAutoExecutionEnabled(false);
     loop.enqueue({
@@ -2789,6 +3735,7 @@ describe('SchedulerLoop', () => {
     expect(updateAgentRun).toHaveBeenCalledWith('run-feature:f-1:verify', {
       runStatus: 'completed',
       owner: 'system',
+      payloadJson: JSON.stringify({ ok: true, summary: 'verified' }),
     });
   });
 
@@ -2864,7 +3811,7 @@ describe('SchedulerLoop', () => {
     expect(repairTasks[0]?.description).toContain('Repair ci check issues');
   });
 
-  it('routes verify failure directly to replanning', async () => {
+  it('routes verify failure into executing_repair and creates a ready repair task', async () => {
     const order: string[] = [];
     const { ports } = createPorts(order);
     const graph = new InMemoryFeatureGraph({
@@ -2909,12 +3856,23 @@ describe('SchedulerLoop', () => {
 
     expect(graph.features.get('f-1')).toEqual(
       expect.objectContaining({
-        workControl: 'replanning',
+        workControl: 'executing_repair',
         status: 'pending',
         collabControl: 'branch_open',
       }),
     );
-    expect([...graph.tasks.values()]).toHaveLength(0);
+    const repairTasks = [...graph.tasks.values()].filter(
+      (task) => task.repairSource === 'verify',
+    );
+    expect(repairTasks).toHaveLength(1);
+    expect(repairTasks[0]).toMatchObject({
+      status: 'ready',
+      collabControl: 'none',
+      repairSource: 'verify',
+    });
+    expect(repairTasks[0]?.description).toContain(
+      'Repair feature verification issues: failed checks',
+    );
   });
 
   it('routes nit-only verify verdicts through awaiting_merge', async () => {
@@ -2948,7 +3906,9 @@ describe('SchedulerLoop', () => {
     });
     ports.store.createAgentRun(makeFeaturePhaseRun('verify'));
 
-    const loop = new SchedulerLoop(graph, ports);
+    // NoRunnerSchedulerLoop: this test asserts the feature reaches 'integrating'
+    // as a terminal state for this tick; the integration runner must not fire.
+    const loop = new NoRunnerSchedulerLoop(graph, ports);
 
     loop.setAutoExecutionEnabled(false);
     loop.enqueue({
@@ -2980,7 +3940,7 @@ describe('SchedulerLoop', () => {
     expect([...graph.tasks.values()]).toHaveLength(0);
   });
 
-  it('routes verify failure to replanning regardless of prior repair-named tasks', async () => {
+  it('routes verify failure into executing_repair even when prior task names look like repairs', async () => {
     const order: string[] = [];
     const { ports } = createPorts(order);
     const graph = new InMemoryFeatureGraph({
@@ -3035,7 +3995,7 @@ describe('SchedulerLoop', () => {
 
     expect(graph.features.get('f-1')).toEqual(
       expect.objectContaining({
-        workControl: 'replanning',
+        workControl: 'executing_repair',
         status: 'pending',
         collabControl: 'branch_open',
       }),
@@ -3043,7 +4003,11 @@ describe('SchedulerLoop', () => {
     const repairTasks = [...graph.tasks.values()].filter(
       (task) => task.repairSource !== undefined,
     );
-    expect(repairTasks).toHaveLength(0);
+    expect(repairTasks).toHaveLength(1);
+    expect(repairTasks[0]).toMatchObject({
+      repairSource: 'verify',
+      status: 'ready',
+    });
   });
 
   it('escalates repeated pre-queue verification failure to replanning', async () => {
@@ -3332,6 +4296,8 @@ describe('SchedulerLoop', () => {
 
     const loop = new SchedulerLoop(graph, ports);
 
+    ports.store.setTrailerObservedAt('run-task:t-2', 1);
+
     loop.setAutoExecutionEnabled(false);
     loop.enqueue({
       type: 'worker_message',
@@ -3560,7 +4526,9 @@ describe('SchedulerLoop', () => {
       tasks: [],
     });
 
-    const loop = new SchedulerLoop(graph, ports);
+    // NoRunnerSchedulerLoop: this test asserts the feature reaches 'integrating'
+    // as a terminal state for this tick; the integration runner must not fire.
+    const loop = new NoRunnerSchedulerLoop(graph, ports);
 
     await loop.step(100);
 
@@ -3897,7 +4865,9 @@ describe('SchedulerLoop', () => {
       ],
     });
 
-    const loop = new SchedulerLoop(graph, ports);
+    // NoRunnerSchedulerLoop: f-2 advances from merge_queued → integrating on this
+    // tick; the integration runner must not fire and corrupt f-2's collab state.
+    const loop = new NoRunnerSchedulerLoop(graph, ports);
     await loop.step(100);
 
     expect(graph.features.get('f-1')?.runtimeBlockedByFeatureId).toBe('f-2');
@@ -5054,7 +6024,10 @@ describe('SchedulerLoop', () => {
       tasks: [],
     });
 
-    const loop = new SchedulerLoop(graph, ports);
+    // NoRunnerSchedulerLoop: after failIntegration on f-1, beginNextIntegration
+    // advances f-2 to 'integrating'. The runner must not fire on f-2 (no real
+    // worktree) — this test only checks the FSM transitions, not the runner.
+    const loop = new NoRunnerSchedulerLoop(graph, ports);
     loop.enqueue({
       type: 'feature_integration_failed',
       featureId: 'f-1',
@@ -5132,6 +6105,8 @@ describe('SchedulerLoop', () => {
 
     const loop = new SchedulerLoop(graph, ports);
 
+    ports.store.setTrailerObservedAt('run-task:t-repair', 1);
+
     loop.setAutoExecutionEnabled(false);
     loop.enqueue({
       type: 'worker_message',
@@ -5199,6 +6174,563 @@ describe('SchedulerLoop', () => {
       }),
     );
     expect(retryPlanPatch?.retryAt).toEqual(expect.any(Number));
+  });
+
+  describe('feature_integration_failed cross-feature release', () => {
+    it('releases blocked secondary (resumed) when primary fails integration with clean rebase', async () => {
+      const root = getTmpDir();
+      const order: string[] = [];
+      const { ports, runtime } = createPorts(order, {
+        tokenProfile: 'balanced',
+      });
+      vi.spyOn(ports.runtime, 'idleWorkerCount').mockReturnValue(0);
+      const resumeTask = vi
+        .spyOn(runtime, 'resumeTask')
+        .mockImplementation((taskId: string) =>
+          Promise.resolve({
+            kind: 'delivered',
+            taskId,
+            agentRunId: `run-${taskId}`,
+          }),
+        );
+
+      const graph = new InMemoryFeatureGraph({
+        milestones: [
+          {
+            id: 'm-1',
+            name: 'Milestone 1',
+            description: 'desc',
+            status: 'pending',
+            order: 0,
+          },
+        ],
+        features: [
+          {
+            id: 'f-1',
+            milestoneId: 'm-1',
+            orderInMilestone: 0,
+            name: 'Feature 1',
+            description: 'desc',
+            dependsOn: [],
+            status: 'in_progress',
+            workControl: 'awaiting_merge',
+            collabControl: 'integrating',
+            featureBranch: 'feat-feature-1-1',
+            mergeTrainManualPosition: 1,
+            mergeTrainEnteredAt: 50,
+            mergeTrainEntrySeq: 1,
+            mergeTrainReentryCount: 0,
+          },
+          {
+            id: 'f-3',
+            milestoneId: 'm-1',
+            orderInMilestone: 2,
+            name: 'Feature 3',
+            description: 'desc',
+            dependsOn: [],
+            status: 'in_progress',
+            workControl: 'executing',
+            collabControl: 'branch_open',
+            featureBranch: 'feat-feature-3-1',
+            runtimeBlockedByFeatureId: 'f-1',
+          },
+        ],
+        tasks: [
+          {
+            id: 't-3',
+            featureId: 'f-3',
+            orderInFeature: 0,
+            description: 'Task 3',
+            dependsOn: [],
+            status: 'running',
+            collabControl: 'suspended',
+            blockedByFeatureId: 'f-1',
+            suspendReason: 'cross_feature_overlap',
+            suspendedAt: 75,
+            worktreeBranch: 'feat-feature-3-1-task-3',
+            reservedWritePaths: ['src/b.ts'],
+          },
+        ],
+      });
+
+      const blockedFeature = graph.features.get('f-3');
+      const blockedTask = graph.tasks.get('t-3');
+      assert(
+        blockedFeature !== undefined &&
+          blockedTask !== undefined &&
+          blockedTask.worktreeBranch !== undefined,
+        'missing blocked feature fixture state',
+      );
+
+      // Set up a real git repo where f-3's feature branch rebases cleanly onto main.
+      const featureDir = await writeFeatureRebaseRepo(root, blockedFeature);
+      await git(featureDir, 'checkout', 'main');
+      await fs.writeFile(path.join(featureDir, 'src', 'a.ts'), 'main update\n');
+      await git(featureDir, 'add', 'src/a.ts');
+      await git(featureDir, 'commit', '-m', 'main update');
+      await git(featureDir, 'checkout', blockedFeature.featureBranch);
+
+      // Add a task worktree that touches a non-conflicting file.
+      const taskDir = path.join(root, worktreePath(blockedTask.worktreeBranch));
+      await git(
+        featureDir,
+        'worktree',
+        'add',
+        taskDir,
+        '-b',
+        blockedTask.worktreeBranch,
+      );
+      await fs.writeFile(path.join(taskDir, 'src', 'b.ts'), 'task work\n');
+      await git(taskDir, 'add', 'src/b.ts');
+      await git(taskDir, 'commit', '-m', 'task work');
+
+      const loop = new NoRunnerSchedulerLoop(graph, ports);
+      loop.enqueue({
+        type: 'feature_integration_failed',
+        featureId: 'f-1',
+        error: 'rebase failed',
+      });
+
+      await loop.step(100);
+
+      // f-1 should have ejected to conflict/executing_repair
+      expect(graph.features.get('f-1')).toMatchObject({
+        collabControl: 'conflict',
+        workControl: 'executing_repair',
+        mergeTrainReentryCount: 1,
+      });
+
+      // f-3 should be resumed: runtimeBlockedByFeatureId cleared, task unblocked
+      expect(
+        graph.features.get('f-3')?.runtimeBlockedByFeatureId,
+      ).toBeUndefined();
+      expect(graph.tasks.get('t-3')).toMatchObject({
+        status: 'running',
+        collabControl: 'branch_open',
+      });
+      expect(graph.tasks.get('t-3')?.blockedByFeatureId).toBeUndefined();
+      expect(graph.tasks.get('t-3')?.suspendReason).toBeUndefined();
+      expect(resumeTask).toHaveBeenCalledWith('t-3', 'cross_feature_rebase');
+
+      // No repair task created for f-3
+      const repairTasks = [...graph.tasks.values()].filter(
+        (task) =>
+          task.featureId === 'f-3' && task.repairSource === 'integration',
+      );
+      expect(repairTasks).toHaveLength(0);
+    }, 20000);
+
+    it('creates integration repair for secondary with rebase conflict when primary fails integration', async () => {
+      const root = getTmpDir();
+      const order: string[] = [];
+      const { ports, runtime } = createPorts(order, {
+        tokenProfile: 'balanced',
+      });
+      vi.spyOn(ports.runtime, 'idleWorkerCount').mockReturnValue(0);
+      const resumeTask = vi.spyOn(runtime, 'resumeTask');
+
+      const graph = new InMemoryFeatureGraph({
+        milestones: [
+          {
+            id: 'm-1',
+            name: 'Milestone 1',
+            description: 'desc',
+            status: 'pending',
+            order: 0,
+          },
+        ],
+        features: [
+          {
+            id: 'f-1',
+            milestoneId: 'm-1',
+            orderInMilestone: 0,
+            name: 'Feature 1',
+            description: 'desc',
+            dependsOn: [],
+            status: 'in_progress',
+            workControl: 'awaiting_merge',
+            collabControl: 'integrating',
+            featureBranch: 'feat-feature-1-1',
+            mergeTrainManualPosition: 1,
+            mergeTrainEnteredAt: 50,
+            mergeTrainEntrySeq: 1,
+            mergeTrainReentryCount: 0,
+          },
+          {
+            id: 'f-3',
+            milestoneId: 'm-1',
+            orderInMilestone: 2,
+            name: 'Feature 3',
+            description: 'desc',
+            dependsOn: [],
+            status: 'in_progress',
+            workControl: 'executing',
+            collabControl: 'branch_open',
+            featureBranch: 'feat-feature-3-1',
+            runtimeBlockedByFeatureId: 'f-1',
+          },
+        ],
+        tasks: [
+          {
+            id: 't-3',
+            featureId: 'f-3',
+            orderInFeature: 0,
+            description: 'Task 3',
+            dependsOn: [],
+            status: 'running',
+            collabControl: 'suspended',
+            blockedByFeatureId: 'f-1',
+            suspendReason: 'cross_feature_overlap',
+            suspendedAt: 75,
+          },
+        ],
+      });
+
+      const blockedFeature = graph.features.get('f-3');
+      assert(
+        blockedFeature !== undefined,
+        'missing blocked feature fixture state',
+      );
+
+      // Set up a real git repo where f-3's feature branch conflicts on rebase.
+      const featureDir = await writeFeatureRebaseRepo(root, blockedFeature);
+      await git(featureDir, 'checkout', blockedFeature.featureBranch);
+      await fs.writeFile(
+        path.join(featureDir, 'src', 'a.ts'),
+        'feature change\n',
+      );
+      await git(featureDir, 'add', 'src/a.ts');
+      await git(featureDir, 'commit', '-m', 'feature change');
+      await git(featureDir, 'checkout', 'main');
+      await fs.writeFile(path.join(featureDir, 'src', 'a.ts'), 'main change\n');
+      await git(featureDir, 'add', 'src/a.ts');
+      await git(featureDir, 'commit', '-m', 'main change');
+      await git(featureDir, 'checkout', blockedFeature.featureBranch);
+
+      const loop = new NoRunnerSchedulerLoop(graph, ports);
+      loop.enqueue({
+        type: 'feature_integration_failed',
+        featureId: 'f-1',
+        error: 'rebase failed',
+      });
+
+      await loop.step(100);
+
+      // f-3 should have a repair task due to the rebase conflict
+      expect(graph.features.get('f-3')).toMatchObject({
+        runtimeBlockedByFeatureId: 'f-1',
+        collabControl: 'conflict',
+        workControl: 'executing_repair',
+        status: 'pending',
+      });
+      const repairTasks = [...graph.tasks.values()].filter(
+        (task) =>
+          task.featureId === 'f-3' && task.repairSource === 'integration',
+      );
+      expect(repairTasks).toHaveLength(1);
+      expect(repairTasks[0]).toMatchObject({
+        status: 'ready',
+        description:
+          'Repair integration issues: Rebase onto main conflicted in src/a.ts',
+      });
+      expect(resumeTask).not.toHaveBeenCalled();
+    }, 20000);
+
+    it('creates integration repair for secondary with missing feature worktree when primary fails integration', async () => {
+      const order: string[] = [];
+      const { ports, runtime } = createPorts(order, {
+        tokenProfile: 'balanced',
+      });
+      vi.spyOn(ports.runtime, 'idleWorkerCount').mockReturnValue(0);
+      const resumeTask = vi.spyOn(runtime, 'resumeTask');
+
+      // No git repo set up — feature worktree dir does not exist.
+      // rebaseGitDir returns {kind:'blocked'} for a missing directory.
+      const graph = new InMemoryFeatureGraph({
+        milestones: [
+          {
+            id: 'm-1',
+            name: 'Milestone 1',
+            description: 'desc',
+            status: 'pending',
+            order: 0,
+          },
+        ],
+        features: [
+          {
+            id: 'f-1',
+            milestoneId: 'm-1',
+            orderInMilestone: 0,
+            name: 'Feature 1',
+            description: 'desc',
+            dependsOn: [],
+            status: 'in_progress',
+            workControl: 'awaiting_merge',
+            collabControl: 'integrating',
+            featureBranch: 'feat-feature-1-1',
+            mergeTrainManualPosition: 1,
+            mergeTrainEnteredAt: 50,
+            mergeTrainEntrySeq: 1,
+            mergeTrainReentryCount: 0,
+          },
+          {
+            id: 'f-3',
+            milestoneId: 'm-1',
+            orderInMilestone: 2,
+            name: 'Feature 3',
+            description: 'desc',
+            dependsOn: [],
+            status: 'in_progress',
+            workControl: 'executing',
+            collabControl: 'branch_open',
+            featureBranch: 'feat-feature-3-1',
+            runtimeBlockedByFeatureId: 'f-1',
+          },
+        ],
+        tasks: [
+          {
+            id: 't-3',
+            featureId: 'f-3',
+            orderInFeature: 0,
+            description: 'Task 3',
+            dependsOn: [],
+            status: 'running',
+            collabControl: 'suspended',
+            blockedByFeatureId: 'f-1',
+            suspendReason: 'cross_feature_overlap',
+            suspendedAt: 75,
+          },
+        ],
+      });
+
+      const loop = new NoRunnerSchedulerLoop(graph, ports);
+      loop.enqueue({
+        type: 'feature_integration_failed',
+        featureId: 'f-1',
+        error: 'rebase failed',
+      });
+
+      await loop.step(100);
+
+      // f-3 should get a repair task due to missing worktree
+      expect(graph.features.get('f-3')).toMatchObject({
+        runtimeBlockedByFeatureId: 'f-1',
+        collabControl: 'conflict',
+        workControl: 'executing_repair',
+        status: 'pending',
+      });
+      const repairTasks = [...graph.tasks.values()].filter(
+        (task) =>
+          task.featureId === 'f-3' && task.repairSource === 'integration',
+      );
+      expect(repairTasks).toHaveLength(1);
+      expect(repairTasks[0]).toMatchObject({
+        status: 'ready',
+        description:
+          'Repair integration issues: Feature worktree missing for f-3',
+      });
+      expect(resumeTask).not.toHaveBeenCalled();
+    });
+
+    it('does not call createIntegrationRepair when no features are blocked by the failed primary', async () => {
+      const order: string[] = [];
+      const { ports } = createPorts(order);
+      vi.spyOn(ports.runtime, 'idleWorkerCount').mockReturnValue(0);
+
+      // Only f-1 integrating, no features with runtimeBlockedByFeatureId='f-1'
+      const graph = new InMemoryFeatureGraph({
+        milestones: [
+          {
+            id: 'm-1',
+            name: 'Milestone 1',
+            description: 'desc',
+            status: 'pending',
+            order: 0,
+          },
+        ],
+        features: [
+          {
+            id: 'f-1',
+            milestoneId: 'm-1',
+            orderInMilestone: 0,
+            name: 'Feature 1',
+            description: 'desc',
+            dependsOn: [],
+            status: 'in_progress',
+            workControl: 'awaiting_merge',
+            collabControl: 'integrating',
+            featureBranch: 'feat-feature-1-1',
+            mergeTrainManualPosition: 1,
+            mergeTrainEnteredAt: 50,
+            mergeTrainEntrySeq: 1,
+            mergeTrainReentryCount: 0,
+          },
+        ],
+        tasks: [],
+      });
+
+      const loop = new NoRunnerSchedulerLoop(graph, ports);
+      loop.enqueue({
+        type: 'feature_integration_failed',
+        featureId: 'f-1',
+        error: 'rebase failed',
+      });
+
+      // Should complete without error
+      await expect(loop.step(100)).resolves.not.toThrow();
+
+      // f-1 transitions to conflict
+      expect(graph.features.get('f-1')).toMatchObject({
+        collabControl: 'conflict',
+        workControl: 'executing_repair',
+        mergeTrainReentryCount: 1,
+      });
+
+      // f-1 gets its own repair task from failIntegration; no repair tasks for secondaries
+      const f1RepairTasks = [...graph.tasks.values()].filter(
+        (task) =>
+          task.featureId === 'f-1' && task.repairSource === 'integration',
+      );
+      expect(f1RepairTasks).toHaveLength(1);
+      // No other features had blocked secondaries, so no secondary repair tasks
+      const secondaryRepairTasks = [...graph.tasks.values()].filter(
+        (task) =>
+          task.featureId !== 'f-1' && task.repairSource === 'integration',
+      );
+      expect(secondaryRepairTasks).toHaveLength(0);
+    });
+  });
+
+  describe('merge-train re-entry cap', () => {
+    function buildCapGraph(reentryCount: number) {
+      return new InMemoryFeatureGraph({
+        milestones: [
+          {
+            id: 'm-1',
+            name: 'Milestone 1',
+            description: 'desc',
+            status: 'pending',
+            order: 0,
+          },
+        ],
+        features: [
+          {
+            id: 'f-1',
+            milestoneId: 'm-1',
+            orderInMilestone: 0,
+            name: 'Feature 1',
+            description: 'desc',
+            dependsOn: [],
+            status: 'in_progress',
+            workControl: 'awaiting_merge',
+            collabControl: 'integrating',
+            featureBranch: 'feat-feature-1-1',
+            mergeTrainEnteredAt: 50,
+            mergeTrainEntrySeq: 1,
+            mergeTrainReentryCount: reentryCount,
+          },
+        ],
+        tasks: [],
+      });
+    }
+
+    it('parks feature via inbox item when cap is hit (no repair task)', async () => {
+      const order: string[] = [];
+      // reentryCap: 1 — feature at count 0, after ejection count becomes 1 → cap_reached
+      const { ports } = createPorts(order, { reentryCap: 1 });
+      vi.spyOn(ports.runtime, 'idleWorkerCount').mockReturnValue(0);
+      const appendInboxItem = vi.spyOn(ports.store, 'appendInboxItem');
+
+      const graph = buildCapGraph(0);
+      const loop = new SchedulerLoop(graph, ports);
+      loop.enqueue({
+        type: 'feature_integration_failed',
+        featureId: 'f-1',
+        error: 'rebase failed',
+      });
+
+      await loop.step(100);
+
+      // Inbox item should be appended with cap-reached kind
+      expect(appendInboxItem).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: 'merge_train_cap_reached',
+          featureId: 'f-1',
+        }),
+      );
+
+      // Feature should be in conflict collab state (parked)
+      const failedFeature = graph.features.get('f-1');
+      expect(failedFeature?.collabControl).toBe('conflict');
+
+      // No repair tasks should have been created
+      const repairTasks = [...graph.tasks.values()].filter(
+        (task) =>
+          task.featureId === 'f-1' && task.repairSource === 'integration',
+      );
+      expect(repairTasks).toHaveLength(0);
+    });
+
+    it('creates repair task below cap (normal ejection path preserved)', async () => {
+      const order: string[] = [];
+      // reentryCap: 2 — feature at count 0, after ejection count becomes 1 → ejected (below cap)
+      const { ports } = createPorts(order, { reentryCap: 2 });
+      vi.spyOn(ports.runtime, 'idleWorkerCount').mockReturnValue(0);
+      const appendInboxItem = vi.spyOn(ports.store, 'appendInboxItem');
+
+      const graph = buildCapGraph(0);
+      const loop = new SchedulerLoop(graph, ports);
+      loop.enqueue({
+        type: 'feature_integration_failed',
+        featureId: 'f-1',
+        error: 'rebase failed',
+      });
+
+      await loop.step(100);
+
+      // No cap-reached inbox item
+      const capCalls = appendInboxItem.mock.calls.filter(
+        ([item]) => item.kind === 'merge_train_cap_reached',
+      );
+      expect(capCalls).toHaveLength(0);
+
+      // Repair task should exist
+      const repairTasks = [...graph.tasks.values()].filter(
+        (task) =>
+          task.featureId === 'f-1' && task.repairSource === 'integration',
+      );
+      expect(repairTasks).toHaveLength(1);
+    });
+
+    it('uses an updated reentry cap for future integration failures', async () => {
+      const order: string[] = [];
+      const { ports } = createPorts(order, { reentryCap: 2 });
+      vi.spyOn(ports.runtime, 'idleWorkerCount').mockReturnValue(0);
+      const appendInboxItem = vi.spyOn(ports.store, 'appendInboxItem');
+
+      const graph = buildCapGraph(0);
+      const loop = new SchedulerLoop(graph, ports);
+      loop.setReentryCap(1);
+      loop.enqueue({
+        type: 'feature_integration_failed',
+        featureId: 'f-1',
+        error: 'rebase failed',
+      });
+
+      await loop.step(100);
+
+      expect(appendInboxItem).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: 'merge_train_cap_reached',
+          featureId: 'f-1',
+        }),
+      );
+      const repairTasks = [...graph.tasks.values()].filter(
+        (task) =>
+          task.featureId === 'f-1' && task.repairSource === 'integration',
+      );
+      expect(repairTasks).toHaveLength(0);
+    });
   });
 });
 

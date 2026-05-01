@@ -1,23 +1,36 @@
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { JsonConfigLoader } from '@config';
 import { InMemoryFeatureGraph } from '@core/graph/index';
 import type {
   AgentRun,
   FeaturePhaseAgentRun,
+  GvcConfig,
   TaskAgentRun,
 } from '@core/types/index';
+import { SchedulerLoop } from '@orchestrator/scheduler/index';
+import { RecoveryService } from '@orchestrator/services/index';
 import { openDatabase } from '@persistence/db';
 import { PersistentFeatureGraph } from '@persistence/feature-graph';
 import {
+  abandonFeatureBranch,
+  applyConfigUpdate,
   cancelFeatureRunWork,
+  cancelTaskCleanWorktree,
+  cancelTaskPreserveWorktree,
   composeApplication,
+  decideInboxApproval,
   formatWorkerOutput,
   initializeProjectGraph,
+  respondToInboxHelp,
   summarizeApprovalPayload,
 } from '@root/compose';
 import type { ApprovalPayload, RuntimePort } from '@runtime/contracts';
+import { TuiApp } from '@tui/app';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { testGvcConfigDefaults } from '../helpers/config-fixture.js';
+import { InMemoryStore } from '../integration/harness/store-memory.js';
 
 function makeTaskRun(overrides: Partial<TaskAgentRun> = {}): TaskAgentRun {
   return {
@@ -51,6 +64,14 @@ function makeFeaturePhaseRun(
   };
 }
 
+function makeConfig(overrides: Partial<GvcConfig> = {}): GvcConfig {
+  return {
+    ...testGvcConfigDefaults(),
+    tokenProfile: 'balanced',
+    ...overrides,
+  };
+}
+
 describe('compose helpers', () => {
   it('formats wait and terminal worker output for monitor visibility', () => {
     expect(
@@ -59,6 +80,7 @@ describe('compose helpers', () => {
         taskId: 't-1',
         agentRunId: 'run-task:t-1',
         query: 'Need operator guidance',
+        toolCallId: 'call-help-1',
       }),
     ).toBe('help requested: Need operator guidance');
 
@@ -72,6 +94,7 @@ describe('compose helpers', () => {
           label: 'Approve destructive step',
           detail: 'Delete generated cache files',
         },
+        toolCallId: 'call-approval-1',
       }),
     ).toBe('approval requested: Approve destructive step');
 
@@ -219,6 +242,510 @@ describe('compose helpers', () => {
       owner: 'system',
     });
   });
+
+  it('cancels a task while preserving its worktree and aborts at most one live run', async () => {
+    const graph = new InMemoryFeatureGraph();
+    graph.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    graph.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'Feature 1',
+      description: 'desc',
+    });
+    graph.createTask({ id: 't-1', featureId: 'f-1', description: 'Task 1' });
+    const task = graph.tasks.get('t-1');
+    assert(task !== undefined, 'missing t-1 fixture');
+    graph.tasks.set('t-1', {
+      ...task,
+      status: 'running',
+      collabControl: 'suspended',
+      suspendReason: 'cross_feature_overlap',
+      blockedByFeatureId: 'f-2',
+      suspendedAt: 100,
+    });
+
+    const runs = new Map<string, AgentRun>([
+      ['run-task:t-1', makeTaskRun()],
+      [
+        'run-task:t-1:wait',
+        makeTaskRun({
+          id: 'run-task:t-1:wait',
+          runStatus: 'await_response',
+        }),
+      ],
+      [
+        'run-task:t-1:ready',
+        makeTaskRun({
+          id: 'run-task:t-1:ready',
+          runStatus: 'ready',
+        }),
+      ],
+    ]);
+    const store = {
+      listAgentRuns: () => [...runs.values()],
+      updateAgentRun: vi.fn((runId: string, patch: Partial<AgentRun>) => {
+        const existing = runs.get(runId);
+        if (existing !== undefined) {
+          runs.set(runId, { ...existing, ...patch } as AgentRun);
+        }
+      }),
+    };
+    const runtime = {
+      abortTask: vi.fn((taskId: string) =>
+        Promise.resolve({
+          kind: 'delivered' as const,
+          taskId,
+          agentRunId: `run-task:${taskId}`,
+        }),
+      ),
+    } as Pick<RuntimePort, 'abortTask'>;
+
+    await cancelTaskPreserveWorktree({ graph, store, runtime }, 't-1');
+
+    expect(graph.tasks.get('t-1')).toMatchObject({
+      status: 'cancelled',
+      collabControl: 'suspended',
+      suspendReason: 'cross_feature_overlap',
+    });
+    expect(runtime.abortTask).toHaveBeenCalledTimes(1);
+    expect(runtime.abortTask).toHaveBeenCalledWith('t-1');
+    expect(store.updateAgentRun).toHaveBeenCalledWith('run-task:t-1', {
+      runStatus: 'cancelled',
+      owner: 'system',
+    });
+    expect(store.updateAgentRun).toHaveBeenCalledWith('run-task:t-1:wait', {
+      runStatus: 'cancelled',
+      owner: 'system',
+    });
+    expect(store.updateAgentRun).toHaveBeenCalledWith('run-task:t-1:ready', {
+      runStatus: 'cancelled',
+      owner: 'system',
+    });
+  });
+
+  it('cancels a task and removes its worktree when clean cancel is requested', async () => {
+    const graph = new InMemoryFeatureGraph();
+    graph.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    graph.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'Feature 1',
+      description: 'desc',
+    });
+    graph.createTask({ id: 't-1', featureId: 'f-1', description: 'Task 1' });
+    const task = graph.tasks.get('t-1');
+    assert(task !== undefined, 'missing t-1 fixture');
+    graph.tasks.set('t-1', {
+      ...task,
+      status: 'ready',
+      worktreeBranch: 'feat-task-clean',
+    });
+
+    const store = {
+      listAgentRuns: () =>
+        [makeTaskRun({ scopeId: 't-1', runStatus: 'ready' })] as AgentRun[],
+      updateAgentRun: vi.fn(),
+    };
+    const runtime = {
+      abortTask: vi.fn((taskId: string) =>
+        Promise.resolve({
+          kind: 'delivered' as const,
+          taskId,
+          agentRunId: `run-task:${taskId}`,
+        }),
+      ),
+    } as Pick<RuntimePort, 'abortTask'>;
+    const worktree = {
+      removeWorktree: vi.fn(() => Promise.resolve()),
+    };
+
+    await cancelTaskCleanWorktree({ graph, store, runtime, worktree }, 't-1');
+
+    expect(graph.tasks.get('t-1')).toMatchObject({ status: 'cancelled' });
+    expect(worktree.removeWorktree).toHaveBeenCalledWith('feat-task-clean');
+  });
+
+  it('abandons a feature by cancelling runs, removing worktrees, and deleting branches', async () => {
+    const graph = new InMemoryFeatureGraph();
+    graph.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    graph.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'Feature 1',
+      description: 'desc',
+    });
+    const feature = graph.features.get('f-1');
+    assert(feature !== undefined, 'missing f-1 fixture');
+    graph.features.set('f-1', {
+      ...feature,
+      featureBranch: 'feat-feature-1',
+    });
+    graph.createTask({ id: 't-1', featureId: 'f-1', description: 'Task 1' });
+    graph.createTask({ id: 't-2', featureId: 'f-1', description: 'Task 2' });
+    const t1 = graph.tasks.get('t-1');
+    const t2 = graph.tasks.get('t-2');
+    assert(t1 !== undefined, 'missing t-1 fixture');
+    assert(t2 !== undefined, 'missing t-2 fixture');
+    graph.tasks.set('t-1', {
+      ...t1,
+      status: 'running',
+      worktreeBranch: 'feat-feature-1-task-1',
+    });
+    graph.tasks.set('t-2', {
+      ...t2,
+      status: 'ready',
+      worktreeBranch: 'feat-feature-1-task-2',
+    });
+
+    const runs = new Map<string, AgentRun>([
+      ['run-task:t-1', makeTaskRun()],
+      [
+        'run-task:t-2',
+        makeTaskRun({
+          id: 'run-task:t-2',
+          scopeId: 't-2',
+          runStatus: 'ready',
+        }),
+      ],
+      ['run-feature:f-1:plan', makeFeaturePhaseRun()],
+    ]);
+    const store = {
+      listAgentRuns: () => [...runs.values()],
+      updateAgentRun: vi.fn((runId: string, patch: Partial<AgentRun>) => {
+        const existing = runs.get(runId);
+        if (existing !== undefined) {
+          runs.set(runId, { ...existing, ...patch } as AgentRun);
+        }
+      }),
+    };
+    const runtime = {
+      abortTask: vi.fn((taskId: string) =>
+        Promise.resolve({
+          kind: 'delivered' as const,
+          taskId,
+          agentRunId: `run-task:${taskId}`,
+        }),
+      ),
+    } as Pick<RuntimePort, 'abortTask'>;
+    const worktree = {
+      removeWorktree: vi.fn(() => Promise.resolve()),
+      deleteBranch: vi.fn(() => Promise.resolve()),
+    };
+
+    await abandonFeatureBranch({ graph, store, runtime, worktree }, 'f-1');
+
+    expect(graph.features.get('f-1')).toMatchObject({
+      collabControl: 'cancelled',
+    });
+    expect(graph.tasks.get('t-1')).toMatchObject({ status: 'cancelled' });
+    expect(graph.tasks.get('t-2')).toMatchObject({ status: 'cancelled' });
+    expect(runtime.abortTask).toHaveBeenCalledTimes(1);
+    expect(runtime.abortTask).toHaveBeenCalledWith('t-1');
+    expect(worktree.removeWorktree.mock.calls).toEqual([
+      ['feat-feature-1-task-1'],
+      ['feat-feature-1-task-2'],
+      ['feat-feature-1'],
+    ]);
+    expect(worktree.deleteBranch.mock.calls).toEqual([
+      ['feat-feature-1-task-1'],
+      ['feat-feature-1-task-2'],
+      ['feat-feature-1'],
+    ]);
+  });
+
+  it('applies live config updates across runtime, scheduler, and harness while persisting validated config', async () => {
+    const tmpDir = await fs.mkdtemp(
+      path.join('/tmp', 'compose-config-update-'),
+    );
+    try {
+      const configPath = path.join(tmpDir, 'gvc0.config.json');
+      const sourceConfig = makeConfig();
+      await fs.writeFile(configPath, JSON.stringify(sourceConfig), 'utf-8');
+      const configSource = new JsonConfigLoader(configPath);
+      const currentConfig = makeConfig();
+      const nextConfig = makeConfig({
+        workerCap: 7,
+        retryCap: 9,
+        reentryCap: 4,
+        pauseTimeouts: { hotWindowMs: 1234 },
+        models: {
+          ...sourceConfig.models,
+          taskWorker: { provider: 'anthropic', model: 'claude-opus-4-7' },
+        },
+      });
+      const runtime = {
+        setMaxConcurrency: vi.fn(),
+        setRetryPolicyConfig: vi.fn(),
+        setHotWindowMs: vi.fn(),
+      };
+      const scheduler = { setReentryCap: vi.fn() };
+      const harness = { setTaskWorkerModel: vi.fn() };
+
+      const updated = await applyConfigUpdate(
+        configSource,
+        currentConfig,
+        nextConfig,
+        {
+          runtime,
+          scheduler,
+          harness,
+        },
+      );
+
+      expect(updated).toBe(currentConfig);
+      expect(currentConfig.workerCap).toBe(7);
+      expect(currentConfig.retryCap).toBe(9);
+      expect(currentConfig.reentryCap).toBe(4);
+      expect(currentConfig.pauseTimeouts.hotWindowMs).toBe(1234);
+      expect(currentConfig.models.taskWorker.model).toBe('claude-opus-4-7');
+      expect(runtime.setMaxConcurrency).toHaveBeenCalledWith(7);
+      expect(runtime.setHotWindowMs).toHaveBeenCalledWith(1234);
+      expect(runtime.setRetryPolicyConfig).toHaveBeenCalledWith(
+        expect.objectContaining({ maxAttempts: 9 }),
+      );
+      expect(scheduler.setReentryCap).toHaveBeenCalledWith(4);
+      expect(harness.setTaskWorkerModel).toHaveBeenCalledWith({
+        provider: 'anthropic',
+        model: 'claude-opus-4-7',
+      });
+      const persisted = JSON.parse(await fs.readFile(configPath, 'utf-8'));
+      expect(persisted.workerCap).toBe(7);
+      expect(persisted.retryCap).toBe(9);
+      expect(persisted.reentryCap).toBe(4);
+      expect(persisted.pauseTimeouts.hotWindowMs).toBe(1234);
+      expect(persisted.models.taskWorker.model).toBe('claude-opus-4-7');
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('replays checkpointed help waits by persisting tool output and resuming the task', async () => {
+    const tmpDir = await fs.mkdtemp(path.join('/tmp', 'compose-replay-help-'));
+    try {
+      const graph = new InMemoryFeatureGraph();
+      graph.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+      graph.createFeature({
+        id: 'f-1',
+        milestoneId: 'm-1',
+        name: 'Feature 1',
+        description: 'desc',
+      });
+      graph.createTask({ id: 't-1', featureId: 'f-1', description: 'Task 1' });
+
+      const store = new InMemoryStore();
+      store.createAgentRun(
+        makeTaskRun({
+          runStatus: 'checkpointed_await_response',
+          owner: 'manual',
+          sessionId: 'sess-1',
+          payloadJson: JSON.stringify({
+            query: 'Need operator guidance',
+            toolCallId: 'call-help-1',
+          }),
+        }),
+      );
+      store.appendInboxItem({
+        id: 'inbox-1',
+        ts: 1,
+        taskId: 't-1',
+        agentRunId: 'run-task:t-1',
+        featureId: 'f-1',
+        kind: 'agent_help',
+        payload: { query: 'Need operator guidance' },
+      });
+
+      const runtime = {
+        dispatchTask: vi.fn(() =>
+          Promise.resolve({
+            kind: 'resumed' as const,
+            taskId: 't-1',
+            agentRunId: 'run-task:t-1',
+            sessionId: 'sess-1',
+          }),
+        ),
+        respondToHelp: vi.fn(),
+        decideApproval: vi.fn(),
+      } as Pick<
+        RuntimePort,
+        'dispatchTask' | 'respondToHelp' | 'decideApproval'
+      >;
+
+      await expect(
+        respondToInboxHelp(
+          { store, runtime, graph, projectRoot: tmpDir },
+          'inbox-1',
+          {
+            kind: 'answer',
+            text: 'Use option B',
+          },
+        ),
+      ).resolves.toBe('Sent help response to t-1.');
+
+      expect(runtime.dispatchTask).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 't-1' }),
+        {
+          mode: 'resume',
+          agentRunId: 'run-task:t-1',
+          sessionId: 'sess-1',
+        },
+        expect.any(Object),
+      );
+      const persisted = JSON.parse(
+        await fs.readFile(
+          path.join(
+            tmpDir,
+            '.gvc0',
+            'tool-outputs',
+            'sess-1',
+            'call-help-1.json',
+          ),
+          'utf-8',
+        ),
+      );
+      expect(persisted).toMatchObject({
+        toolCallId: 'call-help-1',
+        toolName: 'request_help',
+        content: [{ type: 'text', text: 'Use option B' }],
+        details: {
+          query: 'Need operator guidance',
+          responseKind: 'answer',
+        },
+        isError: false,
+      });
+      expect(store.getAgentRun('run-task:t-1')).toMatchObject({
+        runStatus: 'running',
+        owner: 'manual',
+        restartCount: 1,
+        sessionId: 'sess-1',
+      });
+      expect(
+        store.listInboxItems({ kind: 'agent_help' })[0]?.resolution,
+      ).toEqual({
+        kind: 'answered',
+        resolvedAt: expect.any(Number),
+        note: 'Use option B',
+        fanoutTaskIds: ['t-1'],
+      });
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('replays checkpointed approval waits by persisting tool output and resuming the task', async () => {
+    const tmpDir = await fs.mkdtemp(
+      path.join('/tmp', 'compose-replay-approval-'),
+    );
+    try {
+      const graph = new InMemoryFeatureGraph();
+      graph.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+      graph.createFeature({
+        id: 'f-1',
+        milestoneId: 'm-1',
+        name: 'Feature 1',
+        description: 'desc',
+      });
+      graph.createTask({ id: 't-1', featureId: 'f-1', description: 'Task 1' });
+
+      const store = new InMemoryStore();
+      store.createAgentRun(
+        makeTaskRun({
+          runStatus: 'checkpointed_await_approval',
+          owner: 'manual',
+          sessionId: 'sess-1',
+          payloadJson: JSON.stringify({
+            kind: 'custom',
+            label: 'Need approval',
+            detail: 'Proceed with guarded change',
+            toolCallId: 'call-approval-1',
+          }),
+        }),
+      );
+      store.appendInboxItem({
+        id: 'inbox-1',
+        ts: 1,
+        taskId: 't-1',
+        agentRunId: 'run-task:t-1',
+        featureId: 'f-1',
+        kind: 'agent_approval',
+        payload: {
+          kind: 'custom',
+          label: 'Need approval',
+          detail: 'Proceed with guarded change',
+        },
+      });
+
+      const runtime = {
+        dispatchTask: vi.fn(() =>
+          Promise.resolve({
+            kind: 'resumed' as const,
+            taskId: 't-1',
+            agentRunId: 'run-task:t-1',
+            sessionId: 'sess-1',
+          }),
+        ),
+        respondToHelp: vi.fn(),
+        decideApproval: vi.fn(),
+      } as Pick<
+        RuntimePort,
+        'dispatchTask' | 'respondToHelp' | 'decideApproval'
+      >;
+
+      await expect(
+        decideInboxApproval(
+          { store, runtime, graph, projectRoot: tmpDir },
+          'inbox-1',
+          { kind: 'approved' },
+        ),
+      ).resolves.toBe('Approved t-1.');
+
+      expect(runtime.dispatchTask).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 't-1' }),
+        {
+          mode: 'resume',
+          agentRunId: 'run-task:t-1',
+          sessionId: 'sess-1',
+        },
+        expect.any(Object),
+      );
+      const persisted = JSON.parse(
+        await fs.readFile(
+          path.join(
+            tmpDir,
+            '.gvc0',
+            'tool-outputs',
+            'sess-1',
+            'call-approval-1.json',
+          ),
+          'utf-8',
+        ),
+      );
+      expect(persisted).toMatchObject({
+        toolCallId: 'call-approval-1',
+        toolName: 'request_approval',
+        content: [{ type: 'text', text: 'approved' }],
+        details: {
+          kind: 'custom',
+          decision: 'approved',
+        },
+        isError: false,
+      });
+      expect(store.getAgentRun('run-task:t-1')).toMatchObject({
+        runStatus: 'running',
+        owner: 'manual',
+        restartCount: 1,
+        sessionId: 'sess-1',
+      });
+      expect(
+        store.listInboxItems({ kind: 'agent_approval' })[0]?.resolution,
+      ).toEqual({
+        kind: 'approved',
+        resolvedAt: expect.any(Number),
+        fanoutTaskIds: ['t-1'],
+      });
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('composeApplication', () => {
@@ -248,6 +775,7 @@ describe('composeApplication', () => {
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     process.chdir(originalCwd);
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
@@ -264,6 +792,49 @@ describe('composeApplication', () => {
     await expect(
       fs.stat(path.join(tmpDir, '.gvc0', 'state.db')),
     ).resolves.toBeTruthy();
+  });
+
+  it('runs startup recovery before scheduler start', async () => {
+    const order: string[] = [];
+    vi.spyOn(TuiApp.prototype, 'show').mockImplementation(async () => {
+      order.push('show');
+    });
+    vi.spyOn(TuiApp.prototype, 'refresh').mockImplementation(() => {
+      order.push('refresh');
+    });
+    vi.spyOn(
+      RecoveryService.prototype,
+      'recoverStartupState',
+    ).mockImplementation(async () => {
+      order.push('recover');
+      return {
+        liveWorkerPids: [],
+        clearedDeadWorkerPids: [],
+        clearedLocks: [],
+        preservedLocks: [],
+        orphanTaskWorktrees: [],
+        resumedRuns: [],
+        restartedRuns: [],
+        attentionRuns: [],
+        requiresAttention: false,
+      };
+    });
+    vi.spyOn(SchedulerLoop.prototype, 'run').mockImplementation(() => {
+      order.push('run');
+      return Promise.resolve();
+    });
+    vi.spyOn(SchedulerLoop.prototype, 'stop').mockImplementation(() => {
+      return Promise.resolve();
+    });
+
+    const app = await composeApplication();
+
+    try {
+      await app.start('auto');
+      expect(order).toEqual(['show', 'recover', 'run', 'refresh']);
+    } finally {
+      await app.stop();
+    }
   });
 
   it('initializes starter milestone and planning feature through TUI command path', async () => {

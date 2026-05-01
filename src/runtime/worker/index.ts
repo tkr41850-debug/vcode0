@@ -25,6 +25,11 @@ import type {
   TaskRuntimeDispatch,
 } from '@runtime/contracts';
 import type { ChildIpcTransport } from '@runtime/ipc/index';
+import {
+  createInMemoryToolOutputStore,
+  resume,
+  type ToolOutputStore,
+} from '@runtime/resume';
 import { resolveModel } from '@runtime/routing/model-bridge';
 import type { SessionStore } from '@runtime/sessions/index';
 import { messagesToTokenUsageAggregate } from '@runtime/usage';
@@ -44,6 +49,7 @@ export interface WorkerRuntimeConfig {
   getApiKey?: (
     provider: string,
   ) => Promise<string | undefined> | string | undefined;
+  createToolOutputStore?: (sessionId: string) => ToolOutputStore;
 }
 
 interface PendingHelp {
@@ -70,6 +76,9 @@ export class WorkerRuntime {
   private readonly pendingClaims = new Map<string, PendingClaim>();
   private terminalResult: TaskResult | undefined;
   private suspended: SuspensionState | undefined;
+  private checkpointSaveChain: Promise<void> = Promise.resolve();
+  private toolOutputStore: ToolOutputStore = createInMemoryToolOutputStore();
+  private activeSessionId: string | undefined;
 
   constructor(
     private readonly transport: ChildIpcTransport,
@@ -105,6 +114,13 @@ export class WorkerRuntime {
     );
 
     const systemPrompt = buildSystemPrompt(task, payload);
+    const sessionId =
+      dispatch.mode === 'resume' ? dispatch.sessionId : dispatch.agentRunId;
+    this.activeSessionId = sessionId;
+    this.checkpointSaveChain = Promise.resolve();
+    this.toolOutputStore =
+      this.config.createToolOutputStore?.(sessionId) ??
+      createInMemoryToolOutputStore();
 
     let messages: AgentMessage[] = [];
     if (dispatch.mode === 'resume') {
@@ -177,11 +193,14 @@ export class WorkerRuntime {
             queueMicrotask(() => {
               void (async () => {
                 try {
-                  const decision = await ipcForGuard.requestApproval({
-                    kind: 'destructive_action',
-                    description: cmd,
-                    affectedPaths: [workerCwd],
-                  });
+                  const decision = await ipcForGuard.requestApproval(
+                    {
+                      kind: 'destructive_action',
+                      description: cmd,
+                      affectedPaths: [workerCwd],
+                    },
+                    toolCallId,
+                  );
                   if (
                     decision.kind === 'approved' ||
                     decision.kind === 'approve_always'
@@ -210,17 +229,19 @@ export class WorkerRuntime {
 
     this.agent = new Agent(agentOptions);
 
-    const sessionId =
-      dispatch.mode === 'resume' ? dispatch.sessionId : dispatch.agentRunId;
-
     this.agent.subscribe((event: AgentEvent) =>
       this.handleAgentEvent(event, task.id, dispatch.agentRunId),
     );
 
     let runError: unknown;
+    let resumeOutcome: Awaited<ReturnType<typeof resume>> | undefined;
     try {
       if (dispatch.mode === 'resume' && messages.length > 0) {
-        await this.agent.continue();
+        resumeOutcome = await resume({
+          agent: this.agent,
+          savedMessages: messages,
+          toolOutputs: this.toolOutputStore,
+        });
       } else {
         await this.agent.prompt(task.description);
       }
@@ -234,6 +255,7 @@ export class WorkerRuntime {
       model.provider,
       model.id,
     );
+    await this.checkpointSaveChain;
     await this.sessionStore.save(sessionId, finalMessages);
 
     if (runError !== undefined) {
@@ -248,10 +270,26 @@ export class WorkerRuntime {
       return;
     }
 
+    if (resumeOutcome?.kind === 'already-terminated') {
+      this.transport.send({
+        type: 'error',
+        taskId: task.id,
+        agentRunId: dispatch.agentRunId,
+        error: `resume_incomplete: ${resumeOutcome.reason}`,
+        usage,
+        recovery: {
+          kind: 'resume_incomplete',
+          reason: resumeOutcome.reason,
+        },
+      });
+      return;
+    }
+
     const result: TaskResult = this.terminalResult ?? {
       summary,
       filesChanged: [],
     };
+    await this.clearToolOutputs();
 
     this.transport.send({
       type: 'result',
@@ -358,7 +396,7 @@ export class WorkerRuntime {
           message: messageText,
         });
       },
-      requestHelp: (query: string) => {
+      requestHelp: (query: string, toolCallId: string) => {
         if (this.pendingHelp !== undefined) {
           return Promise.reject(
             new Error('request_help already pending — only one at a time'),
@@ -369,12 +407,13 @@ export class WorkerRuntime {
           taskId,
           agentRunId,
           query,
+          toolCallId,
         });
         return new Promise<HelpResponse>((resolve) => {
           this.pendingHelp = { resolve };
         });
       },
-      requestApproval: (payload: ApprovalPayload) => {
+      requestApproval: (payload: ApprovalPayload, toolCallId: string) => {
         if (this.pendingApproval !== undefined) {
           return Promise.reject(
             new Error('request_approval already pending — only one at a time'),
@@ -385,10 +424,14 @@ export class WorkerRuntime {
           taskId,
           agentRunId,
           payload,
+          toolCallId,
         });
         return new Promise<ApprovalDecision>((resolve) => {
           this.pendingApproval = { resolve };
         });
+      },
+      recordToolOutput: async (output) => {
+        await this.toolOutputStore.record(output);
       },
       claimLock: (paths: readonly string[]) => {
         const claimId = randomUUID();
@@ -409,11 +452,11 @@ export class WorkerRuntime {
     };
   }
 
-  private handleAgentEvent(
+  private async handleAgentEvent(
     event: AgentEvent,
     taskId: string,
     agentRunId: string,
-  ): void {
+  ): Promise<void> {
     switch (event.type) {
       case 'message_end': {
         if (isAssistantMessage(event.message)) {
@@ -427,6 +470,7 @@ export class WorkerRuntime {
             });
           }
         }
+        await this.checkpointSession();
         break;
       }
       case 'turn_end': {
@@ -436,10 +480,33 @@ export class WorkerRuntime {
           agentRunId,
           message: 'Turn completed',
         });
+        await this.checkpointSession();
         break;
       }
       default:
         break;
+    }
+  }
+
+  private async checkpointSession(): Promise<void> {
+    const sessionId = this.activeSessionId;
+    const agent = this.agent;
+    if (sessionId === undefined || agent === undefined) {
+      return;
+    }
+    const snapshot = [...agent.state.messages];
+    const save = this.checkpointSaveChain.then(() =>
+      this.sessionStore.save(sessionId, snapshot),
+    );
+    this.checkpointSaveChain = save.catch(() => {});
+    await save;
+  }
+
+  private async clearToolOutputs(): Promise<void> {
+    try {
+      await this.toolOutputStore.clear();
+    } catch {
+      // Best-effort cleanup: terminal success should not fail on cleanup.
     }
   }
 }
