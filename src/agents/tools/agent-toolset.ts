@@ -8,7 +8,11 @@ import type { TextContent } from '@mariozechner/pi-ai';
 import { type TSchema, Type } from '@sinclair/typebox';
 
 import type { DefaultFeaturePhaseToolHost } from './feature-phase-host.js';
-import { createPlannerToolset, formatToolText } from './planner-toolset.js';
+import {
+  createFeaturePlanToolset,
+  createProjectPlannerToolset,
+  formatToolText,
+} from './planner-toolset.js';
 import type { GraphProposalToolHost } from './proposal-host.js';
 import {
   featurePhaseToolParameters,
@@ -179,12 +183,23 @@ function createProposalRequestHelpTool(
   };
 }
 
+export type ProposalAgentScope = 'feature' | 'project';
+
+export interface BuildProposalAgentToolsetOptions {
+  kind?: ProposalAgentScope;
+}
+
 export function buildProposalAgentToolset(
   host: GraphProposalToolHost,
   inspectionHost?: DefaultFeaturePhaseToolHost,
   requestHelp?: ProposalRequestHelpFn,
+  options: BuildProposalAgentToolsetOptions = {},
 ): ProposalAgentTool[] {
-  const toolset = createPlannerToolset(host);
+  const kind: ProposalAgentScope = options.kind ?? 'feature';
+  const toolset =
+    kind === 'project'
+      ? createProjectPlannerToolset(host)
+      : createFeaturePlanToolset(host);
   const inspectionTools =
     inspectionHost !== undefined
       ? buildFeatureInspectionTools(inspectionHost)

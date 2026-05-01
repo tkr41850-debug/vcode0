@@ -10,10 +10,12 @@ import { createGraphWithFeature } from '../../../helpers/graph-builders.js';
 import { InMemoryStore } from '../../../integration/harness/store-memory.js';
 
 describe('buildProposalAgentToolset', () => {
-  it('adapts proposal tools with schemas, text content, and result details', async () => {
+  it('adapts project-scope proposal tools with schemas, text content, and result details', async () => {
     const graph = createGraphWithFeature();
     const host = createProposalToolHost(graph, 'plan');
-    const tools = buildProposalAgentToolset(host);
+    const tools = buildProposalAgentToolset(host, undefined, undefined, {
+      kind: 'project',
+    });
 
     const addMilestoneTool = tools.find((tool) => tool.name === 'addMilestone');
     if (!addMilestoneTool) throw new Error('addMilestone tool missing');
@@ -34,6 +36,12 @@ describe('buildProposalAgentToolset', () => {
         description: 'second milestone',
       }),
     });
+  });
+
+  it('adapts feature-scope proposal tools with schemas, text content, and result details', async () => {
+    const graph = createGraphWithFeature();
+    const host = createProposalToolHost(graph, 'plan');
+    const tools = buildProposalAgentToolset(host);
 
     const addTaskTool = tools.find((tool) => tool.name === 'addTask');
     if (!addTaskTool) throw new Error('addTask tool missing');

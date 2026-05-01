@@ -1,6 +1,6 @@
 import {
-  createPlannerToolset,
   createProposalToolHost,
+  createTuiPlannerToolset,
   type DependencyOptions,
   type GraphProposalToolHost,
   type PlannerToolArgsMap,
@@ -237,7 +237,7 @@ export class ComposerProposalController {
       buildGraphFromSnapshot(this.env.snapshot()),
       phase,
     );
-    const toolset = createPlannerToolset(host);
+    const toolset = createTuiPlannerToolset(host);
     this.draft = {
       featureId,
       phase,

@@ -25,6 +25,7 @@ import type {
   AddTaskOptions,
   DependencyOptions,
   EditFeatureOptions,
+  EditFeatureSpecOptions,
   EditTaskOptions,
   RemoveFeatureOptions,
   RemoveTaskOptions,
@@ -149,6 +150,22 @@ export class GraphProposalToolHost {
       patch: diff,
     });
     return feature;
+  }
+
+  editFeatureSpec(args: EditFeatureSpecOptions): Feature {
+    const patch = args.patch as Record<string, unknown>;
+    for (const key of Object.keys(patch)) {
+      if (
+        key !== 'description' &&
+        key !== 'featureObjective' &&
+        key !== 'featureDoD'
+      ) {
+        throw new Error(
+          `editFeatureSpec rejects "${key}": only description / featureObjective / featureDoD are spec-editable. Use editFeature for rename / topology fields (project-planner scope only).`,
+        );
+      }
+    }
+    return this.editFeature({ featureId: args.featureId, patch: args.patch });
   }
 
   addTask(args: AddTaskOptions): Task {

@@ -47,6 +47,17 @@ export interface EditFeatureOptions {
   patch: PlannerFeatureEditPatch;
 }
 
+export interface EditFeatureSpecPatch {
+  description?: string;
+  featureObjective?: string;
+  featureDoD?: string[];
+}
+
+export interface EditFeatureSpecOptions {
+  featureId: FeatureId;
+  patch: EditFeatureSpecPatch;
+}
+
 export interface AddTaskOptions {
   featureId: FeatureId;
   description: string;
@@ -145,6 +156,7 @@ export type ProposalToolName =
   | 'addFeature'
   | 'removeFeature'
   | 'editFeature'
+  | 'editFeatureSpec'
   | 'addTask'
   | 'removeTask'
   | 'editTask'
@@ -179,6 +191,7 @@ export interface PlannerToolArgsMap {
   addFeature: AddFeatureOptions;
   removeFeature: RemoveFeatureOptions;
   editFeature: EditFeatureOptions;
+  editFeatureSpec: EditFeatureSpecOptions;
   addTask: AddTaskOptions;
   removeTask: RemoveTaskOptions;
   editTask: EditTaskOptions;
@@ -194,6 +207,7 @@ export interface PlannerToolResultMap {
   addFeature: Feature;
   removeFeature: undefined;
   editFeature: Feature;
+  editFeatureSpec: Feature;
   addTask: Task;
   removeTask: undefined;
   editTask: Task;

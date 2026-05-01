@@ -518,18 +518,17 @@ describe('feature-phase agent flow', () => {
     });
   });
 
-  it('dispatches milestone proposal through SchedulerLoop into real feature agent runtime', async () => {
+  it('dispatches plan proposal through SchedulerLoop into real feature agent runtime', async () => {
     faux.setResponses([
       fauxAssistantMessage(
         [
-          fauxToolCall('addMilestone', {
-            name: 'Milestone 2',
-            description: 'Second milestone',
+          fauxToolCall('addTask', {
+            featureId: 'f-1',
+            description: 'Draft task 1',
           }),
-          fauxToolCall('addFeature', {
-            milestoneId: 'm-2',
-            name: 'Follow-up feature',
-            description: 'Added under new milestone',
+          fauxToolCall('addTask', {
+            featureId: 'f-1',
+            description: 'Draft task 2',
           }),
           fauxToolCall('submit', proposalDetails),
         ],
@@ -562,23 +561,22 @@ describe('feature-phase agent flow', () => {
         mode: 'plan',
         ops: [
           expect.objectContaining({
-            kind: 'add_milestone',
-            milestoneId: '#1',
-            name: 'Milestone 2',
-            description: 'Second milestone',
+            kind: 'add_task',
+            taskId: '#1',
+            featureId: 'f-1',
+            description: 'Draft task 1',
           }),
           expect.objectContaining({
-            kind: 'add_feature',
-            featureId: '#2',
-            milestoneId: '#1',
-            name: 'Follow-up feature',
-            description: 'Added under new milestone',
+            kind: 'add_task',
+            taskId: '#2',
+            featureId: 'f-1',
+            description: 'Draft task 2',
           }),
         ],
       }),
     );
-    expect(graph.milestones.has('m-2')).toBe(false);
-    expect(graph.features.has('f-2')).toBe(false);
+    expect(graph.tasks.has('t-1')).toBe(false);
+    expect(graph.tasks.has('t-2')).toBe(false);
     const planEvent = findEvent(
       store.listEvents({ entityId: 'f-1' }),
       'feature_phase_completed',
@@ -656,14 +654,13 @@ describe('feature-phase agent flow', () => {
     faux.setResponses([
       fauxAssistantMessage(
         [
-          fauxToolCall('addMilestone', {
-            name: 'Milestone 2',
-            description: 'Second milestone',
+          fauxToolCall('addTask', {
+            featureId: 'f-1',
+            description: 'Draft task 1',
           }),
-          fauxToolCall('addFeature', {
-            milestoneId: 'm-2',
-            name: 'Follow-up feature',
-            description: 'Added under new milestone',
+          fauxToolCall('addTask', {
+            featureId: 'f-1',
+            description: 'Draft task 2',
           }),
           fauxToolCall('submit', proposalDetails),
         ],
@@ -687,7 +684,7 @@ describe('feature-phase agent flow', () => {
     const opKinds = events
       .filter((e): e is Extract<SinkEvent, { kind: 'op' }> => e.kind === 'op')
       .map((e) => e.opKind);
-    expect(opKinds).toEqual(['add_milestone', 'add_feature']);
+    expect(opKinds).toEqual(['add_task', 'add_task']);
 
     const submits = events.filter(
       (e): e is Extract<SinkEvent, { kind: 'submit' }> => e.kind === 'submit',

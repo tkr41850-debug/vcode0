@@ -1,5 +1,7 @@
 export type {
+  BuildProposalAgentToolsetOptions,
   FeaturePhaseAgentTool,
+  ProposalAgentScope,
   ProposalAgentTool,
 } from './agent-toolset.js';
 export {
@@ -10,7 +12,11 @@ export {
   createFeaturePhaseToolHost,
   DefaultFeaturePhaseToolHost,
 } from './feature-phase-host.js';
-export { createPlannerToolset } from './planner-toolset.js';
+export {
+  createFeaturePlanToolset,
+  createProjectPlannerToolset,
+  createTuiPlannerToolset,
+} from './planner-toolset.js';
 export type {
   GraphProposalHostEvent,
   GraphProposalHostListener,
@@ -26,6 +32,8 @@ export type {
   AgentToolName,
   DependencyOptions,
   EditFeatureOptions,
+  EditFeatureSpecOptions,
+  EditFeatureSpecPatch,
   EditTaskOptions,
   FeatureInspectionToolName,
   FeaturePhaseToolArgs,

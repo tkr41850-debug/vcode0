@@ -9,6 +9,12 @@ const featurePatchSchema = Type.Object({
   featureDoD: Type.Optional(Type.Array(Type.String())),
 });
 
+const featureSpecPatchSchema = Type.Object({
+  description: Type.Optional(Type.String()),
+  featureObjective: Type.Optional(Type.String()),
+  featureDoD: Type.Optional(Type.Array(Type.String())),
+});
+
 const taskPatchSchema = Type.Object({
   description: Type.Optional(Type.String()),
   weight: Type.Optional(
@@ -111,6 +117,10 @@ export const proposalToolParameters = {
   editFeature: Type.Object({
     featureId: Type.String(),
     patch: featurePatchSchema,
+  }),
+  editFeatureSpec: Type.Object({
+    featureId: Type.String(),
+    patch: featureSpecPatchSchema,
   }),
   addTask: Type.Object({
     featureId: Type.String(),
