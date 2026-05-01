@@ -5,25 +5,25 @@
 See: .planning/PROJECT.md (updated 2026-04-23)
 
 **Core value:** From one prompt, orchestrate parallel autonomous coding that lands on `main` without breaking it — live-steerable from a single TUI.
-**Current focus:** Phase 9 crash recovery UX is in progress — 09-01 startup recovery substrate completed on 2026-04-29, and 09-02 startup respawn + transcript replay hookup completed on 2026-05-01 with immediate startup fallback for `not_resumable` runs, structured replay-incomplete diagnostics, parked recovery inbox visibility, and readable TUI recovery wording. Next slice: 09-03 recovery-summary inbox item + crash fault-injection coverage.
+**Current focus:** Phase 10 re-plan flows and manual edits polish is next — Phase 9 crash recovery UX completed on 2026-05-01 with startup recovery summary inbox surfacing, orphan-worktree triage commands, readable recovery/orphan inbox wording, and real-file restart coverage in the standard Vitest integration lane.
 
 ## Current Position
 
-Phase: 9 of 12 (Crash Recovery UX) next
-Plan: 5 of 5 completed in Phase 8
-Status: Phase 8 complete. 08-01 inbox, 08-02 merge-train, 08-03 manual DAG edit actions, 08-04 per-task transcript surface, and 08-05 authoritative config plus visible cancel controls are synced to shipped code.
-Last activity: 2026-04-29 — Phase 8 plan 08-05 recorded. The TUI now exposes authoritative config through `/config`, graph keybind `c`, and `/config-set`; supported settings persist and hot-apply without restart; `topPlanner`, `featurePlanner`, `taskWorker`, and `verifier` now map to distinct runtime model consumers; and the three cancel levers now ship as distinct visible actions (`/task-cancel-preserve`, `/task-cancel-clean`, `/feature-abandon`). Verification is green for focused runtime/agent-runtime/feature-lifecycle/TUI/scheduler-boundary lanes and for `npm run check` (`1917 passed`, `3 skipped`). The separate `@microsoft/tui-test` smoke lane remains blocked by the existing workerpool `SIGSEGV` crash across all eight smoke tests.
+Phase: 10 of 12 (Re-plan Flows & Manual Edits Polish) next
+Plan: 3 of 3 completed in Phase 9
+Status: Phase 9 complete. 09-01 startup recovery substrate, 09-02 startup respawn + transcript replay hookup, and 09-03 recovery summary inbox plus orphan-worktree triage are synced to shipped code.
+Last activity: 2026-05-01 — Phase 9 plan 09-03 recorded. Startup now reconciles stale locks and persisted worker PIDs before scheduler start, truthfully resumes or restarts in-flight runs, parks replay-incomplete recovery failures with inbox diagnostics, appends a durable `recovery_summary` inbox row plus per-orphan `orphan_worktree` rows, and exposes conservative `/orphan-clean`, `/orphan-inspect`, and `/orphan-keep` actions through the existing TUI command surface. Focused verification is green for `npm run typecheck`, `test/unit/compose.test.ts`, `test/unit/tui/commands.test.ts`, `test/unit/tui/view-model.test.ts`, and `test/integration/persistence/rehydration.test.ts`.
 
-Progress: [██████████] 100% for Phase 8
+Progress: [██████████] 100% for Phase 9
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 30
-- Phases completed: 8 of 12
-- Latest focused verification: 2026-04-29 — `npm run typecheck`, runtime/worktree/agent-runtime/feature-lifecycle/TUI/scheduler-boundary lanes green, and `npm run check` green
+- Total plans completed: 33
+- Phases completed: 9 of 12
+- Latest focused verification: 2026-05-01 — `npm run typecheck`, `test/unit/compose.test.ts`, `test/unit/tui/commands.test.ts`, `test/unit/tui/view-model.test.ts`, and `test/integration/persistence/rehydration.test.ts` green
 
-**Recent Trend:** Phase 8 is complete: the TUI now exposes inbox, merge-train, transcript, command-first manual DAG edit actions, authoritative config controls, and visible cancel levers directly in the shell. The next phase can focus on crash recovery UX rather than operator-surface gaps.
+**Recent Trend:** Phase 9 is complete: crash recovery is now operator-visible through the existing inbox and command surfaces, with startup summary/orphan triage backed by real-file restart coverage. The next phase can focus on planner session and manual-edit polish instead of recovery truthfulness gaps.
 
 *Updated after each plan completion.*
 
@@ -44,7 +44,7 @@ Full decision log lives in PROJECT.md Key Decisions table. Highlights from initi
 
 ### Pending Todos
 
-- Research, plan, and execute Phase 9 crash recovery UX: stale-lock sweep, orphan-worktree triage, in-flight worker respawn, and recovery-summary inbox flow.
+- Research, plan, and execute Phase 10 re-plan flows and manual edits polish: planner session picker, continue-vs-fresh UX, audit-log reader, proposal preview, and collision-surface polish.
 
 ### Blockers/Concerns
 
@@ -66,6 +66,6 @@ Full decision log lives in PROJECT.md Key Decisions table. Highlights from initi
 
 ## Session Continuity
 
-Last session: 2026-05-01 — Phase 09 plan 09-02 synced to shipped code and artifacts; focused recovery/runtime/TUI verification green for `npm run typecheck` and the targeted recovery, scheduler-loop, worker-runtime, TUI view-model, IPC frame-schema, and compose suites.
-Stopped at: Phase 9 is in progress with 09-01 and 09-02 complete. Next slice is 09-03 recovery-summary inbox item + crash fault-injection coverage.
-Resume file: continue under `.planning/phases/09-crash-recovery-ux/`.
+Last session: 2026-05-01 — Phase 09 plan 09-03 synced to shipped code and artifacts; focused verification is green for `npm run typecheck`, `test/unit/compose.test.ts`, `test/unit/tui/commands.test.ts`, `test/unit/tui/view-model.test.ts`, and `test/integration/persistence/rehydration.test.ts`.
+Stopped at: Phase 9 is complete with 09-01 through 09-03 shipped. Next slice is Phase 10 planner session picker / continue-vs-fresh and audit-log UX work.
+Resume file: continue under `.planning/phases/10-re-plan-flows-and-manual-edits-polish/`.

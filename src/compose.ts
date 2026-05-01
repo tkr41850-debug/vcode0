@@ -617,7 +617,11 @@ export async function decideInboxApproval(
 function parseOrphanWorktreeInboxPayload(
   payload: unknown,
 ): OrphanWorktreeInboxPayload | undefined {
-  if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) {
+  if (
+    payload === null ||
+    typeof payload !== 'object' ||
+    Array.isArray(payload)
+  ) {
     return undefined;
   }
   const record = payload as Record<string, unknown>;
@@ -648,7 +652,9 @@ function getOrphanWorktreeInboxRecord(
     throw new Error(`inbox item "${inboxItemId}" is already resolved`);
   }
   if (item.kind !== 'orphan_worktree') {
-    throw new Error(`inbox item "${inboxItemId}" is not an orphan worktree item`);
+    throw new Error(
+      `inbox item "${inboxItemId}" is not an orphan worktree item`,
+    );
   }
   const payload = parseOrphanWorktreeInboxPayload(item.payload);
   if (payload === undefined) {
@@ -663,7 +669,9 @@ function assertManagedOrphanWorktreePath(
 ): void {
   const expectedPath = path.join(projectRoot, worktreePath(payload.branch));
   if (path.normalize(payload.path) !== path.normalize(expectedPath)) {
-    throw new Error(`inbox item for ${payload.branch} does not point to a managed task worktree`);
+    throw new Error(
+      `inbox item for ${payload.branch} does not point to a managed task worktree`,
+    );
   }
 }
 
@@ -682,20 +690,22 @@ function resolveOrphanWorktreeInboxItem(
 
 export async function cleanOrphanWorktree(
   deps: {
-    store: Pick<OrchestratorPorts['store'], 'listInboxItems' | 'resolveInboxItem'>;
+    store: Pick<
+      OrchestratorPorts['store'],
+      'listInboxItems' | 'resolveInboxItem'
+    >;
     worktree: Pick<WorktreeProvisioner, 'removeWorktree'>;
     projectRoot: string;
   },
   inboxItemId: string,
 ): Promise<string> {
-  const { item, payload } = getOrphanWorktreeInboxRecord(deps.store, inboxItemId);
+  const { item, payload } = getOrphanWorktreeInboxRecord(
+    deps.store,
+    inboxItemId,
+  );
   assertManagedOrphanWorktreePath(deps.projectRoot, payload);
   await deps.worktree.removeWorktree(payload.branch);
-  resolveOrphanWorktreeInboxItem(
-    deps.store,
-    item,
-    `cleaned ${payload.branch}`,
-  );
+  resolveOrphanWorktreeInboxItem(deps.store, item, `cleaned ${payload.branch}`);
   return `Removed orphan worktree ${payload.branch}.`;
 }
 
@@ -708,18 +718,25 @@ export async function inspectOrphanWorktree(
 ): Promise<string> {
   const { payload } = getOrphanWorktreeInboxRecord(deps.store, inboxItemId);
   assertManagedOrphanWorktreePath(deps.projectRoot, payload);
-  const relativePath = path.relative(deps.projectRoot, payload.path) || payload.path;
+  const relativePath =
+    path.relative(deps.projectRoot, payload.path) || payload.path;
   return `Orphan ${payload.branch} owner=${payload.ownerState} registered=${payload.registered ? 'yes' : 'no'} lock=${payload.hasMetadataIndexLock ? 'yes' : 'no'} path=${relativePath}`;
 }
 
 export async function keepOrphanWorktree(
   deps: {
-    store: Pick<OrchestratorPorts['store'], 'listInboxItems' | 'resolveInboxItem'>;
+    store: Pick<
+      OrchestratorPorts['store'],
+      'listInboxItems' | 'resolveInboxItem'
+    >;
     projectRoot: string;
   },
   inboxItemId: string,
 ): Promise<string> {
-  const { item, payload } = getOrphanWorktreeInboxRecord(deps.store, inboxItemId);
+  const { item, payload } = getOrphanWorktreeInboxRecord(
+    deps.store,
+    inboxItemId,
+  );
   assertManagedOrphanWorktreePath(deps.projectRoot, payload);
   resolveOrphanWorktreeInboxItem(deps.store, item, `kept ${payload.branch}`);
   return `Kept orphan worktree ${payload.branch}.`;

@@ -1,12 +1,16 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 
+import { resolveTaskWorktreeBranch } from '@core/naming/index';
 import type { AgentRun, EventRecord } from '@core/types/index';
+import { SchedulerLoop } from '@orchestrator/scheduler/index';
 import { openDatabase } from '@persistence/db';
 import { SqliteStore } from '@persistence/sqlite-store';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { composeApplication } from '@root/compose';
+import { TuiApp } from '@tui/app';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * Plan 02-02 Task 2: rehydration invariant on a real file DB.
@@ -194,6 +198,7 @@ describe('Store rehydration invariant (real file DB)', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -268,6 +273,131 @@ describe('Store rehydration invariant (real file DB)', () => {
       expect(isDeepStrictEqual(s1, s2)).toBe(true);
     } finally {
       store.close();
+    }
+  });
+
+  it('appends recovery inbox items after restart when orphan worktrees remain on disk', async () => {
+    const originalCwd = process.cwd();
+    process.chdir(dir);
+    try {
+      mkdirSync(join(dir, '.gvc0', 'worktrees'), { recursive: true });
+      writeFileSync(
+        join(dir, 'gvc0.config.json'),
+        JSON.stringify({
+          models: {
+            topPlanner: { provider: 'anthropic', model: 'claude-sonnet-4-6' },
+            featurePlanner: {
+              provider: 'anthropic',
+              model: 'claude-sonnet-4-6',
+            },
+            taskWorker: { provider: 'anthropic', model: 'claude-haiku-4-5' },
+            verifier: { provider: 'anthropic', model: 'claude-haiku-4-5' },
+          },
+        }),
+        'utf-8',
+      );
+
+      const seedDb = openDatabase(join(dir, '.gvc0', 'state.db'));
+      const seedStore = new SqliteStore(seedDb);
+      try {
+        const graph = seedStore.graph();
+        graph.createMilestone({
+          id: 'm-1',
+          name: 'Milestone 1',
+          description: 'desc',
+        });
+        graph.createFeature({
+          id: 'f-1',
+          milestoneId: 'm-1',
+          name: 'Feature 1',
+          description: 'desc',
+        });
+        graph.createTask({
+          id: 't-1',
+          featureId: 'f-1',
+          description: 'Task 1',
+        });
+
+        const task = graph.tasks.get('t-1');
+        if (task === undefined) {
+          throw new Error('missing task fixture');
+        }
+        const branch = resolveTaskWorktreeBranch(task);
+        const taskDir = join(dir, '.gvc0', 'worktrees', branch);
+        const metadataDir = join(dir, '.git', 'worktrees', branch);
+        mkdirSync(taskDir, { recursive: true });
+        mkdirSync(metadataDir, { recursive: true });
+        writeFileSync(
+          join(metadataDir, 'index.lock'),
+          'stale-task-lock',
+          'utf-8',
+        );
+      } finally {
+        seedStore.close();
+      }
+
+      vi.spyOn(TuiApp.prototype, 'show').mockResolvedValue();
+      vi.spyOn(TuiApp.prototype, 'refresh').mockImplementation(() => {});
+      vi.spyOn(SchedulerLoop.prototype, 'run').mockResolvedValue();
+      vi.spyOn(SchedulerLoop.prototype, 'stop').mockResolvedValue();
+
+      const app = await composeApplication();
+      try {
+        await app.start('auto');
+
+        const verifyDb = openDatabase(join(dir, '.gvc0', 'state.db'));
+        const verifyStore = new SqliteStore(verifyDb);
+        try {
+          const task = verifyStore.graph().tasks.get('t-1');
+          if (task === undefined) {
+            throw new Error('missing recovered task fixture');
+          }
+          const branch = resolveTaskWorktreeBranch(task);
+          const taskDir = join(dir, '.gvc0', 'worktrees', branch);
+
+          expect(
+            verifyStore.listInboxItems({ kind: 'recovery_summary' }),
+          ).toEqual([
+            expect.objectContaining({
+              kind: 'recovery_summary',
+              payload: {
+                clearedLocks: 1,
+                preservedLocks: 0,
+                clearedDeadWorkerPids: 0,
+                resumedRuns: 0,
+                restartedRuns: 0,
+                attentionRuns: 0,
+                orphanTaskWorktrees: 1,
+              },
+            }),
+          ]);
+          expect(
+            verifyStore.listInboxItems({ kind: 'orphan_worktree' }),
+          ).toEqual([
+            expect.objectContaining({
+              taskId: 't-1',
+              featureId: 'f-1',
+              kind: 'orphan_worktree',
+              payload: {
+                taskId: 't-1',
+                featureId: 'f-1',
+                branch,
+                path: taskDir,
+                ownerState: 'absent',
+                registered: true,
+                hasMetadataIndexLock: true,
+                equivalenceKey: `orphan_worktree:${branch}:${taskDir}`,
+              },
+            }),
+          ]);
+        } finally {
+          verifyStore.close();
+        }
+      } finally {
+        await app.stop();
+      }
+    } finally {
+      process.chdir(originalCwd);
     }
   });
 });

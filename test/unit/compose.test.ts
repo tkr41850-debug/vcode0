@@ -13,6 +13,7 @@ import { SchedulerLoop } from '@orchestrator/scheduler/index';
 import { RecoveryService } from '@orchestrator/services/index';
 import { openDatabase } from '@persistence/db';
 import { PersistentFeatureGraph } from '@persistence/feature-graph';
+import { SqliteStore } from '@persistence/sqlite-store';
 import {
   abandonFeatureBranch,
   applyConfigUpdate,
@@ -29,7 +30,6 @@ import {
   respondToInboxHelp,
   summarizeApprovalPayload,
 } from '@root/compose';
-import { SqliteStore } from '@persistence/sqlite-store';
 import type { ApprovalPayload, RuntimePort } from '@runtime/contracts';
 import { TuiApp } from '@tui/app';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -93,19 +93,17 @@ function appendOrphanInboxItem(
   }> = {},
 ): string {
   const branch = overrides.branch ?? 'feat-f-1-task-t-1';
-  const payload =
-    overrides.payload ?? {
-      taskId: overrides.taskId ?? 't-1',
-      featureId: overrides.featureId ?? 'f-1',
-      branch,
-      path:
-        overrides.path ??
-        path.join(projectRoot, '.gvc0', 'worktrees', branch),
-      ownerState: overrides.ownerState ?? 'dead',
-      registered: overrides.registered ?? true,
-      hasMetadataIndexLock: overrides.hasMetadataIndexLock ?? false,
-      equivalenceKey: `orphan_worktree:${branch}:${overrides.path ?? path.join(projectRoot, '.gvc0', 'worktrees', branch)}`,
-    };
+  const payload = overrides.payload ?? {
+    taskId: overrides.taskId ?? 't-1',
+    featureId: overrides.featureId ?? 'f-1',
+    branch,
+    path:
+      overrides.path ?? path.join(projectRoot, '.gvc0', 'worktrees', branch),
+    ownerState: overrides.ownerState ?? 'dead',
+    registered: overrides.registered ?? true,
+    hasMetadataIndexLock: overrides.hasMetadataIndexLock ?? false,
+    equivalenceKey: `orphan_worktree:${branch}:${overrides.path ?? path.join(projectRoot, '.gvc0', 'worktrees', branch)}`,
+  };
   const id = overrides.id ?? 'inbox-orphan-1';
   store.appendInboxItem({
     id,
@@ -801,11 +799,16 @@ describe('compose helpers', () => {
       const worktree = { removeWorktree: vi.fn(async () => {}) };
 
       await expect(
-        cleanOrphanWorktree({ store, worktree, projectRoot: tmpDir }, inboxItemId),
+        cleanOrphanWorktree(
+          { store, worktree, projectRoot: tmpDir },
+          inboxItemId,
+        ),
       ).resolves.toBe('Removed orphan worktree feat-f-1-task-t-1.');
 
       expect(worktree.removeWorktree).toHaveBeenCalledWith('feat-f-1-task-t-1');
-      expect(store.listInboxItems({ kind: 'orphan_worktree' })[0]?.resolution).toEqual({
+      expect(
+        store.listInboxItems({ kind: 'orphan_worktree' })[0]?.resolution,
+      ).toEqual({
         kind: 'dismissed',
         resolvedAt: expect.any(Number),
         note: 'cleaned feat-f-1-task-t-1',
@@ -817,7 +820,9 @@ describe('compose helpers', () => {
   });
 
   it('inspects orphan worktrees without resolving their inbox items', async () => {
-    const tmpDir = await fs.mkdtemp(path.join('/tmp', 'compose-orphan-inspect-'));
+    const tmpDir = await fs.mkdtemp(
+      path.join('/tmp', 'compose-orphan-inspect-'),
+    );
     try {
       const store = new InMemoryStore();
       const inboxItemId = appendOrphanInboxItem(store, tmpDir, {
@@ -848,7 +853,9 @@ describe('compose helpers', () => {
       await expect(
         keepOrphanWorktree({ store, projectRoot: tmpDir }, inboxItemId),
       ).resolves.toBe('Kept orphan worktree feat-f-1-task-t-1.');
-      expect(store.listInboxItems({ kind: 'orphan_worktree' })[0]?.resolution).toEqual({
+      expect(
+        store.listInboxItems({ kind: 'orphan_worktree' })[0]?.resolution,
+      ).toEqual({
         kind: 'dismissed',
         resolvedAt: expect.any(Number),
         note: 'kept feat-f-1-task-t-1',
@@ -860,7 +867,9 @@ describe('compose helpers', () => {
   });
 
   it('rejects invalid orphan inbox payloads and mismatched kinds', async () => {
-    const tmpDir = await fs.mkdtemp(path.join('/tmp', 'compose-orphan-guards-'));
+    const tmpDir = await fs.mkdtemp(
+      path.join('/tmp', 'compose-orphan-guards-'),
+    );
     try {
       const store = new InMemoryStore();
       const wrongKindId = appendOrphanInboxItem(store, tmpDir, {
@@ -878,7 +887,10 @@ describe('compose helpers', () => {
       const worktree = { removeWorktree: vi.fn(async () => {}) };
 
       await expect(
-        cleanOrphanWorktree({ store, worktree, projectRoot: tmpDir }, wrongKindId),
+        cleanOrphanWorktree(
+          { store, worktree, projectRoot: tmpDir },
+          wrongKindId,
+        ),
       ).rejects.toThrow(
         'inbox item "inbox-wrong-kind" is not an orphan worktree item',
       );

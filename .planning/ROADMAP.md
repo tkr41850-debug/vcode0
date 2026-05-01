@@ -18,8 +18,8 @@ gvc0's v1 journey is **completing and clarifying** an existing design rather tha
 - [x] **Phase 6: Merge Train** — Strict-main merge train with rebase + agent-review verify, re-entry cap, inbox parking on cap. ✓ 2026-04-25 (3/3 plans, VERIFICATION PASS, branch-level `npm run check` green; 10 non-fatal lint warnings remain)
 - [x] **Phase 7: Top-Level Planner + Inbox + Pause/Resume** — Prompt-to-feature-DAG; unified inbox; two-tier pause; additive re-plan; two-planner collision handling. ✓ 2026-04-28 (5/5 plans, verification green; top-level planner session audit, checkpointed waits, and collision reset/rerun semantics shipped)
 - [x] **Phase 8: TUI Surfaces** — Four-surface TUI (feature DAG, inbox, merge-train, task transcript), manual DAG editing, three cancel levers, config editor menu. ✓ 2026-04-29 (5/5 plans, verification green on focused runtime/TUI/scheduler-boundary lanes and `npm run check`; separate `@microsoft/tui-test` smoke lane still blocked by the pre-existing workerpool `SIGSEGV` crash across all eight smoke tests.)
-- [ ] **Phase 9: Crash Recovery UX** — Seamless auto-resume, orphan-worktree triage, stale-lock sweep, recovery-summary inbox item. In progress: 09-01 startup recovery substrate completed on 2026-04-29, and 09-02 startup respawn + transcript replay hookup completed on 2026-05-01 with focused verification green.
-- [ ] **Phase 10: Re-plan Flows & Manual Edits Polish** — Continue-vs-fresh planner session picker, audit-log reader, proposal preview, collision-surface polish.
+- [x] **Phase 9: Crash Recovery UX** — Seamless auto-resume, orphan-worktree triage, stale-lock sweep, recovery-summary inbox item. ✓ 2026-05-01 (3/3 plans; startup recovery substrate, truthful respawn/replay handling, recovery-summary inbox surfacing, orphan-worktree triage commands, and real-file restart proof shipped with focused verification green.)
+- [ ] **Phase 10: Re-plan Flows & Manual Edits Polish** — Continue-vs-fresh planner session picker, audit-log reader, proposal preview, collision-surface polish. Next active phase.
 - [ ] **Phase 11: Documentation & Diagnostic Tooling** — `gvc0 explain` CLI, canonical diagrams matched to shipped code, concerns-to-tests map, newcomer narrative.
 - [ ] **Phase 12: Integration & Polish** — End-to-end scenarios, verify-agent flake-rate audit, TUI e2e smoke tests, source-install runbook.
 
@@ -185,7 +185,7 @@ Plans:
 Plans:
 - [x] 09-01: Stale-lock sweep + orphan-worktree detection + PID reconciliation
 - [x] 09-02: In-flight worker respawn + transcript replay path (production hookup of Phase 3 strategy)
-- [ ] 09-03: Recovery-summary inbox item + crash fault-injection integration test
+- [x] 09-03: Recovery-summary inbox item + crash fault-injection integration test
 
 ### Phase 10: Re-plan Flows & Manual Edits Polish
 **Goal**: Tighten the edit / re-plan / audit-log user experience so collisions are always visible and intent is always recoverable.
@@ -250,11 +250,11 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 6. Merge Train | 3/3 | ✓ Complete | 2026-04-25 |
 | 7. Top-Level Planner + Inbox + Pause/Resume | 5/5 | ✓ Complete | 2026-04-28 |
 | 8. TUI Surfaces | 5/5 | ✓ Complete | 2026-04-29 |
-| 9. Crash Recovery UX | 2/TBD (~3) | In progress | - |
-| 10. Re-plan Flows & Manual Edits Polish | 0/TBD (~2) | Not started | - |
+| 9. Crash Recovery UX | 3/3 | ✓ Complete | 2026-05-01 |
+| 10. Re-plan Flows & Manual Edits Polish | 0/TBD (~2) | Next | - |
 | 11. Documentation & Diagnostic Tooling | 0/TBD (~3) | Not started | - |
 | 12. Integration & Polish | 0/TBD (~3) | Not started | - |
 
 ---
 *Roadmap created: 2026-04-23*
-*Last updated: 2026-05-01 — Phase 9 is in progress. Plan 09-02 synced to shipped code: startup now immediately fresh-starts synchronously non-resumable in-flight runs, replay-incomplete resume outcomes carry structured diagnostics, the scheduler parks those cases with inbox visibility instead of `retry_await` churn, and focused verification is green for `npm run typecheck` plus the targeted recovery/scheduler-loop/worker-runtime/TUI/IPC/compose suites. Next slice: 09-03 recovery-summary inbox item + crash fault-injection coverage.*
+*Last updated: 2026-05-01 — Phase 9 is complete. Plan 09-03 synced to shipped code: startup now appends a durable `recovery_summary` inbox row plus per-orphan `orphan_worktree` rows, operators can triage orphaned managed task worktrees through `/orphan-clean`, `/orphan-inspect`, and `/orphan-keep`, and the real-file persistence lane proves coherent recovery inbox state after restart. Next active phase: Phase 10 re-plan flows and manual edits polish.*

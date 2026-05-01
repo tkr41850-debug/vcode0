@@ -796,7 +796,9 @@ function summarizeRecoveryCount(
   label: string,
   value: unknown,
 ): string | undefined {
-  return typeof value === 'number' && value > 0 ? `${label}=${value}` : undefined;
+  return typeof value === 'number' && value > 0
+    ? `${label}=${value}`
+    : undefined;
 }
 
 function formatYesNo(value: unknown): string {

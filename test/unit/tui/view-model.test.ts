@@ -525,7 +525,8 @@ describe('TuiViewModelBuilder', () => {
         {
           id: 'inbox-recovery',
           kind: 'semantic_failure',
-          summary: 'task=t-1 feature=f-1 recovery missing tool outputs tool-a,tool-b',
+          summary:
+            'task=t-1 feature=f-1 recovery missing tool outputs tool-a,tool-b',
         },
         {
           id: 'inbox-older',
