@@ -553,9 +553,10 @@ function projectAwaitingApprovalPatch(
 export async function dispatchProjectRunUnit(params: {
   run: ProjectAgentRun;
   ports: OrchestratorPorts;
+  graph: FeatureGraph;
   handleEvent: (event: SchedulerEvent) => Promise<void>;
 }): Promise<void> {
-  const { run, ports, handleEvent } = params;
+  const { run, ports, graph, handleEvent } = params;
   const dispatch = projectDispatchForRun(run);
   const payload: ProjectRunPayload = { kind: 'project' };
 
@@ -602,6 +603,7 @@ export async function dispatchProjectRunUnit(params: {
               phaseSummary: result.output.result.summary,
               phaseDetails: result.output.result.details,
             },
+            baselineGraphVersion: graph.graphVersion,
           }),
         ),
       );

@@ -20,6 +20,7 @@ import { FeatureLifecycleCoordinator } from '@orchestrator/features/index';
 import type { OrchestratorPorts } from '@orchestrator/ports/index';
 import {
   isProposalPhase,
+  type ProposalRecoveryDecision,
   parseStoredProposalPayload,
   serializeStoredProposalPayload,
 } from '@orchestrator/proposals/index';
@@ -73,6 +74,7 @@ function taskRoutingTier(): RoutingTier {
 export type RecoveryDispatchProjectFn = (params: {
   run: ProjectAgentRun;
   ports: OrchestratorPorts;
+  graph: FeatureGraph;
   handleEvent: (event: SchedulerEvent) => Promise<void>;
 }) => Promise<void>;
 
@@ -120,6 +122,7 @@ export class RecoveryService {
     void this.dispatchProjectRunFn({
       run,
       ports: this.ports,
+      graph: this.graph,
       handleEvent: async (event) => {
         if (event.type === 'project_run_error') {
           this.ports.store.updateAgentRun(event.runId, {
@@ -710,6 +713,10 @@ export class RecoveryService {
       return;
     }
 
+    if (decision.kind === 'rebase') {
+      return;
+    }
+
     const hasFailedEvent = this.ports.store
       .listEvents({ entityId: featureId })
       .some(
@@ -986,22 +993,7 @@ function readStoredProposalRecovery(
       proposalJson: string;
       phaseSummary?: string;
       phaseDetails?: ProposalPhaseDetails;
-      decision?:
-        | {
-            kind: 'approved';
-            summary: string;
-            extra: Record<string, unknown>;
-            cancelled?: boolean;
-            cancelReason?: 'empty_proposal';
-          }
-        | {
-            kind: 'rejected';
-            comment?: string;
-          }
-        | {
-            kind: 'apply_failed';
-            error: string;
-          };
+      decision?: ProposalRecoveryDecision;
     }
   | undefined {
   if (payloadJson === undefined) {

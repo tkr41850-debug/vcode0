@@ -9,6 +9,7 @@ import type { FeatureLifecycleCoordinator } from '@orchestrator/features/index';
 import type { OrchestratorPorts } from '@orchestrator/ports/index';
 import {
   advanceFeatureAfterApproval,
+  applyProjectProposal,
   approveFeatureProposal,
   parseStoredProposalPayload,
   serializeStoredProposalPayload,
@@ -639,6 +640,139 @@ export async function handleSchedulerEvent(params: {
         phase: event.phase,
         ...(event.comment !== undefined ? { comment: event.comment } : {}),
       },
+    });
+    return;
+  }
+
+  if (event.type === 'project_approval_decision') {
+    const run = ports.store.getProjectSession(event.runId);
+    if (run === undefined || run.runStatus !== 'await_approval') {
+      return;
+    }
+    const stored = (() => {
+      try {
+        return parseStoredProposalPayload(run.payloadJson, 'plan');
+      } catch {
+        return undefined;
+      }
+    })();
+    if (stored === undefined) {
+      return;
+    }
+
+    if (event.decision === 'rejected') {
+      ports.store.updateAgentRun(run.id, {
+        runStatus: 'cancelled',
+        owner: 'manual',
+        attention: 'none',
+        payloadJson: serializeStoredProposalPayload({
+          proposal: stored.proposal,
+          ...(stored.recovery !== undefined
+            ? {
+                recovery: {
+                  ...stored.recovery,
+                  decision: {
+                    kind: 'rejected',
+                    ...(event.comment !== undefined
+                      ? { comment: event.comment }
+                      : {}),
+                  },
+                },
+              }
+            : {
+                recovery: {
+                  decision: {
+                    kind: 'rejected',
+                    ...(event.comment !== undefined
+                      ? { comment: event.comment }
+                      : {}),
+                  },
+                },
+              }),
+          ...(stored.baselineGraphVersion !== undefined
+            ? { baselineGraphVersion: stored.baselineGraphVersion }
+            : {}),
+        }),
+      });
+      ports.store.appendEvent({
+        eventType: 'project_proposal_rejected',
+        entityId: run.id,
+        timestamp: Date.now(),
+        payload: {
+          ...(event.comment !== undefined ? { comment: event.comment } : {}),
+        },
+      });
+      return;
+    }
+
+    if (stored.baselineGraphVersion === undefined) {
+      ports.store.appendEvent({
+        eventType: 'project_proposal_apply_failed',
+        entityId: run.id,
+        timestamp: Date.now(),
+        payload: { error: 'baselineGraphVersion missing from payload' },
+      });
+      return;
+    }
+
+    const outcome = applyProjectProposal({
+      graph,
+      proposal: stored.proposal,
+      baselineGraphVersion: stored.baselineGraphVersion,
+      agentRuns: ports.store.listAgentRuns(),
+    });
+
+    if (outcome.kind === 'rebase') {
+      ports.store.updateAgentRun(run.id, {
+        runStatus: 'running',
+        owner: 'system',
+        attention: 'operator',
+        payloadJson: serializeStoredProposalPayload({
+          proposal: stored.proposal,
+          recovery: {
+            ...(stored.recovery ?? {}),
+            decision: { kind: 'rebase', reason: outcome.reason },
+          },
+          ...(stored.baselineGraphVersion !== undefined
+            ? { baselineGraphVersion: stored.baselineGraphVersion }
+            : {}),
+        }),
+      });
+      ports.store.appendEvent({
+        eventType: 'project_proposal_rebase',
+        entityId: run.id,
+        timestamp: Date.now(),
+        payload: { reason: outcome.reason },
+      });
+      return;
+    }
+
+    const appliedSummary = outcome.result.summary;
+    const appliedExtra = summarizeProposalApply(outcome.result);
+    ports.store.updateAgentRun(run.id, {
+      runStatus: 'completed',
+      owner: 'manual',
+      attention: 'none',
+      payloadJson: serializeStoredProposalPayload({
+        proposal: stored.proposal,
+        recovery: {
+          ...(stored.recovery ?? {}),
+          decision: {
+            kind: 'approved',
+            summary: appliedSummary,
+            extra: appliedExtra,
+          },
+        },
+        ...(stored.baselineGraphVersion !== undefined
+          ? { baselineGraphVersion: stored.baselineGraphVersion }
+          : {}),
+      }),
+    });
+    ports.store.appendEvent({
+      eventType: 'project_proposal_applied',
+      entityId: run.id,
+      timestamp: Date.now(),
+      payload: { summary: appliedSummary, ...appliedExtra },
     });
     return;
   }

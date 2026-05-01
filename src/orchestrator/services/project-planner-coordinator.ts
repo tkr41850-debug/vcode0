@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
+import type { FeatureGraph } from '@core/graph/index';
 import { PROJECT_SCOPE_ID, type ProjectAgentRun } from '@core/types/index';
 import type { OrchestratorPorts } from '@orchestrator/ports/index';
 import { dispatchProjectRunUnit } from '@orchestrator/scheduler/dispatch';
@@ -8,6 +9,7 @@ import type { SchedulerEvent } from '@orchestrator/scheduler/index';
 export type ProjectDispatchFn = (params: {
   run: ProjectAgentRun;
   ports: OrchestratorPorts;
+  graph: FeatureGraph;
   handleEvent: (event: SchedulerEvent) => Promise<void>;
 }) => Promise<void>;
 
@@ -24,6 +26,7 @@ export class ProjectPlannerCoordinator {
 
   constructor(
     private readonly ports: OrchestratorPorts,
+    private readonly graph: FeatureGraph,
     private readonly handleEvent: (event: SchedulerEvent) => Promise<void>,
     options: ProjectPlannerCoordinatorOptions = {},
   ) {
@@ -49,6 +52,7 @@ export class ProjectPlannerCoordinator {
     void this.dispatchFn({
       run,
       ports: this.ports,
+      graph: this.graph,
       handleEvent: this.handleEvent,
     });
     return Promise.resolve(id);
@@ -80,6 +84,7 @@ export class ProjectPlannerCoordinator {
     void this.dispatchFn({
       run,
       ports: this.ports,
+      graph: this.graph,
       handleEvent: this.handleEvent,
     });
     return Promise.resolve();

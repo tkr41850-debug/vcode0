@@ -346,10 +346,14 @@ export async function composeApplication(): Promise<GvcApplication> {
     features: new FeatureLifecycleCoordinator(graph),
     cwd: projectRoot,
   });
-  projectPlannerRef.current = new ProjectPlannerCoordinator(ports, (event) => {
-    scheduler.enqueue(event);
-    return Promise.resolve();
-  });
+  projectPlannerRef.current = new ProjectPlannerCoordinator(
+    ports,
+    graph,
+    (event) => {
+      scheduler.enqueue(event);
+      return Promise.resolve();
+    },
+  );
   schedulerRef.current = scheduler;
 
   const app = new GvcApplication(ports, {

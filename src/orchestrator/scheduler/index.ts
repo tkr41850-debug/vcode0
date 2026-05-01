@@ -73,6 +73,12 @@ export type SchedulerEvent =
       error: string;
     }
   | {
+      type: 'project_approval_decision';
+      runId: string;
+      decision: 'approved' | 'rejected';
+      comment?: string;
+    }
+  | {
       type: 'feature_integration_complete';
       featureId: FeatureId;
     }

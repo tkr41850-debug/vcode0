@@ -1,4 +1,4 @@
-import { InMemoryFeatureGraph } from '@core/graph/index';
+import { type FeatureGraph, InMemoryFeatureGraph } from '@core/graph/index';
 import {
   prioritizeReadyWork,
   type SchedulableUnit,
@@ -123,6 +123,7 @@ describe('dispatchProjectRunUnit', () => {
     await dispatchProjectRunUnit({
       run,
       ports,
+      graph: { graphVersion: 0 } as unknown as FeatureGraph,
       handleEvent: () => Promise.resolve(),
     });
 
@@ -169,6 +170,7 @@ describe('dispatchProjectRunUnit', () => {
     await dispatchProjectRunUnit({
       run,
       ports,
+      graph: { graphVersion: 0 } as unknown as FeatureGraph,
       handleEvent: () => Promise.resolve(),
     });
 

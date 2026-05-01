@@ -1,7 +1,10 @@
+import type { FeatureGraph } from '@core/graph/index';
 import { PROJECT_SCOPE_ID, type ProjectAgentRun } from '@core/types/index';
 import type { OrchestratorPorts } from '@orchestrator/ports/index';
 import { ProjectPlannerCoordinator } from '@orchestrator/services/project-planner-coordinator';
 import { describe, expect, it, vi } from 'vitest';
+
+const stubGraph = { graphVersion: 0 } as unknown as FeatureGraph;
 
 function makePorts(overrides?: {
   runs?: Map<string, ProjectAgentRun>;
@@ -40,6 +43,7 @@ describe('ProjectPlannerCoordinator.startProjectPlannerSession', () => {
     const ports = makePorts();
     const coord = new ProjectPlannerCoordinator(
       ports,
+      stubGraph,
       () => Promise.resolve(),
       { dispatchFn, idGen: () => 'sess1' },
     );
@@ -86,6 +90,7 @@ describe('ProjectPlannerCoordinator.resumeProjectPlannerSession', () => {
     const dispatchFn = vi.fn(() => Promise.resolve());
     const coord = new ProjectPlannerCoordinator(
       ports,
+      stubGraph,
       () => Promise.resolve(),
       { dispatchFn, idGen: () => 'sess1' },
     );
@@ -147,6 +152,7 @@ describe('ProjectPlannerCoordinator.cancelProjectPlannerSession', () => {
     const ports = makePorts({ runs, abortRun });
     const coord = new ProjectPlannerCoordinator(
       ports,
+      stubGraph,
       () => Promise.resolve(),
       { dispatchFn: vi.fn(), idGen: () => 'sess1' },
     );
@@ -177,6 +183,7 @@ describe('ProjectPlannerCoordinator.cancelProjectPlannerSession', () => {
     const ports = makePorts({ runs, abortRun });
     const coord = new ProjectPlannerCoordinator(
       ports,
+      stubGraph,
       () => Promise.resolve(),
       { dispatchFn: vi.fn(), idGen: () => 'sess1' },
     );

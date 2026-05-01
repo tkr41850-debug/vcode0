@@ -32,6 +32,10 @@ export type ProposalRecoveryDecision =
   | {
       kind: 'apply_failed';
       error: string;
+    }
+  | {
+      kind: 'rebase';
+      reason: ProposalRebaseReason;
     };
 
 export interface ProposalRecoveryMeta {
@@ -54,7 +58,11 @@ export function parseGraphProposalPayload(
 export function parseStoredProposalPayload(
   payloadJson?: string,
   expectedMode?: GraphProposal['mode'],
-): { proposal: GraphProposal; recovery?: ProposalRecoveryMeta } {
+): {
+  proposal: GraphProposal;
+  recovery?: ProposalRecoveryMeta;
+  baselineGraphVersion?: number;
+} {
   if (payloadJson === undefined) {
     throw new Error('proposal payload missing from agent run');
   }
@@ -85,7 +93,16 @@ export function parseStoredProposalPayload(
   }
 
   const recovery = readProposalRecoveryMeta(record.recovery);
-  return { proposal, ...(recovery !== undefined ? { recovery } : {}) };
+  const baseline =
+    typeof record.baselineGraphVersion === 'number' &&
+    Number.isInteger(record.baselineGraphVersion)
+      ? record.baselineGraphVersion
+      : undefined;
+  return {
+    proposal,
+    ...(recovery !== undefined ? { recovery } : {}),
+    ...(baseline !== undefined ? { baselineGraphVersion: baseline } : {}),
+  };
 }
 
 export interface ProposalApprovalOutcome {
@@ -329,10 +346,14 @@ export function rootTasksForFeature(
 export function serializeStoredProposalPayload(input: {
   proposal: GraphProposal;
   recovery?: ProposalRecoveryMeta;
+  baselineGraphVersion?: number;
 }): string {
   return JSON.stringify({
     proposal: input.proposal,
     ...(input.recovery !== undefined ? { recovery: input.recovery } : {}),
+    ...(input.baselineGraphVersion !== undefined
+      ? { baselineGraphVersion: input.baselineGraphVersion }
+      : {}),
   });
 }
 
@@ -401,6 +422,44 @@ function readProposalRecoveryDecision(
     };
   }
 
+  if (record.kind === 'rebase' && isRecord(record.reason)) {
+    const reason = readProposalRebaseReason(record.reason);
+    if (reason !== undefined) {
+      return { kind: 'rebase', reason };
+    }
+  }
+
+  return undefined;
+}
+
+function readProposalRebaseReason(
+  record: Record<string, unknown>,
+): ProposalRebaseReason | undefined {
+  if (record.kind === 'stale-baseline' && isRecord(record.details)) {
+    const { baseline, current } = record.details;
+    if (
+      typeof baseline === 'number' &&
+      Number.isInteger(baseline) &&
+      typeof current === 'number' &&
+      Number.isInteger(current)
+    ) {
+      return { kind: 'stale-baseline', details: { baseline, current } };
+    }
+  }
+  if (record.kind === 'running-tasks-affected' && isRecord(record.details)) {
+    const { featureIds } = record.details;
+    if (
+      Array.isArray(featureIds) &&
+      featureIds.every(
+        (id): id is FeatureId => typeof id === 'string' && id.startsWith('f-'),
+      )
+    ) {
+      return {
+        kind: 'running-tasks-affected',
+        details: { featureIds: [...featureIds] },
+      };
+    }
+  }
   return undefined;
 }
 

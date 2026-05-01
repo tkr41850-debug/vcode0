@@ -60,4 +60,38 @@ describe('parseStoredProposalPayload', () => {
       'proposal payload missing from agent run',
     );
   });
+
+  it('round-trips baselineGraphVersion through serialize/parse', () => {
+    const proposal: GraphProposal = {
+      version: 1,
+      mode: 'plan',
+      aliases: {},
+      ops: [],
+    };
+    const payloadJson = JSON.stringify({
+      proposal,
+      baselineGraphVersion: 7,
+    });
+
+    const result = parseStoredProposalPayload(payloadJson, 'plan');
+
+    expect(result.baselineGraphVersion).toBe(7);
+  });
+
+  it('omits baselineGraphVersion when missing or non-integer', () => {
+    const proposal: GraphProposal = {
+      version: 1,
+      mode: 'plan',
+      aliases: {},
+      ops: [],
+    };
+    const payloadJson = JSON.stringify({
+      proposal,
+      baselineGraphVersion: 'nope',
+    });
+
+    const result = parseStoredProposalPayload(payloadJson, 'plan');
+
+    expect(result.baselineGraphVersion).toBeUndefined();
+  });
 });
