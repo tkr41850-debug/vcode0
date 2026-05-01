@@ -7,6 +7,7 @@ Use these entry points depending on what you need:
 - [Operations Topics](./operations/README.md) — verification, recovery, conflict coordination, warnings, and testing strategy.
 - [Reference Topics](./reference/README.md) — TUI behavior, context/knowledge inputs, and source-area README pointers.
 - [Agent Prompts](./agent-prompts/README.md) — live-source prompt references for discuss, research, plan, execute, verify, and summarize agents, plus copied upstream references.
+- [Implementation Tracks](./implementation/README.md) — milestone-scale plans organized as tracks (baseline, project-planner, distributed), plus phase-doc authoring guidelines and a worked example.
 - [Scenario Specs](../specs/README.md) — grouped markdown scenario inventory for later executable tests.
 
 ## Suggested Reading Paths
@@ -58,6 +59,15 @@ Use these entry points depending on what you need:
 - [Reference / TUI](./reference/tui.md)
 - [Reference / Knowledge Files](./reference/knowledge-files.md)
 - [Reference / Codebase Map](./reference/codebase-map.md)
+
+## Implementation
+
+- [Implementation Tracks](./implementation/README.md)
+- [Phase Doc Guidelines](./implementation/guidelines.md)
+- [Phase Doc Example](./implementation/guidelines-example.md)
+- [01-baseline](./implementation/01-baseline/README.md)
+- [02-project-planner](./implementation/02-project-planner/README.md)
+- [03-distributed](./implementation/03-distributed/README.md)
 
 ## Deferred Notes
 
