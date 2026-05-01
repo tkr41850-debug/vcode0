@@ -4,9 +4,7 @@
 - Verified state: main @ dac6449 on 2026-05-01
 - Depends on: phase-0-migration-consolidation (pins migration ids `013` and `014` for this track), phase-1-protocol-and-registry (registry plane, `heartbeat` / `reconnect` / `worker_shutdown` frame surface, `bootEpoch` semantics), phase-2-remote-task-execution (`RemoteSessionStore`, bare-repo and pre-receive hook plumbing), phase-3-multi-worker-scheduling (`selectWorker` and the worker-panel three-tier rendering this phase enriches), phase-4-remote-feature-phases (proposal-host model that takeover resumability consults)
 - Default verify: npm run check:fix && npm run check
-- Phase exit verify: npm run verify
-- Phase exit smoke: Boot two workers; dispatch a task to worker A; kill worker A without graceful shutdown; observe the lease pass grace, fence bump, and run resume on worker B from the persisted `sessionId` to completion.
-- Doc-sweep deferred: none
+- Phase exit: npm run verify; boot two workers; dispatch a task to worker A; kill worker A without graceful shutdown; observe the lease pass grace, fence bump, and run resume on worker B from the persisted `sessionId` to completion.
 
 Ships as 9 commits, in order.
 

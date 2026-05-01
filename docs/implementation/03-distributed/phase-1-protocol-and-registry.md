@@ -4,8 +4,7 @@
 - Verified state: main @ dac6449 on 2026-05-01
 - Depends on: phase-0-migration-consolidation (pins migration id 010 for this track and the consolidated `001_init.ts` baseline)
 - Default verify: npm run check:fix && npm run check
-- Phase exit verify: npm run verify
-- Phase exit smoke: With `workerProtocol.enabled: true`, run the end-to-end test from step 1.5: a `WorkerRegistryClient` connects, sends `register`, receives `register_ack`, heartbeats, then is observed transitioning `live → stale → lost` via injected clock.
+- Phase exit: npm run verify; with `workerProtocol.enabled: true`, run the end-to-end test from step 1.5: a `WorkerRegistryClient` connects, sends `register`, receives `register_ack`, heartbeats, then is observed transitioning `live → stale → lost` via injected clock.
 - Doc-sweep deferred: docs/architecture/distributed-worker-protocol.md, docs/architecture/worker-model.md, docs/architecture/README.md, docs/implementation/03-distributed/README.md (phase row outcome flip)
 
 Ships as 6 commits, in order.

@@ -4,9 +4,7 @@
 - Verified state: main @ dac6449 on 2026-05-01
 - Depends on: none
 - Default verify: npm run check:fix && npm run check
-- Phase exit verify: npm run verify
-- Phase exit smoke: Create a fresh database, run migrations, confirm `schema_migrations` is exactly `[{ id: '001_init' }]`, then compare the resulting schema against a pre-consolidation snapshot and get an empty diff.
-- Doc-sweep deferred: none
+- Phase exit: npm run verify; create a fresh database, run migrations, confirm `schema_migrations` is exactly `[{ id: '001_init' }]`, then compare the resulting schema against a pre-consolidation snapshot and get an empty diff.
 
 Ships as 1 commit.
 

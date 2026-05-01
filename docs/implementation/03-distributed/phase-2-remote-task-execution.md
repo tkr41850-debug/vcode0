@@ -4,9 +4,7 @@
 - Verified state: main @ dac6449 on 2026-05-01
 - Depends on: phase-0-migration-consolidation (migration numbering baseline), phase-1-protocol-and-registry (`WorkerRegistry`, network IPC transport, `agent_runs.worker_id`, IPC schema validation gate)
 - Default verify: npm run check:fix && npm run check
-- Phase exit verify: npm run verify
-- Phase exit smoke: Run the end-to-end remote-task test from step 2.7 against an in-process fake remote worker; confirm the task dispatches over the remote harness, the worker clones / commits / pushes, the centralized session store has a saved checkpoint, the orchestrator fetches and squash-merges, and the feature-branch tip is the squash commit.
-- Doc-sweep deferred: none
+- Phase exit: npm run verify; run the end-to-end remote-task test from step 2.7 against an in-process fake remote worker; confirm the task dispatches over the remote harness, the worker clones / commits / pushes, the centralized session store has a saved checkpoint, the orchestrator fetches and squash-merges, and the feature-branch tip is the squash commit.
 
 Ships as 8 commits, in order.
 

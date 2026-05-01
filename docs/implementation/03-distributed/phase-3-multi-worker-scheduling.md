@@ -4,9 +4,7 @@
 - Verified state: main @ dac6449 on 2026-05-01
 - Depends on: phase-0-migration-consolidation (pins migration ids 011 and 012 for this track), phase-1-protocol-and-registry (worker registry, capability advertisement, and health views), phase-2-remote-task-execution (remote worker runtime, `RemoteSessionStore`, and worker-side worktree provisioning)
 - Default verify: npm run check:fix && npm run check
-- Phase exit verify: npm run verify
-- Phase exit smoke: Boot a real second worker process; submit a three-feature graph; observe via the worker panel from step 3.6 that runs distribute across both workers and ownership clears on completion.
-- Doc-sweep deferred: none
+- Phase exit: npm run verify; boot a real second worker process; submit a three-feature graph; observe via the worker panel from step 3.6 that runs distribute across both workers and ownership clears on completion.
 
 Ships as 7 commits, in order.
 

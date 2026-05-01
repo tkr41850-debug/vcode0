@@ -4,9 +4,7 @@
 - Verified state: main @ dac6449 on 2026-05-01
 - Depends on: phase-6-deployment-packaging (deployment topologies, env templates, systemd unit), phase-5-leases-and-recovery (lease semantics for drain / crash recovery copy), phase-4-remote-feature-phases (remote feature-phase semantics), phase-3-multi-worker-scheduling (worker panel rendering)
 - Default verify: npm run check:fix && npm run check
-- Phase exit verify: npm run verify
-- Phase exit smoke: Have a fresh reader follow each of the three topology sections end-to-end on a clean checkout, without consulting another doc, and end up with a system they can submit work to.
-- Doc-sweep deferred: none
+- Phase exit: npm run verify; have a fresh reader follow each of the three topology sections end-to-end on a clean checkout, without consulting another doc, and end up with a system they can submit work to.
 
 Ships as 1 commit.
 
