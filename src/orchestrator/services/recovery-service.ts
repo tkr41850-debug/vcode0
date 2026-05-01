@@ -9,6 +9,7 @@ import type {
   EventRecord,
   Feature,
   FeaturePhaseAgentRun,
+  ProjectAgentRun,
   ProposalPhaseDetails,
   RoutingTier,
   Task,
@@ -24,8 +25,10 @@ import {
 } from '@orchestrator/proposals/index';
 import {
   deriveReplanReason,
+  dispatchProjectRunUnit,
   taskDispatchForRun,
 } from '@orchestrator/scheduler/dispatch';
+import type { SchedulerEvent } from '@orchestrator/scheduler/index';
 import { SummaryCoordinator } from '@orchestrator/summaries/index';
 import { buildTaskPayload } from '@runtime/context/index';
 import type {
@@ -67,12 +70,19 @@ function taskRoutingTier(): RoutingTier {
   return 'standard';
 }
 
+export type RecoveryDispatchProjectFn = (params: {
+  run: ProjectAgentRun;
+  ports: OrchestratorPorts;
+  handleEvent: (event: SchedulerEvent) => Promise<void>;
+}) => Promise<void>;
+
 export class RecoveryService {
   constructor(
     private readonly ports: OrchestratorPorts,
     private readonly graph: FeatureGraph,
     private readonly projectRoot = process.cwd(),
     private readonly readProcEnvironment: ProcEnvironmentReader = readProcEnvironmentMarkers,
+    private readonly dispatchProjectRunFn: RecoveryDispatchProjectFn = dispatchProjectRunUnit,
   ) {}
 
   async recoverOrphanedRuns(): Promise<void> {
@@ -91,7 +101,7 @@ export class RecoveryService {
           await this.recoverFeaturePhaseRun(run);
           break;
         case 'project':
-          // phase-4-project-planner-agent wires project-run recovery semantics.
+          await this.recoverProjectRun(run);
           break;
         default: {
           const exhaustive: never = run;
@@ -101,6 +111,25 @@ export class RecoveryService {
         }
       }
     }
+  }
+
+  private async recoverProjectRun(run: ProjectAgentRun): Promise<void> {
+    if (run.runStatus !== 'running') {
+      return;
+    }
+    void this.dispatchProjectRunFn({
+      run,
+      ports: this.ports,
+      handleEvent: async (event) => {
+        if (event.type === 'project_run_error') {
+          this.ports.store.updateAgentRun(event.runId, {
+            runStatus: 'failed',
+            owner: 'system',
+            attention: 'operator',
+          });
+        }
+      },
+    });
   }
 
   private async recoverTaskRun(run: TaskAgentRun): Promise<void> {

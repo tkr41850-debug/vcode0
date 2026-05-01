@@ -4,11 +4,13 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { InMemoryFeatureGraph } from '@core/graph/index';
-import type {
-  AgentRun,
-  FeaturePhaseAgentRun,
-  TaskAgentRun,
-  VerifyIssue,
+import {
+  type AgentRun,
+  type FeaturePhaseAgentRun,
+  PROJECT_SCOPE_ID,
+  type ProjectAgentRun,
+  type TaskAgentRun,
+  type VerifyIssue,
 } from '@core/types/index';
 import type {
   AgentRunPatch,
@@ -113,6 +115,23 @@ function makeFeaturePhaseRun(
   };
 }
 
+function makeProjectRun(
+  overrides: Partial<ProjectAgentRun> = {},
+): ProjectAgentRun {
+  return {
+    id: 'run-project:sess1',
+    scopeType: 'project',
+    scopeId: PROJECT_SCOPE_ID,
+    phase: 'plan',
+    runStatus: 'running',
+    owner: 'system',
+    attention: 'none',
+    restartCount: 0,
+    maxRetries: 3,
+    ...overrides,
+  };
+}
+
 function createStoreMock(runs: AgentRun[]): Store {
   const byId = new Map<string, AgentRun>(runs.map((run) => [run.id, run]));
   return {
@@ -137,12 +156,8 @@ function createStoreMock(runs: AgentRun[]): Store {
     updateAgentRun: vi.fn((id: string, patch: AgentRunPatch) => {
       const existing = byId.get(id);
       if (existing === undefined) throw new Error(`missing run ${id}`);
-      const next = { ...existing, ...patch };
-      if (next.scopeType === 'task') {
-        byId.set(id, next as TaskAgentRun);
-      } else {
-        byId.set(id, next as FeaturePhaseAgentRun);
-      }
+      const next = { ...existing, ...patch } as AgentRun;
+      byId.set(id, next);
     }),
     listProjectSessions: vi.fn(() => []),
     getProjectSession: vi.fn(() => undefined),
@@ -2143,6 +2158,89 @@ describe('RecoveryService', () => {
     );
     expect(reclaimCall?.[0]).toMatchObject({
       payload: { resumable: false },
+    });
+  });
+
+  it('rehydrates running project sessions via dispatchProjectRunFn', async () => {
+    const run = makeProjectRun({ runStatus: 'running' });
+    const { ports, graph } = createPorts([run]);
+    const dispatchProjectRunFn = vi.fn(() => Promise.resolve());
+    const service = new RecoveryService(
+      ports,
+      graph,
+      process.cwd(),
+      undefined,
+      dispatchProjectRunFn,
+    );
+
+    await service.recoverOrphanedRuns();
+
+    expect(dispatchProjectRunFn).toHaveBeenCalledTimes(1);
+    const params = (
+      dispatchProjectRunFn.mock.calls as unknown as Array<
+        [{ run: ProjectAgentRun }]
+      >
+    )[0]?.[0];
+    expect(params?.run.id).toBe('run-project:sess1');
+  });
+
+  it('does not rehydrate failed or cancelled project sessions', async () => {
+    const failedRun = makeProjectRun({
+      id: 'run-project:failed',
+      runStatus: 'failed',
+    });
+    const cancelledRun = makeProjectRun({
+      id: 'run-project:cancelled',
+      runStatus: 'cancelled',
+    });
+    const { ports, graph } = createPorts([failedRun, cancelledRun]);
+    const dispatchProjectRunFn = vi.fn(() => Promise.resolve());
+    const service = new RecoveryService(
+      ports,
+      graph,
+      process.cwd(),
+      undefined,
+      dispatchProjectRunFn,
+    );
+
+    await service.recoverOrphanedRuns();
+
+    expect(dispatchProjectRunFn).not.toHaveBeenCalled();
+  });
+
+  it("project rehydrate handleEvent marks run failed on 'project_run_error'", async () => {
+    const run = makeProjectRun({ runStatus: 'running' });
+    const { ports, store, graph } = createPorts([run]);
+    let captured:
+      | ((event: { type: 'project_run_error'; runId: string }) => Promise<void>)
+      | undefined;
+    const dispatchProjectRunFn = vi.fn((params: unknown) => {
+      captured = (
+        params as {
+          handleEvent: (event: {
+            type: 'project_run_error';
+            runId: string;
+          }) => Promise<void>;
+        }
+      ).handleEvent;
+      return Promise.resolve();
+    });
+    const service = new RecoveryService(
+      ports,
+      graph,
+      process.cwd(),
+      undefined,
+      dispatchProjectRunFn,
+    );
+
+    await service.recoverOrphanedRuns();
+    expect(captured).toBeDefined();
+    await captured?.({ type: 'project_run_error', runId: run.id });
+
+    expect(store.updateAgentRun).toHaveBeenCalledWith(run.id, {
+      runStatus: 'failed',
+      owner: 'system',
+      attention: 'operator',
     });
   });
 });

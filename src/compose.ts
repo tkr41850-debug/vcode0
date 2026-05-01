@@ -16,6 +16,7 @@ import { IntegrationReconciler } from '@orchestrator/integration/reconciler';
 import type { OrchestratorPorts } from '@orchestrator/ports/index';
 import { SchedulerLoop } from '@orchestrator/scheduler/index';
 import {
+  ProjectPlannerCoordinator,
   RecoveryService,
   VerificationService,
 } from '@orchestrator/services/index';
@@ -59,6 +60,9 @@ export async function composeApplication(): Promise<GvcApplication> {
   const schedulerRef: { current: SchedulerLoop | undefined } = {
     current: undefined,
   };
+  const projectPlannerRef: {
+    current: ProjectPlannerCoordinator | undefined;
+  } = { current: undefined };
   const stopApplicationRef: { current: (() => Promise<void>) | undefined } = {
     current: undefined,
   };
@@ -341,6 +345,10 @@ export async function composeApplication(): Promise<GvcApplication> {
     graph,
     features: new FeatureLifecycleCoordinator(graph),
     cwd: projectRoot,
+  });
+  projectPlannerRef.current = new ProjectPlannerCoordinator(ports, (event) => {
+    scheduler.enqueue(event);
+    return Promise.resolve();
   });
   schedulerRef.current = scheduler;
 
