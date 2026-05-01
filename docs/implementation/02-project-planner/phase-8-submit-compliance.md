@@ -120,11 +120,15 @@ Shape selection is exploratory: decide during implementation, document the choic
 - Same coverage for a **project-planner** run.
 - Existing happy-path faux-model tests stay green.
 
-**Verification:** `npm run check:fix && npm run check`.
+**Verification:**
+- Run the new regression cases in isolation against current `main` first; they must fail RED with the legacy `"<phase> phase must call submit before completion"` error path. Confirm RED before proceeding.
+- **Full ship (Shape 1 or 2):** with Step 8.2's tool_choice forcing in place, the same faux setup transitions to GREEN — the failure mode is now a typed "model returned text without a tool call" error rather than the legacy silent skip-submit path. The pre-Phase-8 baseline assertion (legacy path reachable via tool_choice opt-out) stays GREEN as a regression anchor.
+- **Partial ship (Shape 3):** the legacy `"<phase> phase must call submit before completion"` failure stays the GREEN assertion — the test guards Phase 1's failed-filter (no infinite loop) and the failure-handling path; the "tool_choice on" GREEN assertion is omitted.
+- Then `npm run check:fix && npm run check`.
 
 **Review subagent:**
 
-> Verify regression coverage: (1) faux-model plain-text response is exercised; (2) tool_choice forcing causes a typed failure rather than the silent skip-submit path; (3) coverage exists for both feature-plan and project-planner runs; (4) Phase 1's failed-filter prevents re-dispatch in this scenario; (5) faux-response helper is reusable. Under 350 words.
+> Verify regression coverage: (1) faux-model plain-text response is exercised; (2) tool_choice forcing causes a typed failure rather than the silent skip-submit path (full ship), OR the legacy `"<phase> phase must call submit before completion"` failure mode is preserved with no infinite loop (Shape 3 partial ship); (3) coverage exists for **all three** proposal-bearing run kinds — feature-plan, feature-replan, and project-planner; (4) Phase 1's failed-filter prevents re-dispatch in this scenario; (5) faux-response helper is reusable; (6) the review identifies which exit shape the implementation took (Shape 1, 2, or 3) and confirms the assertions match that shape. Under 400 words.
 
 **Commit:** `test: regression for tool-call-required completion on planner runs`
 
@@ -132,11 +136,23 @@ Shape selection is exploratory: decide during implementation, document the choic
 
 ## Phase exit criteria
 
+Two exit shapes depending on Step 8.2's outcome:
+
+**Full ship (Step 8.2 lands tool_choice forcing — Shapes 1 or 2):**
+
 - All three commits land in order.
 - `npm run verify` passes.
 - Real-LLM `/init` + `/auto` does not produce the plain-text-only failure path observed in the original investigation. Manual verification on a fresh project root: greenfield bootstrap → project planner produces a graph proposal that submits cleanly.
 - The regression test fails on pre-Phase-8 code (tool_choice opt-out) and passes with tool_choice on.
 - Run a final review subagent across all three commits to confirm the prompt + SDK + test fix is coherent and no failure mode is silently absorbed.
+
+**Partial ship (Step 8.2 picks Shape 3 — defer SDK wiring):**
+
+- Commits 8.1 (prompt) and 8.3 (regression anchor) land in order; 8.2 is deferred to a follow-up phase tracked under `docs/feature-candidates/runtime/` or equivalent.
+- `npm run verify` passes.
+- The regression test asserts the **legacy failure mode** stays the failure mode: a plain-text-only faux response causes the run to land in `runStatus='failed'` via the existing `"<phase> phase must call submit before completion"` path; Phase 1's failed-filter prevents re-dispatch (no infinite loop). The "passes with tool_choice on" assertion is **not** required under Shape 3.
+- Real-LLM verification is reduced: the prompt hardening should *reduce* but not *eliminate* plain-text completions; the regression test guards the failure-handling path so any remaining LLM misbehavior is bounded.
+- Run a final review subagent on the two landed commits to confirm the prompt + regression-anchor are coherent and the LLM-side failure mode is reduced.
 
 ## Notes
 

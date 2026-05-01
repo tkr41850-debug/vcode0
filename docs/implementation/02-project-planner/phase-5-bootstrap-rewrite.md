@@ -45,7 +45,7 @@ The synthetic `m-1` / `f-1` creation and `transitionFeatureToPlanning(f-1)` call
 
 **Test (write first, expect red):**
 
-- In `test/unit/compose.test.ts`, add the bootstrap-split coverage and run before any implementation change. Each assertion below should fail RED against current `main`:
+- In `test/unit/compose.test.ts`, add the bootstrap-split coverage and run before any implementation change. Each assertion below should fail RED against current `main`. **Compile-RED expected first**: the bootstrap-result union (`{ kind: 'greenfield-bootstrap', sessionId } | { kind: 'existing' }`) and `Store.listProjectSessions(...)` (Phase 2 dependency) do not exist on `main`. The test file will fail to typecheck before any assertion runs; that is the expected initial RED. Once the types land via the implementation pass, the failures transition to assertion-RED on the behavioral checks below:
   - Greenfield bootstrap (no persisted state): `initializeProjectGraph(...)` against an empty `PersistentFeatureGraph` returns `{ kind: 'greenfield-bootstrap', sessionId }`; `Store.listProjectSessions({ status: ['running'] })` returns exactly one row; `graph.milestones.size === 0`; `graph.features.size === 0`.
   - Greenfield bootstrap (persisted-but-empty edge case): `.gvc0/state.db` exists with zero milestone and zero feature rows (e.g. abandoned `/init` partway, or upgrade from a prior version that left no synthetic feature) → same outcome as fresh greenfield (one project run, no milestones/features). This is **distinct** from the migration case in Notes: a project that ran the old `/init` has `m-1`/`f-1` rows persisted and is classified `existing`. The two cases are tested separately to make the boundary obvious.
   - Existing-project bootstrap: pre-seed graph with a real `m-x`/`f-x` from a fixture → `initializeProjectGraph(...)` returns `{ kind: 'existing' }`; no new project session is spawned (`Store.listProjectSessions({ status: ['running'] })` length unchanged).
@@ -64,7 +64,7 @@ The synthetic `m-1` / `f-1` creation and `transitionFeatureToPlanning(f-1)` call
 
 **Review subagent:**
 
-> Verify bootstrap split: (1) greenfield path creates only a project session, no synthetic milestone/feature; (2) existing-project path is unchanged; (3) compose forwards the bootstrap result to TUI init; (4) tests that previously assumed synthetic `f-1` are migrated to either set up a real fixture or work from a project-planner session result. Under 350 words.
+> Verify bootstrap split: (1) greenfield path creates only a project session, no synthetic milestone/feature; (2) existing-project path is unchanged; (3) compose forwards the bootstrap result to TUI init and `app-composer.ts:169` lands a no-op consumer that stores `bootstrapResult` without dereferencing `featureId`; (4) Step 5.1's new compose-level tests cover both greenfield (fresh + persisted-but-empty) and existing-project paths. **Out of scope** for this review: the broader fixture sweep across `commands.test`, `app-composer.test`, and `smoke.test` — that is Step 5.2's review surface. Under 350 words.
 
 **Commit:** `feat(app/compose): bootstrap project-planner session on greenfield`
 
@@ -72,7 +72,7 @@ The synthetic `m-1` / `f-1` creation and `transitionFeatureToPlanning(f-1)` call
 
 ### Step 5.2 — Migrate existing tests off synthetic-feature assumptions
 
-**Approach:** TDD for the unit-contract slice (`commands.test`, `app-composer.test`); fixture sweep is migration churn.
+**Approach:** TDD for the unit-contract slice (`commands.test`, `app-composer.test`) — write red assertions against the new bootstrap-result shape, then make GREEN by rewriting test setup (production-side type-flow already established in Step 5.1). Fixture sweep across integration tests is migration churn (no RED→GREEN: existing coverage is preserved under the new bootstrap contract, not driven by new failing tests).
 
 **What:** sweep the test suite for fixtures that implicitly assume a synthetic `f-1` exists at startup. Two migration patterns:
 

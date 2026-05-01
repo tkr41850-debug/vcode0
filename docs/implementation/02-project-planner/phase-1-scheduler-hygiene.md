@@ -48,7 +48,10 @@ Ships as **2 commits**, in order.
 - Loop regression: drive `feature_phase_error` once via a runtime that throws a non-transient error, then run 3 more scheduler ticks; assert exactly one dispatch happened, exactly one inbox row was written, and the run stays `failed`.
 - Existing `runStatus='running'` and `isBlockedByRun` skip paths stay green.
 
-**Verification:** `npm run check:fix && npm run check`.
+**Verification:**
+- Run the new tests against current `main` first — all three new cases (direct prioritization, `running` skip-path, loop regression) must fail RED. The loop regression should observably re-dispatch and accumulate inbox rows pre-fix.
+- After applying the `runStatus === 'failed'` skip in `prioritizeReadyWork`, re-run; all three flip GREEN. Existing skip paths stay GREEN.
+- Then `npm run check:fix && npm run check`.
 
 **Review subagent:**
 
@@ -74,7 +77,10 @@ Ships as **2 commits**, in order.
 - Feature with planning workControl + running feature-phase run keeps existing rendering (no change).
 - Feature with `await_approval` keeps existing approval-pending rendering.
 
-**Verification:** `npm run check:fix && npm run check`.
+**Verification:**
+- Run the new view-model tests against current `main` first — the failed-run rendering case must fail RED (`deriveFeatureBlocked` does not yet return a typed reason for `failed`; `iconForFeature` does not yet fall through to `'✗'` for run-derived failed state).
+- Implement the typed reason, the dual call-site update in `buildMilestoneTree`, and the `iconForFeature` fall-through. Re-run; failed-run case flips GREEN. Running and approval-pending cases stay GREEN.
+- Then `npm run check:fix && npm run check`.
 
 **Review subagent:**
 

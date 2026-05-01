@@ -57,12 +57,13 @@ The chrome is always visible; it does not auto-hide. When the composer is defocu
 
 **Implementation:** add the `composerScope` field to the view-model derivation in `src/tui/view-model/index.ts`, then extend `ComposerStatus` in `src/tui/components/index.ts` to read it and render the label. Update `docs/reference/tui.md`.
 
-**Verification:** unit tests GREEN. Then layer the integration smoke in `test/integration/tui/smoke.test.ts`:
+**Verification:** unit tests GREEN. Then layer the integration smoke in `test/integration/tui/smoke.test.ts` — **Step 6.1 only** asserts the cases reachable without project-planner mode entry (Step 6.2 owns those):
 
 - Default startup (no project session, no attached plan/replan) shows `composer · graph`.
-- After entering project-planner mode (slash command), chrome shows `composer · project planner: <id>`.
-- After detaching from project mode (Step 6.2's exit action), chrome returns to `composer · graph`.
+- Existing attached plan/replan flow shows `composer · feature plan: <feature-id>`.
 - Composer chrome stays visible when composer is defocused (`esc`); label shows the most recent destination.
+
+The `composer · project planner: <id>` and detach-back-to-graph smoke cases are deferred to **Step 6.2's verification** (where the slash command and mode entry/exit live) so Step 6.1 lands self-contained.
 
 Then `npm run check:fix && npm run check`.
 
@@ -89,10 +90,13 @@ Then `npm run check:fix && npm run check`.
 - `src/tui/project-planner-controller.ts` (new) — drive the mode lifecycle. On entry, fetch sessions via `Store.listProjectSessions`, present the picker, on selection attach to the session via the new `LiveProjectPlannerSessions` tracker.
 - `src/tui/live-project-planner-sessions.ts` (new) — sibling to `live-planner-sessions.ts` keyed on the project session uid (`agent_runs.id`). Mirrors the feature-phase tracker's shape (`recordOp`, `snapshot`, `attach`/`detach`); operates on the project draft graph snapshot instead of a feature-scoped one. Wired into `src/tui/app.ts` alongside the existing live-planner-sessions surface.
 - `src/tui/view-model/index.ts` — extend with project-planner mode state and session list state.
-- `test/unit/tui/commands.test.ts` — coverage for the new slash command.
+- `test/unit/tui/commands.test.ts` — coverage for the new slash command (registration + autocomplete + parse).
+- `test/unit/tui/project-planner-controller.test.ts` (new) — controller-level unit coverage: session-list-to-picker transform, attach/detach actions, stubbed `Store.listProjectSessions` cases.
 - `test/integration/tui/smoke.test.ts` — coverage for entry → pick → see chat surface.
 
-**Test (write first, expect red):** in `test/unit/tui/commands.test.ts`, add cases asserting `/project` is registered, autocompletes from `/p`, and parses to a project-planner intent. Add controller-level unit cases (against a stubbed `Store.listProjectSessions`): zero sessions → picker shows only "start new"; one running session → picker shows resume + start-new; `/project detach` while attached → controller emits a detach action. Run; expect RED (command not registered, controller not implemented).
+**Test (write first, expect red):**
+- In `test/unit/tui/commands.test.ts`, add cases asserting `/project` is registered, autocompletes from `/p`, and parses to a project-planner intent. RED initially (command not registered).
+- In `test/unit/tui/project-planner-controller.test.ts` (new file), add controller-level unit cases against a stubbed `Store.listProjectSessions`: zero sessions → picker shows only "start new"; one running session → picker shows resume + start-new; `/project detach` while attached → controller emits a detach action. RED initially (controller not implemented; file under test does not exist).
 
 **Implementation:** register the command name + autocomplete in `src/tui/commands/index.ts`; wire execution routing in `src/tui/app-composer.ts`; add `src/tui/project-planner-controller.ts` and `src/tui/live-project-planner-sessions.ts`; extend `src/tui/view-model/index.ts` with the new mode + session list state.
 
@@ -124,13 +128,14 @@ Then `npm run check:fix && npm run check`.
 
 **Files:**
 
-- `src/tui/app.ts` — accept the bootstrap result on construction; set initial mode accordingly.
-- `src/tui/app-deps.ts` — Phase 5 already changed `initializeProject(...)`'s return type to `{ kind: 'greenfield-bootstrap', sessionId } | { kind: 'existing' }`. Step 6.3 routes that signal into the composer / view-model state (e.g. add a `bootstrapResult` field on the deps surface that the composer reads at startup). Phase 5 owns the type change; Phase 6 Step 6.3 owns the consumption.
+- `src/tui/view-model/index.ts` — add an `initialMode` derivation that maps the bootstrap-result deps field to the starting mode (`'project-planner'` attached to `sessionId` for `greenfield-bootstrap`; `'graph'` for `existing`). This is the pure mapping seam the unit tests target.
+- `src/tui/app.ts` — accept the bootstrap result on construction; pass it through to view-model initialization so the derivation above runs at startup.
+- `src/tui/app-deps.ts` — Phase 5 already changed `initializeProject(...)`'s return type to `{ kind: 'greenfield-bootstrap', sessionId } | { kind: 'existing' }`. Step 6.3 routes that signal into the deps surface as a `bootstrapResult` field that the view-model reads at startup. Phase 5 owns the type change; Phase 6 Step 6.3 owns the consumption.
 - `src/compose.ts` — pass the bootstrap result from `initializeProjectGraph` into `TuiApp` construction.
-- `test/unit/tui/view-model.test.ts` — coverage for the bootstrap-result → initial-mode mapping.
+- `test/unit/tui/view-model.test.ts` — coverage for the bootstrap-result → `initialMode` mapping.
 - `test/integration/tui/smoke.test.ts` — full smoke that greenfield startup lands in project-planner mode immediately.
 
-**Test (write first, expect red):** in `test/unit/tui/view-model.test.ts`, add cases driving the initial-mode derivation from the bootstrap-result deps field: `{ kind: 'greenfield-bootstrap', sessionId: 's-1' }` → initial mode is project-planner attached to `s-1`; `{ kind: 'existing' }` → initial mode is graph (default). Run; expect RED (`bootstrapResult` deps field and consumption do not exist yet).
+**Test (write first, expect red):** in `test/unit/tui/view-model.test.ts`, add cases driving the `initialMode` derivation from the bootstrap-result deps field: `{ kind: 'greenfield-bootstrap', sessionId: 's-1' }` → `initialMode === 'project-planner'` attached to `s-1`; `{ kind: 'existing' }` → `initialMode === 'graph'` (default). Run; expect RED (`bootstrapResult` deps field and view-model `initialMode` derivation do not exist yet).
 
 **Implementation:** add the `bootstrapResult` deps field consumption in `src/tui/app-deps.ts` and `src/tui/app.ts`; thread the value from `src/compose.ts` into `TuiApp` construction.
 
@@ -155,12 +160,12 @@ Then `npm run check:fix && npm run check`.
 
 **What:** when a project session calls `submit`, the proposal review surface shows the proposed graph diff (added milestones, added features, removed features, edge changes). Today there is no graph-diff component — current feature-proposal UX is status text plus `/approve` / `/reject` / `/rerun`. Step 6.4 builds the diff surface as new TUI work.
 
-**Cancellation gate.** If the proposal removes features that have running tasks or affects features in non-`pending` work states, render a separate "this will cancel N running task(s)" approval block. The operator must explicitly approve cancellation before the topology change applies. On approve-with-cancel, the cancel path goes through the existing `compose.cancelFeatureRunWork(...)` → `runtime.abortRun(...)` for each affected run, then the topology apply runs. On approve-without-cancel, the apply rejects with the structured "running tasks affected" reason from Phase 4 — no partial state.
+**Cancellation gate.** If the proposal removes features that have running runs (any kind: task, discuss, research, plan, replan, verify, ci_check, summarize) or affects features in non-`pending` work states, render a separate "this will cancel N running run(s)" approval block. The operator must explicitly approve cancellation before the topology change applies. On approve-with-cancel, the cancel path delegates to the **single authoritative** entry point `compose.cancelFeatureRunWork(graph, store, runtime, featureId)` (`src/compose.ts:687`), which already iterates running runs of all kinds for the feature and calls `runtime.abortRun(...)` per run. The TUI MUST NOT call `runtime.abortRun(...)` directly alongside `cancelFeatureRunWork` — that would double-cancel and is the bug this rule prevents. After every affected feature has been swept by `cancelFeatureRunWork`, the topology apply runs. On approve-without-cancel, the apply rejects with the structured `running-tasks-affected` reason from Phase 4 — no partial state.
 
 **Files:**
 
 - `src/tui/proposal-review.ts` (new) — graph-diff component for project-scope proposals. Input format: `(before: GraphSnapshot, after: GraphSnapshot)` — derive adds/removes/edits by diffing the two snapshots rather than replaying op-lists. The project draft snapshot from `LiveProjectPlannerSessions` is "after"; the current authoritative graph is "before". Renders added/removed milestones, added/removed features, and edge changes. Also renders the typed `ProposalRebaseReason` (defined and exported by Phase 4 Step 4.4) when a rebase signal arrives — both `kind: 'stale-baseline'` and `kind: 'running-tasks-affected'` get human-readable framing here.
-- `src/tui/project-planner-controller.ts` (Step 6.2's controller) — wire the cancellation-approval block. Use the shared `running-tasks-affected` helper from Phase 4 Step 4.4 (`src/orchestrator/proposals/running-tasks-affected.ts`) to detect impact pre-flight — single source of truth with the apply-time check. For the cancel path, enumerate **all run kinds** affected by feature removal: task runs (via `compose.cancelFeatureRunWork(...)`) and feature-phase runs (via `runtime.abortRun(...)` for any in-flight `discuss | research | plan | replan | verify | summarize` on the affected feature). Cancel both before applying.
+- `src/tui/project-planner-controller.ts` (Step 6.2's controller) — wire the cancellation-approval block. Use the shared `running-tasks-affected` helper from Phase 4 Step 4.4 (`src/orchestrator/proposals/running-tasks-affected.ts`) to detect impact pre-flight — single source of truth with the apply-time check. For the cancel path, call **only** `compose.cancelFeatureRunWork(...)` per affected feature; that helper already iterates all run kinds (task + feature-phase: `discuss | research | plan | replan | verify | ci_check | summarize`) for the feature and calls `runtime.abortRun(...)` internally. Do not call `runtime.abortRun(...)` directly from the TUI — see "Cancellation gate" above for the no-double-cancel rule.
 - `src/compose.ts` — if needed, expose a batched cancel-then-apply entry point so the TUI does not interleave half a cancel with the apply.
 - `test/unit/tui/proposal-review.test.ts` (new) — unit coverage for the diff component: render adds/removes/edge-changes; render each `ProposalRebaseReason` variant.
 - `test/integration/tui/smoke.test.ts` — coverage for the cancellation-approval flow.
@@ -174,6 +179,7 @@ Then `npm run check:fix && npm run check`.
 
 - Approval of a topology-only proposal (no running tasks affected) applies cleanly.
 - Approval of a `removeFeature(f-3)` proposal where `f-3` has a running task surfaces the cancellation-approval block; approve-without-cancel rejects with the Phase 4 `ProposalRebaseReason` (`kind: 'running-tasks-affected'`); approve-with-cancel cancels the task via `cancelFeatureRunWork` and then applies.
+- Same flow with a running **feature-phase** run (e.g. `f-3` has an in-flight `plan` run) surfaces the cancellation block; approve-with-cancel routes through `cancelFeatureRunWork` (single authoritative path — verify `runtime.abortRun` is invoked exactly once per affected run, not twice).
 - Stale-baseline rejection (Phase 4 `ProposalRebaseReason` of `kind: 'stale-baseline'`) re-opens the session with a clear system message rendered by `proposal-review.ts`.
 
 Then `npm run check:fix && npm run check`.

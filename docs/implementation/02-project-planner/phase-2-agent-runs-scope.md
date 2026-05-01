@@ -65,7 +65,7 @@ Ships as **3 commits**, in order. Step 2.3 sweeps non-persistence call sites tha
 
 **Review subagent:**
 
-> Verify the union extension: (1) `src/core/types/runs.ts` has a third `AgentRun` arm with `scopeType: 'project'`; (2) codecs roundtrip the new arm without data loss; (3) `listAgentRuns` can filter by `scopeType: 'project'`; (4) decoder branches on `'task'` / `'feature_phase'` / `'project'` explicitly; (5) existing task and feature_phase paths are byte-for-byte unchanged in serialized form; (6) every other call site that pattern-matches on `scopeType` (see Step 2.3) handles the new arm. Under 300 words.
+> Verify the union extension: (1) `src/core/types/runs.ts` has a third `AgentRun` arm with `scopeType: 'project'`; (2) codecs roundtrip the new arm without data loss; (3) `listAgentRuns` can filter by `scopeType: 'project'`; (4) decoder branches on `'task'` / `'feature_phase'` / `'project'` explicitly and **throws** on unknown `scope_type`; (5) existing task and feature_phase paths are byte-for-byte unchanged in serialized form. Step 2.3 owns the cross-codebase exhaustiveness sweep — out of scope for this review. Under 300 words.
 
 **Commit:** `feat(persistence/agent-runs): extend scope_type with project arm`
 
@@ -96,7 +96,7 @@ Ships as **3 commits**, in order. Step 2.3 sweeps non-persistence call sites tha
 
 **Red → green workflow:**
 
-1. Add the new method signatures to the `Store` port (compile-only stub) so test file resolves.
+1. Add the new method signatures to the `Store` port (compile-only stub) so the test file resolves. Adding `listProjectSessions` / `getProjectSession` and the `runStatuses?` field on `AgentRunQuery` to the port will compile-RED every existing `implements Store` site — at minimum `test/integration/harness/store-memory.ts`'s `InMemoryStore`. Add stub implementations on those mocks (return `[]` / `undefined` / pass-through) so the suite compiles before behavioral tests run. Treat this stub sweep as part of Step 2.2's scope, not separate plumbing.
 2. Write failing tests asserting the four behaviors above. Run `npm run test:unit` — confirm RED (methods unimplemented or array filter not respected).
 3. Implement the SQL filter (`scope_type='project'` + `IN (...)` for `runStatuses`) and the wrapper methods in `src/persistence/sqlite-store.ts`. Re-run `npm run test:unit` — confirm GREEN.
 4. Refactor: ensure no duplication between `listAgentRuns` and the wrapper.
@@ -117,9 +117,12 @@ Ships as **3 commits**, in order. Step 2.3 sweeps non-persistence call sites tha
 
 **What:** every non-persistence call site that today pattern-matches on `scopeType` assumes a 2-arm union. Each must either handle the project arm explicitly or document an intentional ignore. No production path creates project runs yet (Phase 4), but this step prevents type errors and silent miscategorization the moment Phase 4 lands. The exhaustiveness itself is a TypeScript concern (the compiler enforces it once the union has three arms); the per-site behavioral fixtures (view-model bucketing, budget-service aggregation, error-log labeling) are TDD-applicable.
 
-**Test files (write first):**
+**Test files (write first):** the RED targets per site differ — pick the right one for each.
 
-- `test/unit/...` — extend the existing tests for each touched file with a project-arm fixture; assertion is "does not throw, does not miscategorize," nothing semantic yet. Specifically: a view-model test asserting a project run lands in `projectRuns` (not `featurePhaseRuns`); a budget-service test asserting project token_usage flows into the global aggregation; an error-log test asserting a project run is labeled `"project"`.
+- **error-log (behavioral RED).** `test/unit/runtime/error-log.test.ts` (or sibling) — assert a project run is labeled `"project"` in error-log output. Today's code labels it `"feature"` via the `else` arm, so this RED is observable without a compile error.
+- **view-model (behavioral RED via exported bucket).** `test/unit/tui/view-model.test.ts` — assert the view-model exposes a distinct `projectRuns` bucket (or equivalent: `getRuns({ scopeType: 'project' })` returns the project-arm rows). Today's `:153` `else` swallows project rows into `featurePhaseRuns`, so the assertion is observable via whichever surface the view-model exports for run lookup. If the only exported surface is `buildMilestoneTree(...)`, this site falls under "exhaustiveness compile RED" and the new bucket is added with an `assertNever` arm; either way pin the site to one observable RED, not "does not miscategorize" hand-waving.
+- **budget-service (exhaustiveness compile RED only).** Today the global `totalUsd`/`totalCalls` aggregation at `:33-34` runs **before** the scopeType branch, so a behavioral assertion "project counts toward global spend" is already GREEN on `main` — that is not a writable RED. The Phase 2 contract for budget-service is exhaustiveness: replace the chained `if (... === 'task')` / `if (... === 'feature_phase')` with an exhaustive switch + `assertNever`, so adding the `'project'` arm in Step 2.1 immediately compile-RED's this file until the arm is handled. Note this as a typecheck-RED step, not an assertion-RED step.
+- **dispatch.ts / recovery-service.ts (exhaustiveness compile RED).** Same pattern: switch + `assertNever`. Compile RED until the project arm carries either real handling or an explicit "Phase 4 wires this" stub.
 
 **Prod files (verified call sites on `main`):**
 
@@ -136,15 +139,15 @@ Ships as **3 commits**, in order. Step 2.3 sweeps non-persistence call sites tha
 
 **Red → green workflow:**
 
-1. For each behavioral site (view-model, budget-service, error-log), write the project-arm fixture test first. Run `npm run test:unit` — confirm RED (view-model miscategorizes into `featurePhaseRuns`; error-log labels project as `"feature"`; budget-service may not aggregate at all).
-2. Update each prod file with an exhaustive switch / new arm. Re-run `npm run test:unit` — confirm GREEN.
-3. For dispatch.ts and recovery-service.ts (Phase-4-wired sites), `npm run typecheck` is the proof; an exhaustive switch with `assertNever` or a "Phase 4 wires this" branch satisfies the compiler.
+1. For error-log (behavioral): write the project-arm label fixture; `npm run test:unit` RED (labels `"feature"`); add the project arm; GREEN.
+2. For view-model: write the bucket-existence assertion against whichever surface the view-model exports for run lookup; RED; add the bucket; GREEN.
+3. For budget-service, dispatch.ts, recovery-service.ts: refactor the chained `if/else` into `switch + assertNever`. `npm run typecheck` then enforces RED until the project arm carries either real handling or an explicit "Phase 4 wires this" stub. No behavioral test required at this site (Phase 4 owns that coverage).
 
 **Verification:** `npm run check:fix && npm run check`.
 
 **Review subagent:**
 
-> Verify exhaustiveness sweep: (1) every site that branches on `scopeType` outside `persistence/` and `core/types/` has a project arm; (2) project arms either implement the right behavior or carry an explicit "Phase 4 wires this" marker — never a silent fallthrough; (3) error-log labels distinguish project from feature; (4) view-model buckets are exhaustive; (5) tests cover at least one project-arm fixture per touched site. Under 300 words.
+> Verify exhaustiveness sweep: (1) every site listed in the Step 2.3 prod-files block (`scheduler/dispatch.ts`, `services/recovery-service.ts`, `runtime/error-log/index.ts`, `tui/view-model/index.ts:153`, `services/budget-service.ts`) carries a project arm; (2) those arms either implement the right behavior or carry an explicit "Phase 4 wires this" marker — never a silent fallthrough; (3) error-log labels distinguish project from feature; (4) view-model exposes a distinct `projectRuns` bucket; (5) tests cover at least one project-arm fixture per touched behavioral site (error-log + view-model); (6) confirm the **out-of-scope** call sites stay narrow on purpose: `src/compose.ts` feature-scoped helpers (`cancelFeatureRunWork`, the various `run?.scopeType !== 'feature_phase'` and `!== 'task'` guards), `src/orchestrator/scheduler/events.ts:182` (task-only event handler), and the literal-write sites at `src/tui/proposal-controller.ts:278` / `src/agents/tools/feature-phase-host.ts:90` are correct without a project arm — they intentionally narrow to feature/task scope and should not be touched by Step 2.3. Under 350 words.
 
 **Commit:** `refactor(orchestrator): exhaust scopeType switches across orchestrator/runtime/tui`
 

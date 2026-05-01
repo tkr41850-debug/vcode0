@@ -47,15 +47,15 @@ Ships as **4 commits**, in order.
 
 - `test/unit/agents/runtime.test.ts` — assert the helper returns an agent whose tool list matches the `createProjectPlannerToolset` catalog and whose prompt is `'project-planner'`. RED (helper does not exist).
 - Same file — assert the helper rejects construction when the agent_run row has a non-project `scope_type`. RED.
-- `test/unit/agents/tools/proposal-host.test.ts` (or sibling) — assert a milestone-reassignment patch routes through `applyGraphProposal` and lands as a `changeMilestone(...)` mutation. RED (`milestoneId` not yet on `PlannerFeatureEditPatch`).
-- Same file — assert `editFeatureSpec` rejects `{ milestoneId }` patches (deferred from Phase 3 Step 3.1, now landable). RED.
+- `test/unit/agents/tools/proposal-host.test.ts` (or sibling) — assert a milestone-reassignment patch via the **full `editFeature`** surface routes through `applyGraphProposal` and lands as a `changeMilestone(...)` mutation. RED (`milestoneId` not yet on `PlannerFeatureEditPatch`).
+- Same file — assert the **subset `editFeatureSpec`** still rejects `{ milestoneId }` patches even after the patch-extension lands (deferred from Phase 3 Step 3.1, now landable). The two surfaces stay distinct: full `editFeature` accepts milestone reassignment (project scope only); `editFeatureSpec` is a runtime-validated spec-only subset that rejects rename / milestoneId regardless of the underlying patch shape. RED.
 - Confirm existing `startPlanFeature` / `startReplanFeature` tests still pass — these stay green throughout.
 
 **Implementation (drive to GREEN):**
 
 - `src/agents/runtime.ts` — add the helper. Reuse the existing proposal-host construction pattern. The agent receives the project-planner prompt and the project-planner toolset (via `createProjectPlannerToolset(host)` from Phase 3).
 - `src/agents/prompts/index.ts` — register the new prompt file. **Extend** the `PromptTemplateName` union (`:7-13`) with `'project-planner'`; add the corresponding registry entry.
-- **Milestone-reassignment patch.** Extend `PlannerFeatureEditPatch` with `milestoneId` (or add a sibling `moveFeatureToMilestone` op to `proposal-host.ts` and `schemas.ts`). Step 4.1 owns this so the project-planner toolset has full topology authority on first dispatch (Step 4.2). The graph-level `changeMilestone(...)` already exists; this just exposes it through the proposal layer.
+- **Milestone-reassignment patch.** Pin the patch-extension route: extend `PlannerFeatureEditPatch` (`src/core/graph/types.ts:65-75`) with `milestoneId?: MilestoneId`. The full `editFeature` surface accepts it; `editFeatureSpec` keeps its existing runtime guard that rejects rename / milestoneId. Step 4.1 owns this so the project-planner toolset has full topology authority on first dispatch (Step 4.2). The graph-level `changeMilestone(...)` already exists; this just exposes it through the proposal layer. (No sibling `moveFeatureToMilestone` tool — the patch route stays uniform.)
 
 **Non-TDD addendum:**
 
@@ -65,7 +65,7 @@ Ships as **4 commits**, in order.
 
 **Review subagent:**
 
-> Verify project agent construction: (1) helper exists in `src/agents/runtime.ts`; (2) toolset is `projectPlannerTools`; (3) prompt file is loaded; (4) feature-scope helpers are not affected. Under 250 words.
+> Verify project agent construction: (1) helper exists in `src/agents/runtime.ts`; (2) toolset is `projectPlannerTools`; (3) prompt file is loaded; (4) feature-scope helpers are not affected; (5) `PlannerFeatureEditPatch` carries the new `milestoneId` field and milestone-reassignment via the **full `editFeature`** surface routes through `applyGraphProposal` to the existing `changeMilestone(...)` graph mutation; (6) the **subset `editFeatureSpec`** still rejects `{ milestoneId }` patches. Under 300 words.
 
 **Commit:** `feat(agents/project-planner): agent construction`
 
@@ -79,7 +79,7 @@ Ships as **4 commits**, in order.
 
 **Test (write first, expect red):**
 
-- `test/unit/orchestrator/scheduler-dispatch.test.ts` (or sibling) — write test asserting `dispatchProjectRunUnit` calls `RuntimePort.dispatchRun({ kind: 'project' }, dispatch, payload)` with the run id on `dispatch.agentRunId`, and **never** invokes `ports.worktree.ensureFeatureWorktree` or `ensureFeatureBranch`. RED (helper does not exist; `RunScope` has no project arm).
+- `test/unit/orchestrator/scheduler-dispatch.test.ts` (or sibling) — write test asserting `dispatchProjectRunUnit` calls `RuntimePort.dispatchRun({ kind: 'project' }, dispatch, payload)` with the run id on `dispatch.agentRunId`, and **never** invokes `ports.worktree.ensureFeatureWorktree` or `ensureFeatureBranch`. **Compile-RED** initially (`dispatchProjectRunUnit` does not exist; `RunScope` has no project arm); transitions to assertion-RED once the type lands and only behavior remains to verify.
 - Same file — assert `prioritizeReadyWork` does not return any `project_run` entries; `SchedulableUnit` enumeration stays `task | feature_phase`. RED until typing locks down (or already passing — this is a regression guard).
 - Confirm existing feature-phase and task dispatch tests stay green. (Note: `test/unit/orchestrator/scheduler-loop.test.ts` is shared with Phase 1's `failed`-filter regression — Phase 4 must not break that test.)
 
@@ -117,10 +117,10 @@ Conversation/checkpoint persistence reuses the existing per-session file path (`
 **Test (write first, expect red):**
 
 - `test/unit/orchestrator/project-planner.test.ts` (new) — assert `startProjectPlannerSession` writes a row with `scope_type='project'`, `scope_id=ProjectScopeId`, `runStatus='running'`, and triggers exactly one `dispatchProjectRunUnit` call. RED (coordinator does not exist).
-- Same file — assert `resumeProjectPlannerSession` re-dispatches a `running` row, no-ops on `await_approval` / `await_response`, rejects on `cancelled`. RED.
+- Same file — assert `resumeProjectPlannerSession` re-dispatches a `running` row, no-ops on `await_approval` / `await_response`, rejects on `cancelled` **and on `failed`** (Phase 1's failed-filter applies to project runs too — failed sessions need an explicit operator action, not silent re-dispatch). RED.
 - Same file — assert `cancelProjectPlannerSession` moves any non-terminal state to `cancelled` and dispatches no further work. RED.
 - Same file — assert per-session file is created at `.gvc0/sessions/<sessionId>.json`. RED.
-- `test/unit/orchestrator/recovery-service.test.ts` — extend with a project-rehydrate fixture: boot finds `running` project rows and re-invokes `dispatchProjectRunUnit`. RED (Phase 2 left a placeholder branch).
+- `test/unit/orchestrator/recovery-service.test.ts` — extend with a project-rehydrate fixture: boot finds `running` project rows and re-invokes `dispatchProjectRunUnit`; **also assert `failed` and `cancelled` project rows are NOT re-dispatched** (parity with feature-phase recovery semantics). RED (Phase 2 left a placeholder branch).
 
 **Implementation (drive to GREEN):**
 
@@ -133,7 +133,7 @@ Conversation/checkpoint persistence reuses the existing per-session file path (`
 
 **Review subagent:**
 
-> Verify session lifecycle: (1) coordinator exposes create / resume / cancel; (2) state transitions are correct and idempotent where appropriate; (3) conversation history is keyed on run id; (4) no leakage of feature-coordinator state into project sessions. Under 300 words.
+> Verify session lifecycle: (1) coordinator exposes create / resume / cancel; (2) state transitions are correct and idempotent where appropriate, including resume rejecting on `failed` and `cancelled`; (3) conversation history is keyed on run id; (4) no leakage of feature-coordinator state into project sessions; (5) boot-time recovery rehydrates only `running` project rows — `failed` and `cancelled` rows are skipped (parity with feature-phase recovery). Under 300 words.
 
 **Commit:** `feat(orchestrator/project-planner): session coordinator`
 
@@ -145,7 +145,7 @@ Conversation/checkpoint persistence reuses the existing per-session file path (`
 
 **What:** when a project-planner session calls `submit`, the run enters `await_approval`. On approval, the proposal applies via the existing pipeline (`src/orchestrator/scheduler/events.ts` → `approveFeatureProposal` → `applyGraphProposal`). That path does per-op stale/validation checks and skips bad ops, but it is **not** CAS-style baseline validation. Step 4.4 adds that mode for project-scope only.
 
-**Baseline mechanism: graph snapshot version.** Add a monotonic `graphVersion: number` on the persistent feature graph, incremented exactly once per applied proposal (feature-scope and project-scope alike). Proposals record the `graphVersion` they were built against; apply rejects as a whole with `ProposalRebaseReason` of kind `stale-baseline` if it advanced. Per-op stale-skip behavior for feature-scope proposals is preserved.
+**Baseline mechanism: graph snapshot version.** Add a monotonic `graphVersion: number` on the persistent feature graph, incremented exactly once per applied proposal (feature-scope and project-scope alike). The proposal records the `graphVersion` it was built against by **persisting it in `agent_runs.payload_json`** at submit time (the row already carries proposal context for `await_approval`; this adds one numeric field — `payload.baselineGraphVersion`). Apply reads it back from the row at approval time, compares to current, and rejects as a whole with `ProposalRebaseReason` of kind `stale-baseline` if it advanced. The baseline thus survives `await_approval` and orchestrator restart (recovery rehydrates the row, the field rides along). Per-op stale-skip behavior for feature-scope proposals is preserved.
 
 **Test (write first, expect red):**
 
@@ -158,7 +158,8 @@ Conversation/checkpoint persistence reuses the existing per-session file path (`
 **Implementation (drive to GREEN):**
 
 - `src/core/graph/types.ts` — add `graphVersion: number` to the persistent graph metadata; bump in the existing `applyGraphProposal` success path.
-- `src/orchestrator/proposals/index.ts` — extend the apply path for project-scope. Add the baseline-CAS check; define and export `ProposalRebaseReason` (e.g. `{ kind: 'stale-baseline' | 'running-tasks-affected', details: ... }`) — Phase 6 Step 6.4 consumes this shape.
+- `src/agents/runtime.ts` (project-planner submit path) — capture the current `graphVersion` at submit time and persist it to `agent_runs.payload_json` alongside the proposal as `payload.baselineGraphVersion`.
+- `src/orchestrator/proposals/index.ts` — extend the apply path for project-scope. Read `baselineGraphVersion` from the run's `payload_json`, compare to the live `graphVersion`, reject as a whole if mismatched. Define and export `ProposalRebaseReason` (e.g. `{ kind: 'stale-baseline' | 'running-tasks-affected', details: ... }`) — Phase 6 Step 6.4 consumes this shape.
 - `src/orchestrator/proposals/running-tasks-affected.ts` (new) — shared helper detecting whether a proposal's removed/edited features have running runs. Single source of truth, also consumed by Phase 6's TUI pre-flight.
 - `src/orchestrator/scheduler/events.ts` — route the approval-decision handler to project-scope apply when the run is project-scope.
 
@@ -171,7 +172,7 @@ Conversation/checkpoint persistence reuses the existing per-session file path (`
 
 **Review subagent:**
 
-> Verify project apply: (1) approved project proposals apply via the existing op-replay pipeline plus CAS checks; (2) stale apply rejects with a structured reason and re-opens the session; (3) topology change against running tasks is rejected (not silently applied) until explicit cancel approval; (4) feature-scope apply path is unchanged; (5) no recursive locking against the project session itself during apply. Under 400 words.
+> Verify project apply: (1) approved project proposals apply via the existing op-replay pipeline plus CAS checks; (2) stale apply rejects with a structured reason and re-opens the session; (3) topology change against running tasks is rejected (not silently applied) until explicit cancel approval; (4) feature-scope apply path is unchanged **except for the shared `graphVersion` bump** — per-op stale-skip semantics preserved, but every successful apply (feature- or project-scope) advances the version exactly once; (5) no recursive locking against the project session itself during apply; (6) the proposal's recorded baseline is read from `agent_runs.payload_json.baselineGraphVersion` at apply time and survives orchestrator restart via the existing recovery sweep. Under 400 words.
 
 **Commit:** `feat(orchestrator/proposals): project proposal approval and apply path`
 
