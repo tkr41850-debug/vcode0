@@ -1376,12 +1376,19 @@ function unreachableTextPhase(_phase: never): never {
 function phaseRoutingTier(
   phase: Extract<
     PromptTemplateName,
-    'discuss' | 'research' | 'plan' | 'verify' | 'summarize' | 'replan'
+    | 'discuss'
+    | 'research'
+    | 'plan'
+    | 'verify'
+    | 'summarize'
+    | 'replan'
+    | 'project-planner'
   >,
 ): 'heavy' | 'standard' | 'light' {
   switch (phase) {
     case 'plan':
     case 'replan':
+    case 'project-planner':
       return 'heavy';
     case 'verify':
     case 'summarize':
@@ -1390,4 +1397,66 @@ function phaseRoutingTier(
     case 'research':
       return 'standard';
   }
+}
+
+export interface ProjectPlannerSessionInputs {
+  run: AgentRun;
+  graph: FeatureGraph;
+  modelId: string;
+  config: GvcConfig;
+  promptLibrary: PromptLibrary;
+  messages?: AgentMessage[];
+  getApiKey?: (
+    provider: string,
+  ) => Promise<string | undefined> | string | undefined;
+}
+
+export interface ProjectPlannerSession {
+  readonly agent: Agent;
+  readonly promptName: 'project-planner';
+  readonly host: ReturnType<typeof createProposalToolHost>;
+}
+
+export function startProjectPlannerSession(
+  inputs: ProjectPlannerSessionInputs,
+): ProjectPlannerSession {
+  if (inputs.run.scopeType !== 'project') {
+    throw new Error(
+      `startProjectPlannerSession rejects scope_type "${inputs.run.scopeType}": project-planner sessions require scopeType='project'`,
+    );
+  }
+  const host = createProposalToolHost(inputs.graph, 'plan');
+  const tools = buildProposalAgentToolset(host, undefined, undefined, {
+    kind: 'project',
+  });
+  const systemPrompt = inputs.promptLibrary.get('project-planner').render({});
+
+  const model = resolveModel(
+    {
+      model: inputs.config.modelRouting?.ceiling ?? inputs.modelId,
+      tier: phaseRoutingTier('project-planner'),
+    },
+    inputs.config.modelRouting ?? defaultModelRoutingConfig(inputs.modelId),
+  );
+
+  const options: NonNullable<ConstructorParameters<typeof Agent>[0]> = {
+    initialState: {
+      systemPrompt,
+      model,
+      tools,
+      messages: inputs.messages ?? [],
+    },
+    toolExecution: 'sequential',
+  };
+  if (inputs.getApiKey !== undefined) {
+    options.getApiKey = inputs.getApiKey;
+  }
+  if (inputs.run.sessionId !== undefined) {
+    options.sessionId = inputs.run.sessionId;
+  }
+  return {
+    agent: new Agent(options),
+    promptName: 'project-planner',
+    host,
+  };
 }

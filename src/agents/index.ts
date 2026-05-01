@@ -8,6 +8,7 @@ export {
   createPromptLibrary,
   discussPromptTemplate,
   planPromptTemplate,
+  projectPlannerPromptTemplate,
   promptLibrary,
   promptTemplates,
   replanPromptTemplate,
@@ -20,6 +21,8 @@ export type { ReplannerAgent } from '@agents/replanner';
 export type {
   FeatureAgentRuntimeConfig,
   LiveProposalPhaseSession,
+  ProjectPlannerSession,
+  ProjectPlannerSessionInputs,
   ProposalHelpResponse,
   ProposalOpScope,
   ProposalOpSink,
@@ -28,6 +31,7 @@ export {
   FeaturePhaseOrchestrator,
   ProposalPhaseSessionImpl,
   persistPhaseOutputToFeature,
+  startProjectPlannerSession,
 } from '@agents/runtime';
 export type {
   AddFeatureOptions,

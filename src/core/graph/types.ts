@@ -72,6 +72,7 @@ export interface PlannerFeatureEditPatch {
   featureObjective?: string;
   featureDoD?: string[];
   verifyIssues?: VerifyIssue[];
+  milestoneId?: MilestoneId;
 }
 
 export interface FeatureEditPatch extends PlannerFeatureEditPatch {

@@ -192,6 +192,19 @@ describe('editFeatureSpec', () => {
       }),
     ).rejects.toThrow(/name/);
   });
+
+  it('rejects milestone reassignment via milestoneId field', async () => {
+    const graph = createGraphWithFeature();
+    const host = createProposalToolHost(graph, 'plan');
+    const toolset = createFeaturePlanToolset(host);
+
+    await expect(
+      requireTool(toolset, 'editFeatureSpec').execute({
+        featureId: 'f-1',
+        patch: { milestoneId: 'm-2' } as never,
+      }),
+    ).rejects.toThrow(/milestoneId/);
+  });
 });
 
 describe('createFeaturePlanToolset (legacy submit checkpointing)', () => {

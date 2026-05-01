@@ -398,6 +398,104 @@ describe('applyGraphProposal', () => {
     expect(graph.features.get('f-1')?.name).toBe('Feature 1');
   });
 
+  it('routes edit_feature patch with milestoneId through changeMilestone', () => {
+    const graph = createGraph();
+    graph.createMilestone({
+      id: 'm-2',
+      name: 'Milestone 2',
+      description: 'second',
+    });
+    graph.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'Feature 1',
+      description: 'desc',
+    });
+
+    const builder = new GraphProposalBuilder('plan');
+    builder.addOp({
+      kind: 'edit_feature',
+      featureId: 'f-1',
+      patch: { milestoneId: 'm-2' },
+    });
+
+    const result = applyGraphProposal(graph, builder.build());
+
+    expect(result.applied).toHaveLength(1);
+    expect(result.skipped).toHaveLength(0);
+    expect(graph.features.get('f-1')?.milestoneId).toBe('m-2');
+  });
+
+  it('routes combined milestoneId + spec patch through both changeMilestone and editFeature', () => {
+    const graph = createGraph();
+    graph.createMilestone({
+      id: 'm-2',
+      name: 'Milestone 2',
+      description: 'second',
+    });
+    graph.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'Feature 1',
+      description: 'desc',
+    });
+
+    const builder = new GraphProposalBuilder('plan');
+    builder.addOp({
+      kind: 'edit_feature',
+      featureId: 'f-1',
+      patch: { milestoneId: 'm-2', description: 'updated desc' },
+    });
+
+    const result = applyGraphProposal(graph, builder.build());
+
+    expect(result.applied).toHaveLength(1);
+    expect(result.skipped).toHaveLength(0);
+    expect(graph.features.get('f-1')?.milestoneId).toBe('m-2');
+    expect(graph.features.get('f-1')?.description).toBe('updated desc');
+  });
+
+  it('skips edit_feature patch when target milestoneId does not exist', () => {
+    const graph = createGraph();
+    graph.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'Feature 1',
+      description: 'desc',
+    });
+
+    const builder = new GraphProposalBuilder('plan');
+    builder.addOp({
+      kind: 'edit_feature',
+      featureId: 'f-1',
+      patch: { milestoneId: 'm-missing' },
+    });
+
+    const result = applyGraphProposal(graph, builder.build());
+
+    expect(result.applied).toHaveLength(0);
+    expect(result.skipped).toHaveLength(1);
+    expect(result.skipped[0]?.reason).toContain('m-missing');
+    expect(graph.features.get('f-1')?.milestoneId).toBe('m-1');
+  });
+
+  it('accepts edit_feature payload carrying milestoneId via isGraphProposal', () => {
+    expect(
+      isGraphProposal({
+        version: 1,
+        mode: 'plan',
+        aliases: {},
+        ops: [
+          {
+            kind: 'edit_feature',
+            featureId: 'f-1',
+            patch: { milestoneId: 'm-2' },
+          },
+        ],
+      }),
+    ).toBe(true);
+  });
+
   it('accepts valid proposal payload with reserved write paths', () => {
     expect(
       isGraphProposal({

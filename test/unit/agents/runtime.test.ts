@@ -6,16 +6,24 @@ import {
   type PromptLibrary,
   type ProposalOpSink,
   promptLibrary,
+  startProjectPlannerSession,
 } from '@agents';
+import {
+  createProjectPlannerToolset,
+  createProposalToolHost,
+} from '@agents/tools';
+import { InMemoryFeatureGraph } from '@core/graph/index';
 import type {
   DiscussPhaseDetails,
   Feature,
   FeaturePhaseAgentRun,
   GvcConfig,
+  ProjectAgentRun,
   ProposalPhaseDetails,
   SummarizePhaseDetails,
   VerificationCriterionEvidence,
 } from '@core/types/index';
+import { PROJECT_SCOPE_ID } from '@core/types/index';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { createGraphWithFeature } from '../../helpers/graph-builders.js';
@@ -1095,5 +1103,72 @@ describe('FeaturePhaseOrchestrator', () => {
     expect(captured.summarize).toContain('- src/feature.ts');
     expect(captured.summarize).toContain('- src/verify.ts');
     expect(captured.summarize).not.toContain('stale old summary');
+  });
+});
+
+describe('startProjectPlannerSession', () => {
+  function createProjectRun(
+    overrides: Partial<ProjectAgentRun> = {},
+  ): ProjectAgentRun {
+    return {
+      id: 'run-project:1',
+      scopeType: 'project',
+      scopeId: PROJECT_SCOPE_ID,
+      phase: 'plan',
+      runStatus: 'running',
+      owner: 'system',
+      attention: 'none',
+      restartCount: 0,
+      maxRetries: 3,
+      ...overrides,
+    } as ProjectAgentRun;
+  }
+
+  it('returns an agent whose tool list matches createProjectPlannerToolset and prompt is project-planner', () => {
+    const graph = new InMemoryFeatureGraph();
+    const run = createProjectRun();
+
+    const result = startProjectPlannerSession({
+      run,
+      graph,
+      modelId: 'claude-sonnet-4-6',
+      config: { tokenProfile: 'balanced' },
+      promptLibrary,
+    });
+
+    expect(result.promptName).toBe('project-planner');
+
+    const expectedToolNames = createProjectPlannerToolset(
+      createProposalToolHost(graph, 'plan'),
+    ).tools.map((t) => t.name);
+    const actualToolNames = result.agent.state.tools.map((t) => t.name);
+    for (const name of expectedToolNames) {
+      expect(actualToolNames).toContain(name);
+    }
+  });
+
+  it('rejects construction when agent_runs row has a non-project scope_type', () => {
+    const graph = new InMemoryFeatureGraph();
+    const featureRun: FeaturePhaseAgentRun = {
+      id: 'run-feature:1',
+      scopeType: 'feature_phase',
+      scopeId: 'f-1',
+      phase: 'plan',
+      runStatus: 'running',
+      owner: 'system',
+      attention: 'none',
+      restartCount: 0,
+      maxRetries: 3,
+    };
+
+    expect(() =>
+      startProjectPlannerSession({
+        run: featureRun as never,
+        graph,
+        modelId: 'claude-sonnet-4-6',
+        config: { tokenProfile: 'balanced' },
+        promptLibrary,
+      }),
+    ).toThrow(/scope_type|project|scopeType/);
   });
 });

@@ -514,9 +514,16 @@ function applyProposalOp(graph: FeatureGraph, op: GraphProposalOp): void {
     case 'remove_feature':
       graph.removeFeature(op.featureId);
       return;
-    case 'edit_feature':
-      graph.editFeature(op.featureId, op.patch);
+    case 'edit_feature': {
+      const { milestoneId, ...rest } = op.patch;
+      if (milestoneId !== undefined) {
+        graph.changeMilestone(op.featureId, milestoneId);
+      }
+      if (Object.keys(rest).length > 0) {
+        graph.editFeature(op.featureId, rest);
+      }
       return;
+    }
     case 'add_task':
       graph.createTask({
         id: op.taskId,
@@ -596,9 +603,16 @@ function staleReasonForOp(
         : `Feature "${op.featureId}" still has dependents: ${dependents.join(', ')}`;
     }
     case 'edit_feature':
-      return graph.features.has(op.featureId)
-        ? undefined
-        : `Feature "${op.featureId}" does not exist`;
+      if (!graph.features.has(op.featureId)) {
+        return `Feature "${op.featureId}" does not exist`;
+      }
+      if (
+        op.patch.milestoneId !== undefined &&
+        !graph.milestones.has(op.patch.milestoneId)
+      ) {
+        return `Milestone "${op.patch.milestoneId}" does not exist`;
+      }
+      return undefined;
     case 'add_task':
       if (graph.tasks.has(op.taskId)) {
         return `Task "${op.taskId}" already exists`;
@@ -767,6 +781,7 @@ const ALLOWED_FEATURE_PATCH_KEYS: ReadonlySet<string> = new Set([
   'roughDraft',
   'featureObjective',
   'featureDoD',
+  'milestoneId',
 ]);
 
 function featurePatchIsValid(patch: Record<string, unknown>): boolean {
@@ -783,6 +798,8 @@ function featurePatchIsValid(patch: Record<string, unknown>): boolean {
     (patch.roughDraft === undefined || typeof patch.roughDraft === 'string') &&
     (patch.featureObjective === undefined ||
       typeof patch.featureObjective === 'string') &&
+    (patch.milestoneId === undefined ||
+      typeof patch.milestoneId === 'string') &&
     stringArrayOrUndefined(patch.featureDoD)
   );
 }

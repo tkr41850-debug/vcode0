@@ -1,5 +1,6 @@
 import { discussPromptTemplate } from './discuss.js';
 import { planPromptTemplate, replanPromptTemplate } from './plan.js';
+import { projectPlannerPromptTemplate } from './project-planner.js';
 import { researchPromptTemplate } from './research.js';
 import { summarizePromptTemplate } from './summarize.js';
 import { verifyPromptTemplate } from './verify.js';
@@ -10,7 +11,8 @@ export type PromptTemplateName =
   | 'plan'
   | 'verify'
   | 'summarize'
-  | 'replan';
+  | 'replan'
+  | 'project-planner';
 
 export interface PromptTemplate {
   name: PromptTemplateName;
@@ -28,6 +30,7 @@ export const promptTemplates = Object.freeze({
   verify: verifyPromptTemplate,
   summarize: summarizePromptTemplate,
   replan: replanPromptTemplate,
+  'project-planner': projectPlannerPromptTemplate,
 }) satisfies Record<PromptTemplateName, PromptTemplate>;
 
 export function createPromptLibrary(
@@ -50,6 +53,7 @@ export const promptLibrary = createPromptLibrary();
 export {
   discussPromptTemplate,
   planPromptTemplate,
+  projectPlannerPromptTemplate,
   replanPromptTemplate,
   researchPromptTemplate,
   summarizePromptTemplate,
