@@ -251,10 +251,10 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 7. Top-Level Planner + Inbox + Pause/Resume | 5/5 | ✓ Complete | 2026-04-28 |
 | 8. TUI Surfaces | 5/5 | ✓ Complete | 2026-04-29 |
 | 9. Crash Recovery UX | 3/3 | ✓ Complete | 2026-05-01 |
-| 10. Re-plan Flows & Manual Edits Polish | 0/TBD (~2) | In progress | - |
-| 11. Documentation & Diagnostic Tooling | 0/TBD (~3) | Not started | - |
+| 10. Re-plan Flows & Manual Edits Polish | 2/2 | ✓ Complete | 2026-05-01 |
+| 11. Documentation & Diagnostic Tooling | 0/TBD (~3) | Planning in progress | - |
 | 12. Integration & Polish | 0/TBD (~3) | Not started | - |
 
 ---
 *Roadmap created: 2026-04-23*
-*Last updated: 2026-05-01 — Phase 10 is complete. Plans 10-01 and 10-02 shipped explicit planner-session intent, planner-audit reading, proposal-review overlay visibility, and collision truthfulness with `npm run check` green; next up is Phase 11 documentation and diagnostic tooling.*
+*Last updated: 2026-05-01 — Phase 10 is complete. Plans 10-01 and 10-02 shipped explicit planner-session intent, planner-audit reading, proposal-review overlay visibility, and collision truthfulness with `npm run check` green; Phase 11 research and 11-01 planning are now verified, with implementation next on a pre-TUI `gvc0 explain` diagnostic CLI and shared text-summary reuse.*

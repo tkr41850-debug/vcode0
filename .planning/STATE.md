@@ -5,25 +5,25 @@
 See: .planning/PROJECT.md (updated 2026-04-23)
 
 **Core value:** From one prompt, orchestrate parallel autonomous coding that lands on `main` without breaking it — live-steerable from a single TUI.
-**Current focus:** Phase 10 is complete — the next work is Phase 11 documentation and diagnostic tooling, starting with documenting the new planner-audit and proposal-review reader surfaces.
+**Current focus:** Phase 11 documentation and diagnostic tooling is underway, starting with 11-01: a read-only `gvc0 explain` CLI that reuses shipped state/view-model summaries for feature, task, and run diagnostics.
 
 ## Current Position
 
-Phase: 11 of 12 (Documentation & Diagnostic Tooling) next
-Plan: not started
-Status: Phase 10 is complete. The TUI now makes planner session intent explicit, exposes planner provenance through a read-only audit overlay, and exposes proposal scope/collision review through a dedicated read-only proposal-review overlay.
-Last activity: 2026-05-01 — Closed out 10-02 after landing `/proposal-review`, explicit collision surfacing, and collision truthfulness verification, with `npm run check` green.
+Phase: 11 of 12 (Documentation & Diagnostic Tooling)
+Plan: 11-01 ready to execute
+Status: Research and planning are complete for a pre-TUI `gvc0 explain` path backed by read-only compose/store helpers and shared summary builders.
+Last activity: 2026-05-01 — Wrote `11-RESEARCH.md` and `11-01-PLAN.md`, synced roadmap/state, and verified the planning slice with `npm run check`; 11-01 implementation is next.
 
-Progress: [██████████] 100% for Phase 10
+Progress: [----------] 0% for Phase 11
 
 ## Performance Metrics
 
 **Velocity:**
 - Total plans completed: 35
 - Phases completed: 10 of 12
-- Latest verification: 2026-05-01 — full green for Phase 10 closeout (`npm run check`), with focused green for `npm run typecheck`, `npx vitest run test/unit/tui/commands.test.ts test/unit/tui/view-model.test.ts`, and `npx vitest run test/integration/feature-phase-agent-flow.test.ts`
+- Latest verification: 2026-05-01 — Phase 11 planning slice green on `npm run check` (`format:check`, `lint`, `typecheck`, and `vitest run`: 1948 passed, 3 skipped)
 
-**Recent Trend:** Phase 10 is complete: planner session intent, planner provenance, proposal scope, and collision side effects are now all directly inspectable in the TUI. The next phase can focus on documentation and diagnostic tooling instead of operator-visibility gaps.
+**Recent Trend:** Phase 10 closed the operator-visibility gap inside the TUI, and Phase 11 is now shifting that clarity into read-only diagnostics and documentation truthfulness, starting with a pre-TUI `gvc0 explain` CLI.
 
 *Updated after each plan completion.*
 
@@ -44,7 +44,8 @@ Full decision log lives in PROJECT.md Key Decisions table. Highlights from initi
 
 ### Pending Todos
 
-- Research, plan, and execute Phase 10 re-plan flows and manual edits polish: planner session picker, continue-vs-fresh UX, audit-log reader, proposal preview, and collision-surface polish.
+- Execute Phase 11 plan 11-01: add a pre-TUI `gvc0 explain` CLI for feature/task/run diagnostics using read-only compose/store helpers and shared state/view-model summaries.
+- After 11-01 lands, plan and execute 11-02 doc-vs-code drift checks/state-diagram consolidation and 11-03 concerns-to-tests mapping plus newcomer narrative docs.
 
 ### Blockers/Concerns
 
@@ -66,6 +67,6 @@ Full decision log lives in PROJECT.md Key Decisions table. Highlights from initi
 
 ## Session Continuity
 
-Last session: 2026-05-01 — Phase 10 plan 10-01 is complete and committed, including the planner-session picker, audit reader, overlay surface, and summary artifact.
-Stopped at: begin 10-02 proposal preview and collision-surface work, then verify and commit that slice with `.planning`.
-Resume file: continue under `.planning/phases/10-re-plan-flows-and-manual-edits-polish/`.
+Last session: 2026-05-01 — Phase 11 research and 11-01 planning are complete and verified for the read-only `gvc0 explain` CLI slice.
+Stopped at: begin 11-01 implementation for the pre-TUI `gvc0 explain` path and shared text-summary reuse.
+Resume file: continue under `.planning/phases/11-documentation-diagnostic-tooling/11-01-PLAN.md`.
