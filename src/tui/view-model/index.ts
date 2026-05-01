@@ -214,7 +214,9 @@ export class TuiViewModelBuilder {
         `work: ${feature.workControl}`,
         `collab: ${feature.collabControl}`,
         ...(featureBlocked && currentRun !== undefined
-          ? [`wait: ${currentRun.runStatus}`]
+          ? [
+              `wait: ${describeFeatureBlockedReason(featureBlocked, currentRun)}`,
+            ]
           : []),
         ...(summaryAvailability === 'unavailable'
           ? []
@@ -559,19 +561,42 @@ function phaseForFeatureWorkControl(
   }
 }
 
-function deriveFeatureBlocked(run: AgentRun | undefined, now: number): boolean {
+type FeatureBlockedReason =
+  | { kind: 'await_response' }
+  | { kind: 'await_approval' }
+  | { kind: 'retry_await' }
+  | { kind: 'failed' };
+
+function deriveFeatureBlocked(
+  run: AgentRun | undefined,
+  now: number,
+): FeatureBlockedReason | undefined {
   if (run === undefined) {
-    return false;
+    return undefined;
   }
-
-  if (
-    run.runStatus === 'await_response' ||
-    run.runStatus === 'await_approval'
-  ) {
-    return true;
+  if (run.runStatus === 'await_response') {
+    return { kind: 'await_response' };
   }
+  if (run.runStatus === 'await_approval') {
+    return { kind: 'await_approval' };
+  }
+  if (run.runStatus === 'retry_await' && (run.retryAt ?? now + 1) > now) {
+    return { kind: 'retry_await' };
+  }
+  if (run.runStatus === 'failed') {
+    return { kind: 'failed' };
+  }
+  return undefined;
+}
 
-  return run.runStatus === 'retry_await' && (run.retryAt ?? now + 1) > now;
+function describeFeatureBlockedReason(
+  reason: FeatureBlockedReason,
+  run: AgentRun,
+): string {
+  if (reason.kind === 'failed') {
+    return 'failed (see inbox)';
+  }
+  return run.runStatus;
 }
 
 function iconForTask(
@@ -606,7 +631,11 @@ function iconForFeature(
   run: AgentRun | undefined,
   now: number,
 ): string {
-  if (deriveFeatureBlocked(run, now)) {
+  const blocked = deriveFeatureBlocked(run, now);
+  if (blocked) {
+    if (blocked.kind === 'failed') {
+      return '✗';
+    }
     return '⏸';
   }
   return iconForDerivedStatus(status);

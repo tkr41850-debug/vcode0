@@ -134,6 +134,46 @@ describe('TuiViewModelBuilder', () => {
     expect(featureNode?.meta).toContain('wait: await_approval');
   });
 
+  it('marks failed feature-phase runs with the failed icon and inbox hint', () => {
+    const builder = new TuiViewModelBuilder();
+    const nodes = flattenDagNodes(
+      builder.buildMilestoneTree(
+        [makeMilestone()],
+        [makeFeature({ workControl: 'planning', collabControl: 'none' })],
+        [],
+        [makeFeatureRun({ runStatus: 'failed' })],
+        100,
+      ),
+    );
+
+    const featureNode = nodes.find((node) => node.id === 'f-1');
+    expect(featureNode).toMatchObject({
+      id: 'f-1',
+      displayStatus: 'blocked',
+      icon: '✗',
+      runStatus: 'failed',
+    });
+    expect(featureNode?.meta).toContain('wait: failed (see inbox)');
+  });
+
+  it('keeps running feature-phase rendering unchanged when not blocked or failed', () => {
+    const builder = new TuiViewModelBuilder();
+    const nodes = flattenDagNodes(
+      builder.buildMilestoneTree(
+        [makeMilestone()],
+        [makeFeature({ workControl: 'planning', collabControl: 'none' })],
+        [],
+        [makeFeatureRun({ runStatus: 'running' })],
+        100,
+      ),
+    );
+
+    const featureNode = nodes.find((node) => node.id === 'f-1');
+    expect(featureNode?.icon).toBe('⟳');
+    expect(featureNode?.displayStatus).not.toBe('blocked');
+    expect(featureNode?.meta?.some((m) => m.startsWith('wait:'))).toBe(false);
+  });
+
   it('builds task interaction composer status', () => {
     const builder = new TuiViewModelBuilder();
 
