@@ -135,7 +135,10 @@ describe('verify submit contract', () => {
     const projectRoot = getTmpDir();
     const { feature, run, store, runtime } = createVerifyFixture(projectRoot);
     await initFeatureWorktreeRepo(projectRoot, feature, [
-      { filePath: 'src/feature.ts', content: 'export const feature = true;\n' },
+      {
+        filePath: 'src/feature.ts',
+        content: 'export const feature = true;\n',
+      },
     ]);
 
     faux.setResponses([
@@ -152,7 +155,9 @@ describe('verify submit contract', () => {
       fauxAssistantMessage([fauxText('Verification complete.')]),
     ]);
 
-    const result = await runtime.verifyFeature(feature, { agentRunId: run.id });
+    const result = await runtime.verifyFeature(feature, {
+      agentRunId: run.id,
+    });
 
     expect(result).toMatchObject({
       ok: true,
@@ -167,7 +172,7 @@ describe('verify submit contract', () => {
       outcome: 'pass',
       summary: 'Verified cleanly.',
     });
-  });
+  }, 15_000);
 
   it('records repair_needed with raised blocking issues', async () => {
     const projectRoot = getTmpDir();

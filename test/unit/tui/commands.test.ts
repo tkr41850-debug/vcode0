@@ -51,6 +51,7 @@ function createDataSource(taskRun?: TaskAgentRun) {
     snapshot: () => ({ milestones: [], features: [], tasks: [] }),
     listAgentRuns: () => [],
     listInboxItems: vi.fn(() => []),
+    listPlannerAuditEntries: vi.fn(() => []),
     getConfig: vi.fn(() => config),
     updateConfig: vi.fn(async (nextConfig: GvcConfig) => {
       config = nextConfig;

@@ -15,10 +15,38 @@ import type { ApprovalDecision, HelpResponse } from '@runtime/contracts';
 import type { InitializeProjectCommand } from '@tui/commands/index';
 import type { WorkerCountsViewModel } from '@tui/view-model/index';
 
+export type PlannerAuditAction =
+  | 'requested'
+  | 'prompt_recorded'
+  | 'rerun_requested'
+  | 'applied'
+  | 'rejected'
+  | 'apply_failed'
+  | 'collision_resolved';
+
+export interface PlannerAuditEntry {
+  ts: number;
+  action: PlannerAuditAction;
+  prompt?: string;
+  sessionMode?: PlannerSessionMode;
+  runId?: string;
+  sessionId?: string;
+  previousSessionId?: string;
+  featureIds: FeatureId[];
+  milestoneIds: MilestoneId[];
+  collisionCount: number;
+  detail?: string;
+}
+
+export interface PlannerAuditQuery {
+  featureId?: FeatureId;
+}
+
 export interface TuiAppDeps {
   snapshot(): GraphSnapshot;
   listAgentRuns(): AgentRun[];
   listInboxItems(query?: InboxQuery): InboxItemRecord[];
+  listPlannerAuditEntries(query?: PlannerAuditQuery): PlannerAuditEntry[];
   getConfig(): GvcConfig;
   updateConfig(nextConfig: GvcConfig): Promise<GvcConfig>;
   getWorkerCounts(): WorkerCountsViewModel;

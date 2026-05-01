@@ -9,6 +9,7 @@ import { resolveTaskWorktreeBranch, worktreePath } from '@core/naming/index';
 import type {
   AgentRun,
   AppMode,
+  EventRecord,
   FeatureId,
   MilestoneId,
   PlannerSessionMode,
@@ -53,6 +54,7 @@ import {
   type WorktreeProvisioner,
 } from '@runtime/worktree/index';
 import { TuiApp } from '@tui/app';
+import type { PlannerAuditEntry, PlannerAuditQuery } from '@tui/app-deps';
 
 const DEFAULT_MODEL_ID = 'claude-sonnet-4-6';
 
@@ -742,6 +744,191 @@ export async function keepOrphanWorktree(
   return `Kept orphan worktree ${payload.branch}.`;
 }
 
+const TOP_PLANNER_ENTITY_ID = 'top-planner';
+
+function normalizePlannerAuditIds<T extends string>(
+  value: unknown,
+  prefix: string,
+): T[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter(
+      (entry): entry is T =>
+        typeof entry === 'string' && entry.startsWith(prefix),
+    )
+    .sort((left, right) => left.localeCompare(right));
+}
+
+function readPlannerSessionMode(
+  value: unknown,
+): PlannerSessionMode | undefined {
+  return value === 'continue' || value === 'fresh' ? value : undefined;
+}
+
+function plannerAuditCollisionCount(value: unknown): number {
+  return Array.isArray(value) ? value.length : 0;
+}
+
+function readPlannerAuditMetadata(
+  value: unknown,
+): Omit<PlannerAuditEntry, 'ts' | 'action' | 'detail'> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    return {
+      featureIds: [],
+      milestoneIds: [],
+      collisionCount: 0,
+    };
+  }
+
+  const record = value as Record<string, unknown>;
+  const sessionMode = readPlannerSessionMode(record.sessionMode);
+  return {
+    ...(typeof record.prompt === 'string' ? { prompt: record.prompt } : {}),
+    ...(sessionMode !== undefined ? { sessionMode } : {}),
+    ...(typeof record.runId === 'string' ? { runId: record.runId } : {}),
+    ...(typeof record.sessionId === 'string'
+      ? { sessionId: record.sessionId }
+      : {}),
+    ...(typeof record.previousSessionId === 'string'
+      ? { previousSessionId: record.previousSessionId }
+      : {}),
+    featureIds: normalizePlannerAuditIds<FeatureId>(record.featureIds, 'f-'),
+    milestoneIds: normalizePlannerAuditIds<MilestoneId>(
+      record.milestoneIds,
+      'm-',
+    ),
+    collisionCount: plannerAuditCollisionCount(record.collidedFeatureRuns),
+  };
+}
+
+function plannerAuditDetail(
+  payload: Record<string, unknown> | undefined,
+): string | undefined {
+  if (payload === undefined) {
+    return undefined;
+  }
+  if (typeof payload.summary === 'string') {
+    return payload.summary;
+  }
+  if (typeof payload.comment === 'string') {
+    return payload.comment;
+  }
+  if (typeof payload.error === 'string') {
+    return payload.error;
+  }
+  return undefined;
+}
+
+function readPlannerAuditEntry(
+  event: EventRecord,
+): PlannerAuditEntry | undefined {
+  if (event.entityId !== TOP_PLANNER_ENTITY_ID) {
+    return undefined;
+  }
+
+  const payload = event.payload;
+  switch (event.eventType) {
+    case 'top_planner_requested': {
+      const sessionMode = readPlannerSessionMode(payload?.sessionMode);
+      return {
+        ts: event.timestamp,
+        action: 'requested',
+        ...(typeof payload?.prompt === 'string'
+          ? { prompt: payload.prompt }
+          : {}),
+        ...(sessionMode !== undefined ? { sessionMode } : {}),
+        featureIds: [],
+        milestoneIds: [],
+        collisionCount: 0,
+      };
+    }
+    case 'top_planner_prompt_recorded':
+      return {
+        ts: event.timestamp,
+        action: 'prompt_recorded',
+        ...readPlannerAuditMetadata(payload),
+      };
+    case 'proposal_rerun_requested': {
+      const sessionMode = readPlannerSessionMode(payload?.sessionMode);
+      const detail = plannerAuditDetail(payload);
+      return {
+        ts: event.timestamp,
+        action: 'rerun_requested',
+        ...(sessionMode !== undefined ? { sessionMode } : {}),
+        ...(detail !== undefined ? { detail } : {}),
+        featureIds: [],
+        milestoneIds: [],
+        collisionCount: 0,
+      };
+    }
+    case 'proposal_applied':
+    case 'proposal_rejected':
+    case 'proposal_apply_failed': {
+      const detail = plannerAuditDetail(payload);
+      return {
+        ts: event.timestamp,
+        action:
+          event.eventType === 'proposal_applied'
+            ? 'applied'
+            : event.eventType === 'proposal_rejected'
+              ? 'rejected'
+              : 'apply_failed',
+        ...(detail !== undefined ? { detail } : {}),
+        ...readPlannerAuditMetadata(payload?.extra),
+      };
+    }
+    case 'proposal_collision_resolved': {
+      const collisionCount = plannerAuditCollisionCount(
+        payload?.collidedFeatureRuns,
+      );
+      return {
+        ts: event.timestamp,
+        action: 'collision_resolved',
+        featureIds: normalizePlannerAuditIds<FeatureId>(
+          payload?.featureIds,
+          'f-',
+        ),
+        milestoneIds: [],
+        collisionCount,
+        ...(collisionCount > 0
+          ? {
+              detail:
+                collisionCount === 1
+                  ? 'resolved 1 collided planner run'
+                  : `resolved ${collisionCount} collided planner runs`,
+            }
+          : {}),
+      };
+    }
+    default:
+      return undefined;
+  }
+}
+
+export function listPlannerAuditEntries(
+  store: Pick<OrchestratorPorts['store'], 'listEvents'>,
+  query?: PlannerAuditQuery,
+): PlannerAuditEntry[] {
+  return store
+    .listEvents({ entityId: TOP_PLANNER_ENTITY_ID })
+    .map((event) => readPlannerAuditEntry(event))
+    .filter((entry): entry is PlannerAuditEntry => entry !== undefined)
+    .filter((entry) =>
+      query?.featureId === undefined
+        ? true
+        : entry.featureIds.includes(query.featureId),
+    )
+    .sort((left, right) => {
+      if (left.ts !== right.ts) {
+        return right.ts - left.ts;
+      }
+      return left.action.localeCompare(right.action);
+    });
+}
+
 export async function composeApplication(): Promise<GvcApplication> {
   const projectRoot = process.cwd();
   await ensureRuntimeDirs(projectRoot);
@@ -771,6 +958,7 @@ export async function composeApplication(): Promise<GvcApplication> {
         ...(query ?? {}),
         unresolvedOnly: true,
       }),
+    listPlannerAuditEntries: (query) => listPlannerAuditEntries(store, query),
     getConfig: () => config,
     updateConfig: (nextConfig) =>
       applyConfigUpdate(configSource, config, nextConfig, {

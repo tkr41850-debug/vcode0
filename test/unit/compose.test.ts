@@ -27,6 +27,7 @@ import {
   initializeProjectGraph,
   inspectOrphanWorktree,
   keepOrphanWorktree,
+  listPlannerAuditEntries,
   respondToInboxHelp,
   summarizeApprovalPayload,
 } from '@root/compose';
@@ -197,6 +198,262 @@ describe('compose helpers', () => {
       'Approve destructive step',
       'Delete generated cache files',
       'Switch to fallback task order',
+    ]);
+  });
+
+  it('normalizes top-planner audit events and filters by touched feature ids', () => {
+    const store = new InMemoryStore();
+
+    store.appendEvent({
+      eventType: 'top_planner_requested',
+      entityId: 'top-planner',
+      timestamp: 10,
+      payload: {
+        prompt: 'Plan the next milestone slice',
+        sessionMode: 'fresh',
+      },
+    });
+    store.appendEvent({
+      eventType: 'top_planner_prompt_recorded',
+      entityId: 'top-planner',
+      timestamp: 20,
+      payload: {
+        prompt: 'Plan the next milestone slice',
+        sessionMode: 'fresh',
+        runId: 'run-top-planner',
+        sessionId: 'sess-top-1',
+        previousSessionId: 'sess-top-0',
+        featureIds: ['f-1'],
+        milestoneIds: ['m-1'],
+        collidedFeatureRuns: [
+          {
+            featureId: 'f-1',
+            runId: 'run-feature:f-1:plan',
+            phase: 'plan',
+            runStatus: 'await_approval',
+          },
+        ],
+      },
+    });
+    store.appendEvent({
+      eventType: 'proposal_rerun_requested',
+      entityId: 'top-planner',
+      timestamp: 30,
+      payload: {
+        phase: 'plan',
+        sessionMode: 'continue',
+        summary: 'keep the prior thread',
+      },
+    });
+    store.appendEvent({
+      eventType: 'proposal_collision_resolved',
+      entityId: 'top-planner',
+      timestamp: 40,
+      payload: {
+        phase: 'plan',
+        featureIds: ['f-1'],
+        collidedFeatureRuns: [
+          {
+            featureId: 'f-1',
+            runId: 'run-feature:f-1:plan',
+            phase: 'plan',
+            runStatus: 'await_approval',
+          },
+        ],
+        resolvedFeatureRuns: [
+          {
+            featureId: 'f-1',
+            runId: 'run-feature:f-1:plan',
+            phase: 'plan',
+            previousSessionId: 'sess-feature-1',
+          },
+        ],
+      },
+    });
+    store.appendEvent({
+      eventType: 'proposal_applied',
+      entityId: 'top-planner',
+      timestamp: 50,
+      payload: {
+        phase: 'plan',
+        summary: '1 applied, 0 skipped, 0 warnings',
+        extra: {
+          prompt: 'Plan the next milestone slice',
+          sessionMode: 'continue',
+          runId: 'run-top-planner',
+          sessionId: 'sess-top-1',
+          previousSessionId: 'sess-top-0',
+          featureIds: ['f-1', 'f-2'],
+          milestoneIds: ['m-1'],
+          collidedFeatureRuns: [
+            {
+              featureId: 'f-1',
+              runId: 'run-feature:f-1:plan',
+              phase: 'plan',
+              runStatus: 'await_approval',
+            },
+          ],
+        },
+      },
+    });
+    store.appendEvent({
+      eventType: 'proposal_rejected',
+      entityId: 'top-planner',
+      timestamp: 60,
+      payload: {
+        phase: 'plan',
+        comment: 'keep the feature-local proposal',
+        extra: {
+          prompt: 'Rebalance the milestone plan',
+          sessionMode: 'fresh',
+          runId: 'run-top-planner',
+          sessionId: 'sess-top-2',
+          featureIds: ['f-2'],
+          milestoneIds: [],
+          collidedFeatureRuns: [],
+        },
+      },
+    });
+    store.appendEvent({
+      eventType: 'proposal_apply_failed',
+      entityId: 'top-planner',
+      timestamp: 70,
+      payload: {
+        phase: 'plan',
+        error: 'proposal payload missing from agent run',
+        extra: {
+          prompt: 'Recover the planner state',
+          sessionMode: 'fresh',
+          runId: 'run-top-planner',
+          sessionId: 'sess-top-3',
+          featureIds: ['f-3'],
+          milestoneIds: ['m-2'],
+          collidedFeatureRuns: [],
+        },
+      },
+    });
+    store.appendEvent({
+      eventType: 'proposal_applied',
+      entityId: 'f-1',
+      timestamp: 999,
+      payload: {
+        phase: 'plan',
+        summary: 'ignored non-top-planner event',
+      },
+    });
+
+    expect(listPlannerAuditEntries(store)).toEqual([
+      {
+        ts: 70,
+        action: 'apply_failed',
+        prompt: 'Recover the planner state',
+        sessionMode: 'fresh',
+        runId: 'run-top-planner',
+        sessionId: 'sess-top-3',
+        featureIds: ['f-3'],
+        milestoneIds: ['m-2'],
+        collisionCount: 0,
+        detail: 'proposal payload missing from agent run',
+      },
+      {
+        ts: 60,
+        action: 'rejected',
+        prompt: 'Rebalance the milestone plan',
+        sessionMode: 'fresh',
+        runId: 'run-top-planner',
+        sessionId: 'sess-top-2',
+        featureIds: ['f-2'],
+        milestoneIds: [],
+        collisionCount: 0,
+        detail: 'keep the feature-local proposal',
+      },
+      {
+        ts: 50,
+        action: 'applied',
+        prompt: 'Plan the next milestone slice',
+        sessionMode: 'continue',
+        runId: 'run-top-planner',
+        sessionId: 'sess-top-1',
+        previousSessionId: 'sess-top-0',
+        featureIds: ['f-1', 'f-2'],
+        milestoneIds: ['m-1'],
+        collisionCount: 1,
+        detail: '1 applied, 0 skipped, 0 warnings',
+      },
+      {
+        ts: 40,
+        action: 'collision_resolved',
+        featureIds: ['f-1'],
+        milestoneIds: [],
+        collisionCount: 1,
+        detail: 'resolved 1 collided planner run',
+      },
+      {
+        ts: 30,
+        action: 'rerun_requested',
+        sessionMode: 'continue',
+        featureIds: [],
+        milestoneIds: [],
+        collisionCount: 0,
+        detail: 'keep the prior thread',
+      },
+      {
+        ts: 20,
+        action: 'prompt_recorded',
+        prompt: 'Plan the next milestone slice',
+        sessionMode: 'fresh',
+        runId: 'run-top-planner',
+        sessionId: 'sess-top-1',
+        previousSessionId: 'sess-top-0',
+        featureIds: ['f-1'],
+        milestoneIds: ['m-1'],
+        collisionCount: 1,
+      },
+      {
+        ts: 10,
+        action: 'requested',
+        prompt: 'Plan the next milestone slice',
+        sessionMode: 'fresh',
+        featureIds: [],
+        milestoneIds: [],
+        collisionCount: 0,
+      },
+    ]);
+
+    expect(listPlannerAuditEntries(store, { featureId: 'f-1' })).toEqual([
+      {
+        ts: 50,
+        action: 'applied',
+        prompt: 'Plan the next milestone slice',
+        sessionMode: 'continue',
+        runId: 'run-top-planner',
+        sessionId: 'sess-top-1',
+        previousSessionId: 'sess-top-0',
+        featureIds: ['f-1', 'f-2'],
+        milestoneIds: ['m-1'],
+        collisionCount: 1,
+        detail: '1 applied, 0 skipped, 0 warnings',
+      },
+      {
+        ts: 40,
+        action: 'collision_resolved',
+        featureIds: ['f-1'],
+        milestoneIds: [],
+        collisionCount: 1,
+        detail: 'resolved 1 collided planner run',
+      },
+      {
+        ts: 20,
+        action: 'prompt_recorded',
+        prompt: 'Plan the next milestone slice',
+        sessionMode: 'fresh',
+        runId: 'run-top-planner',
+        sessionId: 'sess-top-1',
+        previousSessionId: 'sess-top-0',
+        featureIds: ['f-1'],
+        milestoneIds: ['m-1'],
+        collisionCount: 1,
+      },
     ]);
   });
 
