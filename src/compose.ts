@@ -5,7 +5,7 @@ import { PiFeatureAgentRuntime, promptLibrary } from '@agents';
 import { type ApplicationLifecycle, GvcApplication } from '@app/index';
 import { ALL_AGENT_ROLES, type GvcConfig, JsonConfigLoader } from '@config';
 import type { FeatureGraph } from '@core/graph/index';
-import { resolveTaskWorktreeBranch } from '@core/naming/index';
+import { resolveTaskWorktreeBranch, worktreePath } from '@core/naming/index';
 import type {
   AgentRun,
   AppMode,
@@ -68,6 +68,14 @@ interface RecoverySummaryInboxPayload {
   restartedRuns: number;
   attentionRuns: number;
   orphanTaskWorktrees: number;
+}
+
+type StartupRecoveryOrphanWorktreeSource =
+  StartupRecoverySummarySource['orphanTaskWorktrees'][number];
+
+interface OrphanWorktreeInboxPayload
+  extends StartupRecoveryOrphanWorktreeSource {
+  equivalenceKey: string;
 }
 
 interface LiveConfigDeps {
@@ -190,6 +198,49 @@ function appendRecoverySummaryInboxItem(
   });
 }
 
+function buildOrphanWorktreeEquivalenceKey(
+  payload: Pick<OrphanWorktreeInboxPayload, 'branch' | 'path'>,
+): string {
+  return `orphan_worktree:${payload.branch}:${payload.path}`;
+}
+
+function buildOrphanWorktreeInboxPayload(
+  orphan: StartupRecoveryOrphanWorktreeSource,
+): OrphanWorktreeInboxPayload {
+  return {
+    ...orphan,
+    equivalenceKey: buildOrphanWorktreeEquivalenceKey(orphan),
+  };
+}
+
+function appendOrphanWorktreeInboxItems(
+  store: Pick<OrchestratorPorts['store'], 'appendInboxItem' | 'listInboxItems'>,
+  report: StartupRecoverySummarySource,
+): void {
+  const existingKeys = new Set(
+    store
+      .listInboxItems({ unresolvedOnly: true, kind: 'orphan_worktree' })
+      .map((item) => getInboxEquivalenceKey(item)),
+  );
+  const ts = Date.now();
+
+  for (const [index, orphan] of report.orphanTaskWorktrees.entries()) {
+    const payload = buildOrphanWorktreeInboxPayload(orphan);
+    if (existingKeys.has(payload.equivalenceKey)) {
+      continue;
+    }
+    existingKeys.add(payload.equivalenceKey);
+    store.appendInboxItem({
+      id: `inbox-orphan-worktree-${ts}-${index}`,
+      ts: ts + index,
+      taskId: orphan.taskId,
+      featureId: orphan.featureId,
+      kind: 'orphan_worktree',
+      payload,
+    });
+  }
+}
+
 type InboxResolutionStore = Pick<
   OrchestratorPorts['store'],
   'getAgentRun' | 'updateAgentRun' | 'listInboxItems' | 'resolveInboxItem'
@@ -221,7 +272,7 @@ type PersistedApprovalWaitPayload = ApprovalPayload & {
 };
 
 function getInboxItemById(
-  store: InboxResolutionStore,
+  store: Pick<OrchestratorPorts['store'], 'listInboxItems'>,
   inboxItemId: string,
 ): InboxItemRecord | undefined {
   return store.listInboxItems().find((item) => item.id === inboxItemId);
@@ -563,6 +614,117 @@ export async function decideInboxApproval(
       : `Approved ${formatResolvedTaskTargets(fanoutTaskIds)}.`;
 }
 
+function parseOrphanWorktreeInboxPayload(
+  payload: unknown,
+): OrphanWorktreeInboxPayload | undefined {
+  if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) {
+    return undefined;
+  }
+  const record = payload as Record<string, unknown>;
+  if (
+    typeof record.taskId !== 'string' ||
+    typeof record.featureId !== 'string' ||
+    typeof record.branch !== 'string' ||
+    typeof record.path !== 'string' ||
+    (record.ownerState !== 'dead' && record.ownerState !== 'absent') ||
+    typeof record.registered !== 'boolean' ||
+    typeof record.hasMetadataIndexLock !== 'boolean' ||
+    typeof record.equivalenceKey !== 'string'
+  ) {
+    return undefined;
+  }
+  return record as unknown as OrphanWorktreeInboxPayload;
+}
+
+function getOrphanWorktreeInboxRecord(
+  store: Pick<OrchestratorPorts['store'], 'listInboxItems'>,
+  inboxItemId: string,
+): { item: InboxItemRecord; payload: OrphanWorktreeInboxPayload } {
+  const item = getInboxItemById(store, inboxItemId);
+  if (item === undefined) {
+    throw new Error(`inbox item "${inboxItemId}" not found`);
+  }
+  if (item.resolution !== undefined) {
+    throw new Error(`inbox item "${inboxItemId}" is already resolved`);
+  }
+  if (item.kind !== 'orphan_worktree') {
+    throw new Error(`inbox item "${inboxItemId}" is not an orphan worktree item`);
+  }
+  const payload = parseOrphanWorktreeInboxPayload(item.payload);
+  if (payload === undefined) {
+    throw new Error(`inbox item "${inboxItemId}" has invalid orphan payload`);
+  }
+  return { item, payload };
+}
+
+function assertManagedOrphanWorktreePath(
+  projectRoot: string,
+  payload: OrphanWorktreeInboxPayload,
+): void {
+  const expectedPath = path.join(projectRoot, worktreePath(payload.branch));
+  if (path.normalize(payload.path) !== path.normalize(expectedPath)) {
+    throw new Error(`inbox item for ${payload.branch} does not point to a managed task worktree`);
+  }
+}
+
+function resolveOrphanWorktreeInboxItem(
+  store: Pick<OrchestratorPorts['store'], 'resolveInboxItem'>,
+  item: InboxItemRecord,
+  note: string,
+): void {
+  store.resolveInboxItem(item.id, {
+    kind: 'dismissed',
+    resolvedAt: Date.now(),
+    note,
+    ...(item.taskId !== undefined ? { fanoutTaskIds: [item.taskId] } : {}),
+  });
+}
+
+export async function cleanOrphanWorktree(
+  deps: {
+    store: Pick<OrchestratorPorts['store'], 'listInboxItems' | 'resolveInboxItem'>;
+    worktree: Pick<WorktreeProvisioner, 'removeWorktree'>;
+    projectRoot: string;
+  },
+  inboxItemId: string,
+): Promise<string> {
+  const { item, payload } = getOrphanWorktreeInboxRecord(deps.store, inboxItemId);
+  assertManagedOrphanWorktreePath(deps.projectRoot, payload);
+  await deps.worktree.removeWorktree(payload.branch);
+  resolveOrphanWorktreeInboxItem(
+    deps.store,
+    item,
+    `cleaned ${payload.branch}`,
+  );
+  return `Removed orphan worktree ${payload.branch}.`;
+}
+
+export async function inspectOrphanWorktree(
+  deps: {
+    store: Pick<OrchestratorPorts['store'], 'listInboxItems'>;
+    projectRoot: string;
+  },
+  inboxItemId: string,
+): Promise<string> {
+  const { payload } = getOrphanWorktreeInboxRecord(deps.store, inboxItemId);
+  assertManagedOrphanWorktreePath(deps.projectRoot, payload);
+  const relativePath = path.relative(deps.projectRoot, payload.path) || payload.path;
+  return `Orphan ${payload.branch} owner=${payload.ownerState} registered=${payload.registered ? 'yes' : 'no'} lock=${payload.hasMetadataIndexLock ? 'yes' : 'no'} path=${relativePath}`;
+}
+
+export async function keepOrphanWorktree(
+  deps: {
+    store: Pick<OrchestratorPorts['store'], 'listInboxItems' | 'resolveInboxItem'>;
+    projectRoot: string;
+  },
+  inboxItemId: string,
+): Promise<string> {
+  const { item, payload } = getOrphanWorktreeInboxRecord(deps.store, inboxItemId);
+  assertManagedOrphanWorktreePath(deps.projectRoot, payload);
+  resolveOrphanWorktreeInboxItem(deps.store, item, `kept ${payload.branch}`);
+  return `Kept orphan worktree ${payload.branch}.`;
+}
+
 export async function composeApplication(): Promise<GvcApplication> {
   const projectRoot = process.cwd();
   await ensureRuntimeDirs(projectRoot);
@@ -762,6 +924,12 @@ export async function composeApplication(): Promise<GvcApplication> {
         inboxItemId,
         decision,
       ),
+    cleanOrphanWorktree: (inboxItemId) =>
+      cleanOrphanWorktree({ store, worktree, projectRoot }, inboxItemId),
+    inspectOrphanWorktree: (inboxItemId) =>
+      inspectOrphanWorktree({ store, projectRoot }, inboxItemId),
+    keepOrphanWorktree: (inboxItemId) =>
+      keepOrphanWorktree({ store, projectRoot }, inboxItemId),
     respondToTaskHelp: async (taskId, response) => {
       const run = store.getAgentRun(`run-task:${taskId}`);
       if (run?.scopeType !== 'task') {
@@ -935,6 +1103,7 @@ export async function composeApplication(): Promise<GvcApplication> {
     start: async () => {
       const report = await recovery.recoverStartupState();
       appendRecoverySummaryInboxItem(store, report);
+      appendOrphanWorktreeInboxItems(store, report);
       await scheduler.run();
       ui.refresh();
     },

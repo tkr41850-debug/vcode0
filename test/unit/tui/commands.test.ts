@@ -82,6 +82,9 @@ function createDataSource(taskRun?: TaskAgentRun) {
     rerunTopPlannerProposal: vi.fn(),
     respondToInboxHelp: vi.fn(async () => 'help sent'),
     decideInboxApproval: vi.fn(async () => 'decision sent'),
+    cleanOrphanWorktree: vi.fn(async () => 'orphan cleaned'),
+    inspectOrphanWorktree: vi.fn(async () => 'orphan inspected'),
+    keepOrphanWorktree: vi.fn(async () => 'orphan kept'),
     respondToTaskHelp: vi.fn(async () => 'help sent'),
     decideTaskApproval: vi.fn(async () => 'decision sent'),
     sendTaskManualInput: vi.fn(async () => 'input sent'),
@@ -546,6 +549,45 @@ describe('buildComposerSlashCommands', () => {
 
     await expect(
       executeSlashCommand({
+        input: '/orphan-clean --id inbox-4',
+        commandContext: {} as never,
+        notice: undefined,
+        dataSource,
+        proposalController: { execute: vi.fn() } as never,
+        currentSelection: {},
+        setSelectedNodeId: vi.fn(),
+      }),
+    ).resolves.toBe('orphan cleaned');
+    expect(dataSource.cleanOrphanWorktree).toHaveBeenCalledWith('inbox-4');
+
+    await expect(
+      executeSlashCommand({
+        input: '/orphan-inspect --id inbox-5',
+        commandContext: {} as never,
+        notice: undefined,
+        dataSource,
+        proposalController: { execute: vi.fn() } as never,
+        currentSelection: {},
+        setSelectedNodeId: vi.fn(),
+      }),
+    ).resolves.toBe('orphan inspected');
+    expect(dataSource.inspectOrphanWorktree).toHaveBeenCalledWith('inbox-5');
+
+    await expect(
+      executeSlashCommand({
+        input: '/orphan-keep --id inbox-6',
+        commandContext: {} as never,
+        notice: undefined,
+        dataSource,
+        proposalController: { execute: vi.fn() } as never,
+        currentSelection: {},
+        setSelectedNodeId: vi.fn(),
+      }),
+    ).resolves.toBe('orphan kept');
+    expect(dataSource.keepOrphanWorktree).toHaveBeenCalledWith('inbox-6');
+
+    await expect(
+      executeSlashCommand({
         input: '/feature-abandon --feature f-2',
         commandContext: {} as never,
         notice: undefined,
@@ -660,6 +702,46 @@ describe('buildComposerSlashCommands', () => {
         setSelectedNodeId: vi.fn(),
       }),
     ).rejects.toThrow('retryCap must be a positive integer');
+  });
+
+  it('rejects orphan commands without inbox ids', async () => {
+    const dataSource = createDataSource();
+
+    await expect(
+      executeSlashCommand({
+        input: '/orphan-clean',
+        commandContext: {} as never,
+        notice: undefined,
+        dataSource,
+        proposalController: { execute: vi.fn() } as never,
+        currentSelection: {},
+        setSelectedNodeId: vi.fn(),
+      }),
+    ).rejects.toThrow('--id is required');
+
+    await expect(
+      executeSlashCommand({
+        input: '/orphan-inspect',
+        commandContext: {} as never,
+        notice: undefined,
+        dataSource,
+        proposalController: { execute: vi.fn() } as never,
+        currentSelection: {},
+        setSelectedNodeId: vi.fn(),
+      }),
+    ).rejects.toThrow('--id is required');
+
+    await expect(
+      executeSlashCommand({
+        input: '/orphan-keep',
+        commandContext: {} as never,
+        notice: undefined,
+        dataSource,
+        proposalController: { execute: vi.fn() } as never,
+        currentSelection: {},
+        setSelectedNodeId: vi.fn(),
+      }),
+    ).rejects.toThrow('--id is required');
   });
 
   it('rejects invalid merge-train position commands', async () => {

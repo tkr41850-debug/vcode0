@@ -775,6 +775,45 @@ export function buildComposerSlashCommands({
       },
     },
     {
+      name: 'orphan-clean',
+      description: 'Remove one orphan managed task worktree by inbox item id.',
+      getArgumentCompletions: (prefix) => {
+        return filterSuggestions(prefix, [
+          {
+            value: '--id ""',
+            label: 'id',
+            description: 'Orphan inbox item id',
+          },
+        ]);
+      },
+    },
+    {
+      name: 'orphan-inspect',
+      description: 'Inspect one orphan managed task worktree by inbox item id.',
+      getArgumentCompletions: (prefix) => {
+        return filterSuggestions(prefix, [
+          {
+            value: '--id ""',
+            label: 'id',
+            description: 'Orphan inbox item id',
+          },
+        ]);
+      },
+    },
+    {
+      name: 'orphan-keep',
+      description: 'Resolve one orphan managed task worktree without cleanup.',
+      getArgumentCompletions: (prefix) => {
+        return filterSuggestions(prefix, [
+          {
+            value: '--id ""',
+            label: 'id',
+            description: 'Orphan inbox item id',
+          },
+        ]);
+      },
+    },
+    {
       name: 'config-set',
       description: 'Persist and live-apply one config field update.',
       getArgumentCompletions: (prefix) => {

@@ -19,10 +19,13 @@ import {
   cancelFeatureRunWork,
   cancelTaskCleanWorktree,
   cancelTaskPreserveWorktree,
+  cleanOrphanWorktree,
   composeApplication,
   decideInboxApproval,
   formatWorkerOutput,
   initializeProjectGraph,
+  inspectOrphanWorktree,
+  keepOrphanWorktree,
   respondToInboxHelp,
   summarizeApprovalPayload,
 } from '@root/compose';
@@ -71,6 +74,48 @@ function makeConfig(overrides: Partial<GvcConfig> = {}): GvcConfig {
     tokenProfile: 'balanced',
     ...overrides,
   };
+}
+
+function appendOrphanInboxItem(
+  store: InMemoryStore,
+  projectRoot: string,
+  overrides: Partial<{
+    id: string;
+    taskId: string;
+    featureId: string;
+    branch: string;
+    ownerState: 'dead' | 'absent';
+    registered: boolean;
+    hasMetadataIndexLock: boolean;
+    path: string;
+    kind: string;
+    payload: unknown;
+  }> = {},
+): string {
+  const branch = overrides.branch ?? 'feat-f-1-task-t-1';
+  const payload =
+    overrides.payload ?? {
+      taskId: overrides.taskId ?? 't-1',
+      featureId: overrides.featureId ?? 'f-1',
+      branch,
+      path:
+        overrides.path ??
+        path.join(projectRoot, '.gvc0', 'worktrees', branch),
+      ownerState: overrides.ownerState ?? 'dead',
+      registered: overrides.registered ?? true,
+      hasMetadataIndexLock: overrides.hasMetadataIndexLock ?? false,
+      equivalenceKey: `orphan_worktree:${branch}:${overrides.path ?? path.join(projectRoot, '.gvc0', 'worktrees', branch)}`,
+    };
+  const id = overrides.id ?? 'inbox-orphan-1';
+  store.appendInboxItem({
+    id,
+    ts: 1,
+    taskId: overrides.taskId ?? 't-1',
+    featureId: overrides.featureId ?? 'f-1',
+    kind: overrides.kind ?? 'orphan_worktree',
+    payload,
+  });
+  return id;
 }
 
 describe('compose helpers', () => {
@@ -747,6 +792,110 @@ describe('compose helpers', () => {
       await fs.rm(tmpDir, { recursive: true, force: true });
     }
   });
+
+  it('cleans orphan worktrees and resolves their inbox items', async () => {
+    const tmpDir = await fs.mkdtemp(path.join('/tmp', 'compose-orphan-clean-'));
+    try {
+      const store = new InMemoryStore();
+      const inboxItemId = appendOrphanInboxItem(store, tmpDir);
+      const worktree = { removeWorktree: vi.fn(async () => {}) };
+
+      await expect(
+        cleanOrphanWorktree({ store, worktree, projectRoot: tmpDir }, inboxItemId),
+      ).resolves.toBe('Removed orphan worktree feat-f-1-task-t-1.');
+
+      expect(worktree.removeWorktree).toHaveBeenCalledWith('feat-f-1-task-t-1');
+      expect(store.listInboxItems({ kind: 'orphan_worktree' })[0]?.resolution).toEqual({
+        kind: 'dismissed',
+        resolvedAt: expect.any(Number),
+        note: 'cleaned feat-f-1-task-t-1',
+        fanoutTaskIds: ['t-1'],
+      });
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('inspects orphan worktrees without resolving their inbox items', async () => {
+    const tmpDir = await fs.mkdtemp(path.join('/tmp', 'compose-orphan-inspect-'));
+    try {
+      const store = new InMemoryStore();
+      const inboxItemId = appendOrphanInboxItem(store, tmpDir, {
+        ownerState: 'absent',
+        registered: false,
+        hasMetadataIndexLock: true,
+      });
+
+      await expect(
+        inspectOrphanWorktree({ store, projectRoot: tmpDir }, inboxItemId),
+      ).resolves.toBe(
+        'Orphan feat-f-1-task-t-1 owner=absent registered=no lock=yes path=.gvc0/worktrees/feat-f-1-task-t-1',
+      );
+      expect(
+        store.listInboxItems({ kind: 'orphan_worktree' })[0]?.resolution,
+      ).toBeUndefined();
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps orphan worktrees by resolving their inbox items without cleanup', async () => {
+    const tmpDir = await fs.mkdtemp(path.join('/tmp', 'compose-orphan-keep-'));
+    try {
+      const store = new InMemoryStore();
+      const inboxItemId = appendOrphanInboxItem(store, tmpDir);
+
+      await expect(
+        keepOrphanWorktree({ store, projectRoot: tmpDir }, inboxItemId),
+      ).resolves.toBe('Kept orphan worktree feat-f-1-task-t-1.');
+      expect(store.listInboxItems({ kind: 'orphan_worktree' })[0]?.resolution).toEqual({
+        kind: 'dismissed',
+        resolvedAt: expect.any(Number),
+        note: 'kept feat-f-1-task-t-1',
+        fanoutTaskIds: ['t-1'],
+      });
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects invalid orphan inbox payloads and mismatched kinds', async () => {
+    const tmpDir = await fs.mkdtemp(path.join('/tmp', 'compose-orphan-guards-'));
+    try {
+      const store = new InMemoryStore();
+      const wrongKindId = appendOrphanInboxItem(store, tmpDir, {
+        id: 'inbox-wrong-kind',
+        kind: 'agent_help',
+      });
+      const invalidPayloadId = appendOrphanInboxItem(store, tmpDir, {
+        id: 'inbox-invalid-payload',
+        payload: { branch: 'feat-f-1-task-t-1' },
+      });
+      const invalidPathId = appendOrphanInboxItem(store, tmpDir, {
+        id: 'inbox-invalid-path',
+        path: path.join(tmpDir, 'outside', 'feat-f-1-task-t-1'),
+      });
+      const worktree = { removeWorktree: vi.fn(async () => {}) };
+
+      await expect(
+        cleanOrphanWorktree({ store, worktree, projectRoot: tmpDir }, wrongKindId),
+      ).rejects.toThrow(
+        'inbox item "inbox-wrong-kind" is not an orphan worktree item',
+      );
+      await expect(
+        keepOrphanWorktree({ store, projectRoot: tmpDir }, invalidPayloadId),
+      ).rejects.toThrow(
+        'inbox item "inbox-invalid-payload" has invalid orphan payload',
+      );
+      await expect(
+        inspectOrphanWorktree({ store, projectRoot: tmpDir }, invalidPathId),
+      ).rejects.toThrow(
+        'inbox item for feat-f-1-task-t-1 does not point to a managed task worktree',
+      );
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('composeApplication', () => {
@@ -917,6 +1066,24 @@ describe('composeApplication', () => {
               restartedRuns: 1,
               attentionRuns: 0,
               orphanTaskWorktrees: 1,
+            },
+          }),
+        ]);
+        expect(store.listInboxItems({ kind: 'orphan_worktree' })).toEqual([
+          expect.objectContaining({
+            taskId: 't-1',
+            featureId: 'f-1',
+            kind: 'orphan_worktree',
+            payload: {
+              taskId: 't-1',
+              featureId: 'f-1',
+              branch: 'feat-task-t-1',
+              path: '/tmp/repo/.gvc0/worktrees/feat-task-t-1',
+              ownerState: 'dead',
+              registered: true,
+              hasMetadataIndexLock: false,
+              equivalenceKey:
+                'orphan_worktree:feat-task-t-1:/tmp/repo/.gvc0/worktrees/feat-task-t-1',
             },
           }),
         ]);

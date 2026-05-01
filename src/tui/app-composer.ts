@@ -202,6 +202,27 @@ export async function executeSlashCommand(params: {
           : { kind: 'reject' },
       );
     }
+    case 'orphan-clean': {
+      const inboxItemId = parsed.args.id;
+      if (typeof inboxItemId !== 'string' || inboxItemId.length === 0) {
+        throw new Error('--id is required');
+      }
+      return params.dataSource.cleanOrphanWorktree(inboxItemId);
+    }
+    case 'orphan-inspect': {
+      const inboxItemId = parsed.args.id;
+      if (typeof inboxItemId !== 'string' || inboxItemId.length === 0) {
+        throw new Error('--id is required');
+      }
+      return params.dataSource.inspectOrphanWorktree(inboxItemId);
+    }
+    case 'orphan-keep': {
+      const inboxItemId = parsed.args.id;
+      if (typeof inboxItemId !== 'string' || inboxItemId.length === 0) {
+        throw new Error('--id is required');
+      }
+      return params.dataSource.keepOrphanWorktree(inboxItemId);
+    }
     case 'merge-train-position': {
       const featureId = parsed.args.feature;
       if (typeof featureId !== 'string' || featureId.length === 0) {

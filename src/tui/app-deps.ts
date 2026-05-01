@@ -78,6 +78,9 @@ export interface TuiAppDeps {
       { kind: 'approved' } | { kind: 'reject' }
     >,
   ): Promise<string>;
+  cleanOrphanWorktree(inboxItemId: string): Promise<string>;
+  inspectOrphanWorktree(inboxItemId: string): Promise<string>;
+  keepOrphanWorktree(inboxItemId: string): Promise<string>;
   respondToTaskHelp(
     taskId: string,
     response: Extract<HelpResponse, { kind: 'answer' }>,
