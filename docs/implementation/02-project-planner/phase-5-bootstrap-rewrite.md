@@ -88,6 +88,7 @@ Review goals:
 2. Verify the existing-project path is unchanged.
 3. Verify compose forwards the bootstrap result to TUI init and `src/tui/app-composer.ts:169` stores `bootstrapResult` without dereferencing `featureId`.
 4. Verify Step 5.1's compose-level tests cover greenfield (fresh + persisted-but-empty) and existing-project paths.
+5. Review Step 5.1 surfaces only — `commands.test.ts`, `app-composer.test.ts`, and `smoke.test.ts` fixture migration is Step 5.2's review territory and is explicitly out of scope for this review.
 Word cap: 350.
 
 Commit: `feat(app/compose): bootstrap project-planner session on greenfield`

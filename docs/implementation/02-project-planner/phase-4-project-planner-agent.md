@@ -30,7 +30,7 @@ Scope:
     - conversation history persistence reuses the per-session file path
     - `await_approval` and apply CAS for project proposals
     - `ProposalRebaseReason` shape exported for phase-6-tui-mode to render
-    - milestone-reassignment patch field on `PlannerFeatureEditPatch` (or sibling `moveFeatureToMilestone` op)
+    - milestone-reassignment as a `milestoneId?` patch field on `PlannerFeatureEditPatch` (no sibling `moveFeatureToMilestone` op — patch route stays uniform)
   Out:
     - TUI mode and chat surface (phase-6-tui-mode)
     - bootstrap auto-spawn (phase-5-bootstrap-rewrite)
@@ -208,7 +208,7 @@ Tests (write first, expect red):
 Implementation (drive to GREEN):
 - `src/core/graph/types.ts` — add `graphVersion: number` to the persistent graph metadata; bump in the existing `applyGraphProposal` success path.
 - `src/agents/runtime.ts` (project-planner submit path) — capture the current `graphVersion` at submit time and persist it to `agent_runs.payload_json` alongside the proposal as `payload.baselineGraphVersion`.
-- `src/orchestrator/proposals/index.ts` — extend the apply path for project scope. Read `baselineGraphVersion` from the run's `payload_json`, compare to the live `graphVersion`, reject as a whole if mismatched. Define and export `ProposalRebaseReason` (for example `{ kind: 'stale-baseline' | 'running-tasks-affected', details: ... }`) — phase-6-tui-mode Step 6.4 consumes this shape.
+- `src/orchestrator/proposals/index.ts` — extend the apply path for project scope. Read `baselineGraphVersion` from the run's `payload_json`, compare to the live `graphVersion`, reject as a whole if mismatched. Define and export `ProposalRebaseReason` as a typed discriminated union — `{ kind: 'stale-baseline'; details: ... } | { kind: 'running-tasks-affected'; details: ... }`. The two `kind` values are pinned (not "for example") so phase-6-tui-mode Step 6.4 can branch exhaustively on them.
 - `src/orchestrator/proposals/running-tasks-affected.ts` (new) — shared helper detecting whether a proposal's removed/edited features have running runs. Single source of truth, also consumed by phase-6-tui-mode's TUI pre-flight.
 - `src/orchestrator/scheduler/events.ts` — route the approval-decision handler to project-scope apply when the run is project-scope.
 

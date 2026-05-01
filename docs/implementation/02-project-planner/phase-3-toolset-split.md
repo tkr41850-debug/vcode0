@@ -4,7 +4,7 @@ Status: drafting
 Verified state: as of main @ a5abfeae9b1e59ee53d8c850da7203fdc146521a on 2026-05-01
 Depends on: none
 Default verify: npm run check:fix && npm run check
-Phase exit: both commits land in order; `npm run verify` passes; plan/replan agent runs cannot reach topology tools at construction time; `editFeatureSpec` is a usable scope-safe spec-edit surface; `projectPlannerTools` is defined but not yet wired (`phase-4-project-planner-agent`); `discuss`/`research`/`verify`/`summarize`/`execute-task` construction is untouched; final review confirms no test/doc drift and no plan/replan callsite still uses the full combined toolset.
+Phase exit: both commits land in order; `npm run verify` passes; plan/replan agent runs cannot reach topology tools at construction time; `editFeatureSpec` is a usable scope-safe spec-edit surface; `createProjectPlannerToolset(host)` is defined but not yet wired (`phase-4-project-planner-agent`); `discuss`/`research`/`verify`/`summarize`/`execute-task` construction is untouched; final review confirms no test/doc drift and no plan/replan callsite still uses the full combined toolset.
 Doc-sweep deferred: docs/architecture/planner.md (toolset subsets are constructed per scope)
 
 ## Contract
@@ -88,8 +88,8 @@ Files (prod):
 
 Test (write first, expect red):
 
-- Write `featurePlanTools` exclusion test (no `addMilestone`/`addFeature`/`removeFeature`/full `editFeature`) and inclusion test (`editFeatureSpec`, `addTask`, `editTask`, `removeTask`, intra-feature `addDependency`/`removeDependency`, `setFeatureObjective`, `setFeatureDoD`, `submit`). Confirm RED — note this is a compile-RED (the new builder names, `editFeatureSpec` schema, and the scope-validation helpers do not exist yet), not an assertion-RED.
-- Write `projectPlannerTools` inclusion test (topology surface + full `editFeature`) plus exclusion test (no `addTask`/`editTask`/`removeTask`). Confirm RED.
+- Write `createFeaturePlanToolset(host)` exclusion test (no `addMilestone`/`addFeature`/`removeFeature`/full `editFeature`) and inclusion test (`editFeatureSpec`, `addTask`, `editTask`, `removeTask`, intra-feature `addDependency`/`removeDependency`, `setFeatureObjective`, `setFeatureDoD`, `submit`). Confirm RED — note this is a compile-RED (the new builder names, `editFeatureSpec` schema, and the scope-validation helpers do not exist yet), not an assertion-RED.
+- Write `createProjectPlannerToolset(host)` inclusion test (topology surface + full `editFeature`) plus exclusion test (no `addTask`/`editTask`/`removeTask`). Confirm RED.
 - Write `editFeatureSpec` shape tests: accepts `{ description, featureObjective, featureDoD }` patches; rejects `{ name }` with a clear error. Confirm RED. (`{ milestoneId }` rejection is deferred to `phase-4-project-planner-agent` — the field does not exist on `main`.)
 - Write scope-aware dependency tests: intra-feature `addDependency`/`removeDependency` reject feature→feature edges; cross-feature variants accept them and reject task→task edges. Confirm RED.
 - Write `buildProposalAgentToolset` routing test (scope discriminator selects correct builder; `request_help` presence governed by callback wiring across both scopes). Confirm RED.
@@ -110,11 +110,11 @@ Commit: `feat(agents/tools): introduce scoped planner toolset subsets`
 
 ---
 
-### 3.2 Wire `featurePlanTools` through plan/replan construction [risk: low, size: S]
+### 3.2 Wire `createFeaturePlanToolset` through plan/replan construction [risk: low, size: S]
 
 Approach: TDD (test-first, red-green-refactor)
 
-What: change `src/agents/runtime.ts` plan/replan construction (around `:417-434`) to attach `featurePlanTools` instead of the full combined toolset. The full combined set is no longer used by feature-scoped roles. Project-planner construction is added in `phase-4-project-planner-agent` (this phase leaves a stub or comment marker only). `discuss`, `research`, `verify`, `summarize` construction sites stay untouched — they already use `DefaultFeaturePhaseToolHost` with structured-submit tools.
+What: change `src/agents/runtime.ts` plan/replan construction (around `:417-434`) to attach the result of `createFeaturePlanToolset(host)` instead of the full combined toolset. The full combined set is no longer used by feature-scoped roles. Project-planner construction is added in `phase-4-project-planner-agent` (this phase leaves a stub or comment marker only). `discuss`, `research`, `verify`, `summarize` construction sites stay untouched — they already use `DefaultFeaturePhaseToolHost` with structured-submit tools.
 
 Files (test):
 
