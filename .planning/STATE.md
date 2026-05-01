@@ -5,14 +5,14 @@
 See: .planning/PROJECT.md (updated 2026-04-23)
 
 **Core value:** From one prompt, orchestrate parallel autonomous coding that lands on `main` without breaking it — live-steerable from a single TUI.
-**Current focus:** Phase 10 re-plan flows and manual edits polish is in progress — 10-02 now has the structured pending-proposal review model landed in TUI state, and the next work is the read-only proposal-review overlay plus richer collision surfacing.
+**Current focus:** Phase 10 re-plan flows and manual edits polish is in progress — 10-02 now has the read-only proposal-review overlay and explicit collision surfacing wired into the TUI, and the next work is closing the remaining 10-02 polish and summary artifacts.
 
 ## Current Position
 
 Phase: 10 of 12 (Re-plan Flows & Manual Edits Polish) in progress
 Plan: 10-02 next in Phase 10
 Status: Phase 10 is underway. Plan 10-01 is complete: the TUI now makes continue-vs-fresh planner session intent explicit and exposes planner provenance through a feature-aware read-only audit overlay. The next work is 10-02 proposal preview plus comprehensive collision surfacing.
-Last activity: 2026-05-01 — Closed out 10-01 with its summary artifact after landing the planner-session picker, normalized audit reader, and `/planner-audit` overlay, with verification green through `npm run check`.
+Last activity: 2026-05-01 — Landed the 10-02 proposal-review overlay slice with `/proposal-review`, explicit collision surfacing, and verified TUI model/component coverage green through `npm run check`.
 
 Progress: [██████████] 100% for Phase 9
 

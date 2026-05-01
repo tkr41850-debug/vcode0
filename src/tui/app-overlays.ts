@@ -13,6 +13,7 @@ import type {
   MergeTrainOverlay,
   PlannerAuditOverlay,
   PlannerSessionOverlay,
+  ProposalReviewOverlay,
   TaskTranscriptOverlay,
 } from '@tui/components/index';
 import type {
@@ -28,6 +29,7 @@ export interface OverlayState {
   helpHandle: OverlayHandle | undefined;
   inboxHandle: OverlayHandle | undefined;
   plannerAuditHandle: OverlayHandle | undefined;
+  proposalReviewHandle: OverlayHandle | undefined;
   mergeTrainHandle: OverlayHandle | undefined;
   configHandle: OverlayHandle | undefined;
   plannerSessionHandle: OverlayHandle | undefined;
@@ -45,6 +47,8 @@ export function hideAllOverlays(state: OverlayState): void {
   state.inboxHandle = undefined;
   state.plannerAuditHandle?.hide();
   state.plannerAuditHandle = undefined;
+  state.proposalReviewHandle?.hide();
+  state.proposalReviewHandle = undefined;
   state.mergeTrainHandle?.hide();
   state.mergeTrainHandle = undefined;
   state.configHandle?.hide();
@@ -62,6 +66,7 @@ export function hasVisibleOverlay(state: OverlayState): boolean {
     state.dependencyHandle !== undefined ||
     state.inboxHandle !== undefined ||
     state.plannerAuditHandle !== undefined ||
+    state.proposalReviewHandle !== undefined ||
     state.mergeTrainHandle !== undefined ||
     state.configHandle !== undefined ||
     state.plannerSessionHandle !== undefined ||
@@ -108,6 +113,13 @@ export function hideTopOverlay(params: {
     state.plannerAuditHandle.hide();
     state.plannerAuditHandle = undefined;
     setNotice('planner audit hidden');
+    refresh();
+    return true;
+  }
+  if (state.proposalReviewHandle !== undefined) {
+    state.proposalReviewHandle.hide();
+    state.proposalReviewHandle = undefined;
+    setNotice('proposal review hidden');
     refresh();
     return true;
   }
@@ -339,6 +351,73 @@ export function togglePlannerAuditOverlay(params: {
     anchor: 'center',
   });
   setNotice('planner audit shown');
+  refresh();
+}
+
+export function toggleProposalReviewOverlay(params: {
+  state: OverlayState;
+  tui: TUI;
+  proposalReviewOverlay: ProposalReviewOverlay;
+  viewModels: TuiViewModelBuilder;
+  pendingProposal:
+    | {
+        review: {
+          scopeType: 'feature_phase' | 'top_planner';
+          scopeId: string;
+          phase: 'plan' | 'replan';
+          prompt?: string;
+          sessionMode?: 'continue' | 'fresh';
+          runId: string;
+          sessionId?: string;
+          previousSessionId?: string;
+          featureIds: FeatureId[];
+          milestoneIds: MilestoneId[];
+          totalOps: number;
+          opSummaries: Array<{ kind: string; count: number }>;
+          changeSummary: string;
+          collisions: Array<{
+            featureId: FeatureId;
+            runId: string;
+            phase: 'plan' | 'replan';
+            runStatus: string;
+            sessionId?: string;
+            resetsSavedSession: boolean;
+          }>;
+          approvalNotice: string;
+          previewError?: string;
+        };
+        approvalHint?: string;
+      }
+    | undefined;
+  refresh: () => void;
+  setNotice: (notice: string) => void;
+}): void {
+  const {
+    state,
+    tui,
+    proposalReviewOverlay,
+    viewModels,
+    pendingProposal,
+    refresh,
+    setNotice,
+  } = params;
+  if (state.proposalReviewHandle !== undefined) {
+    state.proposalReviewHandle.hide();
+    state.proposalReviewHandle = undefined;
+    setNotice('proposal review hidden');
+    refresh();
+    return;
+  }
+
+  proposalReviewOverlay.setModel(
+    viewModels.buildProposalReview(pendingProposal),
+  );
+  state.proposalReviewHandle = tui.showOverlay(proposalReviewOverlay, {
+    width: '80%',
+    maxHeight: '55%',
+    anchor: 'center',
+  });
+  setNotice('proposal review shown');
   refresh();
 }
 

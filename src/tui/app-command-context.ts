@@ -13,6 +13,7 @@ interface CreateTuiCommandContextOptions {
   toggleHelp: () => void;
   toggleInbox: () => void;
   togglePlannerAudit: () => void;
+  toggleProposalReview: () => void;
   toggleMergeTrain: () => void;
   toggleTranscript: () => void;
   toggleConfig: () => void;
@@ -31,6 +32,7 @@ export function createTuiCommandContext({
   toggleHelp,
   toggleInbox,
   togglePlannerAudit,
+  toggleProposalReview,
   toggleMergeTrain,
   toggleTranscript,
   toggleConfig,
@@ -77,6 +79,9 @@ export function createTuiCommandContext({
     },
     togglePlannerAudit: () => {
       togglePlannerAudit();
+    },
+    toggleProposalReview: () => {
+      toggleProposalReview();
     },
     toggleMergeTrain: () => {
       toggleMergeTrain();

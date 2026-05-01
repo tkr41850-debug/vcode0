@@ -128,6 +128,18 @@ export interface PlannerAuditOverlayViewModel {
   emptyMessage: string;
 }
 
+export interface ProposalReviewCollisionViewModel {
+  summary: string;
+}
+
+export interface ProposalReviewOverlayViewModel {
+  title: string;
+  summaryLines: string[];
+  collisionTitle: string;
+  collisions: ProposalReviewCollisionViewModel[];
+  emptyMessage: string;
+}
+
 export interface MergeTrainItemViewModel {
   featureId: FeatureId;
   label: string;
@@ -534,6 +546,87 @@ export class TuiViewModelBuilder {
     };
   }
 
+  buildProposalReview(
+    input:
+      | {
+          review: {
+            scopeType: 'feature_phase' | 'top_planner';
+            scopeId: string;
+            phase: 'plan' | 'replan';
+            prompt?: string;
+            sessionMode?: 'continue' | 'fresh';
+            runId: string;
+            sessionId?: string;
+            previousSessionId?: string;
+            featureIds: FeatureId[];
+            milestoneIds: MilestoneId[];
+            totalOps: number;
+            opSummaries: Array<{ kind: string; count: number }>;
+            changeSummary: string;
+            collisions: Array<{
+              featureId: FeatureId;
+              runId: string;
+              phase: 'plan' | 'replan';
+              runStatus: string;
+              sessionId?: string;
+              resetsSavedSession: boolean;
+            }>;
+            approvalNotice: string;
+            previewError?: string;
+          };
+          approvalHint?: string;
+        }
+      | undefined,
+  ): ProposalReviewOverlayViewModel {
+    if (input === undefined) {
+      return {
+        title: ' Proposal Review [q/esc hide] ',
+        summaryLines: [],
+        collisionTitle: 'Collisions [0]',
+        collisions: [],
+        emptyMessage: 'No pending planner proposal selected.',
+      };
+    }
+
+    const { review } = input;
+    const target =
+      review.scopeType === 'top_planner' ? 'top-planner' : review.scopeId;
+
+    return {
+      title: ` Proposal Review [${target} ${review.phase}] [q/esc hide] `,
+      summaryLines: [
+        `proposal: ${target} (${review.scopeType.replace('_', ' ')})`,
+        ...(review.prompt !== undefined ? [`prompt: ${review.prompt}`] : []),
+        ...(review.sessionMode !== undefined
+          ? [`session mode: ${review.sessionMode}`]
+          : []),
+        `run: ${review.runId}`,
+        ...(review.sessionId !== undefined
+          ? [`session: ${review.sessionId}`]
+          : []),
+        ...(review.previousSessionId !== undefined
+          ? [`previous session: ${review.previousSessionId}`]
+          : []),
+        `features: ${joinScopeIds(review.featureIds)}`,
+        `milestones: ${joinScopeIds(review.milestoneIds)}`,
+        `ops: ${review.totalOps}${formatProposalOpSummary(review.opSummaries)}`,
+        `changes: ${review.changeSummary}`,
+        ...(input.approvalHint !== undefined
+          ? [`impact: ${input.approvalHint}`]
+          : []),
+        `approval: ${review.approvalNotice}`,
+        ...(review.previewError !== undefined
+          ? [`preview error: ${review.previewError}`]
+          : []),
+      ],
+      collisionTitle: `Collisions [${review.collisions.length}]`,
+      collisions: review.collisions.map((collision) => ({
+        summary: summarizeProposalCollision(collision),
+      })),
+      emptyMessage: 'No pending planner proposal selected.',
+    };
+  }
+
   buildMergeTrain(features: Feature[]): MergeTrainOverlayViewModel {
     const integrating = features
       .filter((feature) => feature.collabControl === 'integrating')
@@ -814,6 +907,42 @@ function summarizePlannerAuditEntry(entry: {
       : []),
   ];
   return parts.join(' · ');
+}
+
+function summarizeProposalCollision(collision: {
+  featureId: FeatureId;
+  runId: string;
+  phase: 'plan' | 'replan';
+  runStatus: string;
+  sessionId?: string;
+  resetsSavedSession: boolean;
+}): string {
+  return [
+    `${collision.featureId} ${collision.phase}`,
+    `run=${collision.runId}`,
+    `status=${collision.runStatus}`,
+    ...(collision.sessionId !== undefined
+      ? [`session=${collision.sessionId}`]
+      : []),
+    collision.resetsSavedSession
+      ? 'saved session resets on accept'
+      : 'no saved session to reset',
+  ].join(' · ');
+}
+
+function joinScopeIds(values: readonly string[]): string {
+  return values.length === 0 ? 'none' : values.join(', ');
+}
+
+function formatProposalOpSummary(
+  opSummaries: ReadonlyArray<{ kind: string; count: number }>,
+): string {
+  if (opSummaries.length === 0) {
+    return '';
+  }
+  return ` (${opSummaries
+    .map((summary) => `${summary.kind}×${summary.count}`)
+    .join(', ')})`;
 }
 
 function formatAuditTimestamp(ts: number): string {

@@ -477,6 +477,7 @@ describe('buildComposerSlashCommands', () => {
     const dataSource = createDataSource();
     const toggleInbox = vi.fn();
     const togglePlannerAudit = vi.fn();
+    const toggleProposalReview = vi.fn();
     const toggleTranscript = vi.fn();
     const toggleMergeTrain = vi.fn();
     const toggleConfig = vi.fn();
@@ -506,6 +507,19 @@ describe('buildComposerSlashCommands', () => {
       }),
     ).resolves.toBe('toggled planner audit');
     expect(togglePlannerAudit).toHaveBeenCalledTimes(1);
+
+    await expect(
+      executeSlashCommand({
+        input: '/proposal-review',
+        commandContext: { toggleProposalReview } as never,
+        notice: undefined,
+        dataSource,
+        proposalController: { execute: vi.fn() } as never,
+        currentSelection: {},
+        setSelectedNodeId: vi.fn(),
+      }),
+    ).resolves.toBe('toggled proposal review');
+    expect(toggleProposalReview).toHaveBeenCalledTimes(1);
 
     await expect(
       executeSlashCommand({
@@ -858,6 +872,7 @@ describe('tui overlay helpers', () => {
         dependencyHandle: undefined,
         inboxHandle: undefined,
         plannerAuditHandle: undefined,
+        proposalReviewHandle: undefined,
         mergeTrainHandle: undefined,
         configHandle: undefined,
         plannerSessionHandle: undefined,

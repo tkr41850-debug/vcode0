@@ -28,6 +28,7 @@ import {
   MergeTrainOverlay,
   PlannerAuditOverlay,
   PlannerSessionOverlay,
+  ProposalReviewOverlay,
   StatusBar,
   TaskTranscriptOverlay,
 } from '@tui/components/index';
@@ -58,6 +59,7 @@ import {
   toggleInboxOverlay,
   toggleMergeTrainOverlay,
   togglePlannerAuditOverlay,
+  toggleProposalReviewOverlay,
   toggleTranscriptOverlay,
 } from './app-overlays.js';
 import {
@@ -100,6 +102,7 @@ export class TuiApp implements UiPort {
   private readonly dependencyOverlay = new DependencyDetailOverlay();
   private readonly inboxOverlay = new InboxOverlay();
   private readonly plannerAuditOverlay = new PlannerAuditOverlay();
+  private readonly proposalReviewOverlay = new ProposalReviewOverlay();
   private readonly mergeTrainOverlay = new MergeTrainOverlay();
   private readonly configOverlay = new ConfigOverlay();
   private readonly plannerSessionOverlay = new PlannerSessionOverlay();
@@ -114,6 +117,7 @@ export class TuiApp implements UiPort {
     helpHandle: undefined,
     inboxHandle: undefined,
     plannerAuditHandle: undefined,
+    proposalReviewHandle: undefined,
     mergeTrainHandle: undefined,
     configHandle: undefined,
     plannerSessionHandle: undefined,
@@ -187,6 +191,7 @@ export class TuiApp implements UiPort {
       toggleHelp: () => this.toggleHelpOverlay(),
       toggleInbox: () => this.toggleInboxOverlay(),
       togglePlannerAudit: () => this.togglePlannerAuditOverlay(),
+      toggleProposalReview: () => this.toggleProposalReviewOverlay(),
       toggleMergeTrain: () => this.toggleMergeTrainOverlay(),
       toggleTranscript: () => this.toggleTranscriptOverlay(),
       toggleConfig: () => this.toggleConfigOverlay(),
@@ -360,6 +365,11 @@ export class TuiApp implements UiPort {
               entries: plannerAuditEntries,
               selectedFeatureId,
             }),
+      );
+    }
+    if (this.overlays.proposalReviewHandle !== undefined) {
+      this.proposalReviewOverlay.setModel(
+        this.viewModels.buildProposalReview(pendingProposal),
       );
     }
     if (this.overlays.mergeTrainHandle !== undefined) {
@@ -668,6 +678,28 @@ export class TuiApp implements UiPort {
           : { featureId: selectedFeatureId },
       ),
       selectedFeatureId,
+      refresh: () => this.refresh(),
+      setNotice: (notice) => {
+        this.notice = notice;
+      },
+    });
+  }
+
+  private toggleProposalReviewOverlay(): void {
+    const pendingProposal = pendingProposalForSelection({
+      draftState: this.proposalController.getDraftState(),
+      selectedFeatureId: this.selectedFeatureId(),
+      authoritativeSnapshot: this.deps.snapshot(),
+      getFeatureRun: (featureId, phase) =>
+        this.deps.getFeatureRun(featureId, phase),
+      getTopPlannerRun: () => this.deps.getTopPlannerRun(),
+    });
+    toggleProposalReviewOverlay({
+      state: this.overlays,
+      tui: this.tui,
+      proposalReviewOverlay: this.proposalReviewOverlay,
+      viewModels: this.viewModels,
+      pendingProposal,
       refresh: () => this.refresh(),
       setNotice: (notice) => {
         this.notice = notice;

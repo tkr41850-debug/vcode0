@@ -89,6 +89,9 @@ export async function executeSlashCommand(params: {
     case 'planner-audit':
       params.commandContext.togglePlannerAudit();
       return params.notice ?? 'toggled planner audit';
+    case 'proposal-review':
+      params.commandContext.toggleProposalReview();
+      return params.notice ?? 'toggled proposal review';
     case 'merge-train':
       params.commandContext.toggleMergeTrain();
       return params.notice ?? 'toggled merge train';

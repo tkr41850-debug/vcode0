@@ -1,5 +1,8 @@
-import { InMemoryFeatureGraph, type GraphSnapshot } from '@core/graph/index';
-import { applyGraphProposal, type GraphProposalOp } from '@core/proposals/index';
+import { type GraphSnapshot, InMemoryFeatureGraph } from '@core/graph/index';
+import {
+  applyGraphProposal,
+  type GraphProposalOp,
+} from '@core/proposals/index';
 import type {
   AgentRun,
   Feature,
@@ -275,9 +278,9 @@ function buildPendingProposalReview(
     run.scopeType === 'feature_phase' ? [run.scopeId] : [];
   const fallbackMilestoneIds =
     run.scopeType === 'feature_phase'
-      ? [featureFromSnapshot(authoritativeSnapshot, run.scopeId)?.milestoneId].filter(
-          (value): value is MilestoneId => value !== undefined,
-        )
+      ? [
+          featureFromSnapshot(authoritativeSnapshot, run.scopeId)?.milestoneId,
+        ].filter((value): value is MilestoneId => value !== undefined)
       : [];
   const approvalNotice = buildPendingProposalApprovalNotice(
     run.scopeType,
@@ -323,14 +326,14 @@ function buildPendingProposalReview(
         ? { previousSessionId: metadata.previousSessionId }
         : {}),
       featureIds:
-        metadata?.featureIds.length !== 0
-          ? metadata?.featureIds ?? []
+        metadata !== undefined && metadata.featureIds.length !== 0
+          ? metadata.featureIds
           : scope.featureIds.length !== 0
             ? scope.featureIds
             : fallbackFeatureIds,
       milestoneIds:
-        metadata?.milestoneIds.length !== 0
-          ? metadata?.milestoneIds ?? []
+        metadata !== undefined && metadata.milestoneIds.length !== 0
+          ? metadata.milestoneIds
           : scope.milestoneIds.length !== 0
             ? scope.milestoneIds
             : fallbackMilestoneIds,

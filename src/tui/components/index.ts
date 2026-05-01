@@ -15,6 +15,7 @@ import type {
   MergeTrainOverlayViewModel,
   PlannerAuditOverlayViewModel,
   PlannerSessionOverlayViewModel,
+  ProposalReviewOverlayViewModel,
   StatusBarViewModel,
   TaskTranscriptViewModel,
   WorkerLogViewModel,
@@ -411,6 +412,40 @@ export class PlannerAuditOverlay implements Component {
       this.model.items.length === 0
         ? [this.model.emptyMessage]
         : this.model.items.map((item) => item.summary);
+
+    return drawBox(this.model.title, body, safeWidth);
+  }
+
+  invalidate(): void {}
+}
+
+export class ProposalReviewOverlay implements Component {
+  private model: ProposalReviewOverlayViewModel = {
+    title: ' Proposal Review [q/esc hide] ',
+    summaryLines: [],
+    collisionTitle: 'Collisions [0]',
+    collisions: [],
+    emptyMessage: 'No pending planner proposal selected.',
+  };
+
+  setModel(model: ProposalReviewOverlayViewModel): void {
+    this.model = model;
+  }
+
+  render(width: number): string[] {
+    const safeWidth = Math.max(1, width);
+    if (this.model.summaryLines.length === 0) {
+      return drawBox(this.model.title, [this.model.emptyMessage], safeWidth);
+    }
+
+    const body = [
+      ...this.model.summaryLines,
+      '────────────────────',
+      this.model.collisionTitle,
+      ...(this.model.collisions.length === 0
+        ? ['No collided planner runs.']
+        : this.model.collisions.map((collision) => collision.summary)),
+    ];
 
     return drawBox(this.model.title, body, safeWidth);
   }

@@ -20,6 +20,7 @@ import {
   InboxOverlay,
   MergeTrainOverlay,
   PlannerSessionOverlay,
+  ProposalReviewOverlay,
   StatusBar,
   TaskTranscriptOverlay,
 } from '@tui/components/index';
@@ -317,6 +318,69 @@ describe('TuiViewModelBuilder', () => {
     expect(pending).toMatchObject({
       run: expect.objectContaining({ scopeType: 'top_planner', phase: 'plan' }),
       approvalHint: 'resets 2 planner runs',
+    });
+  });
+
+  it('builds proposal review overlay copy with collision summaries', () => {
+    const builder = new TuiViewModelBuilder();
+
+    expect(
+      builder.buildProposalReview({
+        review: {
+          scopeType: 'top_planner',
+          scopeId: 'top-planner',
+          phase: 'plan',
+          prompt: 'rebalance roadmap',
+          sessionMode: 'fresh',
+          runId: 'run-top-planner',
+          sessionId: 'sess-top',
+          previousSessionId: 'sess-prev',
+          featureIds: ['f-1', 'f-2'],
+          milestoneIds: ['m-1'],
+          totalOps: 3,
+          opSummaries: [
+            { kind: 'feature_add', count: 2 },
+            { kind: 'task_add', count: 1 },
+          ],
+          changeSummary: '2 features added, 1 task added',
+          collisions: [
+            {
+              featureId: 'f-1',
+              runId: 'run-feature:f-1:plan',
+              phase: 'plan',
+              runStatus: 'await_approval',
+              sessionId: 'sess-feature',
+              resetsSavedSession: true,
+            },
+          ],
+          approvalNotice: 'accept resets collided planner runs before apply',
+        },
+        approvalHint: 'resets 1 planner run',
+      }),
+    ).toEqual({
+      title: ' Proposal Review [top-planner plan] [q/esc hide] ',
+      summaryLines: [
+        'proposal: top-planner (top planner)',
+        'prompt: rebalance roadmap',
+        'session mode: fresh',
+        'run: run-top-planner',
+        'session: sess-top',
+        'previous session: sess-prev',
+        'features: f-1, f-2',
+        'milestones: m-1',
+        'ops: 3 (feature_add×2, task_add×1)',
+        'changes: 2 features added, 1 task added',
+        'impact: resets 1 planner run',
+        'approval: accept resets collided planner runs before apply',
+      ],
+      collisionTitle: 'Collisions [1]',
+      collisions: [
+        {
+          summary:
+            'f-1 plan · run=run-feature:f-1:plan · status=await_approval · session=sess-feature · saved session resets on accept',
+        },
+      ],
+      emptyMessage: 'No pending planner proposal selected.',
     });
   });
 
@@ -976,6 +1040,42 @@ describe('TUI components', () => {
     expect(populated).toContain('Use /planner-continue or /planner-fresh.');
   });
 
+  it('renders proposal review overlay summary, collisions, and empty state', () => {
+    const overlay = new ProposalReviewOverlay();
+    overlay.setModel({
+      title: ' Proposal Review [top-planner plan] [q/esc hide] ',
+      summaryLines: [
+        'proposal: top-planner (top planner)',
+        'approval: accept resets collided planner runs before apply',
+      ],
+      collisionTitle: 'Collisions [1]',
+      collisions: [
+        {
+          summary:
+            'f-1 plan · run=run-feature:f-1:plan · status=await_approval · saved session resets on accept',
+        },
+      ],
+      emptyMessage: 'No pending planner proposal selected.',
+    });
+
+    const populated = overlay.render(80).join('\n');
+    expect(populated).toContain('Proposal Review [top-planner plan]');
+    expect(populated).toContain('proposal: top-planner (top planner)');
+    expect(populated).toContain('Collisions [1]');
+    expect(populated).toContain('saved session');
+    expect(populated).toContain('resets on accept');
+
+    overlay.setModel({
+      title: ' Proposal Review [q/esc hide] ',
+      summaryLines: [],
+      collisionTitle: 'Collisions [0]',
+      collisions: [],
+      emptyMessage: 'No pending planner proposal selected.',
+    });
+    const empty = overlay.render(80).join('\n');
+    expect(empty).toContain('No pending planner proposal selected.');
+  });
+
   it('keeps rendered lines within requested width', () => {
     const statusBar = new StatusBar();
     statusBar.setModel({
@@ -1031,6 +1131,14 @@ describe('TUI components', () => {
     plannerSessionOverlay.setModel({
       lines: ['Use /planner-continue or /planner-fresh.'],
     });
+    const proposalReviewOverlay = new ProposalReviewOverlay();
+    proposalReviewOverlay.setModel({
+      title: ' Proposal Review [top-planner plan] [q/esc hide] ',
+      summaryLines: ['proposal: top-planner (top planner)'],
+      collisionTitle: 'Collisions [0]',
+      collisions: [],
+      emptyMessage: 'No pending planner proposal selected.',
+    });
     const transcriptOverlay = new TaskTranscriptOverlay();
     transcriptOverlay.setModel({
       taskId: 't-1',
@@ -1061,6 +1169,9 @@ describe('TUI components', () => {
         expect(visibleWidth(line)).toBeLessThanOrEqual(width);
       }
       for (const line of plannerSessionOverlay.render(width)) {
+        expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+      }
+      for (const line of proposalReviewOverlay.render(width)) {
         expect(visibleWidth(line)).toBeLessThanOrEqual(width);
       }
       for (const line of transcriptOverlay.render(width)) {
