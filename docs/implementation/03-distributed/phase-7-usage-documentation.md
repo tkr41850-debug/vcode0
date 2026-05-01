@@ -1,30 +1,28 @@
 # Phase 7 — End-user usage documentation
 
-Status: drafting
-Verified state: main @ 9b89e3a on 2026-05-01
-Depends on: phase-6-deployment-packaging (deployment topologies, env templates, systemd unit), phase-5-leases-and-recovery (lease semantics for drain / crash recovery copy), phase-4-remote-feature-phases (remote feature-phase semantics), phase-3-multi-worker-scheduling (worker panel rendering)
-Default verify: npm run check:fix && npm run check
-Phase exit verify: npm run verify
-Phase exit smoke: Have a fresh reader follow each of the three topology sections end-to-end on a clean checkout, without consulting another doc, and end up with a system they can submit work to.
-Doc-sweep deferred: none
+- Status: drafting
+- Verified state: main @ dac6449 on 2026-05-01
+- Depends on: phase-6-deployment-packaging (deployment topologies, env templates, systemd unit), phase-5-leases-and-recovery (lease semantics for drain / crash recovery copy), phase-4-remote-feature-phases (remote feature-phase semantics), phase-3-multi-worker-scheduling (worker panel rendering)
+- Default verify: npm run check:fix && npm run check
+- Phase exit verify: npm run verify
+- Phase exit smoke: Have a fresh reader follow each of the three topology sections end-to-end on a clean checkout, without consulting another doc, and end up with a system they can submit work to.
+- Doc-sweep deferred: none
 
 Ships as 1 commit.
 
 ## Contract
 
-Goal: ship `docs/usage.md` as the single setup-and-use entry point for the post-track system. A new operator who has never seen the codebase can clone the repo, pick one of the three deployment topologies that ship out of `phase-6-deployment-packaging`, get to a working orchestrator + worker, submit a feature, and watch it run — without reading any implementation plan or jumping across `docs/deployment/`, `docs/operations/`, and `docs/architecture/`.
-
-Scope:
-  In:
+- Goal: ship `docs/usage.md` as the single setup-and-use entry point for the post-track system. A new operator who has never seen the codebase can clone the repo, pick one of the three deployment topologies that ship out of `phase-6-deployment-packaging`, get to a working orchestrator + worker, submit a feature, and watch it run — without reading any implementation plan or jumping across `docs/deployment/`, `docs/operations/`, and `docs/architecture/`.
+- Scope:
+  - In:
     - Single `docs/usage.md` covering: topology selection, setup commands per topology, submitting a feature, monitoring, draining a worker, scaling, crash recovery basics, and pointers into the existing deployment + operations docs.
     - Cross-links from `docs/README.md` and the repo-root `README.md` so a fresh reader finds the doc by name.
-  Out:
+  - Out:
     - In-flight operational depth that already lives in `docs/operations/` (verification, conflict coordination, warnings, attach) — `usage.md` cross-links rather than duplicates.
     - Architecture explanation (`ARCHITECTURE.md` and `docs/architecture/` own this).
     - Tutorial-style guided onboarding (`your first feature graph`) — this is reference, not training.
     - Multi-orchestrator HA setup (the system does not support it; out of scope for this track per `phase-5-leases-and-recovery`).
-
-Exit criteria:
+- Exit criteria:
   - Single commit lands; phase-exit verify passes (markdown formatting only).
   - `docs/usage.md` exists and is reachable from `docs/README.md` and the repo-root `README.md`.
   - A fresh reader can follow any one of the three topology sections end-to-end without consulting another doc to get a working system (see phase-exit smoke).
@@ -32,9 +30,8 @@ Exit criteria:
 
 ## Plan
 
-Background: after `phase-6-deployment-packaging`, the system supports three deployment topologies — distributed (orchestrator + N WS workers), single-machine dual-process (orchestrator + one local `npm run worker` over localhost WS), and single-machine task-only (`distributed.enabled=false`, local-spawn task workers only, feature-phase agents unavailable). Operator knowledge currently spreads across `docs/deployment/worker-systemd.md` (production install: useradd, systemd, hardening — assumes the operator already knows what they want), `docs/operations/README.md` plus its sub-pages (in-flight behaviors only — assumes a running system), and the architecture docs. None of these is the front-of-house `how do I actually use this` entry point. The gap is choose-a-topology → concrete commands → working system.
-
-Notes: none.
+- Background: after `phase-6-deployment-packaging`, the system supports three deployment topologies — distributed (orchestrator + N WS workers), single-machine dual-process (orchestrator + one local `npm run worker` over localhost WS), and single-machine task-only (`distributed.enabled=false`, local-spawn task workers only, feature-phase agents unavailable). Operator knowledge currently spreads across `docs/deployment/worker-systemd.md` (production install: useradd, systemd, hardening — assumes the operator already knows what they want), `docs/operations/README.md` plus its sub-pages (in-flight behaviors only — assumes a running system), and the architecture docs. None of these is the front-of-house `how do I actually use this` entry point. The gap is choose-a-topology → concrete commands → working system.
+- Notes: none.
 
 ## Steps
 
@@ -69,8 +66,6 @@ Review goals (cap 350 words):
   5. Every cross-link resolves to an existing file. Flag any command that would not work as written.
 
 Commit: `docs(usage): single setup-and-use entry point for the distributed system`
-
-Rollback: revert. Doc-only, no schema or behavior to undo.
 
 ---
 Shipped in <SHA1>..<SHA1> on <YYYY-MM-DD>
