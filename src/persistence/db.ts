@@ -9,6 +9,7 @@ import { Migration008IntegrationPostRebaseSha } from '@persistence/migrations/00
 import { Migration009AgentRunHarnessMetadata } from '@persistence/migrations/009_agent_run_harness_metadata';
 import { Migration010InboxItems } from '@persistence/migrations/010_inbox_items';
 import { Migration011IpcQuarantine } from '@persistence/migrations/011_ipc_quarantine';
+import { Migration012GraphMeta } from '@persistence/migrations/012_graph_meta';
 import { MigrationRunner } from '@persistence/migrations/index';
 import Database from 'better-sqlite3';
 
@@ -35,6 +36,7 @@ export function openDatabase(path: string): Database.Database {
     Migration009AgentRunHarnessMetadata,
     Migration010InboxItems,
     Migration011IpcQuarantine,
+    Migration012GraphMeta,
   ]).run();
 
   return db;

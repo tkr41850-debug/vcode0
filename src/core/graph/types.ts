@@ -152,6 +152,16 @@ export interface FeatureGraph {
   readonly features: Map<FeatureId, Feature>;
   readonly tasks: Map<TaskId, Task>;
 
+  /**
+   * Monotonic counter incremented exactly once per `applyGraphProposal`
+   * invocation that applied at least one op. Used as a CAS baseline for
+   * project-scope proposal approval.
+   */
+  readonly graphVersion: number;
+
+  /** Bump `graphVersion` by one; called from `applyGraphProposal` on success. */
+  bumpGraphVersion(): void;
+
   snapshot(): GraphSnapshot;
   readyFeatures(): Feature[];
   readyTasks(): Task[];

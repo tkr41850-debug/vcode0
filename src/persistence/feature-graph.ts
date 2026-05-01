@@ -99,7 +99,32 @@ export class PersistentFeatureGraph implements FeatureGraph {
     private readonly now: () => number = Date.now,
   ) {
     this.statements = this.prepareStatements();
-    this.inner = new InMemoryFeatureGraph(this.loadSnapshot());
+    this.inner = new InMemoryFeatureGraph(
+      this.loadSnapshot(),
+      this.loadGraphVersion(),
+    );
+  }
+
+  // ---------- graphVersion ----------
+
+  get graphVersion(): number {
+    return this.inner.graphVersion;
+  }
+
+  bumpGraphVersion(): void {
+    this.inner.bumpGraphVersion();
+    this.db
+      .prepare('UPDATE graph_meta SET graph_version = ? WHERE id = 1')
+      .run(this.inner.graphVersion);
+  }
+
+  private loadGraphVersion(): number {
+    const row = this.db
+      .prepare<[], { graph_version: number }>(
+        'SELECT graph_version FROM graph_meta WHERE id = 1',
+      )
+      .get();
+    return row?.graph_version ?? 0;
   }
 
   // ---------- Delegated readonly map views ----------
@@ -236,6 +261,7 @@ export class PersistentFeatureGraph implements FeatureGraph {
 
   private mutate<T>(fn: () => T): T {
     const before = this.inner.snapshot();
+    const beforeVersion = this.inner.graphVersion;
 
     // If `fn` throws, the inner graph has already rejected the change and
     // SQL has not been touched, so we simply propagate the error.
@@ -248,7 +274,7 @@ export class PersistentFeatureGraph implements FeatureGraph {
         this.writeDiff(before, after);
       })();
     } catch (e) {
-      this.inner = new InMemoryFeatureGraph(before);
+      this.inner = new InMemoryFeatureGraph(before, beforeVersion);
       throw e;
     }
 

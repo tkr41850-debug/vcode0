@@ -99,6 +99,15 @@ export class InMemoryFeatureGraph
   private _taskSuccessors = new Map<TaskId, Set<TaskId>>();
   private _taskIdCounter = 0;
   private _inTick = 0;
+  private _graphVersion = 0;
+
+  get graphVersion(): number {
+    return this._graphVersion;
+  }
+
+  bumpGraphVersion(): void {
+    this._graphVersion += 1;
+  }
 
   __enterTick(): void {
     this._inTick += 1;
@@ -117,7 +126,8 @@ export class InMemoryFeatureGraph
     }
   }
 
-  constructor(initial?: GraphSnapshot) {
+  constructor(initial?: GraphSnapshot, initialGraphVersion = 0) {
+    this._graphVersion = initialGraphVersion;
     if (initial !== undefined) {
       for (const milestone of initial.milestones) {
         this.milestones.set(milestone.id, milestone);

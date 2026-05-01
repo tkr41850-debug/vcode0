@@ -6,11 +6,14 @@ import {
   type ProposalApplyResult,
 } from '@core/proposals/index';
 import type {
+  AgentRun,
   AgentRunPhase,
   FeatureId,
   ProposalPhaseDetails,
   Task,
 } from '@core/types/index';
+
+import { findRunningTasksAffected } from './running-tasks-affected.js';
 
 export type ProposalPhase = Extract<AgentRunPhase, 'plan' | 'replan'>;
 
@@ -90,6 +93,76 @@ export interface ProposalApprovalOutcome {
   cancelled: boolean;
   shouldAdvance: boolean;
   cancelReason?: 'empty_proposal';
+}
+
+/**
+ * Reason a project-scope proposal apply was rejected as a whole and the
+ * planner session should be re-opened with a refreshed snapshot. Pinned
+ * discriminated union — phase-6-tui-mode Step 6.4 branches exhaustively.
+ */
+export type ProposalRebaseReason =
+  | {
+      kind: 'stale-baseline';
+      details: { baseline: number; current: number };
+    }
+  | {
+      kind: 'running-tasks-affected';
+      details: { featureIds: FeatureId[] };
+    };
+
+export type ProjectProposalApplyOutcome =
+  | { kind: 'applied'; result: ProposalApplyResult }
+  | { kind: 'rebase'; reason: ProposalRebaseReason };
+
+/**
+ * Apply a project-scope proposal under a CAS gate against
+ * `graph.graphVersion`. Rejects as a whole on stale baseline or when any
+ * affected feature has a running task/feature_phase run.
+ */
+export function applyProjectProposal(input: {
+  graph: FeatureGraph;
+  proposal: GraphProposal;
+  baselineGraphVersion: number;
+  agentRuns: readonly AgentRun[];
+}): ProjectProposalApplyOutcome {
+  const { graph, proposal, baselineGraphVersion, agentRuns } = input;
+
+  if (graph.graphVersion !== baselineGraphVersion) {
+    return {
+      kind: 'rebase',
+      reason: {
+        kind: 'stale-baseline',
+        details: {
+          baseline: baselineGraphVersion,
+          current: graph.graphVersion,
+        },
+      },
+    };
+  }
+
+  const collisions = findRunningTasksAffected({
+    proposal,
+    agentRuns,
+    taskFeatureLookup: (taskId) =>
+      graph.tasks.get(taskId as `t-${string}`)?.featureId,
+  });
+  if (collisions.length > 0) {
+    return {
+      kind: 'rebase',
+      reason: {
+        kind: 'running-tasks-affected',
+        details: { featureIds: collisions },
+      },
+    };
+  }
+
+  graph.__enterTick();
+  try {
+    const result = applyGraphProposal(graph, proposal);
+    return { kind: 'applied', result };
+  } finally {
+    graph.__leaveTick();
+  }
 }
 
 export function approveFeatureProposal(

@@ -282,6 +282,10 @@ export function applyGraphProposal(
     }
   }
 
+  if (applied.length > 0) {
+    graph.bumpGraphVersion();
+  }
+
   return {
     proposal,
     applied,
