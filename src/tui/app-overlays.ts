@@ -1,6 +1,6 @@
 import type { GvcConfig } from '@config';
 import type { GraphSnapshot } from '@core/graph/index';
-import type { FeatureId, TaskId } from '@core/types/index';
+import type { FeatureId, MilestoneId, TaskId } from '@core/types/index';
 import type { OverlayHandle, TUI } from '@mariozechner/pi-tui';
 import type { InboxItemRecord } from '@orchestrator/ports/index';
 import type { TuiCommand, TuiKeybindHint } from '@tui/commands/index';
@@ -11,6 +11,7 @@ import type {
   HelpOverlay,
   InboxOverlay,
   MergeTrainOverlay,
+  PlannerAuditOverlay,
   PlannerSessionOverlay,
   TaskTranscriptOverlay,
 } from '@tui/components/index';
@@ -26,6 +27,7 @@ export interface OverlayState {
   dependencyHandle: OverlayHandle | undefined;
   helpHandle: OverlayHandle | undefined;
   inboxHandle: OverlayHandle | undefined;
+  plannerAuditHandle: OverlayHandle | undefined;
   mergeTrainHandle: OverlayHandle | undefined;
   configHandle: OverlayHandle | undefined;
   plannerSessionHandle: OverlayHandle | undefined;
@@ -41,6 +43,8 @@ export function hideAllOverlays(state: OverlayState): void {
   state.helpHandle = undefined;
   state.inboxHandle?.hide();
   state.inboxHandle = undefined;
+  state.plannerAuditHandle?.hide();
+  state.plannerAuditHandle = undefined;
   state.mergeTrainHandle?.hide();
   state.mergeTrainHandle = undefined;
   state.configHandle?.hide();
@@ -57,6 +61,7 @@ export function hasVisibleOverlay(state: OverlayState): boolean {
     state.monitorHandle !== undefined ||
     state.dependencyHandle !== undefined ||
     state.inboxHandle !== undefined ||
+    state.plannerAuditHandle !== undefined ||
     state.mergeTrainHandle !== undefined ||
     state.configHandle !== undefined ||
     state.plannerSessionHandle !== undefined ||
@@ -96,6 +101,13 @@ export function hideTopOverlay(params: {
     state.inboxHandle.hide();
     state.inboxHandle = undefined;
     setNotice('inbox hidden');
+    refresh();
+    return true;
+  }
+  if (state.plannerAuditHandle !== undefined) {
+    state.plannerAuditHandle.hide();
+    state.plannerAuditHandle = undefined;
+    setNotice('planner audit hidden');
     refresh();
     return true;
   }
@@ -266,6 +278,67 @@ export function toggleInboxOverlay(params: {
     anchor: 'center',
   });
   setNotice('inbox shown');
+  refresh();
+}
+
+export function togglePlannerAuditOverlay(params: {
+  state: OverlayState;
+  tui: TUI;
+  plannerAuditOverlay: PlannerAuditOverlay;
+  viewModels: TuiViewModelBuilder;
+  entries: Array<{
+    ts: number;
+    action:
+      | 'requested'
+      | 'prompt_recorded'
+      | 'rerun_requested'
+      | 'applied'
+      | 'rejected'
+      | 'apply_failed'
+      | 'collision_resolved';
+    prompt?: string;
+    sessionMode?: 'continue' | 'fresh';
+    runId?: string;
+    sessionId?: string;
+    previousSessionId?: string;
+    featureIds: FeatureId[];
+    milestoneIds: MilestoneId[];
+    collisionCount: number;
+    detail?: string;
+  }>;
+  selectedFeatureId: FeatureId | undefined;
+  refresh: () => void;
+  setNotice: (notice: string) => void;
+}): void {
+  const {
+    state,
+    tui,
+    plannerAuditOverlay,
+    viewModels,
+    entries,
+    selectedFeatureId,
+    refresh,
+    setNotice,
+  } = params;
+  if (state.plannerAuditHandle !== undefined) {
+    state.plannerAuditHandle.hide();
+    state.plannerAuditHandle = undefined;
+    setNotice('planner audit hidden');
+    refresh();
+    return;
+  }
+
+  plannerAuditOverlay.setModel(
+    selectedFeatureId === undefined
+      ? viewModels.buildPlannerAudit({ entries })
+      : viewModels.buildPlannerAudit({ entries, selectedFeatureId }),
+  );
+  state.plannerAuditHandle = tui.showOverlay(plannerAuditOverlay, {
+    width: '80%',
+    maxHeight: '50%',
+    anchor: 'center',
+  });
+  setNotice('planner audit shown');
   refresh();
 }
 

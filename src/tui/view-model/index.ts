@@ -118,6 +118,16 @@ export interface PlannerSessionOverlayViewModel {
   lines: string[];
 }
 
+export interface PlannerAuditItemViewModel {
+  summary: string;
+}
+
+export interface PlannerAuditOverlayViewModel {
+  title: string;
+  items: PlannerAuditItemViewModel[];
+  emptyMessage: string;
+}
+
 export interface MergeTrainItemViewModel {
   featureId: FeatureId;
   label: string;
@@ -486,6 +496,44 @@ export class TuiViewModelBuilder {
     };
   }
 
+  buildPlannerAudit(input: {
+    entries: Array<{
+      ts: number;
+      action:
+        | 'requested'
+        | 'prompt_recorded'
+        | 'rerun_requested'
+        | 'applied'
+        | 'rejected'
+        | 'apply_failed'
+        | 'collision_resolved';
+      prompt?: string;
+      sessionMode?: 'continue' | 'fresh';
+      runId?: string;
+      sessionId?: string;
+      previousSessionId?: string;
+      featureIds: FeatureId[];
+      milestoneIds: MilestoneId[];
+      collisionCount: number;
+      detail?: string;
+    }>;
+    selectedFeatureId?: FeatureId;
+  }): PlannerAuditOverlayViewModel {
+    return {
+      title:
+        input.selectedFeatureId === undefined
+          ? ` Planner Audit [${input.entries.length} entries] [q/esc hide] `
+          : ` Planner Audit [${input.selectedFeatureId}, ${input.entries.length} entries] [q/esc hide] `,
+      items: input.entries.map((entry) => ({
+        summary: summarizePlannerAuditEntry(entry),
+      })),
+      emptyMessage:
+        input.selectedFeatureId === undefined
+          ? 'No planner audit entries yet.'
+          : `No planner audit entries for ${input.selectedFeatureId}.`,
+    };
+  }
+
   buildMergeTrain(features: Feature[]): MergeTrainOverlayViewModel {
     const integrating = features
       .filter((feature) => feature.collabControl === 'integrating')
@@ -720,6 +768,56 @@ function summarizeTaskWaitPayload(
 
 function truncateDetail(value: string): string {
   return value.length <= 48 ? value : `${value.slice(0, 45)}...`;
+}
+
+function summarizePlannerAuditEntry(entry: {
+  ts: number;
+  action:
+    | 'requested'
+    | 'prompt_recorded'
+    | 'rerun_requested'
+    | 'applied'
+    | 'rejected'
+    | 'apply_failed'
+    | 'collision_resolved';
+  prompt?: string;
+  sessionMode?: 'continue' | 'fresh';
+  runId?: string;
+  sessionId?: string;
+  previousSessionId?: string;
+  featureIds: FeatureId[];
+  milestoneIds: MilestoneId[];
+  collisionCount: number;
+  detail?: string;
+}): string {
+  const parts = [
+    formatAuditTimestamp(entry.ts),
+    entry.action.replaceAll('_', ' '),
+    ...(entry.sessionMode !== undefined ? [`mode=${entry.sessionMode}`] : []),
+    ...(entry.sessionId !== undefined ? [`session=${entry.sessionId}`] : []),
+    ...(entry.previousSessionId !== undefined
+      ? [`prev=${entry.previousSessionId}`]
+      : []),
+    ...(entry.runId !== undefined ? [`run=${entry.runId}`] : []),
+    ...(entry.featureIds.length > 0
+      ? [`features=${entry.featureIds.join(',')}`]
+      : []),
+    ...(entry.milestoneIds.length > 0
+      ? [`milestones=${entry.milestoneIds.join(',')}`]
+      : []),
+    ...(entry.collisionCount > 0 ? [`collisions=${entry.collisionCount}`] : []),
+    ...(entry.prompt !== undefined
+      ? [`prompt=${truncateDetail(entry.prompt)}`]
+      : []),
+    ...(entry.detail !== undefined
+      ? [`detail=${truncateDetail(entry.detail)}`]
+      : []),
+  ];
+  return parts.join(' · ');
+}
+
+function formatAuditTimestamp(ts: number): string {
+  return new Date(ts).toISOString().slice(0, 16).replace('T', ' ');
 }
 
 function summarizeInboxItem(item: InboxItemRecord): string {

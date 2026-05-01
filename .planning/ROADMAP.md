@@ -19,7 +19,7 @@ gvc0's v1 journey is **completing and clarifying** an existing design rather tha
 - [x] **Phase 7: Top-Level Planner + Inbox + Pause/Resume** — Prompt-to-feature-DAG; unified inbox; two-tier pause; additive re-plan; two-planner collision handling. ✓ 2026-04-28 (5/5 plans, verification green; top-level planner session audit, checkpointed waits, and collision reset/rerun semantics shipped)
 - [x] **Phase 8: TUI Surfaces** — Four-surface TUI (feature DAG, inbox, merge-train, task transcript), manual DAG editing, three cancel levers, config editor menu. ✓ 2026-04-29 (5/5 plans, verification green on focused runtime/TUI/scheduler-boundary lanes and `npm run check`; separate `@microsoft/tui-test` smoke lane still blocked by the pre-existing workerpool `SIGSEGV` crash across all eight smoke tests.)
 - [x] **Phase 9: Crash Recovery UX** — Seamless auto-resume, orphan-worktree triage, stale-lock sweep, recovery-summary inbox item. ✓ 2026-05-01 (3/3 plans; startup recovery substrate, truthful respawn/replay handling, recovery-summary inbox surfacing, orphan-worktree triage commands, and real-file restart proof shipped with focused verification green.)
-- [ ] **Phase 10: Re-plan Flows & Manual Edits Polish** — Continue-vs-fresh planner session picker, audit-log reader, proposal preview, collision-surface polish. Active phase; 10-01 now has a normalized event-backed planner-audit reader exposed through compose/TUI deps, and the remaining work in the slice is the read-only audit overlay.
+- [ ] **Phase 10: Re-plan Flows & Manual Edits Polish** — Continue-vs-fresh planner session picker, audit-log reader, proposal preview, collision-surface polish. Active phase; 10-01 now exposes the planner-audit reader end-to-end through the TUI with a read-only overlay and `/planner-audit` command, and the next slice is 10-02 proposal preview plus collision-surface polish.
 - [ ] **Phase 11: Documentation & Diagnostic Tooling** — `gvc0 explain` CLI, canonical diagrams matched to shipped code, concerns-to-tests map, newcomer narrative.
 - [ ] **Phase 12: Integration & Polish** — End-to-end scenarios, verify-agent flake-rate audit, TUI e2e smoke tests, source-install runbook.
 
@@ -257,4 +257,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 
 ---
 *Roadmap created: 2026-04-23*
-*Last updated: 2026-05-01 — Phase 10 is active. Plan 10-01 now has a normalized event-backed planner-audit reader exposed through compose/TUI deps; the remaining work in this slice is the read-only audit overlay, and focused compose/TUI verification is green for the helper step.*
+*Last updated: 2026-05-01 — Phase 10 is active. Plan 10-01 now exposes planner-audit history end-to-end through the TUI with a read-only overlay and `/planner-audit` command; focused typecheck and TUI verification are green, and the next slice is 10-02 proposal-preview/collision polish.*

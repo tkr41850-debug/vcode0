@@ -473,9 +473,10 @@ describe('buildComposerSlashCommands', () => {
     );
   });
 
-  it('routes inbox, transcript, merge-train, config, and feature-abandon commands through runtime controls', async () => {
+  it('routes inbox, planner-audit, transcript, merge-train, config, and feature-abandon commands through runtime controls', async () => {
     const dataSource = createDataSource();
     const toggleInbox = vi.fn();
+    const togglePlannerAudit = vi.fn();
     const toggleTranscript = vi.fn();
     const toggleMergeTrain = vi.fn();
     const toggleConfig = vi.fn();
@@ -492,6 +493,19 @@ describe('buildComposerSlashCommands', () => {
       }),
     ).resolves.toBe('toggled inbox');
     expect(toggleInbox).toHaveBeenCalledTimes(1);
+
+    await expect(
+      executeSlashCommand({
+        input: '/planner-audit',
+        commandContext: { togglePlannerAudit } as never,
+        notice: undefined,
+        dataSource,
+        proposalController: { execute: vi.fn() } as never,
+        currentSelection: {},
+        setSelectedNodeId: vi.fn(),
+      }),
+    ).resolves.toBe('toggled planner audit');
+    expect(togglePlannerAudit).toHaveBeenCalledTimes(1);
 
     await expect(
       executeSlashCommand({
@@ -843,6 +857,7 @@ describe('tui overlay helpers', () => {
         monitorHandle: undefined,
         dependencyHandle: undefined,
         inboxHandle: undefined,
+        plannerAuditHandle: undefined,
         mergeTrainHandle: undefined,
         configHandle: undefined,
         plannerSessionHandle: undefined,

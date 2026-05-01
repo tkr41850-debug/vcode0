@@ -86,6 +86,9 @@ export async function executeSlashCommand(params: {
     case 'inbox':
       params.commandContext.toggleInbox();
       return params.notice ?? 'toggled inbox';
+    case 'planner-audit':
+      params.commandContext.togglePlannerAudit();
+      return params.notice ?? 'toggled planner audit';
     case 'merge-train':
       params.commandContext.toggleMergeTrain();
       return params.notice ?? 'toggled merge train';

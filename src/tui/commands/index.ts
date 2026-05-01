@@ -61,6 +61,7 @@ export interface TuiCommandContext {
   selectNextWorker(): void;
   toggleHelp(): void;
   toggleInbox(): void;
+  togglePlannerAudit(): void;
   toggleMergeTrain(): void;
   toggleTranscript(): void;
   toggleConfig(): void;
@@ -414,6 +415,7 @@ export function buildComposerSlashCommands({
     staticSlashCommand('worker-next', 'Cycle active worker selection.'),
     staticSlashCommand('help', 'Show keyboard help.'),
     staticSlashCommand('inbox', 'Show or hide inbox overlay.'),
+    staticSlashCommand('planner-audit', 'Show or hide planner audit overlay.'),
     staticSlashCommand('merge-train', 'Show or hide merge-train overlay.'),
     staticSlashCommand('transcript', 'Show or hide task transcript overlay.'),
     staticSlashCommand('config', 'Show or hide config overlay.'),

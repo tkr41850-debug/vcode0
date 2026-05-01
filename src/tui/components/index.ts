@@ -13,6 +13,7 @@ import type {
   EmptyStateViewModel,
   InboxOverlayViewModel,
   MergeTrainOverlayViewModel,
+  PlannerAuditOverlayViewModel,
   PlannerSessionOverlayViewModel,
   StatusBarViewModel,
   TaskTranscriptViewModel,
@@ -388,6 +389,30 @@ export class InboxOverlay implements Component {
       body,
       safeWidth,
     );
+  }
+
+  invalidate(): void {}
+}
+
+export class PlannerAuditOverlay implements Component {
+  private model: PlannerAuditOverlayViewModel = {
+    title: ' Planner Audit [q/esc hide] ',
+    items: [],
+    emptyMessage: 'No planner audit entries yet.',
+  };
+
+  setModel(model: PlannerAuditOverlayViewModel): void {
+    this.model = model;
+  }
+
+  render(width: number): string[] {
+    const safeWidth = Math.max(1, width);
+    const body =
+      this.model.items.length === 0
+        ? [this.model.emptyMessage]
+        : this.model.items.map((item) => item.summary);
+
+    return drawBox(this.model.title, body, safeWidth);
   }
 
   invalidate(): void {}

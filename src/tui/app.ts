@@ -26,6 +26,7 @@ import {
   HelpOverlay,
   InboxOverlay,
   MergeTrainOverlay,
+  PlannerAuditOverlay,
   PlannerSessionOverlay,
   StatusBar,
   TaskTranscriptOverlay,
@@ -56,6 +57,7 @@ import {
   toggleHelpOverlay,
   toggleInboxOverlay,
   toggleMergeTrainOverlay,
+  togglePlannerAuditOverlay,
   toggleTranscriptOverlay,
 } from './app-overlays.js';
 import {
@@ -97,6 +99,7 @@ export class TuiApp implements UiPort {
   private readonly monitorOverlay = new AgentMonitorOverlay();
   private readonly dependencyOverlay = new DependencyDetailOverlay();
   private readonly inboxOverlay = new InboxOverlay();
+  private readonly plannerAuditOverlay = new PlannerAuditOverlay();
   private readonly mergeTrainOverlay = new MergeTrainOverlay();
   private readonly configOverlay = new ConfigOverlay();
   private readonly plannerSessionOverlay = new PlannerSessionOverlay();
@@ -110,6 +113,7 @@ export class TuiApp implements UiPort {
     dependencyHandle: undefined,
     helpHandle: undefined,
     inboxHandle: undefined,
+    plannerAuditHandle: undefined,
     mergeTrainHandle: undefined,
     configHandle: undefined,
     plannerSessionHandle: undefined,
@@ -182,6 +186,7 @@ export class TuiApp implements UiPort {
       toggleAgentMonitor: () => this.toggleAgentMonitorOverlay(),
       toggleHelp: () => this.toggleHelpOverlay(),
       toggleInbox: () => this.toggleInboxOverlay(),
+      togglePlannerAudit: () => this.togglePlannerAuditOverlay(),
       toggleMergeTrain: () => this.toggleMergeTrainOverlay(),
       toggleTranscript: () => this.toggleTranscriptOverlay(),
       toggleConfig: () => this.toggleConfigOverlay(),
@@ -338,6 +343,23 @@ export class TuiApp implements UiPort {
     if (this.overlays.inboxHandle !== undefined) {
       this.inboxOverlay.setModel(
         this.viewModels.buildInbox(this.deps.listInboxItems()),
+      );
+    }
+    if (this.overlays.plannerAuditHandle !== undefined) {
+      const plannerAuditEntries = this.deps.listPlannerAuditEntries(
+        selectedFeatureId === undefined
+          ? undefined
+          : { featureId: selectedFeatureId },
+      );
+      this.plannerAuditOverlay.setModel(
+        selectedFeatureId === undefined
+          ? this.viewModels.buildPlannerAudit({
+              entries: plannerAuditEntries,
+            })
+          : this.viewModels.buildPlannerAudit({
+              entries: plannerAuditEntries,
+              selectedFeatureId,
+            }),
       );
     }
     if (this.overlays.mergeTrainHandle !== undefined) {
@@ -626,6 +648,26 @@ export class TuiApp implements UiPort {
       inboxOverlay: this.inboxOverlay,
       viewModels: this.viewModels,
       items: this.deps.listInboxItems(),
+      refresh: () => this.refresh(),
+      setNotice: (notice) => {
+        this.notice = notice;
+      },
+    });
+  }
+
+  private togglePlannerAuditOverlay(): void {
+    const selectedFeatureId = this.selectedFeatureId();
+    togglePlannerAuditOverlay({
+      state: this.overlays,
+      tui: this.tui,
+      plannerAuditOverlay: this.plannerAuditOverlay,
+      viewModels: this.viewModels,
+      entries: this.deps.listPlannerAuditEntries(
+        selectedFeatureId === undefined
+          ? undefined
+          : { featureId: selectedFeatureId },
+      ),
+      selectedFeatureId,
       refresh: () => this.refresh(),
       setNotice: (notice) => {
         this.notice = notice;

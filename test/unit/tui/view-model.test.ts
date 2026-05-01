@@ -237,6 +237,40 @@ describe('TuiViewModelBuilder', () => {
     });
   });
 
+  it('builds planner audit overlay rows for feature-scoped history', () => {
+    const builder = new TuiViewModelBuilder();
+
+    expect(
+      builder.buildPlannerAudit({
+        selectedFeatureId: 'f-1',
+        entries: [
+          {
+            ts: Date.UTC(2026, 4, 1, 17, 34),
+            action: 'applied',
+            prompt: 'Plan the next milestone slice',
+            sessionMode: 'continue',
+            runId: 'run-top-planner',
+            sessionId: 'sess-top-1',
+            previousSessionId: 'sess-top-0',
+            featureIds: ['f-1', 'f-2'],
+            milestoneIds: ['m-1'],
+            collisionCount: 1,
+            detail: '1 applied, 0 skipped, 0 warnings',
+          },
+        ],
+      }),
+    ).toEqual({
+      title: ' Planner Audit [f-1, 1 entries] [q/esc hide] ',
+      items: [
+        {
+          summary:
+            '2026-05-01 17:34 · applied · mode=continue · session=sess-top-1 · prev=sess-top-0 · run=run-top-planner · features=f-1,f-2 · milestones=m-1 · collisions=1 · prompt=Plan the next milestone slice · detail=1 applied, 0 skipped, 0 warnings',
+        },
+      ],
+      emptyMessage: 'No planner audit entries for f-1.',
+    });
+  });
+
   it('derives collision hint from pending top-planner metadata', () => {
     const pending = pendingProposalForSelection({
       draftState: undefined,
