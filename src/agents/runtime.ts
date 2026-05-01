@@ -418,6 +418,7 @@ export class FeaturePhaseOrchestrator {
       host,
       inspectionHost,
       (toolCallId, query) => session.requestHelp(toolCallId, query),
+      { kind: 'feature' },
     );
 
     // Run the agent on a deferred kick-off so subscribers can attach via the

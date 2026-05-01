@@ -592,6 +592,50 @@ describe('feature-phase agent flow', () => {
     ).resolves.not.toBeNull();
   });
 
+  it('rejects topology tool calls (addMilestone) from plan agent without mutating the proposal graph', async () => {
+    faux.setResponses([
+      fauxAssistantMessage(
+        [
+          fauxToolCall('addMilestone', {
+            name: 'Milestone 2',
+            description: 'Should be rejected — plan agent has no project scope',
+          }),
+        ],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage(
+        [
+          fauxToolCall('addTask', {
+            featureId: 'f-1',
+            description: 'Recovered task after rejection',
+          }),
+          fauxToolCall('submit', proposalDetails),
+        ],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage([fauxText('Planning complete.')]),
+    ]);
+
+    const { graph, store, loop } = createFixture({
+      featureOverrides: { workControl: 'planning' },
+    });
+
+    await loop.step(100);
+
+    const run = store.getAgentRun('run-feature:f-1:plan');
+    expect(run).toEqual(
+      expect.objectContaining({
+        runStatus: 'await_approval',
+        sessionId: 'run-feature:f-1:plan',
+      }),
+    );
+    const storedPlan = parseStoredProposalPayload(run?.payloadJson, 'plan');
+    const opKinds = storedPlan.proposal.ops.map((op) => op.kind);
+    expect(opKinds).not.toContain('add_milestone');
+    expect(opKinds).toEqual(['add_task']);
+    expect(graph.milestones.has('m-2')).toBe(false);
+  });
+
   it('streams proposal ops through ProposalOpSink during scheduler-dispatched plan run', async () => {
     type SinkEvent =
       | {
