@@ -5,25 +5,25 @@
 See: .planning/PROJECT.md (updated 2026-04-23)
 
 **Core value:** From one prompt, orchestrate parallel autonomous coding that lands on `main` without breaking it — live-steerable from a single TUI.
-**Current focus:** Phase 10 re-plan flows and manual edits polish is in progress — 10-02 now has the read-only proposal-review overlay and explicit collision surfacing wired into the TUI, and the next work is closing the remaining 10-02 polish and summary artifacts.
+**Current focus:** Phase 10 is complete — the next work is Phase 11 documentation and diagnostic tooling, starting with documenting the new planner-audit and proposal-review reader surfaces.
 
 ## Current Position
 
-Phase: 10 of 12 (Re-plan Flows & Manual Edits Polish) in progress
-Plan: 10-02 next in Phase 10
-Status: Phase 10 is underway. Plan 10-01 is complete: the TUI now makes continue-vs-fresh planner session intent explicit and exposes planner provenance through a feature-aware read-only audit overlay. The next work is 10-02 proposal preview plus comprehensive collision surfacing.
-Last activity: 2026-05-01 — Landed the 10-02 proposal-review overlay slice with `/proposal-review`, explicit collision surfacing, and verified TUI model/component coverage green through `npm run check`.
+Phase: 11 of 12 (Documentation & Diagnostic Tooling) next
+Plan: not started
+Status: Phase 10 is complete. The TUI now makes planner session intent explicit, exposes planner provenance through a read-only audit overlay, and exposes proposal scope/collision review through a dedicated read-only proposal-review overlay.
+Last activity: 2026-05-01 — Closed out 10-02 after landing `/proposal-review`, explicit collision surfacing, and collision truthfulness verification, with `npm run check` green.
 
-Progress: [██████████] 100% for Phase 9
+Progress: [██████████] 100% for Phase 10
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 34
-- Phases completed: 9 of 12
-- Latest verification: 2026-05-01 — full green for Phase 10 plan 10-01 closeout (`npm run check`), with focused green for `npm run typecheck` plus `npx vitest run test/unit/tui/view-model.test.ts test/unit/tui/commands.test.ts test/integration/tui/smoke.test.ts` (46 passed)
+- Total plans completed: 35
+- Phases completed: 10 of 12
+- Latest verification: 2026-05-01 — full green for Phase 10 closeout (`npm run check`), with focused green for `npm run typecheck`, `npx vitest run test/unit/tui/commands.test.ts test/unit/tui/view-model.test.ts`, and `npx vitest run test/integration/feature-phase-agent-flow.test.ts`
 
-**Recent Trend:** Phase 9 is complete: crash recovery is now operator-visible through the existing inbox and command surfaces, with startup summary/orphan triage backed by real-file restart coverage. The next phase can focus on planner session and manual-edit polish instead of recovery truthfulness gaps.
+**Recent Trend:** Phase 10 is complete: planner session intent, planner provenance, proposal scope, and collision side effects are now all directly inspectable in the TUI. The next phase can focus on documentation and diagnostic tooling instead of operator-visibility gaps.
 
 *Updated after each plan completion.*
 
