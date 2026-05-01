@@ -356,6 +356,104 @@ describe('TuiViewModelBuilder', () => {
     expect(vm.dataMode).toBe('live-planner');
   });
 
+  it('composer scope defaults to graph in command mode', () => {
+    const builder = new TuiViewModelBuilder();
+    const vm = builder.buildComposer({
+      text: '',
+      focusMode: 'composer',
+    });
+    expect(vm.composerScope).toEqual({ kind: 'graph' });
+  });
+
+  it('composer scope is graph when in draft mode', () => {
+    const builder = new TuiViewModelBuilder();
+    const vm = builder.buildComposer({
+      text: '',
+      focusMode: 'composer',
+      draftFeatureId: 'f-1',
+      draftPhase: 'plan',
+      draftCommandCount: 1,
+    });
+    expect(vm.composerScope).toEqual({ kind: 'graph' });
+  });
+
+  it('composer scope is project when projectSessionId is set', () => {
+    const builder = new TuiViewModelBuilder();
+    const vm = builder.buildComposer({
+      text: '',
+      focusMode: 'composer',
+      projectSessionId: 'run-project:abc',
+    });
+    expect(vm.composerScope).toEqual({
+      kind: 'project',
+      sessionId: 'run-project:abc',
+    });
+  });
+
+  it('composer scope is feature when attached to feature plan/replan', () => {
+    const builder = new TuiViewModelBuilder();
+    const vm = builder.buildComposer({
+      text: '',
+      focusMode: 'composer',
+      attachedFeatureId: 'f-1',
+      attachedPhase: 'plan',
+      attachedRunStatus: 'running',
+    });
+    expect(vm.composerScope).toEqual({ kind: 'feature', featureId: 'f-1' });
+  });
+
+  it('composer scope is feature in live-planner mode', () => {
+    const builder = new TuiViewModelBuilder();
+    const vm = builder.buildComposer({
+      text: '',
+      focusMode: 'composer',
+      liveProposalFeatureId: 'f-2',
+      liveProposalPhase: 'replan',
+      liveProposalOpCount: 3,
+    });
+    expect(vm.composerScope).toEqual({ kind: 'feature', featureId: 'f-2' });
+  });
+
+  it('composer scope is feature in approval mode for plan/replan', () => {
+    const builder = new TuiViewModelBuilder();
+    const vm = builder.buildComposer({
+      text: '',
+      focusMode: 'composer',
+      pendingProposalPhase: 'plan',
+      pendingFeatureId: 'f-3',
+    });
+    expect(vm.composerScope).toEqual({ kind: 'feature', featureId: 'f-3' });
+  });
+
+  it('composer scope persists when composer is defocused (focusMode=graph)', () => {
+    const builder = new TuiViewModelBuilder();
+    const vm = builder.buildComposer({
+      text: '',
+      focusMode: 'graph',
+      projectSessionId: 'run-project:xyz',
+    });
+    expect(vm.composerScope).toEqual({
+      kind: 'project',
+      sessionId: 'run-project:xyz',
+    });
+  });
+
+  it('composer scope project takes precedence over feature attached', () => {
+    const builder = new TuiViewModelBuilder();
+    const vm = builder.buildComposer({
+      text: '',
+      focusMode: 'composer',
+      projectSessionId: 'run-project:p',
+      attachedFeatureId: 'f-1',
+      attachedPhase: 'plan',
+      attachedRunStatus: 'running',
+    });
+    expect(vm.composerScope).toEqual({
+      kind: 'project',
+      sessionId: 'run-project:p',
+    });
+  });
+
   it('includes milestone drafting command in idle composer hint', () => {
     const builder = new TuiViewModelBuilder();
     const composer = builder.buildComposer({

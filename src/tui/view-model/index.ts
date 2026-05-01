@@ -63,11 +63,17 @@ export interface StatusBarViewModel extends WorkerCountsViewModel {
   pendingProposalPhase?: FeaturePhaseAgentRun['phase'];
 }
 
+export type ComposerScope =
+  | { kind: 'graph' }
+  | { kind: 'project'; sessionId: string }
+  | { kind: 'feature'; featureId: FeatureId };
+
 export interface ComposerViewModel {
   mode: 'command' | 'draft' | 'approval' | 'task' | 'live-planner' | 'attached';
   focusMode: 'composer' | 'graph';
   text: string;
   detail: string;
+  composerScope: ComposerScope;
 }
 
 export interface EmptyStateViewModel {
@@ -103,6 +109,40 @@ export interface StatusBarBuildInput {
   dataMode?: 'live' | 'draft' | 'live-planner';
   focusMode?: 'composer' | 'graph';
   pendingProposalPhase?: FeaturePhaseAgentRun['phase'];
+}
+
+function deriveComposerScope(input: {
+  projectSessionId?: string;
+  pendingProposalPhase?: FeaturePhaseAgentRun['phase'];
+  pendingFeatureId?: FeatureId;
+  attachedFeatureId?: FeatureId;
+  attachedPhase?: 'plan' | 'replan';
+  liveProposalFeatureId?: FeatureId;
+  liveProposalPhase?: 'plan' | 'replan';
+}): ComposerScope {
+  if (input.projectSessionId !== undefined) {
+    return { kind: 'project', sessionId: input.projectSessionId };
+  }
+  if (
+    (input.pendingProposalPhase === 'plan' ||
+      input.pendingProposalPhase === 'replan') &&
+    input.pendingFeatureId !== undefined
+  ) {
+    return { kind: 'feature', featureId: input.pendingFeatureId };
+  }
+  if (
+    input.attachedFeatureId !== undefined &&
+    input.attachedPhase !== undefined
+  ) {
+    return { kind: 'feature', featureId: input.attachedFeatureId };
+  }
+  if (
+    input.liveProposalFeatureId !== undefined &&
+    input.liveProposalPhase !== undefined
+  ) {
+    return { kind: 'feature', featureId: input.liveProposalFeatureId };
+  }
+  return { kind: 'graph' };
 }
 
 export class TuiViewModelBuilder {
@@ -319,7 +359,10 @@ export class TuiViewModelBuilder {
     attachedFeatureId?: FeatureId;
     attachedPhase?: 'plan' | 'replan';
     attachedRunStatus?: 'running' | 'await_response';
+    projectSessionId?: string;
   }): ComposerViewModel {
+    const composerScope: ComposerScope = deriveComposerScope(input);
+
     if (
       input.pendingProposalPhase !== undefined &&
       input.pendingFeatureId !== undefined
@@ -329,6 +372,7 @@ export class TuiViewModelBuilder {
         focusMode: input.focusMode,
         text: input.text,
         detail: `approval ${input.pendingProposalPhase} ${input.pendingFeatureId} /approve /reject /rerun`,
+        composerScope,
       };
     }
 
@@ -352,6 +396,7 @@ export class TuiViewModelBuilder {
         focusMode: input.focusMode,
         text: input.text,
         detail: `task ${input.pendingTaskRunStatus} ${input.pendingTaskOwner} ${input.pendingTaskId}${prompt.length > 0 ? ` ${prompt}` : ''} ${commands}`,
+        composerScope,
       };
     }
 
@@ -361,6 +406,7 @@ export class TuiViewModelBuilder {
         focusMode: input.focusMode,
         text: input.text,
         detail: `draft ${input.draftPhase} ${input.draftFeatureId} ${input.draftCommandCount ?? 0} ops /submit /discard`,
+        composerScope,
       };
     }
 
@@ -378,6 +424,7 @@ export class TuiViewModelBuilder {
         focusMode: input.focusMode,
         text: input.text,
         detail: `attached ${input.attachedFeatureId} ${input.attachedPhase} ${input.attachedRunStatus} ${commands}`,
+        composerScope,
       };
     }
 
@@ -394,6 +441,7 @@ export class TuiViewModelBuilder {
         focusMode: input.focusMode,
         text: input.text,
         detail: `live planner ${input.liveProposalFeatureId} ${input.liveProposalPhase} ${opCount} ops${submittedSuffix}`,
+        composerScope,
       };
     }
 
@@ -402,6 +450,7 @@ export class TuiViewModelBuilder {
       focusMode: input.focusMode,
       text: input.text,
       detail: 'composer /help /milestone-add /feature-add /task-add /dep-add',
+      composerScope,
     };
   }
 

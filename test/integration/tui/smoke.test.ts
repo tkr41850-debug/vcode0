@@ -30,6 +30,9 @@ test('starts with composer focus and runs help from composer', async ({
   await expect(terminal.getByText('[command] [composer]')).toBeVisible({
     timeout: tuiReadyTimeoutMs,
   });
+  await expect(terminal.getByText('composer · graph')).toBeVisible({
+    timeout: tuiReadyTimeoutMs,
+  });
   await expect(terminal.getByText('gvc0 startup')).toBeVisible({
     timeout: tuiReadyTimeoutMs,
   });
@@ -43,6 +46,23 @@ test('starts with composer focus and runs help from composer', async ({
 
   terminal.keyEscape();
   await expect(terminal.getByText('Help [h/q/esc hide]')).not.toBeVisible();
+});
+
+test('composer scope label persists when composer is defocused', async ({
+  terminal,
+}) => {
+  const workspace = await createWorkspace();
+
+  startTui(terminal, workspace);
+  await waitForTuiReady(terminal);
+
+  await expect(terminal.getByText('composer · graph')).toBeVisible({
+    timeout: tuiReadyTimeoutMs,
+  });
+
+  terminal.keyEscape();
+  await expect(terminal.getByText('focus: graph')).toBeVisible();
+  await expect(terminal.getByText('composer · graph')).toBeVisible();
 });
 
 test('opens monitor overlay from composer command', async ({ terminal }) => {
@@ -128,6 +148,9 @@ test('creates planner draft and reaches approval-ready state', async ({
     terminal.getByText(
       '[approval] [composer] approval plan f-1 /approve /reject /rerun',
     ),
+  ).toBeVisible();
+  await expect(
+    terminal.getByText('composer · feature plan: f-1'),
   ).toBeVisible();
 });
 

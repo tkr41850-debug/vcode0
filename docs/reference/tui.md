@@ -17,6 +17,14 @@ Current app shows:
 
 TUI starts in composer focus. Status line can show current focus (`composer` or `graph`) and data mode (`live`, `draft`, or `live-planner`). Composer status strip shows current composer mode (`command`, `draft`, `approval`, `task`, `live-planner`, or `attached`).
 
+The composer status strip's first line is a focus indicator that always shows where keystrokes route to. Three variants:
+
+- `composer · graph` — normal command/draft entry routes to local graph mutations.
+- `composer · project planner: <session-id>` — chat routes to the active project-planner session.
+- `composer · feature plan: <feature-id>` — chat routes to the attached feature plan/replan session (covers `live-planner` and `approval` for plan/replan, and `attached` mode).
+
+The label persists when the composer is defocused (`esc` to graph focus): the most recent destination remains visible so the operator knows what `esc` will return to.
+
 UI is event-driven. Scheduler and worker output update view-models, and components request redraws only when state changes.
 
 ## Status Conventions

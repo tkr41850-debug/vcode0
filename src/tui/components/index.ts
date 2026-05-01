@@ -285,6 +285,7 @@ export class ComposerStatus implements Component {
     focusMode: 'composer',
     text: '',
     detail: 'composer',
+    composerScope: { kind: 'graph' },
   };
 
   setModel(model: ComposerViewModel): void {
@@ -293,6 +294,12 @@ export class ComposerStatus implements Component {
 
   render(width: number): string[] {
     const safeWidth = Math.max(1, width);
+    const scopeLine = truncateToWidth(
+      formatComposerScope(this.model.composerScope),
+      safeWidth,
+      '...',
+      true,
+    );
     const top = truncateToWidth(
       `[${this.model.mode}] [${this.model.focusMode}] ${this.model.detail}`,
       safeWidth,
@@ -305,10 +312,27 @@ export class ComposerStatus implements Component {
       '...',
       false,
     );
-    return [...padWrapped(top, safeWidth), ...padWrapped(body, safeWidth)];
+    return [
+      ...padWrapped(scopeLine, safeWidth),
+      ...padWrapped(top, safeWidth),
+      ...padWrapped(body, safeWidth),
+    ];
   }
 
   invalidate(): void {}
+}
+
+function formatComposerScope(
+  scope: ComposerViewModel['composerScope'],
+): string {
+  switch (scope.kind) {
+    case 'graph':
+      return 'composer · graph';
+    case 'project':
+      return `composer · project planner: ${scope.sessionId}`;
+    case 'feature':
+      return `composer · feature plan: ${scope.featureId}`;
+  }
 }
 
 export class DependencyDetailOverlay implements Component {
