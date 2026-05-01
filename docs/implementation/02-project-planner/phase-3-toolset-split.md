@@ -9,7 +9,7 @@ Doc-sweep deferred: docs/architecture/planner.md (toolset subsets are constructe
 
 ## Contract
 
-Goal: Narrow the toolset on the only feature-scoped agents that currently reach topology mutations — `plan` and `replan` — so they cannot call `addMilestone`, `addFeature`, `removeFeature`, or cross-feature `addDependency`/`removeDependency`. The `proposalToolHost` stays scope-agnostic; the runtime decides which subset to expose per agent role. This reduces the blast radius of any submit-compliance or prompt issue in feature planners, prepares the agent surface for `phase-4-project-planner-agent`, defines the `projectPlannerTools` subset consumed by `phase-4-project-planner-agent`, and introduces `editFeatureSpec` as a spec-only subset of today's `editFeature`.
+Goal: Narrow the toolset on the only feature-scoped agents that currently reach topology mutations — `plan` and `replan` — so they cannot call `addMilestone`, `addFeature`, `removeFeature`, or cross-feature `addDependency`/`removeDependency`. The `proposalToolHost` stays scope-agnostic; the runtime decides which subset to expose per agent role. This reduces the blast radius of any submit-compliance or prompt issue in feature planners, prepares the agent surface for `phase-4-project-planner-agent`, defines the `createProjectPlannerToolset(host)` builder consumed by `phase-4-project-planner-agent`, and introduces `editFeatureSpec` as a spec-only subset of today's `editFeature`.
 
 Scope:
 - In: define scoped tool subsets in `src/agents/tools/planner-toolset.ts` (or sibling helper); thread the scope choice through plan/replan agent construction in `src/agents/runtime.ts:417-434`; tests asserting each scope's agent has only its allowed tools; introduce `editFeatureSpec` as a scoped subset of today's `editFeature`.
@@ -22,7 +22,7 @@ Exit criteria:
 - `npm run verify` passes.
 - Plan / replan agent runs cannot reach topology tools at construction time.
 - `editFeatureSpec` is a usable scope-safe spec-edit surface.
-- `projectPlannerTools` subset is defined but not yet wired (`phase-4-project-planner-agent`).
+- `createProjectPlannerToolset(host)` is defined but not yet wired (`phase-4-project-planner-agent`).
 - Discuss / research / verify / summarize / execute-task construction is untouched.
 - Run a final review across both commits to confirm the discipline holds, no test/doc drift remains, and no callsite still uses the full combined toolset for plan/replan.
 
@@ -48,7 +48,7 @@ Background:
 Notes:
 
 - 5 of 7 agents are already topology-clean. Audit of `runtime.ts` and `runtime/worker/system-prompt.ts` confirms only `plan` and `replan` reach the `proposalToolHost`. `discuss` / `research` / `verify` / `summarize` use `DefaultFeaturePhaseToolHost` with structured-submit tools (`submitDiscuss`, `submitResearch`, `raiseIssue`+`submitVerify`, `submitSummarize`); `execute-task` worker uses an `IpcBridge` toolset with no graph tools. This phase does not touch those sites.
-- No new agent role yet. `phase-4-project-planner-agent` introduces the project-planner agent and wires `projectPlannerTools` into a real construction path. This phase only removes topology surface from `plan`/`replan`.
+- No new agent role yet. `phase-4-project-planner-agent` introduces the project-planner agent and wires `createProjectPlannerToolset(host)` into a real construction path. This phase only removes topology surface from `plan`/`replan`.
 - Why before `phase-4-project-planner-agent`. Restricting plan/replan first reduces the surface area the new agent has to coexist with, and isolates Bug A's submit-compliance failure mode (the failing `plan` agent today has the full toolset; after this phase it has a much smaller one, and `phase-8-submit-compliance` targets the smaller surface).
 - Milestone reassignment gap. Today's `PlannerFeatureEditPatch` has no `milestoneId` field, so `editFeature` cannot move a feature between milestones. `phase-4-project-planner-agent` must add this when the project planner ships, since milestone reassignment is part of project-scope authority.
 - Documentation drift. `docs/architecture/planner.md` describes the full toolset as universal. The docs-update sweep covers the rewrite; do not include doc changes in this phase's commits.

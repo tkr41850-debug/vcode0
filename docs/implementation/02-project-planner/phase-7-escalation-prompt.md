@@ -91,8 +91,8 @@ Review goals (cap 400 words):
 4. Verify the prompt slice: discuss / plan / replan prompts include the escalation paragraph.
 5. Verify discuss is identified as the primary capture point.
 6. Verify `docs/agent-prompts/discuss-feature.md`, `docs/agent-prompts/plan-feature.md`, and `docs/agent-prompts/README.md` mirrors are synced.
-7. Verify no new wait state is introduced.
-8. Verify Step 7.1 does not write an inbox row; Step 7.2 owns that boundary.
+7. Boundaries: verify no new wait state is introduced.
+8. Boundaries: verify Step 7.1 does not write an inbox row; Step 7.2 owns that boundary.
 
 Commit: `feat(agents/prompts): topology-escalation guidance in feature-planner prompts`
 
