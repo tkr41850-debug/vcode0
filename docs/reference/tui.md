@@ -15,7 +15,7 @@ Current app shows:
 - dependency-detail overlay
 - agent-monitor overlay
 
-TUI starts in composer focus. Status line can show current focus (`composer` or `graph`) and data mode (`live` or `draft`). Composer status strip shows current composer mode (`command`, `draft`, or `approval`).
+TUI starts in composer focus. Status line can show current focus (`composer` or `graph`) and data mode (`live`, `draft`, or `live-planner`). Composer status strip shows current composer mode (`command`, `draft`, `approval`, `task`, `live-planner`, or `attached`).
 
 UI is event-driven. Scheduler and worker output update view-models, and components request redraws only when state changes.
 
@@ -38,19 +38,13 @@ Task rows render as derived `blocked` when:
 - run status is `retry_await` and `retry_at` is still in future
 - task collaboration control is `suspended` or `conflict`
 
-Feature rows render as blocked when current feature-phase run is waiting in `await_response`, `await_approval`, or active `retry_await`.
+Feature rows render as blocked when current feature-phase run is waiting in `await_response`, `await_approval`, or active `retry_await`. A feature-phase run in `failed` renders with the failed icon (`✗`) instead of the blocked pause; the inbox row written when the run failed is the operator's follow-up surface.
 
 Feature and task metadata show current work_control / collaboration_control values directly in row badges.
 
-### Integration Sub-phases
+### Integration Display
 
-When a feature is in `collabControl=integrating`, the row badge surfaces the active sub-phase from the live integration run metadata (not from a second work_control enum):
-
-- `rebasing` — rebase onto latest `main` in progress
-- `ci_check/post_rebase` — post-rebase `ci_check` run in progress
-- `merging` — `git merge --force-with-lease` in progress
-
-Sub-phases are reported as phase-run metadata on the integration run row (`agent_runs` scope=feature, phase=integration, or a dedicated `integration_runs` row if that shape is chosen during implementation). `FeatureWorkControl` stays coarse — no new enum values are added for these sub-phases.
+When a feature is in `collabControl=integrating`, the row carries the coarse integrating badge; the executor runs inline (rebase → post-rebase `ci_check` → plumbing CAS on `refs/heads/main`) without a dedicated per-step run surface. `FeatureWorkControl` stays coarse — no work-control enum values are added for integration sub-steps.
 
 On integration failure, the row returns to the normal `replanning` badge once the executor has ejected and rerouted the feature.
 

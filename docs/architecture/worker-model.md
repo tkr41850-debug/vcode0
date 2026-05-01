@@ -37,25 +37,30 @@ main
 - **Worktree lifecycle**: worktrees are created lazily on first
   dispatch by the orchestrator's scheduler — task worktrees when
   the task is dispatched, the feature worktree when a task or
-  feature-phase agent first needs it. The feature *branch* is
-  created eagerly when the feature advances to
-  `workControl = 'executing'` with `collabControl = 'branch_open'`
-  (the canonical branch-creation trigger in
-  [data-model.md](./data-model.md) and the FSM); only the checkout
-  directory is lazy. Task worktrees branch from feature branch HEAD
-  using the same basename as the task branch
-  (`feat-<slugified-name>-<feature-id>-<task-id>`), squash-merged
-  back into the feature branch on success, and retained until the
-  owning feature lands on `main` or garbage collection snapshots
-  and removes the stale worktree. Stale-worktree GC should preserve
-  resumability by first creating a reversible `WIP snapshot`
-  commit with a dedicated snapshot author/email; when that
-  worktree/branch is later reloaded, the synthetic snapshot commit
-  is undone so the work resumes as uncommitted state rather than as
-  a normal authored commit. Worktree provisioning is managed by `WorktreeProvisioner` interface
-  (implemented by `GitWorktreeProvisioner` in `src/runtime/worktree/index.ts:12`) with
-  entry-points `ensureFeatureWorktree` and `ensureTaskWorktree` that idempotently
-  create or verify git worktrees at their canonical paths.
+  feature-phase agent first needs it. The feature *branch* is created
+  eagerly via `ensureFeatureBranch` when the feature advances to
+  `collabControl = 'branch_open'`; the checkout directory is lazy and
+  is provisioned only for feature-phase runs whose phase satisfies
+  `featurePhaseRequiresFeatureWorktree` (`execute | verify | ci_check |
+  summarize`). Planning phases (`discuss | research | plan | replan`)
+  use proposal/inspection hosts on `projectRoot` and never touch a
+  feature worktree. Task
+  worktrees branch from feature-branch HEAD using the task-branch
+  basename (`feat-<slugified-name>-<feature-id>-<task-id>`) and
+  squash-merge back into the feature branch on success. Disposal is
+  fire-and-forget at natural retirement points: the task worktree is
+  removed at squash success; the feature worktree (and any leftover
+  task worktrees on the same feature) are removed at feature-merge
+  success. Disposal failures are logged via `void
+  removeWorktree(...).catch(warn)` so disk-full / permission errors
+  cannot poison the merge train. Boot runs `sweepStaleLocks()` once
+  after recovery + reconcile so a crash mid-`worktree add` does not
+  leave a registered admin entry blocking the next provisioning
+  attempt. Worktree provisioning is managed by the
+  `WorktreeProvisioner` interface (implemented by
+  `GitWorktreeProvisioner` in `src/runtime/worktree/index.ts:12`) with
+  entry-points `ensureFeatureBranch`, `ensureFeatureWorktree`,
+  `ensureTaskWorktree`, `removeWorktree`, and `sweepStaleLocks`.
 
 ### Git Commit Strategy
 
@@ -89,8 +94,12 @@ main:
 Each feature owns exactly one long-lived integration branch.
 
 1. When a feature branch is requested, the orchestrator creates
-   `feat-<slugified-name>-<feature-id>` from the current `main`
-   and opens its feature worktree.
+   `feat-<slugified-name>-<feature-id>` from the current `main` via
+   `ensureFeatureBranch`. The feature worktree is provisioned
+   separately and only when a feature-phase run satisfies
+   `featurePhaseRequiresFeatureWorktree` (phases `execute | verify |
+   ci_check | summarize`); planning phases (`discuss | research |
+   plan | replan`) never touch it.
 2. Task worktrees use branch names
    `feat-<slugified-name>-<feature-id>-<task-id>` and branch from the current
    HEAD of `feat-<slugified-name>-<feature-id>`.
@@ -139,9 +148,16 @@ awaiting_merge → merge_queued → integrating
   post-rebase ci_check          — fail → eject, reroute to replanning with
                                          source:'ci_check', phase:'post_rebase'
   ↓
-  verify `main` still equals expectedParentSha, then git merge --no-ff
+  plumbing CAS on refs/heads/main:
+    git merge-tree --write-tree <main> <feature-tip>          → newTreeSha
+    git commit-tree newTreeSha -p main -p feature-tip -m ...  → newCommitSha
+    git update-ref refs/heads/main newCommitSha <expectedParentSha>
+                                — atomic CAS; on failure (`main` moved underneath
+                                  the executor) eject and reroute to replanning
+                                  with source:'rebase' (`main_moved`)
   ↓
-  persist mainMergeSha/branchHeadSha, clear marker, mark collabControl='merged'
+  persist mainMergeSha/branchHeadSha, clear marker, mark collabControl='merged',
+  dispose feature worktree + leftover task worktrees (fire-and-forget)
   ↓
 merged → later summarizing/work_complete flow
 ```
@@ -151,8 +167,8 @@ replanning or operator action. The `rebase --onto ...` retry shape and
 explicit `rerere` handling remain deferred design notes, not current
 baseline behavior.
 
-Crash between `git merge` and the clearing DB tx is resolved by the
-startup reconciler treating git refs as authoritative
+Crash between `update-ref` and the marker-clearing DB tx is resolved by
+the startup reconciler treating git refs as authoritative
 (see [verification-and-recovery.md](../operations/verification-and-recovery.md)).
 
 Current inline coordinator does not use a separate integration-worker

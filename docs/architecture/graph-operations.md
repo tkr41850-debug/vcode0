@@ -90,7 +90,7 @@ interface FeatureGraph {
 
 > **Implementation status**: The coordination model below is partly architectural and partly already implemented. Current code includes the scheduler tick loop, combined-graph construction, graph metrics, ready-work prioritization, FSM transition validators, and proposal-driven graph restructuring through approval. Future extensions called out explicitly as candidates remain deferred.
 
-The orchestrator uses a **hybrid serial core with async feature phases** (Direction D). All state-mutating coordination flows through a single serial event queue, while feature-phase agent runs (planning, verifying, summarizing, replanning) execute asynchronously and post results back as events. Those feature phases are not a separate execution plane: architecturally they share the same run/session model as task execution (`agent_runs`, `session_id`, retry/backoff, help/approval/manual waits, and recovery), even if the current concrete runtime implementation reaches them through a different adapter surface.
+The orchestrator uses a **hybrid serial core with async feature phases** (Direction D). All state-mutating coordination flows through a single serial event queue, while feature-phase agent runs (planning, verifying, summarizing, replanning) execute asynchronously and post results back as events. Those feature phases are not a separate execution plane: architecturally they share the same run/session model as task execution (`agent_runs`, `session_id`, retry/backoff, help/approval/manual waits, and recovery), and the current implementation also dispatches both task runs and feature-phase runs through the shared `RuntimePort.dispatchRun(...)` adapter.
 
 ### Serial Event Queue
 
@@ -331,12 +331,13 @@ Completed feature branches do not merge directly to `main`. Instead, merge-train
 The merge train protects `main` through a sequence of executor-enforced
 steps: pre-verify `ci_check` before queue entry, rebase onto latest
 `main` inside the integration executor, post-rebase `ci_check` against
-the rebased tip, explicit validation that `main` still equals the
-stored expected SHA, and a final `git merge --no-ff` only after that
-check passes. The explicit main-SHA validation closes race between
-reading `main` for rebase and updating it at merge. A marker row plus
-startup reconciler (git refs authoritative) handle crash windows
-between `git merge` and DB transition — see
+the rebased tip, then a plumbing-based atomic compare-and-swap on
+`refs/heads/main` (`merge-tree --write-tree` + `commit-tree` +
+`update-ref refs/heads/main <new> <expectedParentSha>`). The CAS atomically
+fails if `main` moved underneath the executor, which closes the race
+between reading `main` for rebase and updating it at merge. A marker row
+plus startup reconciler (git refs authoritative) handle crash windows
+between `update-ref` and the DB clear — see
 [verification-and-recovery.md](../operations/verification-and-recovery.md).
 
 If any of rebase, post-rebase `ci_check`, or main-moved validation
@@ -365,10 +366,12 @@ Queue rules:
    because it adds persistence/update complexity. See
    [Feature Candidate: Arbitrary Merge-Train Manual Ordering](../feature-candidates/coordination/arbitrary-merge-train-manual-ordering.md).
 5. The queue head moves into `integrating` through the in-process
-   integration executor, which runs rebase → post-rebase `ci_check`
-   → explicit main-SHA validation → `git merge --no-ff` under marker-row
-   protection. Success clears the marker and advances
-   feature work control to `summarizing`.
+   integration executor, which runs rebase → post-rebase `ci_check` →
+   plumbing CAS on `refs/heads/main` (`merge-tree`, `commit-tree`,
+   `update-ref` with `expectedParentSha`) under marker-row protection.
+   Success clears the marker, marks `collabControl='merged'`, and disposes
+   the feature worktree; the post-merge summarize/work-complete flow runs
+   later from the normal lifecycle.
 6. Cross-feature conflicts are surfaced here,
    not by task-level file resets.
    Reservation overlap only penalizes scheduling;

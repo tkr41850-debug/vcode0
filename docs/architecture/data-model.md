@@ -60,7 +60,7 @@ branch_open / merge_queued / conflict → cancelled
 ```
 
 - **none** — feature branch not opened yet.
-- **branch_open** — feature branch and feature worktree exist as the integration surface; tasks may merge into the feature branch.
+- **branch_open** — feature branch exists as the integration surface; tasks may squash-merge into it. The feature worktree is provisioned lazily and only when a feature-phase run needs a checkout (`featurePhaseRequiresFeatureWorktree`: phases `execute | verify | ci_check | summarize`); the planning phases `discuss | research | plan | replan` use proposal/inspection hosts and skip it.
 - **merge_queued** — feature is waiting in the integration queue.
 - **integrating** — feature branch is rebasing / running merge-train verification against the latest `main`.
 - **merged** — feature branch landed on `main` and is cleaned up.
@@ -378,7 +378,7 @@ main
     └── feat-<slugified-name>-<feature-id>-<task-id-c>
 ```
 
-- A feature branch and feature worktree are created when that branch is requested and collaboration control enters `branch_open`; the baseline branch name is `feat-<slugified-name>-<feature-id>`.
+- A feature branch is created when that branch is requested (`WorktreeProvisioner.ensureFeatureBranch` at the `branch_open` transition); the baseline branch name is `feat-<slugified-name>-<feature-id>`. The feature worktree is created separately and lazily — only when a feature-phase run needs a checkout (phases `execute | verify | ci_check | summarize`, gated by `featurePhaseRequiresFeatureWorktree` in `src/orchestrator/scheduler/dispatch.ts`).
 - Task worktrees branch from the current HEAD of the owning feature branch and use the baseline branch name `feat-<slugified-name>-<feature-id>-<task-id>`.
 - Worker `submit(summary, filesChanged)` is the explicit task-complete signal. Worker `confirm()` is only a progress acknowledgement; the orchestrator treats terminal results with `completionKind === 'submitted'` as landed task work on the feature branch.
 - After the last task lands, or after approved replan work lands, the feature enters `ci_check` on the feature branch; only after that boundary passes does the feature enter agent-level `verifying`.

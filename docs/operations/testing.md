@@ -42,12 +42,12 @@ Current integration targets:
 - worker runtime bootstrap through the in-process harness
 - feature-phase dispatch, proposal approval, and replan/summarize flow through the scheduler and feature-agent runtime
 - interactive TUI startup, help modal, monitor overlay, draft approval state, and quit flow through `@microsoft/tui-test`
+- merge-train verification execution on rebased feature branches (`test/integration/integration-coordinator-cas.test.ts` plus the unit-level coordinator coverage in `test/unit/orchestrator/integration-coordinator.test.ts`)
 
 Deferred integration targets:
 
 - worker `submit()` / `confirm()` closeout flow
 - feature-branch shell execution in `ci_check`
-- merge-train verification execution on rebased feature branches
 - milestone steering vs autonomous scheduler selection
 - reservation-only overlap penalties vs runtime overlap coordination
 - same-feature suspend/resume and explicit conflict steering

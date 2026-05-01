@@ -11,35 +11,39 @@ This document uses two main state axes plus a run/session overlay:
 
 A task becoming **stuck** is a work_control problem. A task or feature entering **conflict** is a collaboration_control problem. Merge progress stays in collaboration_control; work_control waits in `awaiting_merge` until collaboration_control reaches `merged`. Retry/backoff, help waits, approval waits, and manual takeover do not add new task enums; they live on the execution run and surface as derived blocked/reporting state when relevant. Cancelled tasks are terminal for active recovery/dispatch even if they still retain suspension metadata from earlier overlap handling.
 
-## Retry: Exponential Backoff up to 1 Week
+## Retry: Capped Exponential Backoff with Inbox Escalation
 
 Run-level retry is handled by the orchestrator for transient failures only. Task execution runs and feature-phase runs share the same run/session model and backoff concepts when a session crashes or the provider fails transiently. Current baseline wiring persists both task and feature-phase message history through shared session-store backing under `.gvc0/sessions/`, and startup orphan recovery handles both scopes through the shared `dispatchRun(...)` path. For local pi-sdk runs, recovery checks persisted `workerPid` + `workerBootEpoch`, confirms ownership via `/proc/<pid>/environ` markers, kills stale workers from older orchestrator boots, then resumes or redispatches. Deterministic verification failures do not use retry backoff; they route through replanning or return the run to normal execution flow instead.
 
+The retry policy is a pure module (`src/runtime/retry-policy.ts`) injected with `now()` and `random()` for deterministic testing. Its sibling — Phase 5's `maxSquashRetries` deterministic git-conflict loop — does not use jitter or backoff and is not collapsed into this policy.
+
 ```typescript
 interface RetryPolicy {
-  baseDelayMs: number;   // default: 1000
-  maxDelayMs: number;    // default: 7 * 24 * 60 * 60 * 1000 (1 week)
-  jitter: boolean;       // default: true (±10%)
+  transientPatterns: ReadonlyArray<RegExp | string>; // health_timeout, ECONN*, ETIMEDOUT, ENOTFOUND, EAI_AGAIN, network, 429, 5xx, rate-limit, server-error, "socket hang up"
+  baseDelayMs: number;       // default: 1_000
+  maxDelayMs: number;        // default: 60_000
+  jitterFraction: number;    // default: 0.25 (±25% on the capped delay)
+  retryCap: number;          // default: 5 attempts before escalation
 }
 
-function nextRetryAt(now: number, restartCount: number, policy: RetryPolicy): number {
-  const exp = policy.baseDelayMs * 2 ** restartCount;
-  const capped = Math.min(exp, policy.maxDelayMs);
-  const delay = policy.jitter ? capped * (0.9 + Math.random() * 0.2) : capped;
-  return now + delay;
-}
+type RetryDecision =
+  | { kind: 'retry'; delayMs: number }
+  | { kind: 'escalate_inbox'; reason: 'retry_exhausted' | 'semantic_failure' };
 ```
 
-Retry triggers: provider overload, rate limit, quota exhausted, 5xx, network errors.
-No retry: verification failures (agent must fix and resubmit).
+`decideRetry` classifies a failure as transient (matches one of `transientPatterns`) or not, and either returns `retry` with `computeRetryBackoffMs(attempt, policy, random)` (capped exponential `baseDelayMs * 2^attempt`, optional jitter), or escalates to the inbox with `reason: 'semantic_failure'` (non-transient) or `reason: 'retry_exhausted'` (transient but past `retryCap`).
+
+Inbox escalation is mandatory: every escalation path appends a row to `inbox_items` with one of the typed `kind` values (`semantic_failure | retry_exhausted | destructive_action | squash_retry_exhausted`) — no escalation bypasses the inbox.
 
 Baseline state rules:
-- on transient failure: set the affected run's `run_status = "retry_await"` and write `retry_at`
+- on transient failure under the cap: set the affected run's `run_status = "retry_await"` and write `retry_at`
 - while waiting: `restart_count` does not change yet
 - when the scheduler actually starts the retry run: increment `restart_count` and transition to `running`
-- if the retry ceiling is exhausted: set the affected run's `run_status = "failed"`
+- on `retry_exhausted` or `semantic_failure`: write an `inbox_items` row with the corresponding `kind`, then set the run's `run_status = "failed"`
 - if repeated transient failures indicate an unproductive crash loop, set `attention = "crashloop_backoff"` in addition to the backoff timer so the TUI can surface that state distinctly
 - `await_response` and `await_approval` remain `run_status` values for human-waiting cases; they are not duplicated in `attention`
+
+On the first retry decision per run, the scheduler also writes a first-failure stack dump under `<projectRoot>/.gvc0/logs/` via the `RunErrorLogSink` port. The filename is `<iso-ts>-<task|feature>-<feature>-<phase>[-<task>]-a<restartCount>-<short-runId>.txt` (see `src/runtime/error-log/index.ts`). Debug-only artifact; orchestrator state is unaffected by `rm -rf .gvc0/logs/`.
 
 Retry state persists in SQLite so retries survive orchestrator restarts.
 
@@ -49,10 +53,10 @@ Current code separates worker closeout from feature-level verification.
 
 - Worker `submit(summary, filesChanged)` is the explicit task-complete signal. It emits the terminal task result payload that the orchestrator records.
 - Worker `confirm()` is a lightweight acknowledgement tool. It emits progress text for operator visibility, but it does not take arguments and does not merge or land work by itself.
-- In the worker runtime, terminal results carry `completionKind: 'submitted' | 'implicit'`. The orchestrator treats only `completionKind === 'submitted'` as landed task work and uses that to mark the task merged into the feature branch.
+- In the worker runtime, terminal results carry `completionKind: 'submitted' | 'implicit'`. A `completionKind === 'submitted'` payload is the trigger for landing — the orchestrator squash-merges the task branch into the feature branch (rebase → squash, retried up to `maxSquashRetries` on transient git conflicts) and marks the task `merged/done` only after the squash succeeds. Squash exhaustion routes the feature to `replanning` with `VerifyIssue.source = 'squash'`. Successful squash disposes the task worktree fire-and-forget.
 - Feature-level shell verification runs in `ci_check` on the feature worktree — once pre-verify, then again post-rebase inside the integration executor on top of the rebased branch.
 - Agent-level semantic review runs later in `verifying`.
-- The integration executor runs rebase → post-rebase `ci_check` → verify `main` still matches `expectedParentSha` → `git merge --no-ff`; both pre-verify and post-rebase `ci_check` reuse `verification.feature`.
+- The integration executor runs rebase → post-rebase `ci_check` → plumbing CAS on `refs/heads/main` (`merge-tree --write-tree` + `commit-tree` + `update-ref refs/heads/main <new> <expectedParentSha>`); the `update-ref` is the atomic compare-and-swap. CAS failure (`main` moved underneath the executor) ejects and reroutes to `replanning` with `VerifyIssue.source = 'rebase'` (`main_moved`). Both pre-verify and post-rebase `ci_check` reuse `verification.feature`.
 
 ### Verification Config
 
@@ -95,7 +99,8 @@ All verify-shaped failures route through `replanning` with a typed `VerifyIssue[
 
 - `source: 'verify'` — agent-level review found the branch does not satisfy the feature spec.
 - `source: 'ci_check'` — shell verification failed. `phase: 'feature'` for pre-verify, `phase: 'post_rebase'` for the in-executor run.
-- `source: 'rebase'` — rebasing the feature branch onto latest `main` conflicted during integration. The downstream blocked feature (not the just-merged one) receives these issues when cross-feature overlap release surfaces a conflict.
+- `source: 'rebase'` — concurrency loss against `main`: either the integration rebase conflicted or the `update-ref` CAS lost the race (`main_moved`). The downstream blocked feature (not the just-merged one) receives these issues when cross-feature overlap release surfaces a conflict.
+- `source: 'squash'` — task→feature squash exhausted `maxSquashRetries` on inherent merge conflicts inside the feature branch.
 
 A feature reaches `ci_check` after the last task lands on the feature branch, or after approved replan work lands. By default the branch should be green before the feature may leave `ci_check` and enter `verifying`, though a loose feature policy may relax that boundary.
 
@@ -126,6 +131,7 @@ If rebase fails during integration:
 - `source: 'verify'` — optional `location`, `description`, optional `suggestedFix`.
 - `source: 'ci_check'` — `phase: 'feature' | 'post_rebase'`, `checkName`, `command`, optional `exitCode`, optional truncated `output` (4KB cap), `description`.
 - `source: 'rebase'` — `conflictedFiles: string[]`, `description`.
+- `source: 'squash'` — `conflictedFiles: string[]`, `description` (task-level squash conflicts inside one tick).
 
 All variants share `id`, `severity: 'blocking' | 'concern' | 'nit'`. Persisted `VerifyIssue[]` payloads are capped at 32KB total with severity-ranked retention (blocking > concern > nit, most-recent first within severity).
 
@@ -140,12 +146,12 @@ Task completion does not land work on `main` directly. Instead:
 4. If `verifying` passes, feature work control becomes `awaiting_merge`.
 5. Only then may collaboration control become `merge_queued`.
 6. The merge train serializes feature-branch integration into `main` through the in-process integration executor (see [worker-model.md](../architecture/worker-model.md) for the subprocess and IPC shape).
-7. The integration executor: writes the integration marker row (including a JSON snapshot of current verification config), rebases the feature branch onto latest `main`, runs post-rebase `ci_check`, verifies `main` still matches `expectedParentSha`, merges with `git merge --no-ff`, then persists merge SHAs, clears the marker, and marks collaboration control `merged`.
+7. The integration executor: writes the integration marker row (including a JSON snapshot of current verification config), rebases the feature branch onto latest `main`, runs post-rebase `ci_check`, then performs an atomic CAS on `refs/heads/main` via `merge-tree --write-tree` + `commit-tree` + `update-ref refs/heads/main <new> <expectedParentSha>`. On CAS success, it persists merge SHAs, clears the marker, marks collaboration control `merged`, and disposes the feature worktree (and any leftover task worktrees on the same feature) fire-and-forget.
 8. On success, summarization/work-complete flow continues later from the normal post-merge lifecycle.
-9. On any integration failure (rebase conflict, post-rebase `ci_check` fail, or `main` moving underfoot), the executor ejects the feature from the queue and reroutes to `replanning` with a typed `VerifyIssue[]` payload (see Unified Failure Routing above). No repair task is created directly.
+9. On any integration failure (rebase conflict, post-rebase `ci_check` fail, or CAS rejection because `main` moved underfoot), the executor ejects the feature from the queue and reroutes to `replanning` with a typed `VerifyIssue[]` payload (see Unified Failure Routing above). No repair task is created directly.
 10. After approved replan tasks land, the feature returns through `ci_check` and `verifying`, and may re-enter the merge queue on pass.
 
-Crash recovery between `git merge` and the clearing DB transaction is handled by a startup reconciler that treats git refs as authoritative. See [Integration Crash Recovery](#integration-crash-recovery) below (lands with the executor).
+Crash recovery between the `update-ref` CAS and the marker-clearing DB transaction is handled by a startup reconciler that treats git refs as authoritative. Boot order is: `recovery.recoverOrphanedRuns()` → `reconciler.reconcile()` → `worktree.sweepStaleLocks()` → `scheduler.run()`. The lock sweep clears any `.git/worktrees/<name>/locked` files left behind by a crash mid-`worktree add` (only entries whose target dir is gone are swept; live operator-set locks are preserved), then runs `git worktree prune` so a subsequent `worktree add` for the same name does not trip on a stale admin entry. See [Integration Crash Recovery](#integration-crash-recovery) below.
 
 ## Conflict Outcome Rules
 
@@ -170,17 +176,17 @@ Integration-time rebase failure of the currently-integrating feature (the execut
 
 ## Integration Crash Recovery
 
-The integration executor writes a singleton marker row (`integration_state`) at the start of each cycle capturing `expectedParentSha`, `featureBranchPreIntegrationSha`, and a JSON snapshot of current verification config. The success path later persists merge SHAs, clears the marker, and marks collaboration control `merged` in separate steps. A crash between `git merge` and that cleanup can leave the marker present while `main` already points at the merge commit.
+The integration executor writes a singleton marker row (`integration_state`) at the start of each cycle capturing `expectedParentSha`, `featureBranchPreIntegrationSha`, and a JSON snapshot of current verification config. The success path later persists merge SHAs, clears the marker, and marks collaboration control `merged` in separate steps. A crash between the `update-ref` CAS and that cleanup can leave the marker present while `main` already points at the merge commit.
 
 At startup, before the scheduler loop begins, the reconciler compares the marker row against actual git refs. Git refs are authoritative:
 
 1. **No marker + `main` unchanged since previous run** — clean resume, no action.
 2. **No marker + `main` at an unknown SHA** — an external push landed while the orchestrator was down. Halt the merge train, emit a warning, require operator confirmation before resuming.
-3. **Marker present + `main` == `expectedParentSha`** — `git merge` never ran. Clear marker and retry integration from scratch.
-4. **Marker present + `main` at a valid merge commit (parent 1 == `expectedParentSha`, parent 2 == post-rebase feature tip)** — `git merge` succeeded but cleanup crashed. Complete the remaining persistence updates from the marker (set `mainMergeSha`, `branchHeadSha`, flip `collabControl=merged`) and clear the marker.
+3. **Marker present + `main` == `expectedParentSha`** — `update-ref` never ran. Clear marker and retry integration from scratch.
+4. **Marker present + `main` at a valid merge commit (parent 1 == `expectedParentSha`, parent 2 == post-rebase feature tip)** — `update-ref` succeeded but cleanup crashed. Complete the remaining persistence updates from the marker (set `mainMergeSha`, `branchHeadSha`, flip `collabControl=merged`) and clear the marker.
 5. **Marker present + any other `main` state** — state is ambiguous. Halt the merge train and require manual intervention.
 
-The reconciler must be idempotent — a second invocation on the same state is a no-op.
+The reconciler must be idempotent — a second invocation on the same state is a no-op. After it returns, `worktree.sweepStaleLocks()` runs once before `scheduler.run()`.
 
 ## Hard Cancellation
 

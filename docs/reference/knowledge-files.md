@@ -2,11 +2,11 @@
 
 See [ARCHITECTURE.md](../../ARCHITECTURE.md) for high-level architecture overview.
 
-This page covers `.gvc0/KNOWLEDGE.md` and `.gvc0/DECISIONS.md` — the append-only files worker tools write to, and how planner / feature-phase agents embed them into their own prompts.
+This page covers `.gvc0/KNOWLEDGE.md` and `.gvc0/DECISIONS.md` — the append-only files worker tools write to, and how those files reach later prompts.
 
-Task workers do **not** receive knowledge/decisions sections from runtime anymore. The task worker system prompt is rendered from the planner-baked `TaskPayload` only (objective, scope, expectedFiles, references, outcomeVerification, featureObjective, featureDoD, planSummary, dependencyOutputs). Knowledge and decisions, when they matter, enter the task prompt through `references` — the planner picks which files are relevant for each task.
+Task workers do **not** receive knowledge/decisions sections from runtime. The task worker system prompt is rendered from the planner-baked `TaskPayload` only (objective, scope, expectedFiles, references, outcomeVerification, featureObjective, featureDoD, planSummary, dependencyOutputs). Knowledge and decisions reach a task only when the planner cites a specific file under that task's `references`.
 
-Feature-phase agents (discuss / research / plan / verify / summarize) may still load knowledge and decisions directly as part of phase-specific context composition.
+Feature-phase prompts (discuss / research / plan / verify / summarize / replan) are assembled from feature/event summaries plus a minimal `codebaseMap` string and do **not** auto-load `.gvc0/KNOWLEDGE.md` or `.gvc0/DECISIONS.md`. Operators or planner-baked references are the only path either file takes into a downstream prompt.
 
 ## `.gvc0/KNOWLEDGE.md`
 
@@ -42,7 +42,7 @@ export function createRecordDecisionTool(projectRoot: string): AgentTool {
 }
 ```
 
-As with knowledge, this is real filesystem state. Task worker prompts do not auto-inject `DECISIONS.md`; the planner lists relevant decisions under a task's `references`. Feature-phase agents may load decisions directly as part of phase-specific context composition.
+As with knowledge, this is real filesystem state. Task worker prompts do not auto-inject `DECISIONS.md`; the planner lists relevant decisions under a task's `references`. Feature-phase prompts also do not auto-load `DECISIONS.md` — its contribution to a phase prompt only happens through planner-baked references or operator-supplied context.
 
 ## Current Mental Model
 

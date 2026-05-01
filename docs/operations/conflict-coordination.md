@@ -115,7 +115,7 @@ Before runtime overlap handling kicks in, the planner reserves expected edit pat
 
 When the dominant task completes its work:
 
-1. Merge its task branch into the feature branch.
+1. Squash-merge its task branch into the feature branch (`rebase → squash`, retried up to `maxSquashRetries` on transient git conflicts; exhaustion routes to `replanning` with `VerifyIssue.source='squash'`). On squash success, the task worktree is disposed fire-and-forget.
 2. Rebase each suspended task branch onto the updated feature branch.
 3. If rebase resolves cleanly, optionally run a cheap sanity check such as `git diff --check`, then resume.
 4. If rebase does not resolve cleanly, do not reset files and do not auto-pick `ours` / `theirs`; keep task collaboration control at `conflict` and inject exact conflict context.
