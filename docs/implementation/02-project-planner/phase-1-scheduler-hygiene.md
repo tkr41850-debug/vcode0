@@ -1,18 +1,30 @@
 # Phase 1 — Scheduler hygiene unblock
 
-## Goal
+Status: drafting
+Verified state: main @ a5abfeae9b1e59ee53d8c850da7203fdc146521a on 2026-05-01
+Depends on: none (independent — standalone scheduler-hygiene unblock per track README)
+Default verify: npm run check:fix && npm run check
+Phase exit: npm run verify; smoke the original `/init` + `/auto` runaway no longer floods `.gvc0/logs/` with duplicate failures, and the operator sees a single failed-run signal in the TUI with an inbox pointer.
+Doc-sweep deferred: docs/reference/tui.md (icon legend, if present)
 
-Stop the runaway re-dispatch loop that fires every scheduler tick when a feature-phase run lands in `runStatus='failed'`, and surface the failed state in the TUI so the operator can see it. This phase is independent of the project-planner architecture and ships first to give visibility during the rest of the track's work.
+## Contract
+
+Goal: Stop the runaway re-dispatch loop that fires every scheduler tick when a feature-phase run lands in `runStatus='failed'`, and surface the failed state in the TUI so the operator can see it. This phase is independent of the project-planner architecture and gives visibility during the rest of the track's work.
 
 This is a TDD bug fix. Do not expand it into retry-policy redesign, planner-prompt work, or run-state schema changes.
 
-## Scope
+Scope:
+  In: filter `runStatus='failed'` from feature-phase prioritization in `prioritizeReadyWork`; differentiate `failed` from `running`/`blocked` in `deriveFeatureBlocked` and `iconForFeature`; add a regression test that reproduces the loop and proves the filter holds.
+  Out: changing `decideRetry` classification semantics (non-transient errors continue to escalate to `failed`); changing the inbox escalation path; adding new run statuses; changing the `restartCount` bump semantics in pre-dispatch.
+Exit criteria:
+- Both commits land in order.
+- `npm run verify` passes.
+- Reproducing the original `/init` + `/auto` runaway no longer floods `.gvc0/logs/` with duplicate failures; the operator sees a single failed-run signal in the TUI with an inbox pointer.
+- Run a final review subagent across both commits to confirm the filter is narrow, the TUI distinction is correct, and no test/doc drift remains.
 
-**In:** filter `runStatus='failed'` from feature-phase prioritization in `prioritizeReadyWork`; differentiate `failed` from `running`/`blocked` in `deriveFeatureBlocked` and `iconForFeature`; add a regression test that reproduces the loop and proves the filter holds.
+## Plan
 
-**Out:** changing `decideRetry` classification semantics (non-transient errors continue to escalate to `failed`); changing the inbox escalation path; adding new run statuses; changing the `restartCount` bump semantics in pre-dispatch.
-
-## Background
+Background:
 
 Verified gaps on `main`:
 
@@ -24,81 +36,80 @@ Verified gaps on `main`:
 - TUI's `deriveFeatureBlocked` (`src/tui/view-model/index.ts`) only flags `await_response | await_approval | retry_await`. `iconForFeature` does **not** derive `⟳` purely from `workControl='planning'`; it falls back to derived unit status, and several feature states render `in_progress`. The visibility bug is real, but the surface is the unit-status fallback, not a hardcoded planning icon. `buildMilestoneTree(...)` also calls `deriveFeatureBlocked(...)` for `displayStatus` and feature `meta.wait` — Step 1.2 must update both call sites, not just `deriveFeatureBlocked` in isolation.
 - The TUI does **not** read `inbox_items` today. A static "see inbox" hint is straightforward; anything conditional on real inbox rows requires broader plumbing than Step 1.2's file list — defer the conditional version.
 
+Notes:
+
+- Scope boundary: do not change the inbox writer in `feature_phase_error`; the dedup is achieved by stopping re-dispatch, not by deduping inbox rows.
+- Why this stands alone: `phase-8-submit-compliance` addresses the underlying error that drives runs to `failed`. Without this scheduler-hygiene unblock, the rest of the track's interactive testing is hostile because every test failure repeats forever.
+- No new state: the `failed` runStatus already exists in the lifecycle; this phase only changes who reads it.
+
 ## Steps
 
-Ships as **2 commits**, in order.
+Ships as 2 commits, in order.
 
 ---
 
-### Step 1.1 — Filter `failed` feature-phase runs from prioritization
+### Step 1.1 — Filter `failed` feature-phase runs from prioritization [risk: low, size: S]
 
-**What:** extend the skip predicate in `prioritizeReadyWork` (`src/core/scheduling/index.ts`) so feature-phase units whose run is in `runStatus='failed'` are excluded. This stops the re-dispatch loop. The `inbox_items` row from the original failure is retained as the operator's signal; no new state is introduced.
+What: extend the skip predicate in `prioritizeReadyWork` (`src/core/scheduling/index.ts`) so feature-phase units whose run is in `runStatus='failed'` are excluded. This stops the re-dispatch loop. The `inbox_items` row from the original failure is retained as the operator's signal; no new state is introduced.
 
-**Files:**
+Files:
 
 - `src/core/scheduling/index.ts` — at the feature-phase collection site, add `run?.runStatus === 'failed'` to the skip condition. The fix applies uniformly to all seven feature-phase kinds.
 - `test/unit/core/scheduling.test.ts` — add tests that construct features in each affected phase (sample at minimum: `plan`, `discuss`, `verify`) with a `failed` feature-phase run and assert `prioritizeReadyWork` does not include them.
 - `test/unit/core/scheduling.test.ts` — add an explicit `runStatus === 'running'` skip-path test if not already present (verified **coverage** gap — the behavior is correct on `main` but no test exercises it directly; existing coverage hits `await_response | await_approval | retry_await` but not the `running` skip).
 - `test/unit/orchestrator/scheduler-loop.test.ts` — add a regression that drives a feature-phase run to `failed` (semantic_failure path), then runs additional ticks and asserts no further `dispatchRun` calls for the same `(featureId, phase)` pair.
 
-**Tests:**
+Tests:
 
 - Direct prioritization unit test: feature with `workControl='planning'` and a feature-phase run in `runStatus='failed'` produces no `feature_phase` entry in the result. Same for at least one non-planner phase (e.g. `verify`).
 - New `runStatus='running'` skip test fills the existing coverage gap.
 - Loop regression: drive `feature_phase_error` once via a runtime that throws a non-transient error, then run 3 more scheduler ticks; assert exactly one dispatch happened, exactly one inbox row was written, and the run stays `failed`.
 - Existing `runStatus='running'` and `isBlockedByRun` skip paths stay green.
 
-**Verification:**
-- Run the new tests against current `main` first — all three new cases (direct prioritization, `running` skip-path, loop regression) must fail RED. The loop regression should observably re-dispatch and accumulate inbox rows pre-fix.
+Verification:
+- Run the new tests against current `main` before the code change — all three new cases (direct prioritization, `running` skip-path, loop regression) must fail RED. The loop regression should observably re-dispatch and accumulate inbox rows pre-fix.
 - After applying the `runStatus === 'failed'` skip in `prioritizeReadyWork`, re-run; all three flip GREEN. Existing skip paths stay GREEN.
 - Then `npm run check:fix && npm run check`.
 
-**Review subagent:**
+Review goals:
+1) `src/core/scheduling/index.ts` skip predicate now excludes `runStatus='failed'` feature-phase runs.
+2) The loop regression test fails on pre-fix code and passes on post-fix.
+3) Inbox-row count stays at one across multiple ticks.
+4) No change to task-unit collection behavior.
+Word cap: under 250 words.
 
-> Verify the prioritization filter: (1) `src/core/scheduling/index.ts` skip predicate now excludes `runStatus='failed'` feature-phase runs; (2) the loop regression test fails on pre-fix code and passes on post-fix; (3) inbox-row count stays at one across multiple ticks; (4) no change to task-unit collection behavior. Under 250 words.
-
-**Commit:** `fix(core/scheduling): skip failed feature-phase runs in prioritization`
+Commit: `fix(core/scheduling): skip failed feature-phase runs in prioritization`
 
 ---
 
-### Step 1.2 — Surface `failed` feature-phase runs in TUI
+### Step 1.2 — Surface `failed` feature-phase runs in TUI [risk: low, size: S]
 
-**What:** extend `deriveFeatureBlocked` to flag `runStatus='failed'` for feature-phase runs and update the icon mapping so failed features render distinct from `⟳ planning`. Operator should see at a glance that the feature is stuck on a failed planner run, with an inbox-pointer hint.
+What: extend `deriveFeatureBlocked` to flag `runStatus='failed'` for feature-phase runs and update the icon mapping so failed features render distinct from `⟳ planning`. Operator should see at a glance that the feature is stuck on a failed planner run, with an inbox-pointer hint.
 
-**Files:**
+Files:
 
-- `src/tui/view-model/index.ts` — extend `deriveFeatureBlocked` to return a typed reason for `failed`; update **both** call sites of `deriveFeatureBlocked` in `buildMilestoneTree(...)` (`displayStatus` and feature `meta.wait`) so failed reason flows to both surfaces. **Icon decision:** today `iconForDerivedStatus` already maps `'failed'` to `'✗'` for task-derived status; extend `iconForFeature` to **fall through to that same `'✗'`** when a feature-phase run is in `runStatus='failed'`. Single failed glyph across task-derived and run-derived paths — operator does not need to distinguish "task failed" from "feature-phase run failed" at glance level (the reason text disambiguates). Do **not** introduce a new symbol like `'!'`.
+- `src/tui/view-model/index.ts` — extend `deriveFeatureBlocked` to return a typed reason for `failed`; update **both** call sites of `deriveFeatureBlocked` in `buildMilestoneTree(...)` (`displayStatus` and feature `meta.wait`) so failed reason flows to both surfaces. Icon decision: today `iconForDerivedStatus` already maps `'failed'` to `'✗'` for task-derived status; extend `iconForFeature` to **fall through to that same `'✗'`** when a feature-phase run is in `runStatus='failed'`. Single failed glyph across task-derived and run-derived paths — operator does not need to distinguish "task failed" from "feature-phase run failed" at glance level (the reason text disambiguates). Do **not** introduce a new symbol like `'!'`.
 - `test/unit/tui/view-model.test.ts` — add coverage for failed-run rendering. Assert reason text mentions inbox via a static "see inbox" hint (no live inbox lookup — the TUI does not read `inbox_items` today, and Step 1.2 does not add that plumbing).
 - `docs/reference/tui.md` — if the icon legend is documented, update it. (If not present, skip.)
 
-**Tests:**
+Tests:
 
 - Feature with planning workControl + failed feature-phase run renders with `'✗'` (same glyph as task-derived failed) and a blocked reason carrying the static "see inbox" hint. Both `displayStatus` and `meta.wait` reflect the failed reason.
 - Feature with planning workControl + running feature-phase run keeps existing rendering (no change).
 - Feature with `await_approval` keeps existing approval-pending rendering.
 
-**Verification:**
-- Run the new view-model tests against current `main` first — the failed-run rendering case must fail RED (`deriveFeatureBlocked` does not yet return a typed reason for `failed`; `iconForFeature` does not yet fall through to `'✗'` for run-derived failed state).
+Verification:
+- Run the new view-model tests against current `main` before the code change — the failed-run rendering case must fail RED (`deriveFeatureBlocked` does not yet return a typed reason for `failed`; `iconForFeature` does not yet fall through to `'✗'` for run-derived failed state).
 - Implement the typed reason, the dual call-site update in `buildMilestoneTree`, and the `iconForFeature` fall-through. Re-run; failed-run case flips GREEN. Running and approval-pending cases stay GREEN.
 - Then `npm run check:fix && npm run check`.
 
-**Review subagent:**
+Review goals:
+1) `deriveFeatureBlocked` returns a typed reason for `runStatus='failed'`.
+2) `iconForFeature` distinguishes failed from running and from approval-pending.
+3) Running and approval-pending paths are unchanged.
+4) `docs/reference/tui.md` (if present) is updated to match.
+Word cap: under 250 words.
 
-> Verify the TUI surface: (1) `deriveFeatureBlocked` returns a typed reason for `runStatus='failed'`; (2) `iconForFeature` distinguishes failed from running and from approval-pending; (3) running and approval-pending paths are unchanged; (4) docs/reference/tui.md (if present) is updated to match. Under 250 words.
-
-**Commit:** `feat(tui/feature-view): surface failed feature-phase runs distinct from blocked`
+Commit: `feat(tui/feature-view): surface failed feature-phase runs distinct from blocked`
 
 ---
-
-## Phase exit criteria
-
-- Both commits land in order.
-- `npm run verify` passes.
-- Reproducing the original `/init` + `/auto` runaway no longer floods `.gvc0/logs/` with duplicate failures; the operator sees a single failed-run signal in the TUI with an inbox pointer.
-- Run a final review subagent across both commits to confirm the filter is narrow, the TUI distinction is correct, and no test/doc drift remains.
-
-## Notes
-
-- **Scope boundary:** do not change the inbox writer in `feature_phase_error`; the dedup is achieved by stopping re-dispatch, not by deduping inbox rows.
-- **Why this ships first:** Phase 8 (submit-compliance) addresses the underlying error that drives runs to `failed`. Without Phase 1 first, the rest of the track's interactive testing is hostile because every test failure repeats forever.
-- **No new state.** The `failed` runStatus already exists in the lifecycle; this phase only changes who reads it.
