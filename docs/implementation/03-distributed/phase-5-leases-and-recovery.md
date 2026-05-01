@@ -2,7 +2,7 @@
 
 - Status: drafting
 - Verified state: main @ dac6449 on 2026-05-01
-- Depends on: phase-0-migration-consolidation (pins migration ids `005` and `006` for this track), phase-1-protocol-and-registry (registry plane, `heartbeat` / `reconnect` / `worker_shutdown` frame surface, `bootEpoch` semantics), phase-2-remote-task-execution (`RemoteSessionStore`, bare-repo and pre-receive hook plumbing), phase-3-multi-worker-scheduling (`selectWorker` and the worker-panel three-tier rendering this phase enriches), phase-4-remote-feature-phases (proposal-host model that takeover resumability consults)
+- Depends on: phase-0-migration-consolidation (pins migration ids `005` and `006` for this track), phase-1-protocol-and-registry (registry plane, `heartbeat` / `reconnect` / `worker_shutdown` frame surface, `bootEpoch` semantics), phase-2-remote-task-execution (`RemoteSessionStore`, bare-repo and pre-receive hook plumbing), phase-3-multi-worker-scheduling (`pickWorker` and the worker-panel three-tier rendering this phase enriches), phase-4-remote-feature-phases (proposal-host model that takeover resumability consults)
 - Default verify: npm run check:fix && npm run check
 - Phase exit: npm run verify; boot two workers; dispatch a task to worker A; kill worker A without graceful shutdown; observe the lease pass grace, fence bump, and run resume on worker B from the persisted `sessionId` to completion.
 - Doc-sweep deferred: `docs/architecture/worker-model.md` (pid/proc liveness, `RECOVERY_REBASE` marker, `FileSessionStore`-as-sole-persistence narrative), `docs/architecture/persistence.md` (`worker_pid` / `worker_boot_epoch` / `owner_worker_id` / `owner_assigned_at` references; recovery-metadata schema; new `run_leases` / `run_lease_events` / `fence_token` surfaces), `docs/operations/verification-and-recovery.md` (lease-based reclamation and crash-matrix copy). Reconcile in one doc-only commit at phase exit.
@@ -193,7 +193,7 @@ Review goals (cap 300 words):
   1. `expireLease`, fence bump, and `run_lease_events` insert all happen in one transaction.
   2. Sweep-on-boot is synchronous and runs before the first scheduler tick.
   3. Resumability consults all three signals (session storage, runStatus, proposal-host state).
-  4. Reroute uses phase-3-multi-worker-scheduling `selectWorker`.
+  4. Reroute uses phase-3-multi-worker-scheduling `pickWorker`.
   5. Voluntary `releaseLease` paths skip grace and write the right `reason`.
   6. Crash-style local exit calls `expireLease` directly.
 

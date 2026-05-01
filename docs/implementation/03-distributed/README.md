@@ -33,7 +33,7 @@ The track distinguishes three multiplexed frame families on the worker↔orchest
 
 ## Scope
 
-Seven phases. Phase 0 is a track-level pre-phase that clears migration-numbering anxiety; phases 1–7 stand on their own and ship in order; later phases assume earlier ones merged.
+Seven numbered phases (1–7) plus a track-level pre-phase (Phase 0) that clears migration-numbering anxiety. Phases 1–7 stand on their own and ship in order; later phases assume earlier ones merged.
 
 | Phase | Theme | Outcome | Risk |
 |-------|-------|---------|------|

@@ -209,9 +209,8 @@ The transport-aware `LocalWorkerPool` (`src/runtime/worker-pool.ts:62+`) gets a 
 
 Files:
   - `src/runtime/multi-harness-pool.ts` — new. `MultiHarnessPool` implements `RuntimePort`. Holds both harnesses, plus the registry port from phase-1-protocol-and-registry. Routes `dispatchRun` to the right backend per scope+worker. Reuses the live-runs / feature-phase-live-sessions bookkeeping pattern from `LocalWorkerPool` (lines 29-67) so the control surface (`abortRun`, `steerRun`, etc.) stays unchanged.
-  - `src/orchestrator/scheduler/dispatch.ts` — call sites at lines 305 / 312 / 425 / 432 acquire the worker before dispatch and pass its id into the runtime port (additive; no signature break — the registry handle is read from a closure on the runtime impl).
+  - `src/orchestrator/scheduler/dispatch.ts:160-225, 305, 312, 425, 432` — call sites acquire the worker before dispatch and pass its id into the runtime port (additive; no signature break — the registry handle is read from a closure on the runtime impl); the existing `harnessKind` patch logic at `:160-225` already accepts both kinds, double-check it matches the new `remote-ws` discriminator (phase-1-protocol-and-registry D2).
   - `src/compose.ts` — wire `MultiHarnessPool` when `config.distributed.enabled === true`; otherwise keep `LocalWorkerPool` directly.
-  - `src/orchestrator/scheduler/dispatch.ts:160-225` — `harnessKind` patch logic already accepts both kinds; double-check it matches the new `remote-ws` discriminator (phase-1-protocol-and-registry D2).
 
 Tests:
   - `test/unit/runtime/multi-harness-pool.test.ts` — given a fake registry that returns either a local or remote worker, dispatch routes to the right harness and the live-runs bookkeeping is shared (e.g. `abortRun(agentRunId)` finds the run regardless of which harness owns it).
@@ -257,7 +256,7 @@ Files:
 
 Tests: the file above is the test.
 
-Review goals (cap 400 words):
+Review goals (cap 250 words — exceeds Standard tier because this test crosses every seam introduced in 2.1–2.7):
   1. Verify the test actually exercises every seam introduced in this phase — bare repo, centralized session storage, `RemoteWsHarness`, `MultiHarnessPool`, branch sync-back — and is not silently bypassing one with a direct mock.
   2. Verify the assertion set covers branch state, session state, and `agent_runs` row state, not just "no exception thrown".
   3. Verify the fake-remote helper is reusable for later phases of this track (no test-private state baked into it).

@@ -5,7 +5,7 @@
 - Depends on: phase-0-migration-consolidation (migration numbering pinned for any schema work landed here), phase-1-protocol-and-registry (worker registry, capability advertisement, fence-field convention), phase-2-remote-task-execution (network IPC transport, bare-repo sync, `RemoteSessionStore` seam, faux remote-worker harness), phase-3-multi-worker-scheduling (capacity-aware picker, `WorkerCapacityView`, capability filter that this phase extends with `verification`)
 - Default verify: npm run check:fix && npm run check
 - Phase exit: npm run verify; boot a real remote worker; submit a fresh project; observe bootstrap-plan, discuss, research, plan, verify, and ci_check all execute on the worker with the orchestrator instantiating zero pi-sdk `Agent` instances; confirm the TUI live-planner mirror renders proposal ops in real time as they stream from the worker.
-- Doc-sweep deferred: docs/architecture/worker-model.md (where-do-agents-run section flips at step 4.7), docs/architecture/planner.md (line 16 host-location note), docs/operations/recovery.md (disconnect-handling gap until phase-5-leases-and-recovery lands)
+- Doc-sweep deferred: docs/operations/recovery.md (disconnect-handling gap until phase-5-leases-and-recovery lands). `worker-model.md` and `planner.md` flips ride along inline with step 4.7 rather than the closing commit.
 
 Ships as 12 commits, in order, plus an optional smoke (4.10). Steps 4.6 and 4.7 each split into substeps that share their X.Y prefix: 4.6.a / 4.6.b / 4.6.c stage the planner-scope flag flips; 4.7.a is the `verifyFeature` retarget that lands between 4.7's flag flip and 4.8's deletion. Each commit stands on its own and the suite stays green between commits. The first three steps are infra (no functional change). Steps 4.4–4.7 migrate one scope at a time behind a per-scope flag. Step 4.9 enforces the non-negotiable.
 
@@ -321,4 +321,4 @@ Review goals (cap 250 words):
 Commit: test(distributed): end-to-end smoke for fully-remote feature graph
 
 ---
-Shipped in <SHA1>..<SHA9> on <YYYY-MM-DD>
+Shipped in <SHA1>..<SHA12> (+ optional <SHA13> for 4.10) on <YYYY-MM-DD>
