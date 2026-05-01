@@ -29,10 +29,16 @@ Ships as **1–2 commits**: Step 7.1 is required; Step 7.2 is optional UX polish
 
 ### Step 7.1 — Wire `request_help` into discuss + add prompt guidance for topology escalation
 
+**Approach:** TDD for the wiring slice (faux-model help flow); prompt prose tuned afterwards.
+
 **What:** two coupled sub-tasks.
 
-1. **Tool wiring.** `request_help` is part of `buildProposalAgentToolset` (`src/agents/tools/agent-toolset.ts`), which today is only used by plan/replan. Discuss uses `buildFeaturePhaseAgentToolset` and does not have `request_help`. Without the tool, prompt edits cannot make discuss escalation real. Extend the discuss toolset to include `request_help` (and the matching help-response callback wiring in `src/agents/runtime.ts:359-371`). Replan already inherits the tool through plan's toolset (replan and plan are constructed via the same path); no change there.
-2. **Prompt edits.** Update the discuss / plan / replan agent prompts so the agent knows when to call `request_help` for a topology-flavored question. Concretely: a short paragraph explaining the scope discipline (this agent cannot mutate topology), the conditions where escalation is appropriate (spec doesn't fit one feature; needs split; depends on a feature that doesn't exist; etc.), and the format for the help query (a structured prefix like `[topology] ...` so the inbox can flag it).
+1. **Tool wiring (TDD slice).** `request_help` is part of `buildProposalAgentToolset` (`src/agents/tools/agent-toolset.ts`), which today is only used by plan/replan. Discuss uses `buildFeaturePhaseAgentToolset` and does not have `request_help`. Without the tool, prompt edits cannot make discuss escalation real. Extend the discuss toolset to include `request_help` (and the matching help-response callback wiring in `src/agents/runtime.ts:359-371`). Replan already inherits the tool through plan's toolset (replan and plan are constructed via the same path); no change there.
+2. **Prompt edits (prose, post-wiring).** Update the discuss / plan / replan agent prompts so the agent knows when to call `request_help` for a topology-flavored question. Concretely: a short paragraph explaining the scope discipline (this agent cannot mutate topology), the conditions where escalation is appropriate (spec doesn't fit one feature; needs split; depends on a feature that doesn't exist; etc.), and the format for the help query (a structured prefix like `[topology] ...` so the inbox can flag it).
+
+**Test (write first, expect red):** write the discuss-phase analogue of the existing plan help test in `test/integration/runtime.test.ts` (or wherever the plan `request_help` flow is exercised today): scripted faux-model `request_help({ query: '[topology] f-3 spec is too broad...' })` from a discuss agent pauses the run at `await_response`; `session.respondToHelp(...)` resumes the agent; `submitDiscuss` then completes. RED initially because discuss has no `request_help` tool wired. Add thin variants for plan and replan to cover both proposal toolset paths.
+
+**Implementation:** wire `request_help` into the discuss toolset and the matching help-response callback so the test goes GREEN. Then iterate the prompt prose (paragraphs in `discuss.ts` / `plan.ts` and the `docs/agent-prompts` mirrors) with the wiring as a safety net — the integration test stays green while the prose is tuned.
 
 **Files:**
 
@@ -44,15 +50,13 @@ Ships as **1–2 commits**: Step 7.1 is required; Step 7.2 is optional UX polish
 - `docs/agent-prompts/README.md` — document the escalation pattern alongside the prompt files.
 - `test/integration/feature-phase-agent-flow.test.ts` — faux-model integration tests for **both** plan and discuss runs: scripted agent emits a `request_help` call with a `[topology]` prefix; assert the run goes to `await_response`, an inbox row is written, and the TUI surfaces the request with topology framing. Replan coverage can be a thin variant of the plan test.
 
-**Tests:**
+**Verification:**
 
-- Scripted faux-model `request_help({ query: '[topology] f-3 spec is too broad...' })` from a discuss agent puts the run in `await_response` (this is the primary capture path; previously this would have failed because the tool was not present).
-- Same scripted call from a plan agent puts the run in `await_response`.
-- Same scripted call from a replan agent puts the run in `await_response`.
+- Discuss faux-model test: `request_help({ query: '[topology] ...' })` pauses at `await_response`; `respondToHelp` resumes; `submitDiscuss` completes (RED before wiring, GREEN after).
+- Plan faux-model test: same flow puts the run in `await_response` and resumes via `respondToHelp`.
+- Replan faux-model test: thin variant of the plan test.
 - Help query is persisted on `agent_runs.payload_json` and the TUI surfaces it from the run row (existing path). Step 7.1 does **not** add an inbox row — that is Step 7.2 territory.
-- Operator reply via `session.respondToHelp` resumes the agent; agent continues with a stripped-down task graph proposal (plan/replan) or completes its discuss submit (discuss).
-
-**Verification:** `npm run check:fix && npm run check`.
+- `npm run check:fix && npm run check`.
 
 **Review subagent:**
 
@@ -64,9 +68,19 @@ Ships as **1–2 commits**: Step 7.1 is required; Step 7.2 is optional UX polish
 
 ### Step 7.2 — (Optional) Structured `topology_request` inbox kind
 
+**Approach:** TDD (test-first).
+
 **What:** introduce `topology_request` as a new inbox kind. Inbox rows of this kind carry the originating run id and the help-query text; the TUI renders a click-through affordance that opens project-planner mode pre-seeded with the help-query text as the new session's first user message. Detection is by the `[topology]` prefix on the help query — no new tool variant.
 
 **Click-through resolves nothing on its own.** Opening project-planner mode does not auto-resolve the originating feature-planner help request. The operator must still reply via `/reply` (or `session.respondToHelp`) on the original feature run before its agent resumes. The click-through is a navigation aid, not a resolution.
+
+**Test (write first, expect red):**
+
+- Inbox-writer test: invoking the help-request path with `request_help({ query: '[topology] ...' })` writes an `inbox_items` row with `kind='topology_request'`; a non-prefixed query (`request_help({ query: 'unrelated...' })`) writes no inbox row. RED before the classifier + writer exist (`topology_request` not in the kind union; CHECK constraint rejects it; no writer in `events.ts`).
+- TUI click-through test: the inbox affordance for a `topology_request` row opens project-planner mode with the help-query seeded as the new session's first user message; the originating feature run remains in `await_response`. RED before the renderer extension lands.
+- Regression: existing inbox kinds continue to write and render correctly.
+
+**Implementation:** add `topology_request` to the kind union, ship the CHECK-constraint relaxation migration, add the `[topology]`-prefix classifier + inbox writer in `events.ts`, and extend the inbox renderer with the click-through affordance. Tests go GREEN.
 
 **Files:**
 
@@ -74,17 +88,15 @@ Ships as **1–2 commits**: Step 7.1 is required; Step 7.2 is optional UX polish
 - `src/persistence/migrations/NNN_inbox_topology_request.ts` (new) — extend the `kind IN (...)` CHECK constraint added by `010_inbox_items.ts:12-16` with `'topology_request'`. SQLite does **not** allow modifying a CHECK constraint in-place: the migration must `CREATE TABLE inbox_items_new ...` with the new constraint, `INSERT INTO inbox_items_new SELECT ... FROM inbox_items`, `DROP TABLE inbox_items`, `ALTER TABLE inbox_items_new RENAME TO inbox_items`, recreate any indexes. Standard SQLite-CHECK-relaxation pattern; mirror whatever convention already-shipped relax-migrations use in this repo.
 - `src/orchestrator/scheduler/events.ts` — in the help-request path, detect the `[topology]` prefix and write an `inbox_items` row with `kind='topology_request'`. (Note: today no inbox row is written for `request_help` at all; this is the first such writer.)
 - **TUI inbox renderer.** Phase 6 ships no inbox surface (its scope is composer chrome, mode entry, auto-enter, approval surface). Phase 7.2 owns: locating the inbox-item rendering site that exists on `main` for the current four kinds (e.g. `src/tui/components/` or `src/tui/view-model/index.ts`'s inbox bucket), and extending it for `topology_request` with the click-through affordance that calls `/project` programmatically with the help-query as seeded context. If no inbox renderer exists on `main` either, Step 7.2 builds one — note this expands Step 7.2's scope and may justify deferring to a follow-up phase.
-- `test/unit/core/inbox.test.ts` (or wherever inbox unit tests live) — coverage for the new kind.
+- `test/unit/core/inbox.test.ts` (or wherever inbox unit tests live) — coverage for the new kind and the prefix classifier.
 - `test/integration/tui/smoke.test.ts` — coverage for the click-through opening project-planner mode with seeded context.
 
-**Tests:**
+**Verification:**
 
-- Topology-prefixed `request_help` writes an `inbox_items` row with `kind='topology_request'`.
-- Non-topology `request_help` writes no inbox row (preserves today's behavior — Step 7.1 path is unaffected).
-- Clicking the inbox affordance opens project-planner mode with the seeded context. The originating feature run remains in `await_response` until the operator explicitly replies on it; clicking does not move that state.
+- Inbox-writer unit/integration test: topology-prefixed `request_help` appends a `topology_request` row; non-prefixed `request_help` appends none (RED before classifier + writer; GREEN after).
+- TUI click-through test: clicking the affordance opens project-planner mode with seeded context; the originating feature run stays in `await_response` until the operator explicitly replies.
 - Existing inbox kinds continue to write and render correctly.
-
-**Verification:** `npm run check:fix && npm run check`.
+- `npm run check:fix && npm run check`.
 
 **Review subagent:**
 

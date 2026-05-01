@@ -32,6 +32,8 @@ Ships as **3 commits**, in order.
 
 ### Step 8.1 — Prompt hardening
 
+**Approach:** Prompt prose; behavior is covered by 8.3 regression test (no test added in this step).
+
 **What:** update the project-planner and feature plan/replan prompts to be unambiguous about the submit-call expectation. Concretely: a short, explicit paragraph at the end of the system prompt stating that the agent must call `submit` to complete its turn; that returning plain text without a tool call is treated as failure; that `request_help` is the correct tool for "I need more information" cases. Add a one-line example.
 
 **Files:**
@@ -58,27 +60,35 @@ Ships as **3 commits**, in order.
 
 ### Step 8.2 — Tool_choice forcing at SDK call site
 
-**What:** force the planner agent to complete with a tool call (`submit` / `submitDiscuss` / `request_help`) instead of free text. The installed pi-agent-core does not forward `toolChoice` through `Agent.prompt()` / `Agent.continue()` today, so Step 8.2 has three viable shapes:
+**Approach:** TDD for the runtime-boundary slice (assert tool_choice forced on prompt + continue); SDK shape selection is exploratory and lands afterwards.
+
+**What:** force the planner agent to complete with a tool call (`submit` / `submitDiscuss` / `request_help`) instead of free text. The runtime-boundary contract is: every `agent.prompt(...)` / `agent.continue(...)` call from a proposal-bearing phase carries a tool_choice that forbids free-text completion. The constraint, once wired, is **`tool_choice: 'any'` (or the provider equivalent for "any tool from the agent's toolset")** — **not** a name-allowlist. The full toolset (including `addTask`, `editTask`, `addDependency`, `setFeatureObjective`, all proposal-host mutations, `submit`, `submitDiscuss`, `request_help`) must remain callable; the constraint only forbids text-only turns. Both `prompt` and `continue` paths must carry it — resumed sessions go through `continue`, not `prompt`.
+
+**Test (write first, expect red):**
+
+- `test/unit/agents/runtime.test.ts` — assert that the runtime, when invoking a proposal-bearing phase (`startProposalPhase`, `startPlanFeature`, `startReplanFeature`, project-planner equivalent from Phase 4), passes the expected tool_choice value through to the agent boundary on **both** the initial `prompt` call and any resumption `continue` call. On current `main` these assertions fail (no tool_choice is forwarded) — confirm RED before implementation.
+- Resumption coverage is not optional: it is regression coverage to prevent the resume path from drifting.
+
+**Implementation:** turn the failing assertions GREEN by threading `toolChoice` through the runtime boundary at every prompt/continue call site for proposal-bearing phases.
+
+- `src/agents/runtime.ts` — at each prompt/continue call site for proposal-bearing phases, pass tool_choice that forbids free-text completion. Resumption (`agent.continue(...)`) must carry it as well.
+
+**Verification:** `npm run check:fix && npm run check`. Re-run the unit test added above; it must now be GREEN.
+
+#### SDK-shape exploration (lands after the runtime-boundary slice is GREEN)
+
+The installed pi-agent-core does not forward `toolChoice` through `Agent.prompt()` / `Agent.continue()` today, so the runtime-boundary slice needs an SDK-side delivery mechanism. Three viable shapes:
 
 1. **Upstream pi-agent-core** to forward an optional `toolChoice` field from `Agent.prompt({ toolChoice })` / `Agent.continue({ toolChoice })` to `streamSimple`. Most surgical; preferred if upstream review timing allows.
 2. **Replace `Agent` in our runtime** with a thin wrapper that owns the `streamSimple` call and threads `toolChoice` directly. Keeps the change in-tree but duplicates a small slice of `Agent`'s loop. Pick this if upstream is gated.
 3. **Defer the SDK change** to a follow-up; ship Phase 8 as prompt + regression test only. Documented as a known gap; revisit when 1 or 2 unblocks.
 
-Decide during implementation; document the choice in the commit message. The constraint, once wired, is **`tool_choice: 'any'` (or the provider equivalent for "any tool from the agent's toolset")** — **not** a name-allowlist. The full toolset (including `addTask`, `editTask`, `addDependency`, `setFeatureObjective`, all proposal-host mutations, `submit`, `submitDiscuss`, `request_help`) must remain callable; the constraint only forbids text-only turns. Both `prompt` and `continue` paths must carry it — resumed sessions go through `continue`, not `prompt`.
+Shape selection is exploratory: decide during implementation, document the choice in the commit message.
 
-**Files:**
+**Files (shape-dependent):**
 
-- `src/agents/runtime.ts` — at each prompt/continue call site for proposal-bearing phases (`startProposalPhase`, `startPlanFeature`, `startReplanFeature`, project-planner equivalent from Phase 4), pass tool_choice that forbids free-text completion. Resumption (`agent.continue(...)`) must carry it as well.
 - `node_modules/@mariozechner/pi-agent-core/...` (if shape 1 chosen) — upstream change. Out of repo; track separately.
 - `src/agents/runtime.ts` (if shape 2 chosen) — wrap `Agent` so `streamSimple` is called directly with `toolChoice`. Keep the wrapper minimal.
-- `test/unit/agents/runtime.test.ts` — coverage that tool_choice is set on every prompt/continue path used by proposal phases.
-
-**Tests:**
-
-- Constructed agent prompt call carries the expected tool_choice value (whichever shape is chosen — assert at the boundary the runtime owns).
-- Resumption (`agent.continue`) also carries the value. Regression coverage to prevent the resume path from drifting.
-
-**Verification:** `npm run check:fix && npm run check`.
 
 **Review subagent:**
 
@@ -90,10 +100,12 @@ Decide during implementation; document the choice in the commit message. The con
 
 ### Step 8.3 — Deterministic regression test
 
-**What:** add an integration test that reproduces the original failure mode (faux model returns plain text on a plan-phase turn) and asserts the fix. Two assertions:
+**Approach:** TDD (test-first) — this regression test IS the deliverable.
 
-- With tool_choice forcing in place, the faux model setup that produced plain text now produces an error with a clear "model returned text without a tool call" message (or equivalent SDK signal) rather than the silent skip-submit path.
-- Pre-Phase-8 behavior (still reachable in test by disabling tool_choice via an opt-out) reproduces the legacy failure as a baseline; this acts as a regression anchor and is documented as such.
+**What:** write the regression test FIRST. The faux model returns plain text on a plan-phase turn, reproducing the original failure mode. Confirm the test is RED on current `main` (legacy failure path observable). Then verify that 8.2's tool_choice forcing flips it GREEN — the plain-text-only response is rejected at the boundary rather than silently skipping `submit`. Two assertions:
+
+- With tool_choice forcing in place (8.2 GREEN), the faux model setup that produced plain text now produces an error with a clear "model returned text without a tool call" message (or equivalent SDK signal) rather than the silent skip-submit path.
+- Pre-Phase-8 behavior (still reachable in test by disabling tool_choice via an opt-out) reproduces the legacy failure as a baseline; this acts as a regression anchor and is documented as such. This is the same RED state used to confirm the test exercises the failure mode before 8.2 lands.
 
 **Files:**
 

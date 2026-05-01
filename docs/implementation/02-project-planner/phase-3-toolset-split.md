@@ -42,6 +42,8 @@ Ships as **2 commits**, in order.
 
 ### Step 3.1 — Introduce `editFeatureSpec` and define scope subsets
 
+**Approach:** TDD (test-first, red-green-refactor)
+
 **What:** add `editFeatureSpec` as a subset of today's `editFeature` covering description / objective / DoD only. Replace the single `createPlannerToolset(host)` factory in `src/agents/tools/planner-toolset.ts` with **two builder functions**:
 
 - `createFeaturePlanToolset(host)` returns: `addTask`, `editTask`, `removeTask`, `setFeatureObjective`, `setFeatureDoD`, `editFeatureSpec`, intra-feature `addDependency` (validates both endpoints belong to the same feature), intra-feature `removeDependency`, `submit`. (`request_help` is added separately in `agent-toolset.ts` when the help-response callback is wired — not part of the toolset subset.)
@@ -53,23 +55,27 @@ The scope-aware `addDependency`/`removeDependency` validation runs at tool-call 
 
 Phase 3 must keep `buildFeaturePhaseAgentToolset` (`src/agents/tools/agent-toolset.ts:214`) **extensible**: do not collapse its parameters or hardcode a phase-specific shape, since Phase 7 wires `request_help` into the discuss build path (it does **not** share the existing proposal-phase callback path — discuss has no help wiring today).
 
-**Files:**
+**Files (test):**
+
+- `test/unit/agents/tools/planner-toolset.test.ts` — replace the unified-catalog assertion (currently `:47-60`) with two analogous tests: one asserts `createFeaturePlanToolset(host)` returns exactly the feature-plan catalog (no `addMilestone`/`addFeature`/`removeFeature`/full `editFeature`); one asserts `createProjectPlannerToolset(host)` returns exactly the project-planner catalog (no `addTask`/`editTask`/`removeTask` — task-mutation tools must be absent). Assert `editFeatureSpec` rejects rename-style patches; assert `removeDependency` scope-validation matches `addDependency`.
+- `test/unit/agents/tools/agent-toolset.test.ts` — assert `buildProposalAgentToolset` routes to the correct builder by scope, and `request_help` presence/absence by callback wiring is unchanged across both scopes.
+
+**Files (prod):**
 
 - `src/agents/tools/planner-toolset.ts` — replace the unified `createPlannerToolset(host)` factory with `createFeaturePlanToolset(host)` and `createProjectPlannerToolset(host)`. Add `editFeatureSpec` next to `editFeature`. Add scope-validation helpers for `addDependency`/`removeDependency`. Both builders accept the existing `GraphProposalToolHost`.
 - `src/agents/tools/agent-toolset.ts` — `buildProposalAgentToolset` selects which builder to call. Today it is unparameterized on scope (calls `createPlannerToolset(host)`); add a scope discriminator (e.g. `kind: 'feature' | 'project'`) so the right builder runs. `request_help` wiring stays the same (callback-driven). Keep `buildFeaturePhaseAgentToolset` extensible — Phase 7 will add a `request_help` callback to discuss separately.
 - `src/agents/tools/proposal-host.ts` — confirm `editFeatureSpec` maps to a host method that mutates only spec fields. If the host doesn't separate, add a thin wrapper or expose a typed patch shape so the tool layer enforces the scope. The class is `GraphProposalToolHost`; do not rename.
 - `src/agents/tools/schemas.ts` — add the `editFeatureSpec` patch schema (mirrors `PlannerFeatureEditPatch` minus `name`).
-- `test/unit/agents/tools/planner-toolset.test.ts` — replace the unified-catalog assertion (currently `:47-60`) with two analogous tests: one asserts `createFeaturePlanToolset(host)` returns exactly the feature-plan catalog (no `addMilestone`/`addFeature`/`removeFeature`/full `editFeature`); one asserts `createProjectPlannerToolset(host)` returns exactly the project-planner catalog (no `addTask`/`editTask`/`removeTask` — task-mutation tools must be absent). Assert `editFeatureSpec` rejects rename-style patches; assert `removeDependency` scope-validation matches `addDependency`.
-- `test/unit/agents/tools/agent-toolset.test.ts` — assert `buildProposalAgentToolset` routes to the correct builder by scope, and `request_help` presence/absence by callback wiring is unchanged across both scopes.
 
-**Tests:**
+**Test (write first, expect red):**
 
-- `createFeaturePlanToolset(host)` does not include any topology tool (`addMilestone`, `addFeature`, `removeFeature`, `editFeature` full); does include `editFeatureSpec`, `addTask`, `editTask`, `removeTask`, intra-feature `addDependency`/`removeDependency`, `setFeatureObjective`, `setFeatureDoD`, `submit`.
-- `createProjectPlannerToolset(host)` includes the topology surface and `editFeature` full; **does not** include `addTask`, `editTask`, or `removeTask` (task-mutation surface stays feature-scope-only).
-- `editFeatureSpec` accepts `{ description, featureObjective, featureDoD }` patches and rejects `{ name }` patches with a clear error. (Rejection of `{ milestoneId }` patches is **deferred to Phase 4** — that field does not exist on `main` and is added by Phase 4 Step 4.1; the rejection assertion is added in the Phase 4 commit that introduces the field.)
-- Intra-feature `addDependency` rejects feature→feature edges; cross-feature `addDependency` accepts them and rejects task→task edges.
-- Intra-feature `removeDependency` rejects feature→feature edges; cross-feature `removeDependency` accepts them and rejects task→task edges. (Symmetry with `addDependency` — easy to forget.)
-- `request_help` presence is governed by callback wiring in `agent-toolset.ts` regardless of which subset is chosen.
+- Write `featurePlanTools` exclusion test (no `addMilestone`/`addFeature`/`removeFeature`/full `editFeature`) and inclusion test (`editFeatureSpec`, `addTask`, `editTask`, `removeTask`, intra-feature `addDependency`/`removeDependency`, `setFeatureObjective`, `setFeatureDoD`, `submit`). Confirm RED (builder does not exist).
+- Write `projectPlannerTools` inclusion test (topology surface + full `editFeature`) plus exclusion test (no `addTask`/`editTask`/`removeTask`). Confirm RED.
+- Write `editFeatureSpec` shape tests: accepts `{ description, featureObjective, featureDoD }` patches; rejects `{ name }` with a clear error. Confirm RED. (`{ milestoneId }` rejection is **deferred to Phase 4** — field does not exist on `main`.)
+- Write scope-aware dependency tests: intra-feature `addDependency`/`removeDependency` reject feature→feature edges; cross-feature variants accept them and reject task→task edges. Confirm RED.
+- Write `buildProposalAgentToolset` routing test (scope discriminator selects correct builder; `request_help` presence governed by callback wiring across both scopes). Confirm RED.
+
+**Implementation:** define `createFeaturePlanToolset` and `createProjectPlannerToolset` minimally to pass each red test in turn; add `editFeatureSpec` schema and host wrapper; add scope-validation helpers; thread the scope discriminator through `buildProposalAgentToolset`. Confirm GREEN after each step. Refactor for shared validation helpers once green.
 
 **Verification:** `npm run check:fix && npm run check`.
 
@@ -83,24 +89,30 @@ Phase 3 must keep `buildFeaturePhaseAgentToolset` (`src/agents/tools/agent-tools
 
 ### Step 3.2 — Wire `featurePlanTools` through plan/replan construction
 
+**Approach:** TDD (test-first, red-green-refactor)
+
 **What:** change `src/agents/runtime.ts` plan/replan construction (around `:417-434`) to attach `featurePlanTools` instead of the full combined toolset. The full combined set is no longer used by feature-scoped roles. Project-planner construction is added in Phase 4 (this phase leaves a stub or comment marker only). `discuss`, `research`, `verify`, `summarize` construction sites stay untouched — they already use `DefaultFeaturePhaseToolHost` with structured-submit tools.
 
-**Files:**
+**Files (test):**
+
+- `test/unit/agents/runtime.test.ts` (or closest equivalent) — assert the toolset attached to the plan/replan agent is the feature-plan catalog (dispatch routing verifiable via the constructed agent's tool list).
+- `test/integration/feature-phase-agent-flow.test.ts` — extend or add coverage that scripts a faux model attempting `addMilestone` from a `plan` phase agent and asserts the call is rejected (tool not present in the subset).
+
+**Files (prod):**
 
 - `src/agents/runtime.ts` — at the plan/replan agent construction site (`:417-421`), pass scope `'feature'` to `buildProposalAgentToolset`. The construction shape stays the same.
 - `src/agents/tools/agent-toolset.ts` — `buildProposalAgentToolset` branches on the scope arg to call `createFeaturePlanToolset` or `createProjectPlannerToolset`.
 - `src/runtime/harness/feature-phase/index.ts` — verified does not reference the toolset directly today; update only if a downstream change requires it.
 - `src/tui/proposal-controller.ts` — verified Phase 6 does not reuse this controller for project sessions (it stays feature-scoped). Confirm the controller's planner-op echo logic does not assume `addMilestone`/`addFeature`/`removeFeature` ops appear from feature-scope agents (they no longer can post-Phase-3); narrow the op-handling switch if it has a wildcard fallthrough that silently masks unexpected ops.
-- `test/integration/feature-phase-agent-flow.test.ts` — extend or add coverage that scripts a faux model attempting `addMilestone` from a `plan` phase agent and asserts the call is rejected (tool not present in the subset).
-- `test/unit/agents/runtime.test.ts` (or closest equivalent) — assert the toolset attached to the plan/replan agent is the feature-plan catalog.
 
-**Tests:**
+**Test (write first, expect red):**
 
-- `plan` phase agent receives the feature-plan catalog; `addMilestone` is not callable.
-- `replan` phase agent receives the feature-plan catalog.
-- Existing `plan` flow tests (faux model emitting `addTask` + `submit`) stay green.
-- Faux model emitting `addMilestone` from a plan agent triggers a clear "tool not found" or equivalent error path; the run does not silently mutate the proposal graph.
-- `discuss` / `research` / `verify` / `summarize` construction is unchanged (regression coverage if existing tests assert the toolset shape).
+- Write the unit assertion that the `plan` phase agent's toolset is exactly the feature-plan catalog (dispatch routes through `buildProposalAgentToolset(..., { kind: 'feature' })`); confirm RED (construction site still attaches the unified toolset).
+- Write the same assertion for `replan`. Confirm RED.
+- Write the integration test scripting a faux model that emits `addMilestone` from a `plan` agent and asserts a clear "tool not found" error (no silent proposal-graph mutation). Confirm RED.
+- Keep regression coverage for the existing `plan` happy-path (`addTask` + `submit`) and for `discuss`/`research`/`verify`/`summarize` construction shape — these must stay GREEN throughout.
+
+**Implementation:** thread `kind: 'feature'` through the plan/replan construction call in `runtime.ts:417-421`; route `buildProposalAgentToolset` to `createFeaturePlanToolset` for that scope. Do not modify discuss/research/verify/summarize construction sites. Confirm GREEN on the new tests and that the regression set stays GREEN.
 
 **Verification:** `npm run check:fix && npm run check`.
 

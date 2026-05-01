@@ -31,6 +31,8 @@ Ships as **4 commits**, in order.
 
 ### Step 6.1 — Composer focus indicator
 
+**Approach:** TDD (test-first). The `composerScope` view-model derivation is a pure mode/session-state → label mapping; cover every variant before touching component rendering.
+
 **What:** extend the existing `ComposerStatus` strip with an explicit scope label so the operator always sees where the next message goes. States to render:
 
 - `composer · graph` — normal commands (default; covers `command` and `draft` composer modes).
@@ -51,14 +53,18 @@ The chrome is always visible; it does not auto-hide. When the composer is defocu
 - `test/integration/tui/smoke.test.ts` — render-layer assertion that the chrome label appears with the expected text in each mode.
 - `docs/reference/tui.md` — describe the focus indicator chrome.
 
-**Tests:**
+**Test (write first, expect red):** in `test/unit/tui/view-model.test.ts`, add cases driving `composerScope` derivation: default state (no project session, no attached plan/replan) → `'graph'`; project-planner session active → `'project'` with the session id; feature plan/replan attached → `'feature'` with the feature id; composer defocused while project mode active → still `'project'` (label persists). Run; expect RED (field does not exist on the view-model yet).
+
+**Implementation:** add the `composerScope` field to the view-model derivation in `src/tui/view-model/index.ts`, then extend `ComposerStatus` in `src/tui/components/index.ts` to read it and render the label. Update `docs/reference/tui.md`.
+
+**Verification:** unit tests GREEN. Then layer the integration smoke in `test/integration/tui/smoke.test.ts`:
 
 - Default startup (no project session, no attached plan/replan) shows `composer · graph`.
 - After entering project-planner mode (slash command), chrome shows `composer · project planner: <id>`.
 - After detaching from project mode (Step 6.2's exit action), chrome returns to `composer · graph`.
 - Composer chrome stays visible when composer is defocused (`esc`); label shows the most recent destination.
 
-**Verification:** `npm run check:fix && npm run check`.
+Then `npm run check:fix && npm run check`.
 
 **Review subagent:**
 
@@ -69,6 +75,8 @@ The chrome is always visible; it does not auto-hide. When the composer is defocu
 ---
 
 ### Step 6.2 — Project-planner mode entry/exit + slash command
+
+**Approach:** TDD (test-first). Slash command registration, parsing, and execution routing are deterministic; the controller's session-list-to-picker mapping is a pure transform. Drive both with unit tests before wiring the picker UI.
 
 **What:** new slash command `/project` that toggles into project-planner mode. Entry actions: list active sessions; offer "start new session" or "resume <id>". Mode exit is an explicit *detach* action (e.g. `/project detach` or a re-issue of `/project` while attached); `esc` only defocuses the composer (existing 01-baseline phase 7 behavior) — it does not detach the session and does not cancel it. Cancellation is its own explicit operator action against the session.
 
@@ -84,7 +92,11 @@ The chrome is always visible; it does not auto-hide. When the composer is defocu
 - `test/unit/tui/commands.test.ts` — coverage for the new slash command.
 - `test/integration/tui/smoke.test.ts` — coverage for entry → pick → see chat surface.
 
-**Tests:**
+**Test (write first, expect red):** in `test/unit/tui/commands.test.ts`, add cases asserting `/project` is registered, autocompletes from `/p`, and parses to a project-planner intent. Add controller-level unit cases (against a stubbed `Store.listProjectSessions`): zero sessions → picker shows only "start new"; one running session → picker shows resume + start-new; `/project detach` while attached → controller emits a detach action. Run; expect RED (command not registered, controller not implemented).
+
+**Implementation:** register the command name + autocomplete in `src/tui/commands/index.ts`; wire execution routing in `src/tui/app-composer.ts`; add `src/tui/project-planner-controller.ts` and `src/tui/live-project-planner-sessions.ts`; extend `src/tui/view-model/index.ts` with the new mode + session list state.
+
+**Verification:** unit tests GREEN. Then layer the integration smoke in `test/integration/tui/smoke.test.ts`:
 
 - Slash `/project` with no sessions presents the "start new" option only.
 - Slash `/project` with one running session presents resume + start-new.
@@ -92,7 +104,7 @@ The chrome is always visible; it does not auto-hide. When the composer is defocu
 - Pick "resume" attaches to the existing session without re-creating.
 - `esc` from project mode defocuses the composer back to graph focus; the session keeps running and remains attached. Detach (mode exit) is a separate explicit action (`/project detach` or re-issue of `/project`).
 
-**Verification:** `npm run check:fix && npm run check`.
+Then `npm run check:fix && npm run check`.
 
 **Review subagent:**
 
@@ -104,6 +116,8 @@ The chrome is always visible; it does not auto-hide. When the composer is defocu
 
 ### Step 6.3 — Auto-enter on greenfield bootstrap
 
+**Approach:** TDD for the deterministic slice (bootstrap-result → initial-mode mapping in the view-model); full E2E layered on top. The bootstrap-result branching is pure (`{ kind: 'greenfield-bootstrap', sessionId } | { kind: 'existing' }` → initial mode + attached session id), but the full greenfield-startup path spans `compose.ts` + TUI construction and is exercised via integration smoke.
+
 **What:** consume the bootstrap result from Phase 5. If the result is `{ kind: 'greenfield-bootstrap', sessionId }`, the TUI initializes directly into project-planner mode attached to that session. The composer chrome shows `composer · project planner: <session-id>`. The user is in chat from the first frame.
 
 **Dependency.** Today `initializeProjectGraph(...)` returns `{ milestoneId, featureId }` and `src/compose.ts` constructs `TuiApp` with no bootstrap result. Phase 5 introduces the `greenfield-bootstrap` shape and the auto-spawn; Step 6.3 cannot land before Phase 5.
@@ -113,14 +127,19 @@ The chrome is always visible; it does not auto-hide. When the composer is defocu
 - `src/tui/app.ts` — accept the bootstrap result on construction; set initial mode accordingly.
 - `src/tui/app-deps.ts` — Phase 5 already changed `initializeProject(...)`'s return type to `{ kind: 'greenfield-bootstrap', sessionId } | { kind: 'existing' }`. Step 6.3 routes that signal into the composer / view-model state (e.g. add a `bootstrapResult` field on the deps surface that the composer reads at startup). Phase 5 owns the type change; Phase 6 Step 6.3 owns the consumption.
 - `src/compose.ts` — pass the bootstrap result from `initializeProjectGraph` into `TuiApp` construction.
+- `test/unit/tui/view-model.test.ts` — coverage for the bootstrap-result → initial-mode mapping.
 - `test/integration/tui/smoke.test.ts` — full smoke that greenfield startup lands in project-planner mode immediately.
 
-**Tests:**
+**Test (write first, expect red):** in `test/unit/tui/view-model.test.ts`, add cases driving the initial-mode derivation from the bootstrap-result deps field: `{ kind: 'greenfield-bootstrap', sessionId: 's-1' }` → initial mode is project-planner attached to `s-1`; `{ kind: 'existing' }` → initial mode is graph (default). Run; expect RED (`bootstrapResult` deps field and consumption do not exist yet).
+
+**Implementation:** add the `bootstrapResult` deps field consumption in `src/tui/app-deps.ts` and `src/tui/app.ts`; thread the value from `src/compose.ts` into `TuiApp` construction.
+
+**Verification:** unit tests GREEN. Then layer the integration smoke in `test/integration/tui/smoke.test.ts`:
 
 - Empty project + auto mode → TUI starts in project-planner mode with the auto-spawned session attached.
 - Existing project + auto mode → TUI starts in graph mode (default).
 
-**Verification:** `npm run check:fix && npm run check`.
+Then `npm run check:fix && npm run check`.
 
 **Review subagent:**
 
@@ -131,6 +150,8 @@ The chrome is always visible; it does not auto-hide. When the composer is defocu
 ---
 
 ### Step 6.4 — Project proposal approval + cancellation-approval surface
+
+**Approach:** TDD for the deterministic slice (the `proposal-review.ts` diff component: `(before, after) → rendered output` is pure, and each `ProposalRebaseReason` variant has a single render path); full E2E layered on top. The end-to-end approve-with-cancel sequence spans UI, the project-planner controller, and orchestrator-side cancel + apply, so it lands as integration smoke after the unit slice is GREEN.
 
 **What:** when a project session calls `submit`, the proposal review surface shows the proposed graph diff (added milestones, added features, removed features, edge changes). Today there is no graph-diff component — current feature-proposal UX is status text plus `/approve` / `/reject` / `/rerun`. Step 6.4 builds the diff surface as new TUI work.
 
@@ -145,14 +166,17 @@ The chrome is always visible; it does not auto-hide. When the composer is defocu
 - `test/integration/tui/smoke.test.ts` — coverage for the cancellation-approval flow.
 - `docs/reference/tui.md` — describe the project-proposal review surface.
 
-**Tests:**
+**Test (write first, expect red):** in `test/unit/tui/proposal-review.test.ts`, drive each render path of the diff component against `(before, after)` snapshot pairs: added milestone; added feature; removed feature; changed edge; mixed diff. Add a case per `ProposalRebaseReason` variant (`kind: 'stale-baseline'` and `kind: 'running-tasks-affected'`) asserting the human-readable framing. Add a controller-level unit case (against a stubbed `running-tasks-affected` helper): proposal that removes a feature with running tasks → controller renders the cancellation-approval block with the affected run count. Run; expect RED (`proposal-review.ts` does not exist).
+
+**Implementation:** build `src/tui/proposal-review.ts` to satisfy the diff cases; wire the controller in `src/tui/project-planner-controller.ts` to call the `running-tasks-affected` helper and surface the cancellation block; expose a batched cancel-then-apply entry point in `src/compose.ts` if needed. Update `docs/reference/tui.md`.
+
+**Verification:** unit tests GREEN. Then layer the integration smoke in `test/integration/tui/smoke.test.ts`:
 
 - Approval of a topology-only proposal (no running tasks affected) applies cleanly.
 - Approval of a `removeFeature(f-3)` proposal where `f-3` has a running task surfaces the cancellation-approval block; approve-without-cancel rejects with the Phase 4 `ProposalRebaseReason` (`kind: 'running-tasks-affected'`); approve-with-cancel cancels the task via `cancelFeatureRunWork` and then applies.
 - Stale-baseline rejection (Phase 4 `ProposalRebaseReason` of `kind: 'stale-baseline'`) re-opens the session with a clear system message rendered by `proposal-review.ts`.
-- Diff-component unit tests cover each render path in isolation.
 
-**Verification:** `npm run check:fix && npm run check`.
+Then `npm run check:fix && npm run check`.
 
 **Review subagent:**
 

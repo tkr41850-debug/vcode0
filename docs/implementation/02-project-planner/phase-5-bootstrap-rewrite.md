@@ -34,6 +34,8 @@ Ships as **2 commits**, in order.
 
 ### Step 5.1 — Rewrite `initializeProjectGraph` for greenfield + existing-project paths
 
+**Approach:** TDD (test-first).
+
 **What:** split `initializeProjectGraph` into two paths:
 
 - **Greenfield** (no milestones, no features): create empty project state. Persist nothing into the graph. Call `ProjectPlannerCoordinator.startProjectPlannerSession()`. Return the session id (or a structured bootstrap result) so the compose layer can pass it forward to the TUI.
@@ -41,25 +43,24 @@ Ships as **2 commits**, in order.
 
 The synthetic `m-1` / `f-1` creation and `transitionFeatureToPlanning(f-1)` call are removed.
 
-**Files:**
+**Test (write first, expect red):**
+
+- In `test/unit/compose.test.ts`, add the bootstrap-split coverage and run before any implementation change. Each assertion below should fail RED against current `main`:
+  - Greenfield bootstrap (no persisted state): `initializeProjectGraph(...)` against an empty `PersistentFeatureGraph` returns `{ kind: 'greenfield-bootstrap', sessionId }`; `Store.listProjectSessions({ status: ['running'] })` returns exactly one row; `graph.milestones.size === 0`; `graph.features.size === 0`.
+  - Greenfield bootstrap (persisted-but-empty edge case): `.gvc0/state.db` exists with zero milestone and zero feature rows (e.g. abandoned `/init` partway, or upgrade from a prior version that left no synthetic feature) → same outcome as fresh greenfield (one project run, no milestones/features). This is **distinct** from the migration case in Notes: a project that ran the old `/init` has `m-1`/`f-1` rows persisted and is classified `existing`. The two cases are tested separately to make the boundary obvious.
+  - Existing-project bootstrap: pre-seed graph with a real `m-x`/`f-x` from a fixture → `initializeProjectGraph(...)` returns `{ kind: 'existing' }`; no new project session is spawned (`Store.listProjectSessions({ status: ['running'] })` length unchanged).
+- Confirm RED before implementing.
+
+**Implementation:**
 
 - `src/compose.ts` — rewrite `initializeProjectGraph`. The new function returns `{ kind: 'greenfield-bootstrap', sessionId } | { kind: 'existing' }`. Compose forwards this result so Phase 6 can auto-enter the session. **Naming note:** post-rewrite the function name is misleading on the greenfield path (it persists no graph, only triggers a project-planner session). Renaming is deferred — call out in the commit message that future phases may rename to `initializeProject` or split into two functions.
 - `src/compose.ts` — `composeApplication` plumbs the bootstrap result into the TUI initialization step. Concretely: the result flows from `initializeProjectGraph` → composeApplication local → `app-deps.ts:initializeProject` return → `app-composer.ts:169` (where `dataSource.initializeProject(...)` is called today) → stored as a new `bootstrapResult` field that Phase 6 Step 6.3 reads at startup.
 - `src/tui/app-deps.ts` — change `initializeProject(...)` return type to match the new shape; this is a breaking change to the TUI's bootstrap contract and is the reason Phase 5 cannot avoid TUI plumbing.
 - `src/tui/app-composer.ts:169` — stop selecting `featureId` from the bootstrap result. **Land a no-op consumer** that stores `bootstrapResult` on view-model state (or a deps field) and reads nothing from it yet. Phase 6 Step 6.3 replaces the no-op with auto-enter logic. Rationale: avoid an interim "delegate to Phase 6" state where the field is set but unread — that risks Phase 5 shipping with a typecheck-pass-but-runtime-broken composer flow if Phase 6 slips.
 - `src/tui/view-model/index.ts` — empty-state copy update so the operator sees an explanatory message rather than an empty graph with no context (the previous synthetic feature filled that space).
-- `test/unit/compose.test.ts` — coverage that greenfield path creates exactly one project run and zero milestones/features.
-- `test/unit/compose.test.ts` — coverage that existing-project path creates zero new runs.
-- `test/unit/compose.test.ts` — coverage for the **truly-empty persisted-state** edge case: a `.gvc0/state.db` file exists but contains zero milestone and zero feature rows (e.g. abandoned `/init` partway, or upgrade from a prior version that left no synthetic feature) → still treated as greenfield. This is **distinct** from the migration case in Notes: a project that ran the old `/init` has `m-1`/`f-1` rows persisted and is classified `existing`. The two cases are tested separately to make the boundary obvious.
+- Iterate until the failing tests above turn GREEN. The deprecated synthetic `m-1` / `f-1` fixture path is removed or migrated as part of this implementation pass (broader fixture sweep happens in Step 5.2).
 
-**Tests:**
-
-- Greenfield bootstrap (no persisted state): after init, `Store.listProjectSessions({ status: ['running'] })` returns one row; `graph.milestones.size === 0`; `graph.features.size === 0`.
-- Greenfield bootstrap (persisted but empty: empty store + empty graph after migration): same outcome — one project run; no milestones/features.
-- Existing-project bootstrap: pre-seed graph with a real `m-x`/`f-x` from a fixture → after init, no new project session is spawned.
-- The deprecated synthetic `m-1` / `f-1` fixture path is removed or migrated.
-
-**Verification:** `npm run check:fix && npm run check`.
+**Verification:** rerun the new compose tests (GREEN), then `npm run check:fix && npm run check`.
 
 **Review subagent:**
 
@@ -71,24 +72,30 @@ The synthetic `m-1` / `f-1` creation and `transitionFeatureToPlanning(f-1)` call
 
 ### Step 5.2 — Migrate existing tests off synthetic-feature assumptions
 
+**Approach:** TDD for the unit-contract slice (`commands.test`, `app-composer.test`); fixture sweep is migration churn.
+
 **What:** sweep the test suite for fixtures that implicitly assume a synthetic `f-1` exists at startup. Two migration patterns:
 
 - Tests that exercise feature-phase flow: pre-seed the fixture with explicit `m-1`/`f-1` rows in the graph (mimicking an approved project-planner session). The synthetic shape moves from "compose creates it" to "test fixture creates it".
 - Tests that exercise compose / startup flow: assert against the new greenfield/existing-project split.
 
-**Files:**
+**TDD-able unit contracts (write first, expect red):**
 
-- `test/integration/tui/smoke.test.ts` — replace assumed-synthetic-`f-1` setup with an explicit fixture that seeds the graph before the smoke run. (This is the primary integration migration.)
-- `test/unit/tui/app-composer.test.ts`, `test/unit/tui/commands.test.ts` — update light contract assumptions about the bootstrap return shape. Most assertions are about `featureId` being present; rewrite to assert the new union shape and route through the new return type.
+- `test/unit/tui/commands.test.ts` — for the `/init` command path, write failing assertions that the bootstrap-result union (`{ kind: 'greenfield-bootstrap', sessionId } | { kind: 'existing' }`) is what the command surface receives and forwards. Before implementation: RED (current code expects `featureId`). After Step 5.1's contract is in place plus the local rewrites here: GREEN.
+- `test/unit/tui/app-composer.test.ts` — write failing assertions that `app-composer` consumes the new bootstrap-result shape (stores it as `bootstrapResult` per Step 5.1) and does **not** dereference `featureId`. RED first; rewrite the composer test setup to drive the new union; GREEN.
+- Confirm RED for both before touching production code in this step. Implementation here is mostly test-side: any production-side touch needed to make these GREEN should be limited to type-flow that Step 5.1 already established.
+
+**Non-TDD pass (fixture sweep / migration churn):**
+
+- `test/integration/tui/smoke.test.ts` — replace assumed-synthetic-`f-1` setup with an explicit fixture that seeds the graph before the smoke run. (This is the primary integration migration.) Treated as migration churn rather than red→green: the goal is to keep existing coverage passing under the new bootstrap contract, not to drive new behavior from a failing test.
 - `test/integration/feature-phase-agent-flow.test.ts` — **no migration needed** (verified self-contained); confirm by re-running the suite and leaving the file unchanged.
 - `test/helpers/*` — add a shared helper for "pre-approved bootstrap" if more than one test needs it (likely just the smoke test plus one unit test; add only if duplication is real).
 
-**Tests:**
+**Verification:**
 
-- Existing feature-phase coverage continues to pass with the explicit fixture.
-- New compose-level coverage (from step 5.1) passes.
-
-**Verification:** `npm run check:fix && npm run check`.
+- TDD slice: `commands.test` and `app-composer.test` go RED → GREEN as described.
+- Migration slice: existing feature-phase coverage continues to pass with the explicit fixture; new compose-level coverage from Step 5.1 still passes.
+- `npm run check:fix && npm run check`.
 
 **Review subagent:**
 
