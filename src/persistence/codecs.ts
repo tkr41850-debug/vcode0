@@ -287,10 +287,14 @@ export function agentRunToRow(
     restart_count: r.restartCount,
     retry_at: nullish(r.retryAt),
   };
-  if (r.scopeType === 'task') {
-    return { ...base, scope_type: 'task', scope_id: r.scopeId };
+  switch (r.scopeType) {
+    case 'task':
+      return { ...base, scope_type: 'task', scope_id: r.scopeId };
+    case 'feature_phase':
+      return { ...base, scope_type: 'feature_phase', scope_id: r.scopeId };
+    case 'project':
+      return { ...base, scope_type: 'project', scope_id: r.scopeId };
   }
-  return { ...base, scope_type: 'feature_phase', scope_id: r.scopeId };
 }
 
 export function rowToAgentRun(row: AgentRunRow): AgentRun {
@@ -314,14 +318,18 @@ export function rowToAgentRun(row: AgentRunRow): AgentRun {
     ),
     ...optional('retryAt', row.retry_at),
   };
-  if (row.scope_type === 'task') {
-    return { ...base, scopeType: 'task', scopeId: row.scope_id };
+  switch (row.scope_type) {
+    case 'task':
+      return { ...base, scopeType: 'task', scopeId: row.scope_id };
+    case 'feature_phase':
+      return { ...base, scopeType: 'feature_phase', scopeId: row.scope_id };
+    case 'project':
+      return { ...base, scopeType: 'project', scopeId: row.scope_id };
+    default: {
+      const unknown = (row as { scope_type: string }).scope_type;
+      throw new Error(`unknown agent_runs.scope_type: ${unknown}`);
+    }
   }
-  return {
-    ...base,
-    scopeType: 'feature_phase',
-    scopeId: row.scope_id,
-  };
 }
 
 // ---------- Event ----------

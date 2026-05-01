@@ -56,10 +56,13 @@ export type {
   AgentRunPhase,
   AgentRunStatus,
   FeaturePhaseAgentRun,
+  ProjectAgentRun,
+  ProjectScopeId,
   RunAttention,
   RunOwner,
   TaskAgentRun,
 } from './runs.js';
+export { PROJECT_SCOPE_ID } from './runs.js';
 export type {
   BudgetState,
   ModelUsageAggregate,

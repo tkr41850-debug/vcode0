@@ -55,4 +55,12 @@ export interface FeaturePhaseAgentRun extends BaseAgentRun {
   scopeId: FeatureId;
 }
 
-export type AgentRun = TaskAgentRun | FeaturePhaseAgentRun;
+export const PROJECT_SCOPE_ID = 'project';
+export type ProjectScopeId = typeof PROJECT_SCOPE_ID;
+
+export interface ProjectAgentRun extends BaseAgentRun {
+  scopeType: 'project';
+  scopeId: ProjectScopeId;
+}
+
+export type AgentRun = TaskAgentRun | FeaturePhaseAgentRun | ProjectAgentRun;

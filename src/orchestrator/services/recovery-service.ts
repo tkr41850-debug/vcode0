@@ -87,7 +87,11 @@ export class RecoveryService {
         continue;
       }
 
-      await this.recoverFeaturePhaseRun(run);
+      if (run.scopeType === 'feature_phase') {
+        await this.recoverFeaturePhaseRun(run);
+      }
+
+      // Phase 2.3 will replace this chain with an exhaustive switch.
     }
   }
 

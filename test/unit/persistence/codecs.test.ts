@@ -1,11 +1,13 @@
-import type {
-  EventRecord,
-  Feature,
-  FeaturePhaseAgentRun,
-  Milestone,
-  Task,
-  TaskAgentRun,
-  TokenUsageAggregate,
+import {
+  type EventRecord,
+  type Feature,
+  type FeaturePhaseAgentRun,
+  type Milestone,
+  PROJECT_SCOPE_ID,
+  type ProjectAgentRun,
+  type Task,
+  type TaskAgentRun,
+  type TokenUsageAggregate,
 } from '@core/types/index';
 import {
   agentRunToRow,
@@ -467,6 +469,51 @@ describe('codecs — round-trip', () => {
         ...run,
         tokenUsage: TOKEN_USAGE,
       });
+    });
+
+    it('round-trips a project-scope run', () => {
+      const run: ProjectAgentRun = {
+        id: 'run-proj-1',
+        scopeType: 'project',
+        scopeId: PROJECT_SCOPE_ID,
+        phase: 'plan',
+        runStatus: 'running',
+        owner: 'system',
+        attention: 'none',
+        restartCount: 0,
+        maxRetries: 3,
+      };
+      const row = fullRow<AgentRunRow>(agentRunToRow(run));
+      expect(row.scope_type).toBe('project');
+      expect(row.scope_id).toBe('project');
+      expect(rowToAgentRun(row)).toEqual(run);
+    });
+
+    it('throws when decoding an unknown scope_type', () => {
+      const corruptRow = {
+        id: 'run-bogus',
+        scope_type: 'bogus',
+        scope_id: 'x',
+        phase: 'plan',
+        run_status: 'running',
+        owner: 'system',
+        attention: 'none',
+        session_id: null,
+        harness_kind: null,
+        worker_pid: null,
+        worker_boot_epoch: null,
+        harness_meta_json: null,
+        payload_json: null,
+        token_usage: null,
+        max_retries: 0,
+        restart_count: 0,
+        retry_at: null,
+        created_at: 10,
+        updated_at: 20,
+      } as unknown as AgentRunRow;
+      expect(() => rowToAgentRun(corruptRow)).toThrow(
+        /unknown agent_runs\.scope_type/,
+      );
     });
 
     it('round-trips agent-run harness metadata fields', () => {

@@ -130,7 +130,15 @@ export interface FeaturePhaseAgentRunRow extends BaseAgentRunRow {
   scope_id: FeatureId;
 }
 
-export type AgentRunRow = TaskAgentRunRow | FeaturePhaseAgentRunRow;
+export interface ProjectAgentRunRow extends BaseAgentRunRow {
+  scope_type: 'project';
+  scope_id: 'project';
+}
+
+export type AgentRunRow =
+  | TaskAgentRunRow
+  | FeaturePhaseAgentRunRow
+  | ProjectAgentRunRow;
 
 export interface FeatureDependencyRow {
   from_id: FeatureId;

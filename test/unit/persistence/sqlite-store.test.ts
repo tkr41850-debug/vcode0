@@ -1,8 +1,9 @@
-import type {
-  AgentRun,
-  EventRecord,
-  TaskAgentRun,
-  TokenUsageAggregate,
+import {
+  type AgentRun,
+  type EventRecord,
+  PROJECT_SCOPE_ID,
+  type TaskAgentRun,
+  type TokenUsageAggregate,
 } from '@core/types/index';
 import { openDatabase } from '@persistence/db';
 import { SqliteStore } from '@persistence/sqlite-store';
@@ -270,6 +271,52 @@ describe('SqliteStore', () => {
       expect(store.listAgentRuns({ runStatus: 'running' })).toHaveLength(2);
       expect(store.listAgentRuns({ owner: 'manual' })).toHaveLength(1);
       expect(store.listAgentRuns()).toHaveLength(3);
+    });
+
+    it('round-trips a project-scope run', () => {
+      const run: AgentRun = {
+        id: 'run-proj-1',
+        scopeType: 'project',
+        scopeId: PROJECT_SCOPE_ID,
+        phase: 'plan',
+        runStatus: 'running',
+        owner: 'system',
+        attention: 'none',
+        restartCount: 0,
+        maxRetries: 3,
+      };
+      store.createAgentRun(run);
+      expect(store.getAgentRun(run.id)).toEqual(run);
+    });
+
+    it('filters listAgentRuns by scopeType=project', () => {
+      store.createAgentRun(makeTaskRun({ id: 'r-task' }));
+      store.createAgentRun({
+        id: 'r-proj-1',
+        scopeType: 'project',
+        scopeId: PROJECT_SCOPE_ID,
+        phase: 'plan',
+        runStatus: 'running',
+        owner: 'system',
+        attention: 'none',
+        restartCount: 0,
+        maxRetries: 3,
+      });
+      store.createAgentRun({
+        id: 'r-proj-2',
+        scopeType: 'project',
+        scopeId: PROJECT_SCOPE_ID,
+        phase: 'plan',
+        runStatus: 'completed',
+        owner: 'system',
+        attention: 'none',
+        restartCount: 0,
+        maxRetries: 3,
+      });
+
+      const projectRuns = store.listAgentRuns({ scopeType: 'project' });
+      expect(projectRuns).toHaveLength(2);
+      expect(projectRuns.every((r) => r.scopeType === 'project')).toBe(true);
     });
   });
 
