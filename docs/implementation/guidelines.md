@@ -58,20 +58,20 @@ Title `<display-name>` is the human-readable form of the slug (e.g., slug `proto
 
 ### Contract vs Plan
 
-- **Contract** is frozen at phase start. Changes require an explicit revision note: edit the field in place; append a parenthetical with date and prior text. Do not delete prior text. For Scope.In/Out additions, prefix with `(added 2026-04-12) ...`.
+- **Contract** is frozen at phase start. Changes require an explicit revision note: edit in place and append a parenthetical with date and prior text. Do not delete prior text. For Scope.In/Out additions, prefix with `(added 2026-04-12) ...`.
   ```
   - Goal: workers can register, heartbeat, AND receive `dispatchRun` over the wire (revised 2026-04-12: prior Goal stopped at heartbeat; phase-2-remote-task-execution scope-collapsed back into this phase after spike showed wire format is shared).
   ```
 - **Plan** is mutable. Revise as understanding deepens — no ceremony required.
-- If a discovery during work would change the Contract (scope grew, exit criteria wrong), stop and surface it; do not silently re-shape the Contract to match what was actually built.
+- If work uncovers a Contract change (scope grew, exit criteria wrong), stop and surface it; do not silently reshape the Contract to match what was built.
 
 ### Header fields
 
 - **Status** — `drafting` | `active` | `paused` | `shipped <SHA>` | `superseded`. If a phase is blocked mid-flight, set `paused` and add `## Blocker:` in Plan.
-- **Verified state** — pin the `main` SHA at phase-doc authoring time, plus date. Background reflects state at this anchor. Bump when implementation-relevant code on `main` invalidates Background; doc-only commits do not require a bump.
+- **Verified state** — record the `main` SHA and date at phase-doc authoring time. Background reflects this anchor. Bump when implementation-relevant code on `main` invalidates Background; doc-only commits do not require a bump.
 - **Depends on** — list of `phase-<N>-<slug>` ids with one-line reasons.
 - **Default verify** — runs after every step unless the step overrides.
-- **Phase exit** — single combined field: verify command + observable post-conditions + optional manual smoke. Multi-clause; semicolon-separated. Omit the smoke clause when not applicable.
+- **Phase exit** — one combined field: verify command + observable post-conditions + optional manual smoke, written as semicolon-separated clauses. Omit the smoke clause when not applicable.
 - **Doc-sweep deferred** — explicit list of docs that will lag code during this phase. Reconcile in a single doc-only commit at phase exit. Omit the field when no drift is expected.
 
 ### Contract fields
@@ -96,7 +96,7 @@ Title `<display-name>` is the human-readable form of the slug (e.g., slug `proto
 
 ## Steps
 
-Tier is implicit from the `[risk: ..., size: ...]` label. Author includes only fields appropriate to tier; reviewer enforces. Default to Light when the step fits its shape; round up only when risk is genuinely ambiguous.
+Tier is implicit from `[risk: ..., size: ...]`. Authors include only tier-appropriate fields; reviewers enforce. Default to Light when the step fits its shape; round up only when risk is genuinely ambiguous.
 
 ### Sizing rubric
 
@@ -139,7 +139,7 @@ Crash matrix: <if recovery-relevant>
 
 **Rollback** — include only when `git revert` does NOT fully undo the step: schema migrations needing a down-step or snapshot, env-var renames or config flips operators must reverse, deploy artifacts already shipped, published packages, or other out-of-band side effects. Pure code edits omit the field; revert is implied.
 
-**No `Behavior diff` field.** Phase Goal and step `What:` already carry before/after. If a step's effect is non-obvious, fix the `What:`. Cutover ordering — when old and new paths must NOT coexist across commits — goes in `Migration ordering:`.
+**No `Behavior diff` field.** Phase Goal and step `What:` already carry before/after. If a step's effect is non-obvious, fix `What:`. Cutover ordering — when old and new paths must NOT coexist across commits — goes in `Migration ordering:`.
 
 ### Step rules
 
@@ -152,17 +152,17 @@ Crash matrix: <if recovery-relevant>
 - **Commit scope** — module-scoped: `feat(runtime/ipc): ...`, `fix(persistence): ...`, `docs(implementation): ...`. Subject ≤72 chars; details in the body.
   - bad: `feat: improvements`, `fix: misc cleanup`, `chore: updates`
   - good: `feat(runtime/ipc): add help_request frame and event-kind migration`
-- **`Files:` format** — one path per item. Anchor with `:line` for site-specific edits (`src/runtime/ipc/frames.ts:204`); omit `:line` for whole-file rewrites or new files (`src/runtime/registry/transport.ts (new)`). Multi-line lists indent two spaces under the label. Omit the field when fully redundant with `What:` (single-file mechanical edit). **No descriptive parentheticals** — `What:` carries intent; `Files:` is location only. Only `(new)` is allowed.
+- **`Files:` format** — one path per item. Use `:line` for site-specific edits (`src/runtime/ipc/frames.ts:204`); omit it for whole-file rewrites or new files (`src/runtime/registry/transport.ts (new)`). Multi-line lists indent two spaces under the label. Omit the field when fully redundant with `What:` (single-file mechanical edit). **No descriptive parentheticals** — `What:` carries intent; `Files:` is location only. Only `(new)` is allowed.
   - bad: `src/x.ts (add zod schema and validate input)` — good: `src/x.ts:204`.
 - **`Tests:` rubric** — Standard / Heavy: list test files OR `tests deferred to step X.Y (<reason>)`. Light: optional; pure-doc step omits. Refactor with no behavior change: name the existing test file (`covered by test/unit/foo.test.ts`). Silence is not allowed on Standard / Heavy.
-- **`Review goals:`** is a numbered list of what the reviewer must check. Default word cap **100 words**; override up to **250 words** with explicit annotation (`Review goals: (cap 250 words) 1) ...`) when the surface genuinely demands it.
+- **`Review goals:`** is a numbered checklist for the reviewer. Default word cap **100 words**; override up to **250 words** with explicit annotation (`Review goals: (cap 250 words) 1) ...`) when the surface genuinely demands it.
 - **Per-step `Smoke:`** is distinct from the smoke clause of `Phase exit`. Per-step smoke exercises just this step in isolation; phase-exit smoke exercises the phase end-to-end. Either may be present without the other.
 - **Per-step fields appear only when overriding a header default.** Do not restate `Verification:`, `Approach:`, or any field whose value matches the header.
   - bad: `Verification: npm run check:fix && npm run check.` on every step | `Approach: TDD.` on every step in a TDD-by-convention track.
 
 ### Phase-level budget
 
-Step tier governs per-step length; these caps govern the doc as a whole. Soft targets unless the phase rationale (in Plan) justifies otherwise.
+Step tier governs per-step length; these caps govern the whole doc. They are soft targets unless the Plan justifies otherwise.
 
 - **Total phase doc** — target ≤ 2000 words; hard cap ~3000.
 - **Per-step word budgets** — Light ≤ 100 words; Standard 300–500 words; Heavy ≤ 800 words.
@@ -189,7 +189,7 @@ Reviewer scan list. Each entry links to the rule that owns the full `bad:` / `go
 
 Use only when they earn their keep.
 
-- **RED→GREEN narrative** — when TDD step-ordering is load-bearing, distinguish `compile-RED` (new symbol referenced before it exists, fails typecheck), `assertion-RED` (test runs but fails on behavior), `GREEN` (implementation lands, test passes). For a single-test-then-implement step, omit and let the test file name speak.
+- **RED→GREEN narrative** — when TDD step ordering is load-bearing, use `compile-RED` (new symbol referenced before it exists; fails typecheck), `assertion-RED` (test runs but fails on behavior), and `GREEN` (implementation lands; test passes). For a single-test-then-implement step, omit and let the test file name speak.
 - **`assertNever` exhaustiveness** — when extending a discriminated union, `switch` over the discriminator with `assertNever(value satisfies never)` in the default arm. Cite in `What:`: `extend Foo union; assertNever guard at bar.ts:54 will compile-RED until step X.Y handles the new arm`.
 
 ## Style
@@ -198,11 +198,11 @@ Use only when they earn their keep.
 - Pseudocode only when sequencing is load-bearing.
 - Imperative tone. Say what NOT to do and why.
 - Warn about drift: re-read file at edit time.
-- Bold step-field labels (`**What:**`) is author choice; pick one and stay consistent within a phase. Header-bullet field names (`- Status:`) and Contract/Plan field names (`- Goal:`) stay plain because bolding fights bullet structure.
+- Bold step-field labels (`**What:**`) are optional; pick one style and stay consistent within a phase. Header-bullet field names (`- Status:`) and Contract/Plan field names (`- Goal:`) stay plain because bolding fights bullet structure.
 
 ## Glossary
 
-Track-specific jargon (`submit invariants`, `frame fields`, `escalation prompt`) lives in `docs/implementation/<track>/glossary.md` once a term recurs across 3+ phases. Phase docs link the term on first occurrence per phase. For one-off terms, gloss inline: `submit invariants (rules a planner submit must satisfy)`. Cross-track concepts (`worktree`, `merge train`, `feature branch`) live in `docs/architecture/` — link there, don't redefine.
+Track-specific jargon (`submit invariants`, `frame fields`, `escalation prompt`) lives in `docs/implementation/<track>/glossary.md` once it recurs across 3+ phases. Phase docs link the term on first occurrence per phase. For one-off terms, gloss inline: `submit invariants (rules a planner submit must satisfy)`. Cross-track concepts (`worktree`, `merge train`, `feature branch`) live in `docs/architecture/` — link there, don't redefine.
 
 **Bootstrap** — copy `docs/implementation/glossary-template.md` to `docs/implementation/<track>/glossary.md` and start populating from your phase docs.
 
