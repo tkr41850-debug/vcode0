@@ -210,12 +210,6 @@ Verification: unit tests GREEN. Then layer the integration smoke in `test/integr
 
 Then `npm run check:fix && npm run check`.
 
-Rollback: revert; remove `proposal-review.ts`, the controller wiring of the `running-tasks-affected` helper, and any batched cancel-then-apply entry point in `compose.ts` together so no partial approval surface remains. Project-scope approval falls back to whatever the pre-phase TUI rendered (status text), with the apply path still rejecting via `phase-4-project-planner-agent`'s `ProposalRebaseReason` on the orchestrator side.
-
-Behavior diff:
-  - before: project-scope proposal approval has no diff-rendering surface, no pre-flight running-tasks check, and no cancellation-approval gate; operators cannot see what a proposal will change before approving it.
-  - after: project-scope approval renders an explicit graph diff plus a per-feature cancellation-approval block whenever a removal or topology change would affect a running run; cancellation flows through the single authoritative `cancelFeatureRunWork` entrypoint.
-
 Review goals:
 1. Verify project diffs render correctly.
 2. Verify running-task impact is detected and surfaced.
