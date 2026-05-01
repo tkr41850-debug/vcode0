@@ -37,7 +37,7 @@ Rollback was originally required on every Heavy step. In practice, most Heavy st
 
 Original framing tied Review goals to a specific subagent invocation pattern. When the subagent harness changed, every phase doc went stale. Tool-agnostic phrasing — "what the reviewer must check" — survives harness churn. The subagent prompt is assembled from these goals at review time.
 
-The 100-word default cap exists because authors filled to whatever cap was set; the previous 250-word default produced bullets that reviewers skimmed.
+Per-tier caps (Light 50, Standard 100, Heavy 250) replaced a flat 100-word default after landed Heavy phase docs forced ~20 words per goal at 5 goals; a flat 250 had previously over-padded Light/Standard until reviewers skimmed. Tier already encodes complexity; the cap follows.
 
 ## Default to Light
 

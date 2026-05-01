@@ -72,7 +72,7 @@ Title `<display-name>` is the human-readable form of the slug (e.g., slug `proto
 - **Depends on** — list of `phase-<N>-<slug>` ids with one-line reasons.
 - **Default verify** — runs after every step unless the step overrides.
 - **Phase exit** — one combined field: verify command + observable post-conditions + optional manual smoke, written as semicolon-separated clauses. Omit the smoke clause when not applicable.
-- **Doc-sweep deferred** — explicit list of docs that will lag code during this phase. Reconcile in a single doc-only commit at phase exit. Omit the field when no drift is expected.
+- **Doc-sweep deferred** — explicit list of docs that will lag code during this phase. Reconcile in a single doc-only commit at phase exit. Omit the field when no drift is expected — an omitted field is itself an assertion of no drift, equivalent to listing `none`.
 
 ### Contract fields
 
@@ -102,6 +102,7 @@ Tier is implicit from `[risk: ..., size: ...]`. Authors include only tier-approp
 
 - **Size** — `S` single file, ≲50 LOC, mechanical | `M` 1-3 files, ≲300 LOC, narrow feature/refactor | `L` 3+ files OR cross-component OR new module surface.
 - **Risk** — `low` additive, `git revert` clean, no side effects | `med` touches behavior on a hot path or shared in-process types/contracts | `high` schema/migration/protocol/irreversible/cross-process invariant.
+- **Tier mapping** — `Light` = `low` + `S`; `Standard` = `low|med` + `S|M`; `Heavy` = `high` OR `L`.
 
 ### Step templates
 
@@ -155,14 +156,14 @@ Crash matrix: <if recovery-relevant>
 - **`Files:` format** — one path per item. Use `:line` for site-specific edits (`src/runtime/ipc/frames.ts:204`); omit it for whole-file rewrites or new files (`src/runtime/registry/transport.ts (new)`). Multi-line lists indent two spaces under the label. Omit the field when fully redundant with `What:` (single-file mechanical edit). **No descriptive parentheticals** — `What:` carries intent; `Files:` is location only. Only `(new)` is allowed.
   - bad: `src/x.ts (add zod schema and validate input)` — good: `src/x.ts:204`.
 - **`Tests:` rubric** — Standard / Heavy: list test files OR `tests deferred to step X.Y (<reason>)`. Light: optional; pure-doc step omits. Refactor with no behavior change: name the existing test file (`covered by test/unit/foo.test.ts`). Silence is not allowed on Standard / Heavy.
-- **`Review goals:`** is a numbered checklist for the reviewer. Default word cap **100 words**; override up to **250 words** with explicit annotation (`Review goals: (cap 250 words) 1) ...`) when the surface genuinely demands it.
+- **`Review goals:`** is a numbered checklist for the reviewer. Word cap by tier: **Light 50**, **Standard 100**, **Heavy 250** — tiers already encode complexity, the cap follows. Override with explicit annotation (`Review goals: (cap 350 words) 1) ...`) only when the surface genuinely exceeds its tier.
 - **Per-step `Smoke:`** is distinct from the smoke clause of `Phase exit`. Per-step smoke exercises just this step in isolation; phase-exit smoke exercises the phase end-to-end. Either may be present without the other.
 - **Per-step fields appear only when overriding a header default.** Do not restate `Verification:`, `Approach:`, or any field whose value matches the header.
   - bad: `Verification: npm run check:fix && npm run check.` on every step | `Approach: TDD.` on every step in a TDD-by-convention track.
 
 ### Phase-level budget
 
-Step tier governs per-step length; these caps govern the whole doc. They are soft targets unless the Plan justifies otherwise.
+Step tier governs per-step length; these caps govern the whole doc. They are soft targets unless the Plan justifies otherwise. Per-step and total budgets are independent — a phase can hit either ceiling first.
 
 - **Total phase doc** — target ≤ 2000 words; hard cap ~3000.
 - **Per-step word budgets** — Light ≤ 100 words; Standard 300–500 words; Heavy ≤ 800 words.
