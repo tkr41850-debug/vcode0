@@ -54,13 +54,30 @@ function shortRunId(runId: string): string {
 
 function buildSlug(input: RunErrorLogInput): string {
   const ts = isoForFilename(input.nowMs);
-  const scopeKind = input.run.scopeType === 'task' ? 'task' : 'feature';
+  const scopeKind = scopeKindLabel(input.run);
   const featurePart = slug(input.featureId ?? 'no-feature');
   const phase = slug(input.run.phase);
   const taskPart = input.taskId !== undefined ? `-${slug(input.taskId)}` : '';
   const attempt = `a${input.run.restartCount}`;
   const runShort = slug(shortRunId(input.run.id));
   return `${ts}-${scopeKind}-${featurePart}-${phase}${taskPart}-${attempt}-${runShort}.txt`;
+}
+
+function scopeKindLabel(run: AgentRun): 'task' | 'feature' | 'project' {
+  switch (run.scopeType) {
+    case 'task':
+      return 'task';
+    case 'feature_phase':
+      return 'feature';
+    case 'project':
+      return 'project';
+    default: {
+      const exhaustive: never = run;
+      throw new Error(
+        `unexpected agent run scopeType: ${(exhaustive as AgentRun).scopeType}`,
+      );
+    }
+  }
 }
 
 function renderBody(input: RunErrorLogInput): string {

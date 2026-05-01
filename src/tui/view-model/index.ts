@@ -15,6 +15,7 @@ import type {
   FeaturePhaseAgentRun,
   Milestone,
   MilestoneId,
+  ProjectAgentRun,
   Task,
   TaskAgentRun,
   TaskId,
@@ -134,8 +135,7 @@ export class TuiViewModelBuilder {
     });
     const featuresByMilestone = new Map<MilestoneId, Feature[]>();
     const tasksByFeature = new Map<FeatureId, Task[]>();
-    const taskRuns = new Map<TaskId, AgentRun>();
-    const featurePhaseRuns = new Map<string, AgentRun>();
+    const { taskRuns, featurePhaseRuns } = bucketRunsByScope(runs);
 
     for (const feature of features) {
       const entries = featuresByMilestone.get(feature.milestoneId) ?? [];
@@ -147,14 +147,6 @@ export class TuiViewModelBuilder {
       const entries = tasksByFeature.get(task.featureId) ?? [];
       entries.push(task);
       tasksByFeature.set(task.featureId, entries);
-    }
-
-    for (const run of runs) {
-      if (run.scopeType === 'task') {
-        taskRuns.set(run.scopeId, run);
-        continue;
-      }
-      featurePhaseRuns.set(`${run.scopeId}:${run.phase}`, run);
     }
 
     const featureStatuses = new Map<FeatureId, DerivedUnitStatus>();
@@ -453,6 +445,40 @@ export class TuiViewModelBuilder {
       dependents,
     };
   }
+}
+
+export interface ScopedRunBuckets {
+  taskRuns: Map<TaskId, TaskAgentRun>;
+  featurePhaseRuns: Map<string, FeaturePhaseAgentRun>;
+  projectRuns: Map<string, ProjectAgentRun>;
+}
+
+export function bucketRunsByScope(runs: readonly AgentRun[]): ScopedRunBuckets {
+  const taskRuns = new Map<TaskId, TaskAgentRun>();
+  const featurePhaseRuns = new Map<string, FeaturePhaseAgentRun>();
+  const projectRuns = new Map<string, ProjectAgentRun>();
+
+  for (const run of runs) {
+    switch (run.scopeType) {
+      case 'task':
+        taskRuns.set(run.scopeId, run);
+        break;
+      case 'feature_phase':
+        featurePhaseRuns.set(`${run.scopeId}:${run.phase}`, run);
+        break;
+      case 'project':
+        projectRuns.set(run.id, run);
+        break;
+      default: {
+        const exhaustive: never = run;
+        throw new Error(
+          `unexpected agent run scopeType: ${(exhaustive as AgentRun).scopeType}`,
+        );
+      }
+    }
+  }
+
+  return { taskRuns, featurePhaseRuns, projectRuns };
 }
 
 export function flattenDagNodes(

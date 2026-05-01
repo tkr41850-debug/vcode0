@@ -1,7 +1,8 @@
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 
-import type { TaskAgentRun } from '@core/types/index';
+import type { ProjectAgentRun, TaskAgentRun } from '@core/types/index';
+import { PROJECT_SCOPE_ID } from '@core/types/index';
 import { FileSystemRunErrorLogSink } from '@runtime/error-log/index';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -189,6 +190,41 @@ describe('FileSystemRunErrorLogSink', () => {
 
     const entries = await fs.readdir(path.join(projectRoot, '.gvc0', 'logs'));
     expect(entries).toHaveLength(2);
+  });
+
+  it('labels project-scope runs with "project" in slug and body', async () => {
+    const projectRoot = getTmp();
+    const sink = new FileSystemRunErrorLogSink({ projectRoot });
+    const projectRun: ProjectAgentRun = {
+      id: 'run-project:planner-1',
+      scopeType: 'project',
+      scopeId: PROJECT_SCOPE_ID,
+      phase: 'plan',
+      runStatus: 'running',
+      owner: 'system',
+      attention: 'none',
+      restartCount: 0,
+      maxRetries: 3,
+    };
+
+    await sink.writeFirstFailure({
+      run: projectRun,
+      featureId: undefined,
+      taskId: undefined,
+      error: { message: 'planner crashed' },
+      nowMs: Date.UTC(2026, 3, 30, 20, 0, 0),
+    });
+
+    const dir = path.join(projectRoot, '.gvc0', 'logs');
+    const entries = await fs.readdir(dir);
+    expect(entries).toHaveLength(1);
+    const filename = entries[0];
+    if (filename === undefined) throw new Error('no log file written');
+    expect(filename).toMatch(/-project-/);
+
+    const body = await fs.readFile(path.join(dir, filename), 'utf8');
+    expect(body).toContain('scopeType: project');
+    expect(body).toContain('scopeId: project');
   });
 
   it('honors a custom logDirName', async () => {

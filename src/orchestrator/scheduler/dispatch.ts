@@ -41,10 +41,23 @@ export function createRunReader(ports: OrchestratorPorts): ExecutionRunReader {
   const byFeaturePhase = new Map<string, AgentRun>();
 
   for (const run of runs) {
-    if (run.scopeType === 'task') {
-      byTaskId.set(run.scopeId, run);
-    } else {
-      byFeaturePhase.set(`${run.scopeId}:${run.phase}`, run);
+    switch (run.scopeType) {
+      case 'task':
+        byTaskId.set(run.scopeId, run);
+        break;
+      case 'feature_phase':
+        byFeaturePhase.set(`${run.scopeId}:${run.phase}`, run);
+        break;
+      case 'project':
+        // Project runs are not consumed by prioritizeReadyWork; phase-4-project-planner-agent
+        // dispatches them through the coordinator, not the run reader.
+        break;
+      default: {
+        const exhaustive: never = run;
+        throw new Error(
+          `createRunReader: unexpected scopeType: ${(exhaustive as AgentRun).scopeType}`,
+        );
+      }
     }
   }
 

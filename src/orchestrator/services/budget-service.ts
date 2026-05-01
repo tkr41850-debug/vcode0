@@ -1,5 +1,6 @@
 import type { FeatureGraph } from '@core/graph/index';
 import type {
+  AgentRun,
   BudgetState,
   FeatureId,
   TaskId,
@@ -33,21 +34,34 @@ export class BudgetService {
       totalUsd += usage.usd;
       totalCalls += usage.llmCalls;
 
-      if (run.scopeType === 'task' && run.phase === 'execute') {
-        const nextTaskUsage = addTokenUsageAggregates(
-          taskRollups[run.scopeId],
-          usage,
-        );
-        taskRollups[run.scopeId] = nextTaskUsage;
-        perTaskUsd[run.scopeId] = nextTaskUsage.usd;
-        continue;
-      }
-
-      if (run.scopeType === 'feature_phase') {
-        featurePhaseRollups[run.scopeId] = addTokenUsageAggregates(
-          featurePhaseRollups[run.scopeId],
-          usage,
-        );
+      switch (run.scopeType) {
+        case 'task': {
+          if (run.phase === 'execute') {
+            const nextTaskUsage = addTokenUsageAggregates(
+              taskRollups[run.scopeId],
+              usage,
+            );
+            taskRollups[run.scopeId] = nextTaskUsage;
+            perTaskUsd[run.scopeId] = nextTaskUsage.usd;
+          }
+          break;
+        }
+        case 'feature_phase':
+          featurePhaseRollups[run.scopeId] = addTokenUsageAggregates(
+            featurePhaseRollups[run.scopeId],
+            usage,
+          );
+          break;
+        case 'project':
+          // Project-scope spend counts toward global totals only; no per-feature
+          // or per-task attribution.
+          break;
+        default: {
+          const exhaustive: never = run;
+          throw new Error(
+            `BudgetService.refresh: unexpected scopeType: ${(exhaustive as AgentRun).scopeType}`,
+          );
+        }
       }
     }
 

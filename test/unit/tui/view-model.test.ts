@@ -2,9 +2,11 @@ import type {
   Feature,
   FeaturePhaseAgentRun,
   Milestone,
+  ProjectAgentRun,
   Task,
   TaskAgentRun,
 } from '@core/types/index';
+import { PROJECT_SCOPE_ID } from '@core/types/index';
 import { visibleWidth } from '@mariozechner/pi-tui';
 import { CommandRegistry, NAVIGATION_KEYBINDS } from '@tui/commands/index';
 import {
@@ -14,7 +16,11 @@ import {
   HelpOverlay,
   StatusBar,
 } from '@tui/components/index';
-import { flattenDagNodes, TuiViewModelBuilder } from '@tui/view-model/index';
+import {
+  bucketRunsByScope,
+  flattenDagNodes,
+  TuiViewModelBuilder,
+} from '@tui/view-model/index';
 import { describe, expect, it } from 'vitest';
 
 function makeMilestone(overrides: Partial<Milestone> = {}): Milestone {
@@ -79,6 +85,23 @@ function makeFeatureRun(
     id: 'run-feature:f-1:plan',
     scopeType: 'feature_phase',
     scopeId: 'f-1',
+    phase: 'plan',
+    runStatus: 'running',
+    owner: 'system',
+    attention: 'none',
+    restartCount: 0,
+    maxRetries: 3,
+    ...overrides,
+  };
+}
+
+function makeProjectRun(
+  overrides: Partial<ProjectAgentRun> = {},
+): ProjectAgentRun {
+  return {
+    id: 'run-project:p-1',
+    scopeType: 'project',
+    scopeId: PROJECT_SCOPE_ID,
     phase: 'plan',
     runStatus: 'running',
     owner: 'system',
@@ -154,6 +177,23 @@ describe('TuiViewModelBuilder', () => {
       runStatus: 'failed',
     });
     expect(featureNode?.meta).toContain('wait: failed (see inbox)');
+  });
+
+  it('groups project-scope runs into a distinct projectRuns bucket', () => {
+    const taskRun = makeTaskRun();
+    const featureRun = makeFeatureRun();
+    const projectRun = makeProjectRun({ id: 'run-project:planner-1' });
+
+    const buckets = bucketRunsByScope([taskRun, featureRun, projectRun]);
+
+    expect(buckets.projectRuns.get(projectRun.id)).toBe(projectRun);
+    expect(buckets.featurePhaseRuns.has(`${projectRun.scopeId}:plan`)).toBe(
+      false,
+    );
+    expect(buckets.taskRuns.get(taskRun.scopeId)).toBe(taskRun);
+    expect(buckets.featurePhaseRuns.get(`${featureRun.scopeId}:plan`)).toBe(
+      featureRun,
+    );
   });
 
   it('keeps running feature-phase rendering unchanged when not blocked or failed', () => {

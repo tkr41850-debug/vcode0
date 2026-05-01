@@ -4,6 +4,7 @@ import { persistPhaseOutputToFeature } from '@agents';
 import type { FeatureGraph } from '@core/graph/index';
 import { resolveTaskWorktreeBranch, worktreePath } from '@core/naming/index';
 import type {
+  AgentRun,
   AgentRunPhase,
   EventRecord,
   Feature,
@@ -82,16 +83,23 @@ export class RecoveryService {
         continue;
       }
 
-      if (run.scopeType === 'task') {
-        await this.recoverTaskRun(run);
-        continue;
+      switch (run.scopeType) {
+        case 'task':
+          await this.recoverTaskRun(run);
+          break;
+        case 'feature_phase':
+          await this.recoverFeaturePhaseRun(run);
+          break;
+        case 'project':
+          // phase-4-project-planner-agent wires project-run recovery semantics.
+          break;
+        default: {
+          const exhaustive: never = run;
+          throw new Error(
+            `recoverOrphanedRuns: unexpected scopeType: ${(exhaustive as AgentRun).scopeType}`,
+          );
+        }
       }
-
-      if (run.scopeType === 'feature_phase') {
-        await this.recoverFeaturePhaseRun(run);
-      }
-
-      // Phase 2.3 will replace this chain with an exhaustive switch.
     }
   }
 
