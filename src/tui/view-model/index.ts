@@ -722,6 +722,17 @@ function summarizeInboxPayload(item: InboxItemRecord): string {
     recoveryReason?: unknown;
     cap?: unknown;
     reentryCount?: unknown;
+    branch?: unknown;
+    ownerState?: unknown;
+    registered?: unknown;
+    hasMetadataIndexLock?: unknown;
+    clearedLocks?: unknown;
+    preservedLocks?: unknown;
+    clearedDeadWorkerPids?: unknown;
+    resumedRuns?: unknown;
+    restartedRuns?: unknown;
+    attentionRuns?: unknown;
+    orphanTaskWorktrees?: unknown;
   };
 
   if (item.kind === 'agent_help' && typeof record.query === 'string') {
@@ -752,8 +763,44 @@ function summarizeInboxPayload(item: InboxItemRecord): string {
   ) {
     return `recovery ${formatRecoveryReason(record.recoveryReason)}`;
   }
+  if (item.kind === 'recovery_summary') {
+    return summarizeRecoverySummary(record) ?? item.kind;
+  }
+  if (
+    item.kind === 'orphan_worktree' &&
+    typeof record.branch === 'string' &&
+    (record.ownerState === 'dead' || record.ownerState === 'absent')
+  ) {
+    return `branch=${record.branch} owner=${record.ownerState} reg=${formatYesNo(record.registered)} lock=${formatYesNo(record.hasMetadataIndexLock)}`;
+  }
 
   return item.kind;
+}
+
+function summarizeRecoverySummary(
+  record: Record<string, unknown>,
+): string | undefined {
+  const parts = [
+    summarizeRecoveryCount('locks', record.clearedLocks),
+    summarizeRecoveryCount('kept-locks', record.preservedLocks),
+    summarizeRecoveryCount('dead-pids', record.clearedDeadWorkerPids),
+    summarizeRecoveryCount('resumed', record.resumedRuns),
+    summarizeRecoveryCount('restarted', record.restartedRuns),
+    summarizeRecoveryCount('attention', record.attentionRuns),
+    summarizeRecoveryCount('orphans', record.orphanTaskWorktrees),
+  ].filter((part): part is string => part !== undefined);
+  return parts.length > 0 ? parts.join(' ') : undefined;
+}
+
+function summarizeRecoveryCount(
+  label: string,
+  value: unknown,
+): string | undefined {
+  return typeof value === 'number' && value > 0 ? `${label}=${value}` : undefined;
+}
+
+function formatYesNo(value: unknown): string {
+  return value === true ? 'yes' : value === false ? 'no' : '?';
 }
 
 function formatRecoveryReason(value: unknown): string {

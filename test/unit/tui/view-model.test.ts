@@ -536,6 +536,61 @@ describe('TuiViewModelBuilder', () => {
     });
   });
 
+  it('summarizes recovery summary and orphan worktree inbox items', () => {
+    const builder = new TuiViewModelBuilder();
+    const model = builder.buildInbox([
+      {
+        id: 'inbox-summary',
+        ts: 20,
+        kind: 'recovery_summary',
+        payload: {
+          clearedLocks: 1,
+          preservedLocks: 0,
+          clearedDeadWorkerPids: 0,
+          resumedRuns: 1,
+          restartedRuns: 1,
+          attentionRuns: 0,
+          orphanTaskWorktrees: 2,
+        },
+      },
+      {
+        id: 'inbox-orphan',
+        ts: 10,
+        taskId: 't-1',
+        featureId: 'f-1',
+        kind: 'orphan_worktree',
+        payload: {
+          taskId: 't-1',
+          featureId: 'f-1',
+          branch: 'feat-task-t-1',
+          path: '/tmp/repo/.gvc0/worktrees/feat-task-t-1',
+          ownerState: 'dead',
+          registered: true,
+          hasMetadataIndexLock: false,
+          equivalenceKey:
+            'orphan_worktree:feat-task-t-1:/tmp/repo/.gvc0/worktrees/feat-task-t-1',
+        },
+      },
+    ]);
+
+    expect(model).toMatchObject({
+      unresolvedCount: 2,
+      items: [
+        {
+          id: 'inbox-summary',
+          kind: 'recovery_summary',
+          summary: 'locks=1 resumed=1 restarted=1 orphans=2',
+        },
+        {
+          id: 'inbox-orphan',
+          kind: 'orphan_worktree',
+          summary:
+            'task=t-1 feature=f-1 branch=feat-task-t-1 owner=dead reg=yes lock=no',
+        },
+      ],
+    });
+  });
+
   it('builds merge-train items with integrating first and queued priority order', () => {
     const builder = new TuiViewModelBuilder();
     const model = builder.buildMergeTrain([
