@@ -166,11 +166,15 @@ export async function executeSlashCommand(params: {
       params.commandContext.requestQuit();
       return 'quitting';
     case 'init': {
-      const created = params.dataSource.initializeProject(
-        parseInitializeProjectCommand(parsed),
-      );
-      params.setSelectedNodeId(created.featureId);
-      return `Initialized ${created.milestoneId} and ${created.featureId}.`;
+      // parseInitializeProjectCommand still validates legacy /init args; the
+      // synthetic milestone/feature naming is no longer applied. Phase 6 may
+      // remove this parse step once the bootstrap UX is finalized.
+      parseInitializeProjectCommand(parsed);
+      const bootstrap = await params.dataSource.initializeProject();
+      if (bootstrap.kind === 'greenfield-bootstrap') {
+        return `Started project planning session ${bootstrap.sessionId}.`;
+      }
+      return 'Project already initialized.';
     }
     case 'reply': {
       const text = parsed.args.text;

@@ -20,10 +20,7 @@ import type {
   TaskAgentRun,
   TaskId,
 } from '@core/types/index';
-import {
-  INITIALIZE_PROJECT_EXAMPLE_COMMAND,
-  type TuiKeybindHint,
-} from '@tui/commands/index';
+import type { TuiKeybindHint } from '@tui/commands/index';
 
 export type DagNodeKind = 'milestone' | 'feature' | 'task';
 export type DagDisplayStatus = DerivedUnitStatus | TaskPresentationStatus;
@@ -114,8 +111,8 @@ export class TuiViewModelBuilder {
       title: 'gvc0 startup',
       lines: [
         'No milestones yet.',
-        'Run /init to create first milestone and planning feature.',
-        `Example: /init ${INITIALIZE_PROJECT_EXAMPLE_COMMAND}`,
+        'Run /init to start a project-planner session.',
+        'The planner will draft the initial milestone and feature graph.',
       ],
     };
   }

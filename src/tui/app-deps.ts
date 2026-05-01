@@ -6,8 +6,8 @@ import type {
   MilestoneId,
   TaskAgentRun,
 } from '@core/types/index';
+import type { ProjectBootstrapResult } from '@root/compose';
 import type { ApprovalDecision, HelpResponse } from '@runtime/contracts';
-import type { InitializeProjectCommand } from '@tui/commands/index';
 import type { WorkerCountsViewModel } from '@tui/view-model/index';
 
 export interface TuiAppDeps {
@@ -17,10 +17,7 @@ export interface TuiAppDeps {
   isAutoExecutionEnabled(): boolean;
   setAutoExecutionEnabled(enabled: boolean): boolean;
   toggleAutoExecution(): boolean;
-  initializeProject(input: InitializeProjectCommand): {
-    milestoneId: MilestoneId;
-    featureId: FeatureId;
-  };
+  initializeProject(): Promise<ProjectBootstrapResult>;
   toggleMilestoneQueue(milestoneId: MilestoneId): void;
   cancelFeature(featureId: FeatureId): Promise<void>;
   saveFeatureRun(run: FeaturePhaseAgentRun): void;

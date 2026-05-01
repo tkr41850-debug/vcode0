@@ -5,12 +5,7 @@ import * as path from 'node:path';
 import { FeaturePhaseOrchestrator, promptLibrary } from '@agents';
 import { type ApplicationLifecycle, GvcApplication } from '@app/index';
 import type { FeatureGraph } from '@core/graph/index';
-import type {
-  AgentRun,
-  AppMode,
-  FeatureId,
-  MilestoneId,
-} from '@core/types/index';
+import type { AgentRun, AppMode, FeatureId } from '@core/types/index';
 import { FeatureLifecycleCoordinator } from '@orchestrator/features/index';
 import { IntegrationReconciler } from '@orchestrator/integration/reconciler';
 import type { OrchestratorPorts } from '@orchestrator/ports/index';
@@ -63,6 +58,12 @@ export async function composeApplication(): Promise<GvcApplication> {
   const projectPlannerRef: {
     current: ProjectPlannerCoordinator | undefined;
   } = { current: undefined };
+  // Holds the most recent bootstrap result from `/init` (or, future: startup
+  // greenfield detection in phase 6.3). Phase 6 reads this on TUI mount to
+  // auto-enter the project-planner session. Step 5.1 only writes it.
+  const bootstrapResultRef: {
+    current: ProjectBootstrapResult | undefined;
+  } = { current: undefined };
   const stopApplicationRef: { current: (() => Promise<void>) | undefined } = {
     current: undefined,
   };
@@ -102,8 +103,14 @@ export async function composeApplication(): Promise<GvcApplication> {
         graph.__leaveTick();
       }
     },
-    initializeProject: (input) => {
-      return initializeProjectGraph(graph, input);
+    initializeProject: async () => {
+      const planner = projectPlannerRef.current;
+      if (planner === undefined) {
+        throw new Error('project planner not initialized');
+      }
+      const result = await initializeProjectGraph(graph, planner);
+      bootstrapResultRef.current = result;
+      return result;
     },
     cancelFeature: async (featureId) => {
       await cancelFeatureRunWork({ graph, store, runtime }, featureId);
@@ -608,61 +615,24 @@ function parsePendingTaskToolCallId(
   return (parsed as { toolCallId: string }).toolCallId;
 }
 
-export function initializeProjectGraph(
+export type ProjectBootstrapResult =
+  | { kind: 'greenfield-bootstrap'; sessionId: string }
+  | { kind: 'existing' };
+
+// NOTE: post-rewrite the function name is misleading on the greenfield path
+// (it persists no graph state, only triggers a project-planner session).
+// Renaming to `initializeProject` or splitting into two functions is deferred
+// to a follow-up so this phase stays focused on contract reshape.
+export async function initializeProjectGraph(
   graph: PersistentFeatureGraph,
-  input: {
-    milestoneName: string;
-    milestoneDescription: string;
-    featureName: string;
-    featureDescription: string;
-  },
-): { milestoneId: MilestoneId; featureId: FeatureId } {
+  projectPlanner: { startProjectPlannerSession(): Promise<string> },
+): Promise<ProjectBootstrapResult> {
   const snapshot = graph.snapshot();
   if (snapshot.milestones.length > 0 || snapshot.features.length > 0) {
-    throw new Error('project already initialized');
+    return { kind: 'existing' };
   }
-
-  const milestoneId: MilestoneId = 'm-1';
-  const featureId: FeatureId = 'f-1';
-  graph.__enterTick();
-  try {
-    graph.createMilestone({
-      id: milestoneId,
-      name: input.milestoneName,
-      description: input.milestoneDescription,
-    });
-    graph.queueMilestone(milestoneId);
-
-    graph.createFeature({
-      id: featureId,
-      milestoneId,
-      name: input.featureName,
-      description: input.featureDescription,
-    });
-    transitionFeatureToPlanning(graph, featureId);
-  } finally {
-    graph.__leaveTick();
-  }
-
-  return { milestoneId, featureId };
-}
-
-function transitionFeatureToPlanning(
-  graph: PersistentFeatureGraph,
-  featureId: FeatureId,
-): void {
-  graph.transitionFeature(featureId, { status: 'in_progress' });
-  graph.transitionFeature(featureId, { status: 'done' });
-  graph.transitionFeature(featureId, {
-    workControl: 'researching',
-    status: 'pending',
-  });
-  graph.transitionFeature(featureId, { status: 'in_progress' });
-  graph.transitionFeature(featureId, { status: 'done' });
-  graph.transitionFeature(featureId, {
-    workControl: 'planning',
-    status: 'pending',
-  });
+  const sessionId = await projectPlanner.startProjectPlannerSession();
+  return { kind: 'greenfield-bootstrap', sessionId };
 }
 
 export function formatWorkerOutput(

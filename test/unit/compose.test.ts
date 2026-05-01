@@ -7,8 +7,10 @@ import type {
   FeaturePhaseAgentRun,
   TaskAgentRun,
 } from '@core/types/index';
+import { ProjectPlannerCoordinator } from '@orchestrator/services/index';
 import { openDatabase } from '@persistence/db';
 import { PersistentFeatureGraph } from '@persistence/feature-graph';
+import { SqliteStore } from '@persistence/sqlite-store';
 import {
   attachFeaturePhaseRunImpl,
   cancelFeatureRunWork,
@@ -366,72 +368,123 @@ describe('composeApplication', () => {
     ).resolves.toContain('"tokenProfile": "balanced"');
   });
 
-  it('initializes starter milestone and planning feature through TUI command path', async () => {
+  it('greenfield bootstrap: returns greenfield-bootstrap with sessionId, no synthetic milestones/features', async () => {
     const app = await composeApplication();
     const db = openDatabase(path.join(tmpDir, '.gvc0', 'state.db'));
     const graph = new PersistentFeatureGraph(db);
+    const store = new SqliteStore(db);
 
     try {
       expect(graph.snapshot().milestones).toEqual([]);
       expect(graph.snapshot().features).toEqual([]);
 
-      const created = initializeProjectGraph(graph, {
-        milestoneName: 'Milestone 1',
-        milestoneDescription: 'Initial milestone',
-        featureName: 'Project startup',
-        featureDescription: 'Plan initial project work',
+      const projectPlanner = new ProjectPlannerCoordinator(
+        {
+          store,
+          runtime: { idleWorkerCount: () => 1 },
+          config: { tokenProfile: 'balanced' as const },
+        } as never,
+        graph as never,
+        () => Promise.resolve(),
+        { dispatchFn: () => Promise.resolve(), idGen: () => 'sess-bootstrap' },
+      );
+
+      const result = await initializeProjectGraph(graph, projectPlanner);
+
+      expect(result).toEqual({
+        kind: 'greenfield-bootstrap',
+        sessionId: 'run-project:sess-bootstrap',
       });
-
-      expect(created.milestoneId).toBeTruthy();
-      expect(created.featureId).toBeTruthy();
-
-      const snapshot = graph.snapshot();
-      expect(snapshot.milestones).toHaveLength(1);
-      const milestone = snapshot.milestones[0];
-      expect(milestone).toEqual(
-        expect.objectContaining({
-          id: created.milestoneId,
-          name: 'Milestone 1',
-        }),
-      );
-      expect(milestone?.steeringQueuePosition).toEqual(expect.any(Number));
-      expect(snapshot.features).toHaveLength(1);
-      expect(snapshot.features[0]).toEqual(
-        expect.objectContaining({
-          id: created.featureId,
-          milestoneId: created.milestoneId,
-          workControl: 'planning',
-          status: 'pending',
-          collabControl: 'none',
-        }),
-      );
+      expect(graph.snapshot().milestones).toEqual([]);
+      expect(graph.snapshot().features).toEqual([]);
+      expect(
+        store.listProjectSessions({ runStatuses: ['running'] }),
+      ).toHaveLength(1);
     } finally {
       db.close();
       await app.stop();
     }
   });
 
-  it('rejects repeated project initialization', async () => {
+  it('greenfield bootstrap (persisted-but-empty .gvc0/state.db): same outcome as fresh', async () => {
+    const app = await composeApplication();
+    // composeApplication already created .gvc0/state.db; treat that as the
+    // persisted-but-empty case (no milestone or feature rows written yet).
+    const db = openDatabase(path.join(tmpDir, '.gvc0', 'state.db'));
+    const graph = new PersistentFeatureGraph(db);
+    const store = new SqliteStore(db);
+
+    try {
+      const projectPlanner = new ProjectPlannerCoordinator(
+        {
+          store,
+          runtime: { idleWorkerCount: () => 1 },
+          config: { tokenProfile: 'balanced' as const },
+        } as never,
+        graph as never,
+        () => Promise.resolve(),
+        { dispatchFn: () => Promise.resolve(), idGen: () => 'sess-empty' },
+      );
+
+      const result = await initializeProjectGraph(graph, projectPlanner);
+
+      expect(result).toEqual({
+        kind: 'greenfield-bootstrap',
+        sessionId: 'run-project:sess-empty',
+      });
+      expect(
+        store.listProjectSessions({ runStatuses: ['running'] }),
+      ).toHaveLength(1);
+    } finally {
+      db.close();
+      await app.stop();
+    }
+  });
+
+  it('existing-project: pre-seeded graph returns existing kind and does not auto-spawn', async () => {
     const app = await composeApplication();
     const db = openDatabase(path.join(tmpDir, '.gvc0', 'state.db'));
     const graph = new PersistentFeatureGraph(db);
+    const store = new SqliteStore(db);
 
     try {
-      initializeProjectGraph(graph, {
-        milestoneName: 'Milestone 1',
-        milestoneDescription: 'Initial milestone',
-        featureName: 'Project startup',
-        featureDescription: 'Plan initial project work',
-      });
+      graph.__enterTick();
+      try {
+        graph.createMilestone({
+          id: 'm-existing',
+          name: 'Existing milestone',
+          description: 'pre-seeded',
+        });
+        graph.createFeature({
+          id: 'f-existing',
+          milestoneId: 'm-existing',
+          name: 'Existing feature',
+          description: 'pre-seeded',
+        });
+      } finally {
+        graph.__leaveTick();
+      }
 
-      expect(() =>
-        initializeProjectGraph(graph, {
-          milestoneName: 'Milestone 2',
-          milestoneDescription: 'Another milestone',
-          featureName: 'Another feature',
-          featureDescription: 'Should not be created',
-        }),
-      ).toThrow('project already initialized');
+      const projectPlanner = new ProjectPlannerCoordinator(
+        {
+          store,
+          runtime: { idleWorkerCount: () => 1 },
+          config: { tokenProfile: 'balanced' as const },
+        } as never,
+        graph as never,
+        () => Promise.resolve(),
+        { dispatchFn: () => Promise.resolve(), idGen: () => 'sess-x' },
+      );
+
+      const before = store.listProjectSessions({
+        runStatuses: ['running'],
+      }).length;
+      const result = await initializeProjectGraph(graph, projectPlanner);
+
+      expect(result).toEqual({ kind: 'existing' });
+      expect(
+        store.listProjectSessions({ runStatuses: ['running'] }).length,
+      ).toBe(before);
     } finally {
       db.close();
       await app.stop();

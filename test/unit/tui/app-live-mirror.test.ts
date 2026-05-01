@@ -48,10 +48,9 @@ function createStubDeps(overrides: Partial<TuiAppDeps> = {}): TuiAppDeps {
     setAutoExecutionEnabled: () => false,
     toggleAutoExecution: () => false,
     toggleMilestoneQueue: () => {},
-    initializeProject: vi.fn(() => ({
-      milestoneId: 'm-1' as const,
-      featureId: 'f-1' as const,
-    })),
+    initializeProject: vi.fn(() =>
+      Promise.resolve({ kind: 'existing' as const }),
+    ),
     cancelFeature: () => Promise.resolve(),
     saveFeatureRun: () => {},
     getFeatureRun: () => undefined,
