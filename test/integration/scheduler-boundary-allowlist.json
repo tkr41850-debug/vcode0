@@ -17,6 +17,10 @@
       {
         "methods": ["cancelFeature"],
         "reason": "cancelFeatureRunWork is invoked by the scheduler handler for `ui_cancel_feature_run_work` — it runs INSIDE a tick via the closure threaded through SchedulerLoopOptions. The mutation is not a bypass; it's the queue-routed destination."
+      },
+      {
+        "methods": ["transitionTask"],
+        "reason": "cancelTaskPreserveWorktree/cancelTaskCleanWorktree are invoked by scheduler handlers for `ui_cancel_task_preserve_worktree` and `ui_cancel_task_clean_worktree` — the task cancellation mutation runs inside the scheduler tick via the closure threaded through SchedulerLoopOptions."
       }
     ],
     "src/agents/runtime.ts": [

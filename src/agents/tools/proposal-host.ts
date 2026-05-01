@@ -1,4 +1,8 @@
-import type { FeatureGraph, PlannerFeatureEditPatch } from '@core/graph/index';
+import type {
+  FeatureGraph,
+  MilestoneEditPatch,
+  PlannerFeatureEditPatch,
+} from '@core/graph/index';
 import { InMemoryFeatureGraph } from '@core/graph/index';
 import {
   type GraphProposal,
@@ -20,11 +24,17 @@ import type {
   AddTaskOptions,
   DependencyOptions,
   EditFeatureOptions,
+  EditMilestoneOptions,
   EditTaskOptions,
+  MergeFeaturesOptions,
+  MoveFeatureOptions,
   RemoveFeatureOptions,
+  RemoveMilestoneOptions,
   RemoveTaskOptions,
+  ReorderTasksOptions,
   SetFeatureDoDOptions,
   SetFeatureObjectiveOptions,
+  SplitFeatureOptions,
   SubmitProposalOptions,
 } from './types.js';
 
@@ -80,6 +90,34 @@ export class GraphProposalToolHost {
     return feature;
   }
 
+  editMilestone(args: EditMilestoneOptions): Milestone {
+    this.assertMutable();
+    const current = this.draft.milestones.get(args.milestoneId);
+    if (current === undefined) {
+      return this.draft.editMilestone(args.milestoneId, args.patch);
+    }
+    const diff = diffMilestonePatch(current, args.patch);
+    const milestone = this.draft.editMilestone(args.milestoneId, args.patch);
+    if (Object.keys(diff).length === 0) {
+      return milestone;
+    }
+    this.builder.addOp({
+      kind: 'edit_milestone',
+      milestoneId: this.refMilestone(args.milestoneId),
+      patch: diff,
+    });
+    return milestone;
+  }
+
+  removeMilestone(args: RemoveMilestoneOptions): void {
+    this.assertMutable();
+    this.draft.removeMilestone(args.milestoneId);
+    this.builder.addOp({
+      kind: 'remove_milestone',
+      milestoneId: this.refMilestone(args.milestoneId),
+    });
+  }
+
   removeFeature(args: RemoveFeatureOptions): void {
     this.assertMutable();
     this.draft.removeFeature(args.featureId);
@@ -104,6 +142,58 @@ export class GraphProposalToolHost {
       kind: 'edit_feature',
       featureId: this.refFeature(args.featureId),
       patch: diff,
+    });
+    return feature;
+  }
+
+  moveFeature(args: MoveFeatureOptions): Feature {
+    this.assertMutable();
+    const current = this.draft.features.get(args.featureId);
+    if (current?.milestoneId === args.milestoneId) {
+      return current;
+    }
+    this.draft.changeMilestone(args.featureId, args.milestoneId);
+    const feature = this.draft.features.get(args.featureId);
+    if (feature === undefined) {
+      throw new Error(`feature "${args.featureId}" does not exist after move`);
+    }
+    this.builder.addOp({
+      kind: 'move_feature',
+      featureId: this.refFeature(args.featureId),
+      milestoneId: this.refMilestone(args.milestoneId),
+    });
+    return feature;
+  }
+
+  splitFeature(args: SplitFeatureOptions): Feature[] {
+    this.assertMutable();
+    const features = this.draft.splitFeature(args.featureId, args.splits);
+    for (const feature of features) {
+      this.builder.allocateFeatureId(feature.id);
+    }
+    this.builder.addOp({
+      kind: 'split_feature',
+      featureId: this.refFeature(args.featureId),
+      splits: args.splits.map((split) => ({
+        ...split,
+        id: this.refFeature(split.id),
+        ...(split.deps !== undefined
+          ? { deps: split.deps.map((dep) => this.refFeature(dep)) }
+          : {}),
+      })),
+    });
+    return features;
+  }
+
+  mergeFeatures(args: MergeFeaturesOptions): Feature {
+    this.assertMutable();
+    const feature = this.draft.mergeFeatures(args.featureIds, args.name);
+    this.builder.addOp({
+      kind: 'merge_features',
+      featureIds: args.featureIds.map((featureId) =>
+        this.refFeature(featureId),
+      ),
+      name: args.name,
     });
     return feature;
   }
@@ -173,6 +263,25 @@ export class GraphProposalToolHost {
       patch: args.patch,
     });
     return task;
+  }
+
+  reorderTasks(args: ReorderTasksOptions): Task[] {
+    this.assertMutable();
+    const currentOrder = this.listFeatureTasksInOrder(args.featureId);
+    if (
+      currentOrder.length === args.taskIds.length &&
+      currentOrder.every((task, index) => task.id === args.taskIds[index])
+    ) {
+      return currentOrder;
+    }
+    this.draft.reorderTasks(args.featureId, args.taskIds);
+    const tasks = this.listFeatureTasksInOrder(args.featureId);
+    this.builder.addOp({
+      kind: 'reorder_tasks',
+      featureId: this.refFeature(args.featureId),
+      taskIds: args.taskIds.map((taskId) => this.refTask(taskId)),
+    });
+    return tasks;
   }
 
   addDependency(args: DependencyOptions): void {
@@ -268,6 +377,12 @@ export class GraphProposalToolHost {
     }
     return `f-${max + 1}`;
   }
+
+  private listFeatureTasksInOrder(featureId: FeatureId): Task[] {
+    return [...this.draft.tasks.values()]
+      .filter((task) => task.featureId === featureId)
+      .sort((left, right) => left.orderInFeature - right.orderInFeature);
+  }
 }
 
 export function createProposalToolHost(
@@ -277,6 +392,11 @@ export function createProposalToolHost(
   return new GraphProposalToolHost(graph, mode);
 }
 
+const EDITABLE_MILESTONE_KEYS = [
+  'name',
+  'description',
+] as const satisfies readonly (keyof MilestoneEditPatch)[];
+
 const EDITABLE_FEATURE_KEYS = [
   'name',
   'description',
@@ -285,6 +405,24 @@ const EDITABLE_FEATURE_KEYS = [
   'featureObjective',
   'featureDoD',
 ] as const satisfies readonly (keyof PlannerFeatureEditPatch)[];
+
+function diffMilestonePatch(
+  current: Milestone,
+  patch: MilestoneEditPatch,
+): MilestoneEditPatch {
+  const diff: MilestoneEditPatch = {};
+  for (const key of EDITABLE_MILESTONE_KEYS) {
+    const next = patch[key];
+    if (next === undefined) {
+      continue;
+    }
+    if (current[key] === next) {
+      continue;
+    }
+    diff[key] = next;
+  }
+  return diff;
+}
 
 function diffFeaturePatch(
   current: Feature,

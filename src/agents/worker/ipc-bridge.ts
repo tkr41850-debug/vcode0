@@ -4,6 +4,7 @@ import type {
   ApprovalPayload,
   HelpResponse,
 } from '@runtime/contracts';
+import type { PersistedToolOutput } from '@runtime/resume';
 
 export type ClaimLockResult =
   | { granted: true }
@@ -25,10 +26,16 @@ export interface IpcBridge {
   progress(message: string): void;
 
   /** Block until the operator responds to a help request. */
-  requestHelp(query: string): Promise<HelpResponse>;
+  requestHelp(query: string, toolCallId: string): Promise<HelpResponse>;
 
   /** Block until the operator responds to an approval request. */
-  requestApproval(payload: ApprovalPayload): Promise<ApprovalDecision>;
+  requestApproval(
+    payload: ApprovalPayload,
+    toolCallId: string,
+  ): Promise<ApprovalDecision>;
+
+  /** Persist a tool result for later replay. */
+  recordToolOutput(output: PersistedToolOutput): Promise<void>;
 
   /** Block until the orchestrator responds with a claim decision for the given paths. */
   claimLock(paths: readonly string[]): Promise<ClaimLockResult>;

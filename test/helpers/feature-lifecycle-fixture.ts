@@ -141,6 +141,22 @@ function initGitRepo(tmpDir: string): void {
   spawnSync('git', ['commit', '-q', '-m', 'seed'], env);
 }
 
+function initFeatureWorktreeRepo(
+  worktreeDir: string,
+  featureBranch: string,
+): void {
+  const env = { cwd: worktreeDir };
+  spawnSync('git', ['init', '-q'], env);
+  spawnSync('git', ['config', 'user.email', 'test@example.com'], env);
+  spawnSync('git', ['config', 'user.name', 'Test Runner'], env);
+  spawnSync('git', ['config', 'commit.gpgsign', 'false'], env);
+  fs.writeFileSync(path.join(worktreeDir, 'seed.txt'), 'seed\n');
+  spawnSync('git', ['add', 'seed.txt'], env);
+  spawnSync('git', ['commit', '-q', '-m', 'seed'], env);
+  spawnSync('git', ['branch', '-M', 'main'], env);
+  spawnSync('git', ['checkout', '-q', '-b', featureBranch], env);
+}
+
 function createUiStub(): UiPort {
   return {
     show: () => Promise.resolve(),
@@ -164,6 +180,7 @@ function createWorktreeStub(tmpDir: string): OrchestratorPorts['worktree'] {
         path.resolve(tmpDir, worktreePath(feature.featureBranch)),
       ),
     removeWorktree: () => Promise.resolve(),
+    deleteBranch: () => Promise.resolve(),
     pruneStaleWorktrees: () => Promise.resolve([]),
     sweepStaleLocks: () => Promise.resolve([]),
   };
@@ -338,12 +355,12 @@ export function createFeatureLifecycleFixture(
     for (const f of nextSnapshot.features) graph.features.set(f.id, f);
     for (const t of nextSnapshot.tasks) graph.tasks.set(t.id, t);
 
-    // Materialize the feature worktree dir so VerificationService can
-    // resolve it during ci_check. The pool + in-process worker use the
-    // repo root as their workdir, not this path, so it only needs to
-    // exist — not be a real git worktree.
+    // Materialize a real git repo at the feature worktree path so both
+    // VerificationService and the in-process worker see the same filesystem
+    // state when verify inspects `git diff main...HEAD`.
     const worktreeDir = featureWorktreePath(featureBranch);
     fs.mkdirSync(worktreeDir, { recursive: true });
+    initFeatureWorktreeRepo(worktreeDir, featureBranch);
 
     return feature;
   }

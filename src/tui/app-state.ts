@@ -6,7 +6,9 @@ import type {
   FeaturePhaseAgentRun,
   MilestoneId,
   TaskAgentRun,
+  TopPlannerAgentRun,
 } from '@core/types/index';
+import { readTopPlannerProposalMetadata } from '@orchestrator/proposals/index';
 import type { ComposerSelection } from '@tui/commands/index';
 import {
   type DagNodeViewModel,
@@ -96,6 +98,25 @@ export function featureFromSnapshot(
   return snapshot.features.find((feature) => feature.id === featureId);
 }
 
+export type PendingFeatureProposalRun = FeaturePhaseAgentRun & {
+  phase: 'plan' | 'replan';
+  runStatus: 'await_approval';
+};
+
+export type PendingTopPlannerProposalRun = TopPlannerAgentRun & {
+  phase: 'plan';
+  runStatus: 'await_approval';
+};
+
+export type PendingProposalRun =
+  | PendingFeatureProposalRun
+  | PendingTopPlannerProposalRun;
+
+export interface PendingProposalSelection {
+  run: PendingProposalRun;
+  approvalHint?: string;
+}
+
 export function pendingProposalForSelection(params: {
   draftState:
     | { featureId: FeatureId; phase: 'plan' | 'replan'; commandCount: number }
@@ -106,18 +127,53 @@ export function pendingProposalForSelection(params: {
     featureId: FeatureId,
     phase: 'plan' | 'replan',
   ) => FeaturePhaseAgentRun | undefined;
-}): FeaturePhaseAgentRun | undefined {
-  if (
-    params.draftState !== undefined ||
-    params.selectedFeatureId === undefined
-  ) {
+  getTopPlannerRun: () => TopPlannerAgentRun | undefined;
+}): PendingProposalSelection | undefined {
+  if (params.draftState !== undefined) {
     return undefined;
   }
 
-  const feature = featureFromSnapshot(
-    params.authoritativeSnapshot,
-    params.selectedFeatureId,
-  );
+  const featureRun =
+    params.selectedFeatureId === undefined
+      ? undefined
+      : pendingFeatureProposalForSelection(
+          params.authoritativeSnapshot,
+          params.selectedFeatureId,
+          params.getFeatureRun,
+        );
+  if (featureRun !== undefined) {
+    return { run: featureRun };
+  }
+
+  const topPlannerRun = params.getTopPlannerRun();
+  if (!isPendingTopPlannerProposalRun(topPlannerRun)) {
+    return undefined;
+  }
+
+  const metadata = readTopPlannerProposalMetadata(topPlannerRun.payloadJson);
+  const collisionCount = metadata?.collidedFeatureRuns.length ?? 0;
+  return {
+    run: topPlannerRun,
+    ...(collisionCount > 0
+      ? {
+          approvalHint:
+            collisionCount === 1
+              ? 'resets 1 planner run'
+              : `resets ${collisionCount} planner runs`,
+        }
+      : {}),
+  };
+}
+
+function pendingFeatureProposalForSelection(
+  snapshot: GraphSnapshot,
+  featureId: FeatureId,
+  getFeatureRun: (
+    featureId: FeatureId,
+    phase: 'plan' | 'replan',
+  ) => FeaturePhaseAgentRun | undefined,
+): PendingFeatureProposalRun | undefined {
+  const feature = featureFromSnapshot(snapshot, featureId);
   if (feature === undefined) {
     return undefined;
   }
@@ -127,8 +183,28 @@ export function pendingProposalForSelection(params: {
     return undefined;
   }
 
-  const run = params.getFeatureRun(params.selectedFeatureId, phase);
-  return run?.runStatus === 'await_approval' ? run : undefined;
+  const run = getFeatureRun(featureId, phase);
+  return isPendingFeatureProposalRun(run) ? run : undefined;
+}
+
+function isPendingFeatureProposalRun(
+  run: FeaturePhaseAgentRun | undefined,
+): run is PendingFeatureProposalRun {
+  return (
+    run !== undefined &&
+    run.runStatus === 'await_approval' &&
+    (run.phase === 'plan' || run.phase === 'replan')
+  );
+}
+
+function isPendingTopPlannerProposalRun(
+  run: TopPlannerAgentRun | undefined,
+): run is PendingTopPlannerProposalRun {
+  return (
+    run !== undefined &&
+    run.runStatus === 'await_approval' &&
+    run.phase === 'plan'
+  );
 }
 
 export function pendingTaskRunForSelection(params: {
@@ -149,6 +225,8 @@ export function pendingTaskRunForSelection(params: {
 
   return run.runStatus === 'await_response' ||
     run.runStatus === 'await_approval' ||
+    run.runStatus === 'checkpointed_await_response' ||
+    run.runStatus === 'checkpointed_await_approval' ||
     (run.runStatus === 'running' && run.owner === 'manual')
     ? run
     : undefined;

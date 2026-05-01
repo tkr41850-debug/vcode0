@@ -2,11 +2,11 @@
 
 ## Concern
 
-`mergeTrainReentryCount` increments on every eject from the integration queue but is not capped. A feature that fails integration repeatedly (rebase conflicts, post-rebase `ci_check` failures, or persistent verify issues) can re-enter the queue indefinitely.
+`mergeTrainReentryCount` now has a hard cap, but a feature can still churn through repeated integration failures until that cap is reached. Alternating failure sources (rebase conflict, post-rebase `ci_check` failure, persistent verify issues) may consume multiple merge-train turns before the system parks the feature for manual intervention.
 
 ## Why to Watch
 
-Feature churn warnings fire on re-entry but do not gate. Combined with replan-loop counters (per-source and aggregate), most stuck scenarios should trip a replan-loop threshold before re-entry becomes excessive. Pathological cases where different failure sources alternate may evade per-source thresholds and accumulate re-entries while still completing short replan cycles.
+Feature churn warnings still fire on re-entry, and the hard cap now prevents infinite cycling. Replan-loop counters remain the earlier-warning signal, but pathological cases where different failure sources alternate may evade per-source thresholds and accumulate enough re-entries to consume queue bandwidth before the cap escalates the feature.
 
 ## What to Observe
 
@@ -16,7 +16,7 @@ Feature churn warnings fire on re-entry but do not gate. Combined with replan-lo
 
 ## Current Position
 
-Replan-loop counters are the primary cap for stuck features. Re-entry stays uncapped as a secondary signal. Add a hard cap that escalates to `manual_intervention` after N re-entries if observation shows the primary cap is insufficient.
+**Enforced as of Phase 6.** A configurable hard cap (`reentryCap`, default 10) is now enforced in `failIntegration`: when `mergeTrainReentryCount` reaches the cap, the feature is parked in the inbox with a `merge_train_cap_reached` item rather than receiving a repair task. Replan-loop counters remain the primary early-warning signal for stuck features; the re-entry cap is the hard backstop that escalates to human intervention after N failures.
 
 ## Related
 

@@ -52,6 +52,8 @@ export type CompositeGuardResult =
  * - retry_await: transient failure — waiting for retry window to expire
  * - await_response: waiting for human input (help request)
  * - await_approval: waiting for user approval of a proposed action
+ * - checkpointed_await_response: wait persisted after hot-window expiry
+ * - checkpointed_await_approval: approval wait persisted after hot-window expiry
  * - completed: terminal — run finished successfully
  * - failed: terminal — run finished with an unrecoverable failure
  * - cancelled: terminal — run was cancelled
@@ -76,8 +78,16 @@ const RUN_STATE_TRANSITIONS = new Map<
     ]),
   ],
   ['retry_await', new Set(['ready', 'running', 'cancelled'])],
-  ['await_response', new Set(['ready', 'running', 'cancelled'])],
-  ['await_approval', new Set(['ready', 'running', 'cancelled'])],
+  [
+    'await_response',
+    new Set(['checkpointed_await_response', 'ready', 'running', 'cancelled']),
+  ],
+  [
+    'await_approval',
+    new Set(['checkpointed_await_approval', 'ready', 'running', 'cancelled']),
+  ],
+  ['checkpointed_await_response', new Set(['ready', 'running', 'cancelled'])],
+  ['checkpointed_await_approval', new Set(['ready', 'running', 'cancelled'])],
   // Terminal states: no outbound transitions
 ]);
 
@@ -714,34 +724,40 @@ function checkCancelledCollabFreezeWork(
 }
 
 /**
- * merge_queued collab with run=await_response is illegal.
+ * merge_queued collab with response waits is illegal.
  * A feature waiting for a human response cannot be actively integrating.
  * (An agent run waiting for user input cannot hold a merge-train position.)
  */
 function checkMergeQueuedNoAwaitResponse(
   state: CompositeState,
 ): CompositeGuardResult {
-  if (state.collab === 'merge_queued' && state.run === 'await_response') {
+  if (
+    state.collab === 'merge_queued' &&
+    (state.run === 'await_response' ||
+      state.run === 'checkpointed_await_response')
+  ) {
     return {
       legal: false,
-      reason:
-        'collab=merge_queued with run=await_response is illegal — cannot hold merge-train slot while waiting for human input',
+      reason: `collab=merge_queued with run=${state.run} is illegal — cannot hold merge-train slot while waiting for human input`,
     };
   }
   return { legal: true };
 }
 
 /**
- * merge_queued collab with run=await_approval is illegal for the same reason.
+ * merge_queued collab with approval waits is illegal for the same reason.
  */
 function checkMergeQueuedNoAwaitApproval(
   state: CompositeState,
 ): CompositeGuardResult {
-  if (state.collab === 'merge_queued' && state.run === 'await_approval') {
+  if (
+    state.collab === 'merge_queued' &&
+    (state.run === 'await_approval' ||
+      state.run === 'checkpointed_await_approval')
+  ) {
     return {
       legal: false,
-      reason:
-        'collab=merge_queued with run=await_approval is illegal — cannot hold merge-train slot while waiting for approval',
+      reason: `collab=merge_queued with run=${state.run} is illegal — cannot hold merge-train slot while waiting for approval`,
     };
   }
   return { legal: true };
@@ -773,13 +789,18 @@ function checkPreBranchPhasesRequireNoneCollab(
 }
 
 /**
- * Run states await_response, await_approval are only meaningful on active runs.
+ * Wait run states are only meaningful on active runs.
  * They are illegal when work=work_complete or collab=merged or collab=cancelled.
  */
 function checkWaitRunStatesRequireActiveWork(
   state: CompositeState,
 ): CompositeGuardResult {
-  const waitStates: RunState[] = ['await_response', 'await_approval'];
+  const waitStates: RunState[] = [
+    'await_response',
+    'await_approval',
+    'checkpointed_await_response',
+    'checkpointed_await_approval',
+  ];
   if (waitStates.includes(state.run)) {
     if (
       state.work === 'work_complete' ||

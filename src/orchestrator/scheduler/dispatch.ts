@@ -13,11 +13,19 @@ import type {
   EventRecord,
   Feature,
   FeatureId,
+  PlannerSessionMode,
   Task,
   TaskAgentRun,
+  TopPlannerAgentRun,
 } from '@core/types/index';
 import type { OrchestratorPorts } from '@orchestrator/ports/index';
-import { isProposalPhase } from '@orchestrator/proposals/index';
+import {
+  collectCollidedFeaturePlannerRuns,
+  collectProposalScopeIds,
+  isProposalPhase,
+  type TopPlannerProposalMetadata,
+  withTopPlannerProposalMetadata,
+} from '@orchestrator/proposals/index';
 import { buildTaskPayload } from '@runtime/context/index';
 import type {
   DispatchTaskResult,
@@ -34,7 +42,9 @@ export function createRunReader(ports: OrchestratorPorts): ExecutionRunReader {
   for (const run of runs) {
     if (run.scopeType === 'task') {
       byTaskId.set(run.scopeId, run);
-    } else {
+      continue;
+    }
+    if (run.scopeType === 'feature_phase') {
       byFeaturePhase.set(`${run.scopeId}:${run.phase}`, run);
     }
   }
@@ -123,6 +133,34 @@ export function ensureFeaturePhaseRun(
     scopeType: 'feature_phase',
     scopeId: feature.id,
     phase,
+    runStatus: 'ready',
+    owner: 'system',
+    attention: 'none',
+    restartCount: 0,
+    maxRetries: 3,
+  };
+  ports.store.createAgentRun(run);
+  return run;
+}
+
+export function ensureTopPlannerRun(
+  ports: OrchestratorPorts,
+): TopPlannerAgentRun {
+  const existing = ports.store.listAgentRuns({
+    scopeType: 'top_planner',
+    scopeId: 'top-planner',
+    phase: 'plan',
+  })[0];
+
+  if (existing?.scopeType === 'top_planner') {
+    return existing;
+  }
+
+  const run: TopPlannerAgentRun = {
+    id: 'run-top-planner',
+    scopeType: 'top_planner',
+    scopeId: 'top-planner',
+    phase: 'plan',
     runStatus: 'ready',
     owner: 'system',
     attention: 'none',
@@ -234,6 +272,70 @@ export async function dispatchTaskUnit(params: {
   persistRunningTaskRun(params.ports, run, result);
 }
 
+export async function dispatchTopPlannerUnit(params: {
+  prompt: string;
+  graph: FeatureGraph;
+  ports: OrchestratorPorts;
+  sessionMode: PlannerSessionMode;
+  previousSessionId?: string;
+}): Promise<TopPlannerProposalMetadata> {
+  const run = ensureTopPlannerRun(params.ports);
+  const previousSessionId = params.previousSessionId ?? run.sessionId;
+  const sessionId = deriveTopPlannerSessionId(run, params.sessionMode);
+
+  params.ports.store.updateAgentRun(run.id, {
+    runStatus: 'running',
+    owner: 'system',
+    sessionId,
+    payloadJson: undefined,
+  });
+
+  const result = await params.ports.agents.planTopLevel(params.prompt, {
+    agentRunId: run.id,
+    sessionId,
+    sessionMode: params.sessionMode,
+  });
+  const scopeIds = collectProposalScopeIds(result.proposal, params.graph);
+  const collidedFeatureRuns = collectCollidedFeaturePlannerRuns({
+    proposal: result.proposal,
+    graph: params.graph,
+    runs: params.ports.store.listAgentRuns(),
+  });
+  const metadata: TopPlannerProposalMetadata = {
+    prompt: params.prompt,
+    sessionMode: params.sessionMode,
+    runId: run.id,
+    sessionId,
+    ...(previousSessionId !== undefined && previousSessionId !== sessionId
+      ? { previousSessionId }
+      : {}),
+    featureIds: scopeIds.featureIds,
+    milestoneIds: scopeIds.milestoneIds,
+    collidedFeatureRuns,
+  };
+  params.ports.store.updateAgentRun(run.id, {
+    runStatus: 'await_approval',
+    owner: 'manual',
+    sessionId,
+    payloadJson: JSON.stringify(
+      withTopPlannerProposalMetadata(result.proposal, metadata),
+    ),
+  });
+  return metadata;
+}
+
+function deriveTopPlannerSessionId(
+  run: TopPlannerAgentRun,
+  sessionMode: PlannerSessionMode,
+): string {
+  if (sessionMode === 'continue' && run.sessionId !== undefined) {
+    return run.sessionId;
+  }
+
+  const candidate = `${run.id}:${Date.now()}`;
+  return candidate === run.sessionId ? `${candidate}:fresh` : candidate;
+}
+
 export async function dispatchFeaturePhaseUnit(params: {
   feature: Feature;
   phase: AgentRunPhase;
@@ -246,17 +348,24 @@ export async function dispatchFeaturePhaseUnit(params: {
     return false;
   }
 
+  const rerunCompletedPhase = run.runStatus === 'completed';
+  const reusedSessionId = rerunCompletedPhase ? undefined : run.sessionId;
+
   params.markFeaturePhaseRunning(params.feature);
   params.ports.store.updateAgentRun(run.id, {
     runStatus: 'running',
     owner: 'system',
+    ...(rerunCompletedPhase ? { sessionId: undefined } : {}),
+    ...(rerunCompletedPhase && params.phase === 'verify'
+      ? { payloadJson: undefined }
+      : {}),
   });
 
   try {
     await params.ports.worktree.ensureFeatureWorktree(params.feature);
     const runContext = {
       agentRunId: run.id,
-      ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
+      ...(reusedSessionId !== undefined ? { sessionId: reusedSessionId } : {}),
     };
     switch (params.phase) {
       case 'discuss': {

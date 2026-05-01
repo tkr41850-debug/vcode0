@@ -1,5 +1,10 @@
 import { Type } from '@sinclair/typebox';
 
+const milestonePatchSchema = Type.Object({
+  name: Type.Optional(Type.String()),
+  description: Type.Optional(Type.String()),
+});
+
 const featurePatchSchema = Type.Object({
   name: Type.Optional(Type.String()),
   description: Type.Optional(Type.String()),
@@ -7,6 +12,13 @@ const featurePatchSchema = Type.Object({
   roughDraft: Type.Optional(Type.String()),
   featureObjective: Type.Optional(Type.String()),
   featureDoD: Type.Optional(Type.Array(Type.String())),
+});
+
+const splitSpecSchema = Type.Object({
+  id: Type.String(),
+  name: Type.String(),
+  description: Type.String(),
+  deps: Type.Optional(Type.Array(Type.String())),
 });
 
 const taskPatchSchema = Type.Object({
@@ -94,6 +106,13 @@ export const proposalToolParameters = {
     name: Type.String(),
     description: Type.String(),
   }),
+  editMilestone: Type.Object({
+    milestoneId: Type.String(),
+    patch: milestonePatchSchema,
+  }),
+  removeMilestone: Type.Object({
+    milestoneId: Type.String(),
+  }),
   addFeature: Type.Object({
     milestoneId: Type.String(),
     name: Type.String(),
@@ -105,6 +124,18 @@ export const proposalToolParameters = {
   editFeature: Type.Object({
     featureId: Type.String(),
     patch: featurePatchSchema,
+  }),
+  moveFeature: Type.Object({
+    featureId: Type.String(),
+    milestoneId: Type.String(),
+  }),
+  splitFeature: Type.Object({
+    featureId: Type.String(),
+    splits: Type.Array(splitSpecSchema),
+  }),
+  mergeFeatures: Type.Object({
+    featureIds: Type.Array(Type.String(), { minItems: 2 }),
+    name: Type.String(),
   }),
   addTask: Type.Object({
     featureId: Type.String(),
@@ -139,6 +170,10 @@ export const proposalToolParameters = {
     taskId: Type.String(),
     patch: taskPatchSchema,
   }),
+  reorderTasks: Type.Object({
+    featureId: Type.String(),
+    taskIds: Type.Array(Type.String(), { minItems: 1 }),
+  }),
   addDependency: dependencySchema,
   removeDependency: dependencySchema,
   submit: proposalSubmitSchema,
@@ -165,6 +200,7 @@ export const featurePhaseToolParameters = {
   }),
   getChangedFiles: Type.Object({
     featureId: Type.Optional(Type.String()),
+    baseRef: Type.Optional(Type.String()),
   }),
   submitDiscuss: discussSubmitSchema,
   submitResearch: researchSubmitSchema,

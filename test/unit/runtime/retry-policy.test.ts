@@ -24,11 +24,7 @@ describe('decideRetry', () => {
   });
 
   it('retries a transient ECONNRESET on attempt 1', () => {
-    const decision = decideRetry(
-      new Error('ECONNRESET'),
-      1,
-      defaultConfig(),
-    );
+    const decision = decideRetry(new Error('ECONNRESET'), 1, defaultConfig());
     expect(decision.kind).toBe('retry');
     if (decision.kind !== 'retry') return;
     expect(decision.attempt).toBe(2);
@@ -94,11 +90,7 @@ describe('decideRetry', () => {
   });
 
   it('handles an error-shaped plain object', () => {
-    const decision = decideRetry(
-      { message: 'rate limit' },
-      1,
-      defaultConfig(),
-    );
+    const decision = decideRetry({ message: 'rate limit' }, 1, defaultConfig());
     expect(decision.kind).toBe('retry');
   });
 
@@ -122,10 +114,13 @@ describe('decideRetry', () => {
   });
 
   it('recognises HTTP 5xx status codes as transient', () => {
-    expect(decideRetry(new Error('HTTP 503 Service Unavailable'), 1, defaultConfig()).kind).toBe(
-      'retry',
-    );
-    expect(decideRetry(new Error('got 502 from upstream'), 1, defaultConfig()).kind).toBe('retry');
+    expect(
+      decideRetry(new Error('HTTP 503 Service Unavailable'), 1, defaultConfig())
+        .kind,
+    ).toBe('retry');
+    expect(
+      decideRetry(new Error('got 502 from upstream'), 1, defaultConfig()).kind,
+    ).toBe('retry');
   });
 
   it('recognises health_timeout as transient (stuck-worker recovery)', () => {
@@ -135,6 +130,28 @@ describe('decideRetry', () => {
       defaultConfig(),
     );
     expect(decision.kind).toBe('retry');
+  });
+
+  it('retries a no_commit semantic rejection within budget', () => {
+    const decision = decideRetry(
+      new Error('no_commit: no trailer-ok commit observed'),
+      1,
+      defaultConfig({ maxAttempts: 3 }),
+    );
+    expect(decision.kind).toBe('retry');
+    if (decision.kind !== 'retry') return;
+    expect(decision.attempt).toBe(2);
+  });
+
+  it('escalates no_commit once max attempts are exhausted', () => {
+    const decision = decideRetry(
+      new Error('no_commit: no trailer-ok commit observed'),
+      3,
+      defaultConfig({ maxAttempts: 3 }),
+    );
+    expect(decision.kind).toBe('escalate_inbox');
+    if (decision.kind !== 'escalate_inbox') return;
+    expect(decision.reason).toContain('max_attempts_exceeded');
   });
 });
 
@@ -155,7 +172,9 @@ describe('buildRetryPolicyConfig', () => {
     expect(rpConfig.baseDelayMs).toBe(100);
     expect(rpConfig.maxDelayMs).toBe(5_000);
     expect(rpConfig.transientErrorPatterns).toHaveLength(2);
-    expect(rpConfig.transientErrorPatterns[0]?.test('say foo loudly')).toBe(true);
+    expect(rpConfig.transientErrorPatterns[0]?.test('say foo loudly')).toBe(
+      true,
+    );
     expect(rpConfig.transientErrorPatterns[1]?.test('bar123')).toBe(true);
     expect(rpConfig.transientErrorPatterns[1]?.test('bar')).toBe(false);
   });

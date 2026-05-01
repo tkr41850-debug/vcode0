@@ -1,18 +1,31 @@
+import type { GvcConfig } from '@config';
 import type { GraphSnapshot } from '@core/graph/index';
-import type { FeatureId } from '@core/types/index';
+import type { FeatureId, TaskId } from '@core/types/index';
 import type { OverlayHandle, TUI } from '@mariozechner/pi-tui';
+import type { InboxItemRecord } from '@orchestrator/ports/index';
 import type { TuiCommand, TuiKeybindHint } from '@tui/commands/index';
 import type {
   AgentMonitorOverlay,
+  ConfigOverlay,
   DependencyDetailOverlay,
   HelpOverlay,
+  InboxOverlay,
+  MergeTrainOverlay,
+  TaskTranscriptOverlay,
 } from '@tui/components/index';
-import type { TuiViewModelBuilder } from '@tui/view-model/index';
+import type {
+  TuiViewModelBuilder,
+  WorkerLogViewModel,
+} from '@tui/view-model/index';
 
 export interface OverlayState {
   monitorHandle: OverlayHandle | undefined;
   dependencyHandle: OverlayHandle | undefined;
   helpHandle: OverlayHandle | undefined;
+  inboxHandle: OverlayHandle | undefined;
+  mergeTrainHandle: OverlayHandle | undefined;
+  configHandle: OverlayHandle | undefined;
+  transcriptHandle: OverlayHandle | undefined;
 }
 
 export function hideAllOverlays(state: OverlayState): void {
@@ -22,13 +35,25 @@ export function hideAllOverlays(state: OverlayState): void {
   state.dependencyHandle = undefined;
   state.helpHandle?.hide();
   state.helpHandle = undefined;
+  state.inboxHandle?.hide();
+  state.inboxHandle = undefined;
+  state.mergeTrainHandle?.hide();
+  state.mergeTrainHandle = undefined;
+  state.configHandle?.hide();
+  state.configHandle = undefined;
+  state.transcriptHandle?.hide();
+  state.transcriptHandle = undefined;
 }
 
 export function hasVisibleOverlay(state: OverlayState): boolean {
   return (
     state.helpHandle !== undefined ||
     state.monitorHandle !== undefined ||
-    state.dependencyHandle !== undefined
+    state.dependencyHandle !== undefined ||
+    state.inboxHandle !== undefined ||
+    state.mergeTrainHandle !== undefined ||
+    state.configHandle !== undefined ||
+    state.transcriptHandle !== undefined
   );
 }
 
@@ -56,6 +81,34 @@ export function hideTopOverlay(params: {
     state.dependencyHandle.hide();
     state.dependencyHandle = undefined;
     setNotice('dependency detail hidden');
+    refresh();
+    return true;
+  }
+  if (state.inboxHandle !== undefined) {
+    state.inboxHandle.hide();
+    state.inboxHandle = undefined;
+    setNotice('inbox hidden');
+    refresh();
+    return true;
+  }
+  if (state.mergeTrainHandle !== undefined) {
+    state.mergeTrainHandle.hide();
+    state.mergeTrainHandle = undefined;
+    setNotice('merge train hidden');
+    refresh();
+    return true;
+  }
+  if (state.configHandle !== undefined) {
+    state.configHandle.hide();
+    state.configHandle = undefined;
+    setNotice('config hidden');
+    refresh();
+    return true;
+  }
+  if (state.transcriptHandle !== undefined) {
+    state.transcriptHandle.hide();
+    state.transcriptHandle = undefined;
+    setNotice('transcript hidden');
     refresh();
     return true;
   }
@@ -168,6 +221,153 @@ export function toggleDependencyOverlay(params: {
     anchor: 'center',
   });
   setNotice('dependency detail shown');
+  refresh();
+}
+
+export function toggleInboxOverlay(params: {
+  state: OverlayState;
+  tui: TUI;
+  inboxOverlay: InboxOverlay;
+  viewModels: TuiViewModelBuilder;
+  items: InboxItemRecord[];
+  refresh: () => void;
+  setNotice: (notice: string) => void;
+}): void {
+  const { state, tui, inboxOverlay, viewModels, items, refresh, setNotice } =
+    params;
+  if (state.inboxHandle !== undefined) {
+    state.inboxHandle.hide();
+    state.inboxHandle = undefined;
+    setNotice('inbox hidden');
+    refresh();
+    return;
+  }
+
+  inboxOverlay.setModel(viewModels.buildInbox(items));
+  state.inboxHandle = tui.showOverlay(inboxOverlay, {
+    width: '80%',
+    maxHeight: '50%',
+    anchor: 'center',
+  });
+  setNotice('inbox shown');
+  refresh();
+}
+
+export function toggleMergeTrainOverlay(params: {
+  state: OverlayState;
+  tui: TUI;
+  mergeTrainOverlay: MergeTrainOverlay;
+  viewModels: TuiViewModelBuilder;
+  snapshot: GraphSnapshot;
+  refresh: () => void;
+  setNotice: (notice: string) => void;
+}): void {
+  const {
+    state,
+    tui,
+    mergeTrainOverlay,
+    viewModels,
+    snapshot,
+    refresh,
+    setNotice,
+  } = params;
+  if (state.mergeTrainHandle !== undefined) {
+    state.mergeTrainHandle.hide();
+    state.mergeTrainHandle = undefined;
+    setNotice('merge train hidden');
+    refresh();
+    return;
+  }
+
+  mergeTrainOverlay.setModel(viewModels.buildMergeTrain(snapshot.features));
+  state.mergeTrainHandle = tui.showOverlay(mergeTrainOverlay, {
+    width: '80%',
+    maxHeight: '50%',
+    anchor: 'center',
+  });
+  setNotice('merge train shown');
+  refresh();
+}
+
+export function toggleConfigOverlay(params: {
+  state: OverlayState;
+  tui: TUI;
+  configOverlay: ConfigOverlay;
+  viewModels: TuiViewModelBuilder;
+  refresh: () => void;
+  setNotice: (notice: string) => void;
+  getConfig: () => GvcConfig;
+}): void {
+  const {
+    state,
+    tui,
+    configOverlay,
+    viewModels,
+    refresh,
+    setNotice,
+    getConfig,
+  } = params;
+  if (state.configHandle !== undefined) {
+    state.configHandle.hide();
+    state.configHandle = undefined;
+    setNotice('config hidden');
+    refresh();
+    return;
+  }
+
+  configOverlay.setModel(viewModels.buildConfig(getConfig()));
+  state.configHandle = tui.showOverlay(configOverlay, {
+    width: '80%',
+    maxHeight: '50%',
+    anchor: 'center',
+  });
+  setNotice('config shown');
+  refresh();
+}
+
+export function shouldRenderAfterWorkerOutput(
+  lastRenderAt: number,
+  now: number,
+  intervalMs: number,
+): boolean {
+  return now - lastRenderAt >= intervalMs;
+}
+
+export function toggleTranscriptOverlay(params: {
+  state: OverlayState;
+  tui: TUI;
+  transcriptOverlay: TaskTranscriptOverlay;
+  viewModels: TuiViewModelBuilder;
+  taskId: TaskId | undefined;
+  logs: WorkerLogViewModel[];
+  refresh: () => void;
+  setNotice: (notice: string) => void;
+}): void {
+  const {
+    state,
+    tui,
+    transcriptOverlay,
+    viewModels,
+    taskId,
+    logs,
+    refresh,
+    setNotice,
+  } = params;
+  if (state.transcriptHandle !== undefined) {
+    state.transcriptHandle.hide();
+    state.transcriptHandle = undefined;
+    setNotice('transcript hidden');
+    refresh();
+    return;
+  }
+
+  transcriptOverlay.setModel(viewModels.buildTaskTranscript(taskId, logs));
+  state.transcriptHandle = tui.showOverlay(transcriptOverlay, {
+    width: '80%',
+    maxHeight: '55%',
+    anchor: 'bottom-center',
+  });
+  setNotice('transcript shown');
   refresh();
 }
 

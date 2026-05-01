@@ -235,6 +235,12 @@ describe('SqliteStore port', () => {
       store.createAgentRun(seed('retry', 'retry_await'));
       store.createAgentRun(seed('await-resp', 'await_response'));
       store.createAgentRun(seed('await-appr', 'await_approval'));
+      store.createAgentRun(
+        seed('checkpointed-resp', 'checkpointed_await_response'),
+      );
+      store.createAgentRun(
+        seed('checkpointed-appr', 'checkpointed_await_approval'),
+      );
       store.createAgentRun(seed('completed', 'completed'));
       store.createAgentRun(seed('failed', 'failed'));
       store.createAgentRun(seed('cancelled', 'cancelled'));
@@ -242,7 +248,15 @@ describe('SqliteStore port', () => {
       const { openRuns } = store.rehydrate();
       const openIds = openRuns.map((r) => r.id).sort();
       expect(openIds).toEqual(
-        ['ready', 'running', 'retry', 'await-resp', 'await-appr'].sort(),
+        [
+          'ready',
+          'running',
+          'retry',
+          'await-resp',
+          'await-appr',
+          'checkpointed-resp',
+          'checkpointed-appr',
+        ].sort(),
       );
     });
 

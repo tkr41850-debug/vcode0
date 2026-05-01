@@ -7,7 +7,6 @@ import type { Task } from '@core/types/index';
 import type { TaskPayload } from '@runtime/context/index';
 import type {
   ResumableTaskExecutionRunRef,
-  TaskRuntimeDispatch,
   WorkerToOrchestratorMessage,
 } from '@runtime/contracts';
 import type {
@@ -169,15 +168,19 @@ describe('worker-smoke (REQ-EXEC-02): commit trailer assertion', () => {
     );
     expect(commitDoneFrames.length).toBeGreaterThanOrEqual(1);
     const frame = commitDoneFrames[0];
+    expect(frame).toBeDefined();
     expect(frame?.trailerOk).toBe(true);
     expect(frame?.sha).toMatch(/^[0-9a-f]{7,}$/);
+    const sha = frame?.sha;
+    if (sha === undefined) {
+      throw new Error('commit_done frame missing sha');
+    }
 
     // Real git log confirms trailers landed in the commit message.
-    const log = spawnSync(
-      'git',
-      ['log', '-1', '--pretty=%B', frame!.sha],
-      { cwd: tmpDir, encoding: 'utf-8' },
-    );
+    const log = spawnSync('git', ['log', '-1', '--pretty=%B', sha], {
+      cwd: tmpDir,
+      encoding: 'utf-8',
+    });
     // `git log --pretty=%B` renders the commit body with trailers in
     // RFC-822 style (`key: value`); the `--trailer key=value` injection
     // syntax is what we used on the command line, not what's stored.
@@ -223,6 +226,11 @@ class ScriptedHarness implements SessionHarness {
       sessionId: agentRunId,
       abort: () => {
         /* noop */
+      },
+      release: () => {
+        for (const handler of exitHandlers) {
+          handler({ code: null, signal: 'SIGKILL' });
+        }
       },
       sendInput: () => Promise.resolve(),
       send: () => {

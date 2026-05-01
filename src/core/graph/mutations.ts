@@ -14,7 +14,9 @@ export {
 export {
   clearQueuedMilestones,
   dequeueMilestone,
+  editMilestone,
   queueMilestone,
+  removeMilestone,
 } from './milestone-mutations.js';
 export {
   addTask,

@@ -101,11 +101,14 @@ describe('core state contracts', () => {
     ).toBe('cancelled');
   });
 
-  it('treats await_approval runs as blocked', () => {
+  it.each([
+    'await_approval',
+    'checkpointed_await_approval',
+  ] as const)('treats %s runs as blocked', (runStatus) => {
     expect(
       deriveTaskBlocked(
         makeTask({ status: 'running' }),
-        makeRun({ runStatus: 'await_approval' }),
+        makeRun({ runStatus }),
       ),
     ).toBe(true);
   });
@@ -154,11 +157,14 @@ describe('core state contracts', () => {
     expect(deriveTaskBlocked(makeTask({ status: 'ready' }))).toBe(false);
   });
 
-  it('derives blocked task presentation status from run waits', () => {
+  it.each([
+    'await_response',
+    'checkpointed_await_response',
+  ] as const)('derives blocked task presentation status from %s waits', (runStatus) => {
     expect(
       deriveTaskPresentationStatus(
         makeTask({ status: 'running' }),
-        makeRun({ runStatus: 'await_response' }),
+        makeRun({ runStatus }),
       ),
     ).toBe('blocked');
   });

@@ -11,6 +11,10 @@ interface CreateTuiCommandContextOptions {
   selectedFeatureId: () => FeatureId | undefined;
   toggleAgentMonitor: () => void;
   toggleHelp: () => void;
+  toggleInbox: () => void;
+  toggleMergeTrain: () => void;
+  toggleTranscript: () => void;
+  toggleConfig: () => void;
   toggleDependencyDetail: () => void;
   setSelectedWorkerId: (workerId: string | undefined) => void;
   setNotice: (notice: string | undefined) => void;
@@ -24,6 +28,10 @@ export function createTuiCommandContext({
   selectedFeatureId,
   toggleAgentMonitor,
   toggleHelp,
+  toggleInbox,
+  toggleMergeTrain,
+  toggleTranscript,
+  toggleConfig,
   toggleDependencyDetail,
   setSelectedWorkerId,
   setNotice,
@@ -61,6 +69,18 @@ export function createTuiCommandContext({
     },
     toggleHelp: () => {
       toggleHelp();
+    },
+    toggleInbox: () => {
+      toggleInbox();
+    },
+    toggleMergeTrain: () => {
+      toggleMergeTrain();
+    },
+    toggleTranscript: () => {
+      toggleTranscript();
+    },
+    toggleConfig: () => {
+      toggleConfig();
     },
     toggleDependencyDetail: () => {
       toggleDependencyDetail();

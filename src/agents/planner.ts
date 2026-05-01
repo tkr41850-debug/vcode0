@@ -5,6 +5,7 @@ import type {
   FeaturePhaseRunContext,
   ResearchPhaseResult,
   SummarizePhaseResult,
+  TopPlannerRunContext,
   VerificationSummary,
 } from '@core/types/index';
 
@@ -20,6 +21,10 @@ export interface PlannerAgent {
   planFeature(
     feature: Feature,
     run: FeaturePhaseRunContext,
+  ): Promise<ProposalPhaseResult>;
+  planTopLevel(
+    prompt: string,
+    run: TopPlannerRunContext,
   ): Promise<ProposalPhaseResult>;
   verifyFeature(
     feature: Feature,

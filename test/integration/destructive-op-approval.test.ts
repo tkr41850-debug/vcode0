@@ -157,6 +157,7 @@ describe('destructive-op approval round-trip (REQ-EXEC-04)', () => {
       (m): m is WorkerToOrchestratorMessage & { type: 'request_approval' } =>
         m.type === 'request_approval' && m.taskId === task.id,
     );
+    expect(approvalFrame.toolCallId).toEqual(expect.any(String));
     expect(approvalFrame.payload.kind).toBe('destructive_action');
     if (approvalFrame.payload.kind === 'destructive_action') {
       expect(approvalFrame.payload.description).toContain(

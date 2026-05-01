@@ -8,7 +8,11 @@ import {
   type PlannerToolName,
   type PlannerToolResult,
 } from '@agents/tools';
-import { type GraphSnapshot, InMemoryFeatureGraph } from '@core/graph/index';
+import {
+  type GraphSnapshot,
+  InMemoryFeatureGraph,
+  type SplitSpec,
+} from '@core/graph/index';
 import type { GraphProposalMode } from '@core/proposals/index';
 import type {
   Feature,
@@ -17,6 +21,7 @@ import type {
   MilestoneId,
   ProposalPhaseDetails,
   TaskId,
+  TopPlannerAgentRun,
 } from '@core/types/index';
 import {
   type ComposerSelection,
@@ -34,6 +39,7 @@ export interface ComposerProposalEnvironment {
     featureId: FeatureId,
     phase: GraphProposalMode,
   ): FeaturePhaseAgentRun | undefined;
+  getTopPlannerRun(this: void): TopPlannerAgentRun | undefined;
   saveFeatureRun(this: void, run: FeaturePhaseAgentRun): void;
   enqueueApprovalDecision(
     this: void,
@@ -44,9 +50,17 @@ export interface ComposerProposalEnvironment {
       comment?: string;
     },
   ): void;
+  enqueueTopPlannerApprovalDecision(
+    this: void,
+    event: { decision: 'approved' | 'rejected'; comment?: string },
+  ): void;
   enqueueRerun(
     this: void,
     event: { featureId: FeatureId; phase: GraphProposalMode },
+  ): void;
+  enqueueTopPlannerRerun(
+    this: void,
+    event?: { reason?: string; sessionMode?: 'continue' | 'fresh' },
   ): void;
 }
 
@@ -69,9 +83,19 @@ interface ActiveDraft {
   commandCount: number;
 }
 
-interface PendingProposalRun extends FeaturePhaseAgentRun {
+interface PendingFeatureProposalRun extends FeaturePhaseAgentRun {
   phase: GraphProposalMode;
+  runStatus: 'await_approval';
 }
+
+interface PendingTopPlannerProposalRun extends TopPlannerAgentRun {
+  phase: 'plan';
+  runStatus: 'await_approval';
+}
+
+type PendingProposalRun =
+  | PendingFeatureProposalRun
+  | PendingTopPlannerProposalRun;
 
 const TUI_SUBMIT_DETAILS: ProposalPhaseDetails = {
   summary: 'Submitted from TUI draft.',
@@ -149,6 +173,35 @@ export class ComposerProposalController {
         });
         return { message: `Updated feature ${feature.id}.` };
       }
+      case 'feature-move': {
+        const draft = this.requireDraft(selection, true);
+        const feature = await this.executePlannerTool(draft, 'moveFeature', {
+          featureId: readFeatureId(parsed, selection),
+          milestoneId: readMilestoneId(parsed, selection),
+        });
+        return {
+          message: `Moved feature ${feature.id} to milestone ${feature.milestoneId}.`,
+        };
+      }
+      case 'feature-split': {
+        const draft = this.requireDraft(selection, true);
+        const featureId = readFeatureId(parsed, selection);
+        const features = await this.executePlannerTool(draft, 'splitFeature', {
+          featureId,
+          splits: buildSplitSpecs(draft, parsed),
+        });
+        return {
+          message: `Split feature ${featureId} into ${features.length} features.`,
+        };
+      }
+      case 'feature-merge': {
+        const draft = this.requireDraft(selection, true);
+        const feature = await this.executePlannerTool(draft, 'mergeFeatures', {
+          featureIds: readMergeFeatureIds(parsed),
+          name: readStringArg(parsed, 'name'),
+        });
+        return { message: `Merged features into ${feature.id}.` };
+      }
       case 'task-add': {
         const draft = this.requireDraft(selection, true);
         const task = await this.executePlannerTool(draft, 'addTask', {
@@ -173,6 +226,17 @@ export class ComposerProposalController {
           patch,
         });
         return { message: `Updated task ${task.id}.` };
+      }
+      case 'task-reorder': {
+        const draft = this.requireDraft(selection, true);
+        const featureId = readFeatureId(parsed, selection);
+        const tasks = await this.executePlannerTool(draft, 'reorderTasks', {
+          featureId,
+          taskIds: readTaskReorderIds(draft, parsed, featureId),
+        });
+        return {
+          message: `Reordered ${tasks.length} tasks in feature ${featureId}.`,
+        };
       }
       case 'dep-add': {
         const draft = this.requireDraft(selection, true);
@@ -306,11 +370,15 @@ export class ComposerProposalController {
 
   private approvePending(selection: ComposerSelection): ComposerCommandResult {
     const pending = this.requirePendingRun(selection);
-    this.env.enqueueApprovalDecision({
-      featureId: pending.scopeId,
-      phase: pending.phase,
-      decision: 'approved',
-    });
+    if (pending.scopeType === 'feature_phase') {
+      this.env.enqueueApprovalDecision({
+        featureId: pending.scopeId,
+        phase: pending.phase,
+        decision: 'approved',
+      });
+    } else {
+      this.env.enqueueTopPlannerApprovalDecision({ decision: 'approved' });
+    }
     return { message: `Approved proposal for ${pending.scopeId}.` };
   }
 
@@ -320,43 +388,67 @@ export class ComposerProposalController {
   ): ComposerCommandResult {
     const pending = this.requirePendingRun(selection);
     const comment = readOptionalStringArg(parsed, 'comment');
-    this.env.enqueueApprovalDecision({
-      featureId: pending.scopeId,
-      phase: pending.phase,
-      decision: 'rejected',
-      ...(comment !== undefined ? { comment } : {}),
-    });
+    if (pending.scopeType === 'feature_phase') {
+      this.env.enqueueApprovalDecision({
+        featureId: pending.scopeId,
+        phase: pending.phase,
+        decision: 'rejected',
+        ...(comment !== undefined ? { comment } : {}),
+      });
+    } else {
+      this.env.enqueueTopPlannerApprovalDecision({
+        decision: 'rejected',
+        ...(comment !== undefined ? { comment } : {}),
+      });
+    }
     return { message: `Rejected proposal for ${pending.scopeId}.` };
   }
 
   private rerunPending(selection: ComposerSelection): ComposerCommandResult {
     const pending = this.requirePendingRun(selection);
-    this.env.enqueueRerun({
-      featureId: pending.scopeId,
-      phase: pending.phase,
-    });
+    if (pending.scopeType === 'feature_phase') {
+      this.env.enqueueRerun({
+        featureId: pending.scopeId,
+        phase: pending.phase,
+      });
+    } else {
+      this.env.enqueueTopPlannerRerun();
+    }
     return { message: `Requested rerun for ${pending.scopeId}.` };
   }
 
   private requirePendingRun(selection: ComposerSelection): PendingProposalRun {
+    const snapshot = this.env.snapshot();
     const featureId = selection.featureId;
-    if (featureId === undefined) {
-      throw new Error('select feature with pending proposal first');
+    let selectedFeatureError: string | undefined;
+
+    if (featureId !== undefined) {
+      const feature = snapshot.features.find((entry) => entry.id === featureId);
+      if (feature === undefined) {
+        throw new Error(`feature "${featureId}" does not exist`);
+      }
+
+      const phase = phaseForFeatureIfPending(feature);
+      if (phase !== undefined) {
+        const run = this.env.getFeatureRun(featureId, phase);
+        if (isPendingFeatureProposalRun(run)) {
+          return run;
+        }
+        selectedFeatureError = `feature "${featureId}" has no pending proposal`;
+      } else {
+        selectedFeatureError = `feature "${featureId}" is not in planning or replanning`;
+      }
     }
 
-    const feature = this.env
-      .snapshot()
-      .features.find((entry) => entry.id === featureId);
-    if (feature === undefined) {
-      throw new Error(`feature "${featureId}" does not exist`);
+    const topPlannerRun = this.env.getTopPlannerRun();
+    if (isPendingTopPlannerProposalRun(topPlannerRun)) {
+      return topPlannerRun;
     }
 
-    const phase = phaseForFeature(feature);
-    const run = this.env.getFeatureRun(featureId, phase);
-    if (!isPendingProposalRun(run)) {
-      throw new Error(`feature "${featureId}" has no pending proposal`);
+    if (selectedFeatureError !== undefined) {
+      throw new Error(selectedFeatureError);
     }
-    return run;
+    throw new Error('select feature with pending proposal first');
   }
 }
 
@@ -365,15 +457,23 @@ function buildGraphFromSnapshot(snapshot: GraphSnapshot): InMemoryFeatureGraph {
 }
 
 function phaseForFeature(feature: Feature): GraphProposalMode {
+  const phase = phaseForFeatureIfPending(feature);
+  if (phase !== undefined) {
+    return phase;
+  }
+  throw new Error(`feature "${feature.id}" is not in planning or replanning`);
+}
+
+function phaseForFeatureIfPending(
+  feature: Feature,
+): GraphProposalMode | undefined {
   switch (feature.workControl) {
     case 'planning':
       return 'plan';
     case 'replanning':
       return 'replan';
     default:
-      throw new Error(
-        `feature "${feature.id}" is not in planning or replanning`,
-      );
+      return undefined;
   }
 }
 
@@ -383,13 +483,23 @@ function isProposalRunPhase(
   return phase === 'plan' || phase === 'replan';
 }
 
-function isPendingProposalRun(
+function isPendingFeatureProposalRun(
   run: FeaturePhaseAgentRun | undefined,
-): run is PendingProposalRun {
+): run is PendingFeatureProposalRun {
   return (
     run !== undefined &&
     run.runStatus === 'await_approval' &&
     isProposalRunPhase(run.phase)
+  );
+}
+
+function isPendingTopPlannerProposalRun(
+  run: TopPlannerAgentRun | undefined,
+): run is PendingTopPlannerProposalRun {
+  return (
+    run !== undefined &&
+    run.runStatus === 'await_approval' &&
+    run.phase === 'plan'
   );
 }
 
@@ -467,6 +577,120 @@ function readDependencyOptions(parsed: ParsedSlashCommand): DependencyOptions {
   );
 }
 
+function readMergeFeatureIds(parsed: ParsedSlashCommand): FeatureId[] {
+  const positionals = parsed.positionals ?? [];
+  if (positionals.length < 2) {
+    throw new Error('feature merge requires at least two feature ids');
+  }
+  const seen = new Set<string>();
+  return positionals.map((value) => {
+    if (!value.startsWith('f-')) {
+      throw new Error(`feature merge id must start with "f-": "${value}"`);
+    }
+    if (seen.has(value)) {
+      throw new Error(
+        `feature merge requires unique feature ids; repeated "${value}"`,
+      );
+    }
+    seen.add(value);
+    return value as FeatureId;
+  });
+}
+
+function buildSplitSpecs(
+  draft: ActiveDraft,
+  parsed: ParsedSlashCommand,
+): SplitSpec[] {
+  const rawSpecs = parsed.positionals ?? [];
+  if (rawSpecs.length === 0) {
+    throw new Error('feature split requires at least one split spec');
+  }
+
+  const parsedSpecs = rawSpecs.map(parseSplitSpec);
+  const aliasToFeatureId = new Map<string, FeatureId>();
+  const nextFeatureIds = allocateNextFeatureIds(draft, parsedSpecs.length);
+
+  for (let index = 0; index < parsedSpecs.length; index += 1) {
+    const spec = parsedSpecs[index];
+    const nextFeatureId = nextFeatureIds[index];
+    if (spec === undefined || nextFeatureId === undefined) {
+      continue;
+    }
+    if (aliasToFeatureId.has(spec.alias)) {
+      throw new Error(`duplicate split alias "${spec.alias}"`);
+    }
+    aliasToFeatureId.set(spec.alias, nextFeatureId);
+  }
+
+  return parsedSpecs.map((spec) => ({
+    id: aliasToFeatureId.get(spec.alias) as FeatureId,
+    name: spec.name,
+    description: spec.description,
+    ...(spec.deps.length > 0
+      ? {
+          deps: spec.deps.map((depAlias) => {
+            const depFeatureId = aliasToFeatureId.get(depAlias);
+            if (depFeatureId === undefined) {
+              throw new Error(
+                `split spec for alias "${spec.alias}" references unknown alias "${depAlias}"`,
+              );
+            }
+            return depFeatureId;
+          }),
+        }
+      : {}),
+  }));
+}
+
+function readTaskReorderIds(
+  draft: ActiveDraft,
+  parsed: ParsedSlashCommand,
+  featureId: FeatureId,
+): TaskId[] {
+  const positionals = parsed.positionals ?? [];
+  if (positionals.length === 0) {
+    throw new Error('task reorder requires ordered task ids');
+  }
+
+  const featureTaskIds = listFeatureTaskIds(draft, featureId);
+  if (featureTaskIds.length === 0) {
+    throw new Error(`feature "${featureId}" has no tasks to reorder`);
+  }
+  if (positionals.length !== featureTaskIds.length) {
+    throw new Error(
+      `task reorder requires all ${featureTaskIds.length} tasks for feature "${featureId}", got ${positionals.length}`,
+    );
+  }
+
+  const featureTaskIdSet = new Set(featureTaskIds);
+  const seen = new Set<string>();
+  const taskIds = positionals.map((value) => {
+    if (!value.startsWith('t-')) {
+      throw new Error(`task reorder id must start with "t-": "${value}"`);
+    }
+    if (seen.has(value)) {
+      throw new Error(`task reorder repeats task "${value}"`);
+    }
+    if (!featureTaskIdSet.has(value as TaskId)) {
+      throw new Error(
+        `task "${value}" does not belong to feature "${featureId}"`,
+      );
+    }
+    seen.add(value);
+    return value as TaskId;
+  });
+
+  for (const taskId of featureTaskIds) {
+    if (!seen.has(taskId)) {
+      throw new Error(
+        `task reorder missing task "${taskId}" for feature "${featureId}"`,
+      );
+    }
+  }
+
+  return taskIds;
+}
+
 function readDependencyArg(
   parsed: ParsedSlashCommand,
   key: 'from' | 'to',
@@ -523,6 +747,82 @@ function buildTaskPatch(parsed: ParsedSlashCommand): {
     throw new Error('task edit requires at least one patch field');
   }
   return patch;
+}
+
+interface ParsedSplitSpecInput {
+  alias: string;
+  name: string;
+  description: string;
+  deps: string[];
+}
+
+function parseSplitSpec(rawSpec: string): ParsedSplitSpecInput {
+  const parts = rawSpec.split('|');
+  if (parts.length < 3 || parts.length > 4) {
+    throw new Error(
+      `invalid split spec "${rawSpec}"; expected <alias>|<name>|<description>[|<dep-alias>,<dep-alias>]`,
+    );
+  }
+
+  const [alias, name, description, depsText] = parts.map((part) => part.trim());
+  if (
+    alias === undefined ||
+    alias.length === 0 ||
+    name === undefined ||
+    name.length === 0 ||
+    description === undefined ||
+    description.length === 0
+  ) {
+    throw new Error(
+      `invalid split spec "${rawSpec}"; alias, name, and description are required`,
+    );
+  }
+
+  const deps =
+    depsText === undefined || depsText.length === 0
+      ? []
+      : depsText.split(',').map((entry) => entry.trim());
+  if (deps.some((dep) => dep.length === 0)) {
+    throw new Error(
+      `invalid split spec "${rawSpec}"; dependency aliases must be non-empty`,
+    );
+  }
+  if (new Set(deps).size !== deps.length) {
+    throw new Error(
+      `invalid split spec "${rawSpec}"; dependency aliases must be unique`,
+    );
+  }
+
+  return { alias, name, description, deps };
+}
+
+function allocateNextFeatureIds(
+  draft: ActiveDraft,
+  count: number,
+): FeatureId[] {
+  const snapshot = draft.host.draft.snapshot();
+  let max = 0;
+  for (const feature of snapshot.features) {
+    const numeric = Number.parseInt(feature.id.slice(2), 10);
+    if (!Number.isNaN(numeric) && numeric > max) {
+      max = numeric;
+    }
+  }
+  return Array.from(
+    { length: count },
+    (_, index) => `f-${max + index + 1}` as FeatureId,
+  );
+}
+
+function listFeatureTaskIds(
+  draft: ActiveDraft,
+  featureId: FeatureId,
+): TaskId[] {
+  return draft.host.draft
+    .snapshot()
+    .tasks.filter((task) => task.featureId === featureId)
+    .sort((left, right) => left.orderInFeature - right.orderInFeature)
+    .map((task) => task.id);
 }
 
 function readOptionalWeight(parsed: ParsedSlashCommand): {

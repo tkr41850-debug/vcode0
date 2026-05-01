@@ -9,6 +9,7 @@ import type {
   FeatureTransitionPatch,
   GraphSnapshot,
   MergeTrainUpdate,
+  MilestoneEditPatch,
   SplitSpec,
   TaskEditPatch,
   TaskTransitionPatch,
@@ -143,6 +144,17 @@ export class PersistentFeatureGraph implements FeatureGraph {
 
   createMilestone(opts: CreateMilestoneOptions): Milestone {
     return this.mutate(() => this.inner.createMilestone(opts));
+  }
+
+  editMilestone(
+    milestoneId: MilestoneId,
+    patch: MilestoneEditPatch,
+  ): Milestone {
+    return this.mutate(() => this.inner.editMilestone(milestoneId, patch));
+  }
+
+  removeMilestone(milestoneId: MilestoneId): void {
+    this.mutate(() => this.inner.removeMilestone(milestoneId));
   }
 
   createFeature(opts: CreateFeatureOptions): Feature {

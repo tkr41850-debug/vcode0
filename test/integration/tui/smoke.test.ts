@@ -5,10 +5,10 @@ import * as path from 'node:path';
 import { promisify } from 'node:util';
 
 import { expect, Key, test } from '@microsoft/tui-test';
-import { INITIALIZE_PROJECT_EXAMPLE_COMMAND } from '@tui/commands/index';
 
 const tuiReadyTimeoutMs = 30_000;
-const initializeProjectCommand = `/init ${INITIALIZE_PROJECT_EXAMPLE_COMMAND}`;
+const initializeProjectCommand =
+  '/init --milestone-name "Milestone 1" --milestone-description "Initial milestone" --feature-name "Project startup" --feature-description "Plan initial project work"';
 const execFileAsync = promisify(execFile);
 const workspaces: string[] = [];
 
@@ -60,6 +60,80 @@ test('opens monitor overlay from composer command', async ({ terminal }) => {
 
   terminal.keyEscape();
   await expect(terminal.getByText('Agent Monitor')).not.toBeVisible();
+});
+
+test('opens inbox overlay from composer command and graph keybind', async ({
+  terminal,
+}) => {
+  const workspace = await createWorkspace();
+
+  startTui(terminal, workspace);
+  await waitForTuiReady(terminal);
+
+  terminal.submit('/inbox');
+  await expect(terminal.getByText('Inbox [0 pending]')).toBeVisible();
+  await expect(terminal.getByText('No pending inbox items.')).toBeVisible();
+
+  terminal.keyEscape();
+  await expect(terminal.getByText('Inbox [0 pending]')).not.toBeVisible();
+
+  terminal.keyEscape();
+  await expect(terminal.getByText('focus: graph')).toBeVisible();
+
+  terminal.write('i');
+  await expect(terminal.getByText('Inbox [0 pending]')).toBeVisible();
+});
+
+test('opens merge-train overlay from composer command and graph keybind', async ({
+  terminal,
+}) => {
+  const workspace = await createWorkspace();
+
+  startTui(terminal, workspace);
+  await waitForTuiReady(terminal);
+
+  terminal.submit('/merge-train');
+  await expect(
+    terminal.getByText('Merge Train [0 active, 0 queued]'),
+  ).toBeVisible();
+  await expect(
+    terminal.getByText('No integrating or queued features.'),
+  ).toBeVisible();
+
+  terminal.keyEscape();
+  await expect(
+    terminal.getByText('Merge Train [0 active, 0 queued]'),
+  ).not.toBeVisible();
+
+  terminal.keyEscape();
+  await expect(terminal.getByText('focus: graph')).toBeVisible();
+
+  terminal.write('t');
+  await expect(
+    terminal.getByText('Merge Train [0 active, 0 queued]'),
+  ).toBeVisible();
+});
+
+test('opens config overlay from composer command and graph keybind', async ({
+  terminal,
+}) => {
+  const workspace = await createWorkspace();
+
+  startTui(terminal, workspace);
+  await waitForTuiReady(terminal);
+
+  terminal.submit('/config');
+  await expect(terminal.getByText('Config [c/q/esc hide]')).toBeVisible();
+  await expect(terminal.getByText('workerCap = 4')).toBeVisible();
+
+  terminal.keyEscape();
+  await expect(terminal.getByText('Config [c/q/esc hide]')).not.toBeVisible();
+
+  terminal.keyEscape();
+  await expect(terminal.getByText('focus: graph')).toBeVisible();
+
+  terminal.write('c');
+  await expect(terminal.getByText('Config [c/q/esc hide]')).toBeVisible();
 });
 
 test('initializes starter milestone and planning feature from empty workspace', async ({

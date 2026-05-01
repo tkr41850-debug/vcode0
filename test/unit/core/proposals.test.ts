@@ -138,6 +138,220 @@ describe('applyGraphProposal', () => {
     );
   });
 
+  it('applies milestone edit and remove ops', () => {
+    const graph = createGraph();
+    graph.createMilestone({
+      id: 'm-2',
+      name: 'Milestone 2',
+      description: 'second milestone',
+    });
+
+    const builder = new GraphProposalBuilder('plan');
+    builder.addOp({
+      kind: 'edit_milestone',
+      milestoneId: 'm-1',
+      patch: { description: 'updated description' },
+    });
+    builder.addOp({ kind: 'remove_milestone', milestoneId: 'm-2' });
+
+    const result = applyGraphProposal(graph, builder.build());
+
+    expect(result.applied.map((op) => op.kind)).toEqual([
+      'edit_milestone',
+      'remove_milestone',
+    ]);
+    expect(graph.milestones.get('m-1')).toEqual(
+      expect.objectContaining({ description: 'updated description' }),
+    );
+    expect(graph.milestones.has('m-2')).toBe(false);
+  });
+
+  it('applies move_feature op', () => {
+    const graph = createGraph();
+    graph.createMilestone({
+      id: 'm-2',
+      name: 'Milestone 2',
+      description: 'second milestone',
+    });
+    graph.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'Feature 1',
+      description: 'desc',
+    });
+
+    const builder = new GraphProposalBuilder('plan');
+    builder.addOp({
+      kind: 'move_feature',
+      featureId: 'f-1',
+      milestoneId: 'm-2',
+    });
+
+    const result = applyGraphProposal(graph, builder.build());
+
+    expect(result.applied).toHaveLength(1);
+    expect(graph.features.get('f-1')).toEqual(
+      expect.objectContaining({ milestoneId: 'm-2' }),
+    );
+  });
+
+  it('applies split_feature with alias resolution for new feature ids', () => {
+    const graph = createGraph();
+    graph.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'Feature 1',
+      description: 'desc',
+    });
+
+    const proposal = {
+      version: 1,
+      mode: 'plan',
+      aliases: { '#1': 'f-api', '#2': 'f-ui' },
+      ops: [
+        {
+          kind: 'split_feature',
+          featureId: 'f-1',
+          splits: [
+            { id: '#1', name: 'API feature', description: 'api work' },
+            {
+              id: '#2',
+              name: 'UI feature',
+              description: 'ui work',
+              deps: ['#1'],
+            },
+          ],
+        },
+      ],
+    } as unknown as Parameters<typeof applyGraphProposal>[1];
+
+    const result = applyGraphProposal(graph, proposal);
+
+    expect(result.applied).toHaveLength(1);
+    expect(result.resolvedAliases['#1']).toBe('f-2');
+    expect(result.resolvedAliases['#2']).toBe('f-3');
+    expect(graph.features.has('f-1')).toBe(false);
+    expect(graph.features.get('f-2')).toEqual(
+      expect.objectContaining({ name: 'API feature', dependsOn: [] }),
+    );
+    expect(graph.features.get('f-3')).toEqual(
+      expect.objectContaining({ name: 'UI feature', dependsOn: ['f-2'] }),
+    );
+  });
+
+  it('applies merge_features and rewrites dependents to retained feature', () => {
+    const graph = createGraph();
+    graph.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'Feature 1',
+      description: 'desc',
+    });
+    graph.createFeature({
+      id: 'f-2',
+      milestoneId: 'm-1',
+      name: 'Feature 2',
+      description: 'desc',
+    });
+    graph.createFeature({
+      id: 'f-3',
+      milestoneId: 'm-1',
+      name: 'Feature 3',
+      description: 'desc',
+      dependsOn: ['f-2'],
+    });
+
+    const builder = new GraphProposalBuilder('plan');
+    builder.addOp({
+      kind: 'merge_features',
+      featureIds: ['f-1', 'f-2'],
+      name: 'Merged feature',
+    });
+
+    const result = applyGraphProposal(graph, builder.build());
+
+    expect(result.applied).toHaveLength(1);
+    expect(graph.features.get('f-1')).toEqual(
+      expect.objectContaining({ name: 'Merged feature' }),
+    );
+    expect(graph.features.has('f-2')).toBe(false);
+    expect(graph.features.get('f-3')?.dependsOn).toEqual(['f-1']);
+  });
+
+  it('applies reorder_tasks op', () => {
+    const graph = createGraph();
+    graph.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'Feature 1',
+      description: 'desc',
+    });
+    graph.createTask({ id: 't-1', featureId: 'f-1', description: 'Task 1' });
+    graph.createTask({ id: 't-2', featureId: 'f-1', description: 'Task 2' });
+
+    const builder = new GraphProposalBuilder('plan');
+    builder.addOp({
+      kind: 'reorder_tasks',
+      featureId: 'f-1',
+      taskIds: ['t-2', 't-1'],
+    });
+
+    const result = applyGraphProposal(graph, builder.build());
+
+    expect(result.applied).toHaveLength(1);
+    expect(graph.tasks.get('t-2')?.orderInFeature).toBe(0);
+    expect(graph.tasks.get('t-1')?.orderInFeature).toBe(1);
+  });
+
+  it('skips move_feature when additive-only approval touches live work', () => {
+    const graph = createGraph();
+    graph.createMilestone({
+      id: 'm-2',
+      name: 'Milestone 2',
+      description: 'second milestone',
+    });
+    graph.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'Feature 1',
+      description: 'desc',
+    });
+    updateFeature(graph, 'f-1', {
+      workControl: 'executing',
+      status: 'pending',
+      collabControl: 'branch_open',
+    });
+
+    const builder = new GraphProposalBuilder('plan');
+    builder.addOp({
+      kind: 'move_feature',
+      featureId: 'f-1',
+      milestoneId: 'm-2',
+    });
+
+    const proposal = builder.build();
+    const warnings = collectProposalWarnings(graph, proposal, {
+      additiveOnly: true,
+    });
+    const result = applyGraphProposal(graph, proposal, { additiveOnly: true });
+
+    expect(warnings).toEqual([
+      expect.objectContaining({
+        code: 'move_started_feature',
+        entityId: 'f-1',
+        message: 'Feature "f-1" already has started work',
+      }),
+    ]);
+    expect(result.applied).toHaveLength(0);
+    expect(result.skipped).toEqual([
+      expect.objectContaining({
+        opIndex: 0,
+        reason: 'Feature "f-1" already has started work',
+      }),
+    ]);
+    expect(graph.features.get('f-1')?.milestoneId).toBe('m-1');
+  });
+
   it('skips stale ops in order and reports applied vs skipped results', () => {
     const graph = createGraph();
     graph.createFeature({
@@ -183,6 +397,50 @@ describe('applyGraphProposal', () => {
     expect(result.skipped[1]?.reason).toContain('does not exist');
     expect(result.summary).toContain('2 applied');
     expect(result.summary).toContain('2 skipped');
+  });
+
+  it('warns and skips reorder_tasks when additive-only approval touches live task work', () => {
+    const graph = createGraph();
+    graph.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'Feature 1',
+      description: 'desc',
+    });
+    graph.createTask({ id: 't-1', featureId: 'f-1', description: 'Task 1' });
+    graph.createTask({ id: 't-2', featureId: 'f-1', description: 'Task 2' });
+    graph.transitionTask('t-1', {
+      status: 'ready',
+      collabControl: 'branch_open',
+    });
+
+    const builder = new GraphProposalBuilder('plan');
+    builder.addOp({
+      kind: 'reorder_tasks',
+      featureId: 'f-1',
+      taskIds: ['t-2', 't-1'],
+    });
+
+    const proposal = builder.build();
+    const warnings = collectProposalWarnings(graph, proposal, {
+      additiveOnly: true,
+    });
+    const result = applyGraphProposal(graph, proposal, { additiveOnly: true });
+
+    expect(warnings).toEqual([
+      expect.objectContaining({
+        code: 'reorder_started_task',
+        entityId: 't-1',
+        message: 'Task "t-1" already has started work',
+      }),
+    ]);
+    expect(result.applied).toHaveLength(0);
+    expect(result.skipped).toEqual([
+      expect.objectContaining({
+        opIndex: 0,
+        reason: 'Task "t-1" already has started work',
+      }),
+    ]);
   });
 
   it('warns when removal touches started work and skips started task removal on approval', () => {
@@ -414,6 +672,38 @@ describe('applyGraphProposal', () => {
         ],
       }),
     ).toBe(true);
+  });
+
+  it('validates reorder_tasks payload shape', () => {
+    expect(
+      isGraphProposal({
+        version: 1,
+        mode: 'plan',
+        aliases: {},
+        ops: [
+          {
+            kind: 'reorder_tasks',
+            featureId: 'f-1',
+            taskIds: ['t-2', 't-1'],
+          },
+        ],
+      }),
+    ).toBe(true);
+
+    expect(
+      isGraphProposal({
+        version: 1,
+        mode: 'plan',
+        aliases: {},
+        ops: [
+          {
+            kind: 'reorder_tasks',
+            featureId: 'f-1',
+            taskIds: [],
+          },
+        ],
+      }),
+    ).toBe(false);
   });
 
   it('validates milestone op payload shape', () => {

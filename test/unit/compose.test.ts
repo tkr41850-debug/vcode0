@@ -26,6 +26,7 @@ import {
   respondToInboxHelp,
   summarizeApprovalPayload,
 } from '@root/compose';
+import { SqliteStore } from '@persistence/sqlite-store';
 import type { ApprovalPayload, RuntimePort } from '@runtime/contracts';
 import { TuiApp } from '@tui/app';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -832,6 +833,96 @@ describe('composeApplication', () => {
     try {
       await app.start('auto');
       expect(order).toEqual(['show', 'recover', 'run', 'refresh']);
+      const db = openDatabase(path.join(tmpDir, '.gvc0', 'state.db'));
+      const store = new SqliteStore(db);
+      try {
+        expect(store.listInboxItems({ kind: 'recovery_summary' })).toEqual([]);
+      } finally {
+        store.close();
+      }
+    } finally {
+      await app.stop();
+    }
+  });
+
+  it('appends a recovery summary inbox item when startup recovery finds notable facts', async () => {
+    vi.spyOn(TuiApp.prototype, 'show').mockImplementation(async () => {});
+    vi.spyOn(TuiApp.prototype, 'refresh').mockImplementation(() => {});
+    vi.spyOn(
+      RecoveryService.prototype,
+      'recoverStartupState',
+    ).mockResolvedValue({
+      liveWorkerPids: [],
+      clearedDeadWorkerPids: [
+        {
+          agentRunId: 'run-task:t-1',
+          pid: 123,
+          taskId: 't-1',
+        },
+      ],
+      clearedLocks: [
+        {
+          kind: 'root_index_lock',
+          path: '/tmp/repo/.git/index.lock',
+        },
+      ],
+      preservedLocks: [],
+      orphanTaskWorktrees: [
+        {
+          taskId: 't-1',
+          featureId: 'f-1',
+          branch: 'feat-task-t-1',
+          path: '/tmp/repo/.gvc0/worktrees/feat-task-t-1',
+          ownerState: 'dead',
+          registered: true,
+          hasMetadataIndexLock: false,
+        },
+      ],
+      resumedRuns: [
+        {
+          taskId: 't-1',
+          agentRunId: 'run-task:t-1',
+          sessionId: 'sess-1',
+        },
+      ],
+      restartedRuns: [
+        {
+          taskId: 't-2',
+          agentRunId: 'run-task:t-2',
+          sessionId: 'sess-2',
+          reason: 'session_not_found',
+        },
+      ],
+      attentionRuns: [],
+      requiresAttention: true,
+    });
+    vi.spyOn(SchedulerLoop.prototype, 'run').mockResolvedValue();
+    vi.spyOn(SchedulerLoop.prototype, 'stop').mockResolvedValue();
+
+    const app = await composeApplication();
+
+    try {
+      await app.start('auto');
+      const db = openDatabase(path.join(tmpDir, '.gvc0', 'state.db'));
+      const store = new SqliteStore(db);
+      try {
+        expect(store.listInboxItems({ kind: 'recovery_summary' })).toEqual([
+          expect.objectContaining({
+            kind: 'recovery_summary',
+            payload: {
+              clearedLocks: 1,
+              preservedLocks: 0,
+              clearedDeadWorkerPids: 1,
+              resumedRuns: 1,
+              restartedRuns: 1,
+              attentionRuns: 0,
+              orphanTaskWorktrees: 1,
+            },
+          }),
+        ]);
+      } finally {
+        store.close();
+      }
     } finally {
       await app.stop();
     }

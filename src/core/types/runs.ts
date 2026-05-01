@@ -1,6 +1,8 @@
 import type { TokenUsageAggregate } from './usage.js';
 import type { FeatureId, TaskId } from './workflow.js';
 
+export type TopPlannerScopeId = 'top-planner';
+
 export type AgentRunPhase =
   | 'execute'
   | 'discuss'
@@ -17,6 +19,8 @@ export type AgentRunStatus =
   | 'retry_await'
   | 'await_response'
   | 'await_approval'
+  | 'checkpointed_await_response'
+  | 'checkpointed_await_approval'
   | 'completed'
   | 'failed'
   | 'cancelled';
@@ -37,6 +41,7 @@ interface BaseAgentRun {
   restartCount: number;
   maxRetries: number;
   retryAt?: number;
+  trailerObservedAt?: number;
 }
 
 export interface TaskAgentRun extends BaseAgentRun {
@@ -49,4 +54,9 @@ export interface FeaturePhaseAgentRun extends BaseAgentRun {
   scopeId: FeatureId;
 }
 
-export type AgentRun = TaskAgentRun | FeaturePhaseAgentRun;
+export interface TopPlannerAgentRun extends BaseAgentRun {
+  scopeType: 'top_planner';
+  scopeId: TopPlannerScopeId;
+}
+
+export type AgentRun = TaskAgentRun | FeaturePhaseAgentRun | TopPlannerAgentRun;

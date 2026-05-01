@@ -5,6 +5,9 @@ import type {
   AgentRunQuery,
   EventQuery,
   InboxItemAppend,
+  InboxItemRecord,
+  InboxItemResolution,
+  InboxQuery,
   QuarantinedFrameEntry,
   RehydrateSnapshot,
   Store,
@@ -16,11 +19,15 @@ import {
   rowToEvent,
 } from '@persistence/codecs';
 import { PersistentFeatureGraph } from '@persistence/feature-graph';
-import type { AgentRunRow, EventRow } from '@persistence/queries/index';
+import type {
+  AgentRunRow,
+  EventRow,
+  InboxItemRow,
+} from '@persistence/queries/index';
 import type Database from 'better-sqlite3';
 
 const AGENT_RUN_COLUMNS =
-  'id, scope_type, scope_id, phase, run_status, owner, attention, session_id, payload_json, token_usage, max_retries, restart_count, retry_at, created_at, updated_at';
+  'id, scope_type, scope_id, phase, run_status, owner, attention, session_id, payload_json, token_usage, max_retries, restart_count, retry_at, trailer_observed_at, created_at, updated_at';
 
 const EVENT_COLUMNS = 'id, timestamp, event_type, entity_id, payload';
 
@@ -38,6 +45,7 @@ interface AgentRunInsertParams {
   max_retries: number;
   restart_count: number;
   retry_at: number | null;
+  trailer_observed_at: number | null;
   created_at: number;
   updated_at: number;
 }
@@ -67,6 +75,11 @@ interface InboxItemInsertParams {
   payload: string;
 }
 
+interface InboxItemResolutionParams {
+  resolution: string;
+  id: string;
+}
+
 interface AgentRunUpdateParams {
   phase: string;
   run_status: string;
@@ -78,6 +91,7 @@ interface AgentRunUpdateParams {
   max_retries: number;
   restart_count: number;
   retry_at: number | null;
+  trailer_observed_at: number | null;
   updated_at: number;
   id: string;
 }
@@ -97,6 +111,8 @@ const OPEN_RUN_STATUSES: readonly string[] = [
   'retry_await',
   'await_response',
   'await_approval',
+  'checkpointed_await_response',
+  'checkpointed_await_approval',
 ];
 
 // Bounded pendingEvents fallback: rehydrate() replays the tail of the
@@ -111,6 +127,21 @@ interface LiveWorkerPidRow {
   pid: number;
 }
 
+function rowToInboxItem(row: InboxItemRow): InboxItemRecord {
+  return {
+    id: row.id,
+    ts: row.ts,
+    ...(row.task_id !== null ? { taskId: row.task_id } : {}),
+    ...(row.agent_run_id !== null ? { agentRunId: row.agent_run_id } : {}),
+    ...(row.feature_id !== null ? { featureId: row.feature_id } : {}),
+    kind: row.kind,
+    payload: JSON.parse(row.payload) as unknown,
+    ...(row.resolution !== null
+      ? { resolution: JSON.parse(row.resolution) as InboxItemResolution }
+      : {}),
+  };
+}
+
 export class SqliteStore implements Store {
   private readonly getAgentRunStmt;
   private readonly insertAgentRunStmt;
@@ -121,7 +152,10 @@ export class SqliteStore implements Store {
   private readonly clearWorkerPidStmt;
   private readonly listLiveWorkerPidsStmt;
   private readonly appendInboxItemStmt;
+  private readonly resolveInboxItemStmt;
   private readonly setLastCommitShaStmt;
+  private readonly setTrailerObservedAtStmt;
+  private readonly getTrailerObservedAtStmt;
   private readonly updateAgentRunTxn: (
     runId: string,
     patch: AgentRunPatch,
@@ -142,7 +176,7 @@ export class SqliteStore implements Store {
       `INSERT INTO agent_runs (${AGENT_RUN_COLUMNS}) VALUES (
         :id, :scope_type, :scope_id, :phase, :run_status, :owner, :attention,
         :session_id, :payload_json, :token_usage, :max_retries, :restart_count,
-        :retry_at, :created_at, :updated_at
+        :retry_at, :trailer_observed_at, :created_at, :updated_at
       )`,
     );
 
@@ -158,6 +192,7 @@ export class SqliteStore implements Store {
         max_retries = :max_retries,
         restart_count = :restart_count,
         retry_at = :retry_at,
+        trailer_observed_at = :trailer_observed_at,
         updated_at = :updated_at
       WHERE id = :id`,
     );
@@ -192,9 +227,19 @@ export class SqliteStore implements Store {
       `INSERT INTO inbox_items (id, ts, task_id, agent_run_id, feature_id, kind, payload)
        VALUES (:id, :ts, :task_id, :agent_run_id, :feature_id, :kind, :payload)`,
     );
+    this.resolveInboxItemStmt = db.prepare<InboxItemResolutionParams>(
+      'UPDATE inbox_items SET resolution = :resolution WHERE id = :id',
+    );
     this.setLastCommitShaStmt = db.prepare<[string, string]>(
       'UPDATE agent_runs SET last_commit_sha = ? WHERE id = ?',
     );
+    this.setTrailerObservedAtStmt = db.prepare<[number, string]>(
+      'UPDATE agent_runs SET trailer_observed_at = CASE WHEN trailer_observed_at IS NULL THEN ? ELSE trailer_observed_at END WHERE id = ?',
+    );
+    this.getTrailerObservedAtStmt = db.prepare<
+      [string],
+      { trailer_observed_at: number | null }
+    >('SELECT trailer_observed_at FROM agent_runs WHERE id = ?');
 
     // Read-modify-write is wrapped in a single transaction so concurrent
     // updaters cannot produce a lost update against the same row.
@@ -217,6 +262,7 @@ export class SqliteStore implements Store {
           max_retries: row.max_retries,
           restart_count: row.restart_count,
           retry_at: row.retry_at,
+          trailer_observed_at: row.trailer_observed_at,
           updated_at: this.now(),
           id: runId,
         });
@@ -381,8 +427,53 @@ export class SqliteStore implements Store {
     });
   }
 
+  listInboxItems(query?: InboxQuery): InboxItemRecord[] {
+    const clauses: string[] = [];
+    const params: Record<string, unknown> = {};
+    if (query?.unresolvedOnly) {
+      clauses.push('resolution IS NULL');
+    }
+    if (query?.kind !== undefined) {
+      clauses.push('kind = :kind');
+      params.kind = query.kind;
+    }
+    if (query?.taskId !== undefined) {
+      clauses.push('task_id = :task_id');
+      params.task_id = query.taskId;
+    }
+    if (query?.agentRunId !== undefined) {
+      clauses.push('agent_run_id = :agent_run_id');
+      params.agent_run_id = query.agentRunId;
+    }
+    if (query?.featureId !== undefined) {
+      clauses.push('feature_id = :feature_id');
+      params.feature_id = query.featureId;
+    }
+    const where = clauses.length > 0 ? ` WHERE ${clauses.join(' AND ')}` : '';
+    const stmt = this.db.prepare<Record<string, unknown>, InboxItemRow>(
+      `SELECT id, ts, task_id, agent_run_id, feature_id, kind, payload, resolution FROM inbox_items${where} ORDER BY ts DESC, id DESC`,
+    );
+    return stmt.all(params).map(rowToInboxItem);
+  }
+
+  resolveInboxItem(id: string, resolution: InboxItemResolution): void {
+    this.resolveInboxItemStmt.run({
+      id,
+      resolution: JSON.stringify(resolution),
+    });
+  }
+
   setLastCommitSha(agentRunId: string, sha: string): void {
     this.setLastCommitShaStmt.run(sha, agentRunId);
+  }
+
+  setTrailerObservedAt(agentRunId: string, ts: number): void {
+    this.setTrailerObservedAtStmt.run(ts, agentRunId);
+  }
+
+  getTrailerObservedAt(agentRunId: string): number | undefined {
+    const row = this.getTrailerObservedAtStmt.get(agentRunId);
+    return row?.trailer_observed_at ?? undefined;
   }
 
   // ---------- Lifecycle ----------

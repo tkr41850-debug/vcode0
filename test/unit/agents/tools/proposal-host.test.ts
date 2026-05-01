@@ -62,6 +62,175 @@ describe('GraphProposalToolHost', () => {
     });
   });
 
+  it('edits milestones on the draft graph and records only changed fields', () => {
+    const graph = createGraphWithMilestone();
+    graph.createMilestone({
+      id: 'm-2',
+      name: 'Milestone 2',
+      description: 'before',
+    });
+    const host = createProposalToolHost(graph, 'plan');
+
+    const milestone = host.editMilestone({
+      milestoneId: 'm-2',
+      patch: { name: 'Milestone 2', description: 'after' },
+    });
+
+    expect(milestone).toMatchObject({
+      id: 'm-2',
+      name: 'Milestone 2',
+      description: 'after',
+    });
+    expect(host.draft.milestones.get('m-2')).toMatchObject({
+      description: 'after',
+    });
+    expect(graph.milestones.get('m-2')?.description).toBe('before');
+
+    host.submit(proposalDetails);
+    expect(host.buildProposal().ops).toContainEqual({
+      kind: 'edit_milestone',
+      milestoneId: 'm-2',
+      patch: { description: 'after' },
+    });
+  });
+
+  it('removes milestones from the draft graph only', () => {
+    const graph = createGraphWithMilestone();
+    graph.createMilestone({
+      id: 'm-2',
+      name: 'Milestone 2',
+      description: 'second milestone',
+    });
+    const host = createProposalToolHost(graph, 'plan');
+
+    host.removeMilestone({ milestoneId: 'm-2' });
+
+    expect(host.draft.milestones.has('m-2')).toBe(false);
+    expect(graph.milestones.has('m-2')).toBe(true);
+
+    host.submit(proposalDetails);
+    expect(host.buildProposal().ops).toContainEqual({
+      kind: 'remove_milestone',
+      milestoneId: 'm-2',
+    });
+  });
+
+  it('moves features on the draft graph only', () => {
+    const graph = createGraphWithFeature();
+    graph.createMilestone({
+      id: 'm-2',
+      name: 'Milestone 2',
+      description: 'second milestone',
+    });
+    const host = createProposalToolHost(graph, 'plan');
+
+    const feature = host.moveFeature({ featureId: 'f-1', milestoneId: 'm-2' });
+
+    expect(feature).toMatchObject({ id: 'f-1', milestoneId: 'm-2' });
+    expect(host.draft.features.get('f-1')?.milestoneId).toBe('m-2');
+    expect(graph.features.get('f-1')?.milestoneId).toBe('m-1');
+
+    host.submit(proposalDetails);
+    expect(host.buildProposal().ops).toContainEqual({
+      kind: 'move_feature',
+      featureId: 'f-1',
+      milestoneId: 'm-2',
+    });
+  });
+
+  it('splits features on the draft graph and aliases new split ids', () => {
+    const graph = createGraphWithFeature();
+    const host = createProposalToolHost(graph, 'plan');
+
+    const features = host.splitFeature({
+      featureId: 'f-1',
+      splits: [
+        { id: 'f-2', name: 'API feature', description: 'api work' },
+        {
+          id: 'f-3',
+          name: 'UI feature',
+          description: 'ui work',
+          deps: ['f-2'],
+        },
+      ],
+    });
+
+    expect(features.map((feature) => feature.id)).toEqual(['f-2', 'f-3']);
+    expect(host.draft.features.has('f-1')).toBe(false);
+    expect(host.draft.features.get('f-3')?.dependsOn).toEqual(['f-2']);
+    expect(graph.features.has('f-1')).toBe(true);
+
+    host.submit(proposalDetails);
+    const proposal = host.buildProposal();
+    expect(proposal.aliases).toEqual({ '#1': 'f-2', '#2': 'f-3' });
+    expect(proposal.ops).toContainEqual({
+      kind: 'split_feature',
+      featureId: 'f-1',
+      splits: [
+        { id: '#1', name: 'API feature', description: 'api work' },
+        {
+          id: '#2',
+          name: 'UI feature',
+          description: 'ui work',
+          deps: ['#1'],
+        },
+      ],
+    });
+  });
+
+  it('merges features on the draft graph only', () => {
+    const graph = createGraphWithFeature();
+    graph.createFeature({
+      id: 'f-2',
+      milestoneId: 'm-1',
+      name: 'Feature 2',
+      description: 'second feature',
+    });
+    const host = createProposalToolHost(graph, 'plan');
+
+    const feature = host.mergeFeatures({
+      featureIds: ['f-1', 'f-2'],
+      name: 'Merged feature',
+    });
+
+    expect(feature).toMatchObject({ id: 'f-1', name: 'Merged feature' });
+    expect(host.draft.features.get('f-1')?.name).toBe('Merged feature');
+    expect(host.draft.features.has('f-2')).toBe(false);
+    expect(graph.features.has('f-2')).toBe(true);
+
+    host.submit(proposalDetails);
+    expect(host.buildProposal().ops).toContainEqual({
+      kind: 'merge_features',
+      featureIds: ['f-1', 'f-2'],
+      name: 'Merged feature',
+    });
+  });
+
+  it('reorders tasks on the draft graph only', () => {
+    const graph = createGraphWithFeature();
+    graph.createTask({ id: 't-1', featureId: 'f-1', description: 'Task 1' });
+    graph.createTask({ id: 't-2', featureId: 'f-1', description: 'Task 2' });
+    const host = createProposalToolHost(graph, 'plan');
+
+    const tasks = host.reorderTasks({
+      featureId: 'f-1',
+      taskIds: ['t-2', 't-1'],
+    });
+
+    expect(tasks.map((task) => task.id)).toEqual(['t-2', 't-1']);
+    expect(host.draft.tasks.get('t-2')?.orderInFeature).toBe(0);
+    expect(host.draft.tasks.get('t-1')?.orderInFeature).toBe(1);
+    expect(graph.tasks.get('t-1')?.orderInFeature).toBe(0);
+    expect(graph.tasks.get('t-2')?.orderInFeature).toBe(1);
+
+    host.submit(proposalDetails);
+    expect(host.buildProposal().ops).toContainEqual({
+      kind: 'reorder_tasks',
+      featureId: 'f-1',
+      taskIds: ['t-2', 't-1'],
+    });
+  });
+
   it('stages proposal mutations on draft graph only', () => {
     const graph = createGraphWithFeature();
     const host = createProposalToolHost(graph, 'plan');

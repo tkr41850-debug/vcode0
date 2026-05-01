@@ -5,7 +5,15 @@ import {
   isGraphProposal,
   type ProposalApplyResult,
 } from '@core/proposals/index';
-import type { AgentRunPhase, FeatureId, Task } from '@core/types/index';
+import type {
+  AgentRun,
+  AgentRunPhase,
+  AgentRunStatus,
+  FeatureId,
+  MilestoneId,
+  PlannerSessionMode,
+  Task,
+} from '@core/types/index';
 
 export type ProposalPhase = Extract<AgentRunPhase, 'plan' | 'replan'>;
 
@@ -32,6 +40,306 @@ export function parseGraphProposalPayload(
   }
 
   return parsed;
+}
+
+export interface TopPlannerCollidedFeatureRun {
+  featureId: FeatureId;
+  runId: string;
+  phase: ProposalPhase;
+  runStatus: AgentRunStatus;
+  sessionId?: string;
+}
+
+export interface TopPlannerProposalMetadata {
+  prompt: string;
+  sessionMode: PlannerSessionMode;
+  runId: string;
+  sessionId: string;
+  previousSessionId?: string;
+  featureIds: FeatureId[];
+  milestoneIds: MilestoneId[];
+  collidedFeatureRuns: TopPlannerCollidedFeatureRun[];
+}
+
+export type TopPlannerProposalPayload = GraphProposal & {
+  topPlannerMeta?: TopPlannerProposalMetadata;
+};
+
+export function withTopPlannerProposalMetadata(
+  proposal: GraphProposal,
+  metadata: TopPlannerProposalMetadata,
+): TopPlannerProposalPayload {
+  return {
+    ...proposal,
+    topPlannerMeta: metadata,
+  };
+}
+
+export function readTopPlannerProposalMetadata(
+  payloadJson?: string,
+): TopPlannerProposalMetadata | undefined {
+  if (payloadJson === undefined) {
+    return undefined;
+  }
+
+  const parsed = JSON.parse(payloadJson) as unknown;
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return undefined;
+  }
+
+  const metadata = (parsed as { topPlannerMeta?: unknown }).topPlannerMeta;
+  if (
+    metadata === null ||
+    typeof metadata !== 'object' ||
+    Array.isArray(metadata)
+  ) {
+    return undefined;
+  }
+
+  const record = metadata as Record<string, unknown>;
+  if (
+    typeof record.prompt !== 'string' ||
+    (record.sessionMode !== 'continue' && record.sessionMode !== 'fresh') ||
+    typeof record.runId !== 'string' ||
+    typeof record.sessionId !== 'string'
+  ) {
+    return undefined;
+  }
+
+  return {
+    prompt: record.prompt,
+    sessionMode: record.sessionMode,
+    runId: record.runId,
+    sessionId: record.sessionId,
+    ...(typeof record.previousSessionId === 'string'
+      ? { previousSessionId: record.previousSessionId }
+      : {}),
+    featureIds: normalizeKnownIds(record.featureIds, 'f-'),
+    milestoneIds: normalizeKnownIds(record.milestoneIds, 'm-'),
+    collidedFeatureRuns: normalizeCollidedFeatureRuns(
+      record.collidedFeatureRuns,
+    ),
+  };
+}
+
+export function collectProposalScopeIds(
+  proposal: GraphProposal,
+  graph?: FeatureGraph,
+): {
+  featureIds: FeatureId[];
+  milestoneIds: MilestoneId[];
+} {
+  const featureIds = new Set<FeatureId>();
+  const milestoneIds = new Set<MilestoneId>();
+
+  const addTaskFeatureId = (taskId: string): void => {
+    if (graph === undefined || !taskId.startsWith('t-')) {
+      return;
+    }
+    const featureId = graph.tasks.get(taskId as Task['id'])?.featureId;
+    if (featureId !== undefined) {
+      featureIds.add(featureId);
+    }
+  };
+
+  for (const op of proposal.ops) {
+    switch (op.kind) {
+      case 'add_milestone':
+      case 'edit_milestone':
+      case 'remove_milestone':
+        addKnownId(milestoneIds, op.milestoneId, 'm-');
+        break;
+      case 'add_feature':
+        addKnownId(featureIds, op.featureId, 'f-');
+        addKnownId(milestoneIds, op.milestoneId, 'm-');
+        break;
+      case 'edit_feature':
+      case 'remove_feature':
+        addKnownId(featureIds, op.featureId, 'f-');
+        break;
+      case 'move_feature':
+        addKnownId(featureIds, op.featureId, 'f-');
+        addKnownId(milestoneIds, op.milestoneId, 'm-');
+        break;
+      case 'split_feature':
+        addKnownId(featureIds, op.featureId, 'f-');
+        for (const split of op.splits) {
+          addKnownId(featureIds, split.id, 'f-');
+          if (split.deps !== undefined) {
+            for (const depId of split.deps) {
+              addKnownId(featureIds, depId, 'f-');
+            }
+          }
+        }
+        break;
+      case 'merge_features':
+        for (const featureId of op.featureIds) {
+          addKnownId(featureIds, featureId, 'f-');
+        }
+        break;
+      case 'add_task':
+        addKnownId(featureIds, op.featureId, 'f-');
+        break;
+      case 'remove_task':
+      case 'edit_task':
+        addTaskFeatureId(op.taskId);
+        break;
+      case 'add_dependency':
+      case 'remove_dependency':
+        if (op.fromId.startsWith('f-') && op.toId.startsWith('f-')) {
+          addKnownId(featureIds, op.fromId, 'f-');
+          addKnownId(featureIds, op.toId, 'f-');
+          break;
+        }
+        addTaskFeatureId(op.fromId);
+        addTaskFeatureId(op.toId);
+        break;
+    }
+  }
+
+  return {
+    featureIds: [...featureIds].sort((left, right) =>
+      left.localeCompare(right),
+    ),
+    milestoneIds: [...milestoneIds].sort((left, right) =>
+      left.localeCompare(right),
+    ),
+  };
+}
+
+export function collectCollidedFeaturePlannerRuns(params: {
+  proposal: GraphProposal;
+  graph: FeatureGraph;
+  runs: readonly AgentRun[];
+}): TopPlannerCollidedFeatureRun[] {
+  const touchedFeatureIds = new Set(
+    collectProposalScopeIds(params.proposal, params.graph).featureIds,
+  );
+
+  return params.runs
+    .filter(
+      (
+        run,
+      ): run is Extract<AgentRun, { scopeType: 'feature_phase' }> & {
+        phase: ProposalPhase;
+      } =>
+        run.scopeType === 'feature_phase' &&
+        isProposalPhase(run.phase) &&
+        !isTerminalAgentRunStatus(run.runStatus) &&
+        touchedFeatureIds.has(run.scopeId),
+    )
+    .map(
+      (run): TopPlannerCollidedFeatureRun => ({
+        featureId: run.scopeId,
+        runId: run.id,
+        phase: run.phase,
+        runStatus: run.runStatus,
+        ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
+      }),
+    )
+    .sort((left, right) => {
+      const featureCompare = left.featureId.localeCompare(right.featureId);
+      if (featureCompare !== 0) {
+        return featureCompare;
+      }
+      const phaseCompare = left.phase.localeCompare(right.phase);
+      if (phaseCompare !== 0) {
+        return phaseCompare;
+      }
+      return left.runId.localeCompare(right.runId);
+    });
+}
+
+function addKnownId<T extends string>(
+  target: Set<T>,
+  value: string,
+  prefix: string,
+): void {
+  if (value.startsWith(prefix)) {
+    target.add(value as T);
+  }
+}
+
+function normalizeKnownIds<T extends string>(
+  value: unknown,
+  prefix: string,
+): T[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter((entry): entry is string => typeof entry === 'string')
+    .filter((entry) => entry.startsWith(prefix))
+    .sort((left, right) => left.localeCompare(right)) as T[];
+}
+
+function normalizeCollidedFeatureRuns(
+  value: unknown,
+): TopPlannerCollidedFeatureRun[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .flatMap((entry) => {
+      if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) {
+        return [];
+      }
+      const record = entry as Record<string, unknown>;
+      if (
+        typeof record.featureId !== 'string' ||
+        !record.featureId.startsWith('f-') ||
+        typeof record.runId !== 'string' ||
+        (record.phase !== 'plan' && record.phase !== 'replan') ||
+        !isAgentRunStatus(record.runStatus)
+      ) {
+        return [];
+      }
+      return [
+        {
+          featureId: record.featureId as FeatureId,
+          runId: record.runId,
+          phase: record.phase,
+          runStatus: record.runStatus,
+          ...(typeof record.sessionId === 'string'
+            ? { sessionId: record.sessionId }
+            : {}),
+        } satisfies TopPlannerCollidedFeatureRun,
+      ];
+    })
+    .sort((left, right) => {
+      const featureCompare = left.featureId.localeCompare(right.featureId);
+      if (featureCompare !== 0) {
+        return featureCompare;
+      }
+      const phaseCompare = left.phase.localeCompare(right.phase);
+      if (phaseCompare !== 0) {
+        return phaseCompare;
+      }
+      return left.runId.localeCompare(right.runId);
+    });
+}
+
+function isAgentRunStatus(value: unknown): value is AgentRunStatus {
+  return (
+    value === 'ready' ||
+    value === 'running' ||
+    value === 'retry_await' ||
+    value === 'await_response' ||
+    value === 'await_approval' ||
+    value === 'checkpointed_await_response' ||
+    value === 'checkpointed_await_approval' ||
+    value === 'completed' ||
+    value === 'failed' ||
+    value === 'cancelled'
+  );
+}
+
+function isTerminalAgentRunStatus(status: AgentRunStatus): boolean {
+  return (
+    status === 'completed' || status === 'failed' || status === 'cancelled'
+  );
 }
 
 export interface ProposalApprovalOutcome {

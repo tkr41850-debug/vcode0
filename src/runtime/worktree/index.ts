@@ -16,6 +16,11 @@ export interface WorktreeProvisioner {
    */
   removeWorktree(branch: string): Promise<void>;
   /**
+   * Delete `branch`. Idempotent: succeeds silently when the branch does not
+   * exist. Callers should remove any registered worktree first.
+   */
+  deleteBranch(branch: string): Promise<void>;
+  /**
    * Run `git worktree prune -v` and return the names of pruned worktrees
    * (the basename of each `.git/worktrees/<name>` entry that was removed).
    */
@@ -32,6 +37,105 @@ export interface WorktreeProvisioner {
    * can extend without a shape change.
    */
   sweepStaleLocks(isAlive: (pid: number) => boolean): Promise<string[]>;
+}
+
+export type ManagedWorktreeOwnerState = 'live' | 'dead' | 'absent';
+
+export interface RecoveryManagedTaskWorktree {
+  taskId: Task['id'];
+  featureId: Task['featureId'];
+  branch: string;
+  ownerState: ManagedWorktreeOwnerState;
+}
+
+export interface RecoveryManagedTaskWorktreeInspection
+  extends RecoveryManagedTaskWorktree {
+  path: string;
+  metadataPath: string;
+  present: boolean;
+  registered: boolean;
+  hasMetadataIndexLock: boolean;
+}
+
+export interface RecoveryLockFinding {
+  kind: 'root_index_lock' | 'worktree_index_lock' | 'worktree_locked_marker';
+  path: string;
+  branch?: string;
+}
+
+export interface RecoveryLockSweepReport {
+  cleared: RecoveryLockFinding[];
+  preserved: RecoveryLockFinding[];
+}
+
+export async function inspectManagedTaskWorktrees(
+  projectRoot: string,
+  tasks: Iterable<RecoveryManagedTaskWorktree>,
+): Promise<RecoveryManagedTaskWorktreeInspection[]> {
+  const inspections: RecoveryManagedTaskWorktreeInspection[] = [];
+  for (const task of tasks) {
+    const metadataPath = path.join(
+      projectRoot,
+      '.git',
+      'worktrees',
+      task.branch,
+    );
+    const targetPath = path.join(projectRoot, worktreePath(task.branch));
+    inspections.push({
+      ...task,
+      path: targetPath,
+      metadataPath,
+      present: await pathExists(targetPath),
+      registered: await pathExists(metadataPath),
+      hasMetadataIndexLock: await pathExists(
+        path.join(metadataPath, 'index.lock'),
+      ),
+    });
+  }
+  return inspections;
+}
+
+export async function sweepRecoveryLocks(
+  projectRoot: string,
+  managedWorktrees: readonly RecoveryManagedTaskWorktreeInspection[],
+  options: { hasLiveManagedWorker: boolean },
+): Promise<RecoveryLockSweepReport> {
+  const cleared: RecoveryLockFinding[] = [];
+  const preserved: RecoveryLockFinding[] = [];
+  const rootIndexLockPath = path.join(projectRoot, '.git', 'index.lock');
+
+  if (await pathExists(rootIndexLockPath)) {
+    const finding: RecoveryLockFinding = {
+      kind: 'root_index_lock',
+      path: rootIndexLockPath,
+    };
+    if (options.hasLiveManagedWorker) {
+      preserved.push(finding);
+    } else {
+      await fs.rm(rootIndexLockPath, { force: true });
+      cleared.push(finding);
+    }
+  }
+
+  for (const worktree of managedWorktrees) {
+    if (!worktree.hasMetadataIndexLock) {
+      continue;
+    }
+    const lockPath = path.join(worktree.metadataPath, 'index.lock');
+    const finding: RecoveryLockFinding = {
+      kind: 'worktree_index_lock',
+      path: lockPath,
+      branch: worktree.branch,
+    };
+    if (worktree.ownerState === 'live') {
+      preserved.push(finding);
+      continue;
+    }
+    await fs.rm(lockPath, { force: true });
+    cleared.push(finding);
+  }
+
+  return { cleared, preserved };
 }
 
 export class GitWorktreeProvisioner implements WorktreeProvisioner {
@@ -69,6 +173,15 @@ export class GitWorktreeProvisioner implements WorktreeProvisioner {
     }
   }
 
+  async deleteBranch(branch: string): Promise<void> {
+    try {
+      await this.git.raw(['branch', '-D', branch]);
+    } catch (err: unknown) {
+      if (isMissingBranchError(err)) return;
+      throw err;
+    }
+  }
+
   async pruneStaleWorktrees(): Promise<string[]> {
     // `git worktree prune -v` writes its "Removing worktrees/<name>:" lines to
     // STDERR, which simple-git's `raw` does not capture. We read the worktree
@@ -82,10 +195,7 @@ export class GitWorktreeProvisioner implements WorktreeProvisioner {
     return before.filter((name) => !afterSet.has(name));
   }
 
-  async sweepStaleLocks(
-    // biome-ignore lint/correctness/noUnusedFunctionParameters: kept for Phase 9 forward-compatibility when locks stamp PIDs.
-    _isAlive: (pid: number) => boolean,
-  ): Promise<string[]> {
+  async sweepStaleLocks(_isAlive: (pid: number) => boolean): Promise<string[]> {
     const worktreesDir = path.join(this.projectRoot, '.git', 'worktrees');
     const entries = await safeReaddir(worktreesDir);
     const cleared: string[] = [];
@@ -183,12 +293,27 @@ function isAlreadyRemovedError(err: unknown): boolean {
   );
 }
 
+function isMissingBranchError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const msg = err.message.toLowerCase();
+  return msg.includes('branch') && msg.includes('not found');
+}
+
 async function safeReaddir(dir: string): Promise<string[]> {
   try {
     return await fs.readdir(dir);
   } catch (err: unknown) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
     throw err;
+  }
+}
+
+async function pathExists(target: string): Promise<boolean> {
+  try {
+    await fs.access(target);
+    return true;
+  } catch {
+    return false;
   }
 }
 

@@ -8,12 +8,23 @@ import type {
   Task,
   TaskId,
   VerificationSummary,
+  VerifyIssue,
 } from '@core/types/index';
+import type { OrchestratorPorts } from '@orchestrator/ports/index';
 
 export class FeatureLifecycleCoordinator {
-  private readonly mergeTrain = new MergeTrainCoordinator();
+  private readonly mergeTrain: MergeTrainCoordinator;
 
-  constructor(private readonly graph: FeatureGraph) {}
+  constructor(
+    private readonly graph: FeatureGraph,
+    reentryCap?: number,
+  ) {
+    this.mergeTrain = new MergeTrainCoordinator(reentryCap);
+  }
+
+  setReentryCap(reentryCap: number | undefined): void {
+    this.mergeTrain.setReentryCap(reentryCap);
+  }
 
   openBranch(feature: Feature): void {
     if (feature.collabControl === 'none') {
@@ -60,10 +71,21 @@ export class FeatureLifecycleCoordinator {
     this.mergeTrain.completeIntegration(featureId, this.graph);
   }
 
-  failIntegration(featureId: FeatureId, summary?: string): void {
+  failIntegration(
+    featureId: FeatureId,
+    ports: Pick<OrchestratorPorts, 'store'>,
+    summary?: string,
+  ): void {
     const feature = this.requireFeature(featureId);
+
+    // Increment the re-entry count (single increment path — the original
+    // failIntegration did this inline; we preserve it here so ejectFromQueue
+    // is not called on an `integrating` feature, which would require the
+    // illegal `integrating → branch_open` FSM edge).
     const reentryCount = (feature.mergeTrainReentryCount ?? 0) + 1;
 
+    // Transition directly to 'conflict' (valid from both 'integrating' and
+    // 'merge_queued') and clear queue-local fields + update count.
     this.graph.transitionFeature(featureId, { collabControl: 'conflict' });
     this.graph.updateMergeTrainState(featureId, {
       mergeTrainManualPosition: undefined,
@@ -71,6 +93,36 @@ export class FeatureLifecycleCoordinator {
       mergeTrainEntrySeq: undefined,
       mergeTrainReentryCount: reentryCount,
     });
+
+    // Cap check: if a reentryCap is configured and this ejection hits it,
+    // park the feature in the inbox instead of creating a repair task.
+    const cap = this.mergeTrain.reentryCap;
+    if (cap !== undefined && reentryCount >= cap) {
+      const now = Date.now();
+      ports.store.appendInboxItem({
+        id: `inbox-merge-cap-${featureId}-${now}`,
+        ts: now,
+        featureId,
+        kind: 'merge_train_cap_reached',
+        payload: {
+          reentryCount,
+          cap,
+          ...(summary !== undefined ? { reason: summary } : {}),
+        },
+      });
+      ports.store.appendEvent({
+        eventType: 'merge_train_feature_parked',
+        entityId: featureId,
+        timestamp: now,
+        payload: {
+          reentryCount,
+          ...(summary !== undefined ? { summary } : {}),
+        },
+      });
+      return;
+    }
+
+    // Below cap (or no cap): normal path — create a repair task as before.
     this.enqueueRepairTask(
       featureId,
       'integration',
@@ -125,13 +177,18 @@ export class FeatureLifecycleCoordinator {
         if (verification === undefined) {
           throw new Error('verify completion requires verification summary');
         }
-        // `verification.ok` already encodes severity policy: blocking/concern
-        // issues force `ok=false`; nit-only verdicts stay `ok=true` and pass
-        // through to awaiting_merge. Nits surface in `verification.issues`
-        // for persistence without triggering replanning.
         if (verification.ok === false) {
-          this.markPhaseFailed(featureId);
-          this.advancePhase(featureId, 'replanning');
+          this.enqueueVerifyRepairs(featureId, verification.issues ?? [], {
+            ...(verification.summary !== undefined
+              ? { summary: verification.summary }
+              : {}),
+            ...(verification.failedChecks !== undefined
+              ? { failedChecks: verification.failedChecks }
+              : {}),
+            ...(verification.repairFocus !== undefined
+              ? { repairFocus: verification.repairFocus }
+              : {}),
+          });
           return;
         }
         this.markPhaseDone(featureId);
@@ -150,6 +207,45 @@ export class FeatureLifecycleCoordinator {
       case 'execute':
       case 'summarize':
         return;
+    }
+  }
+
+  enqueueVerifyRepairs(
+    featureId: FeatureId,
+    issues: readonly VerifyIssue[],
+    fallback?: {
+      summary?: string;
+      failedChecks?: readonly string[];
+      repairFocus?: readonly string[];
+    },
+  ): void {
+    const actionableIssues = issues.filter((issue) => issue.severity !== 'nit');
+    const repairTasks =
+      actionableIssues.length > 0
+        ? actionableIssues.map((issue) => ({
+            description: this.describeVerifyIssue(issue),
+            reservedWritePaths: this.reservedWritePathsFromLocation(
+              issue.location,
+            ),
+          }))
+        : [
+            {
+              description: this.describeFallbackVerifyRepair(fallback),
+              reservedWritePaths: undefined,
+            },
+          ];
+
+    if (!this.beginRepairAttempt(featureId)) {
+      return;
+    }
+
+    for (const repairTask of repairTasks) {
+      this.addOneRepairTask(featureId, repairTask.description, {
+        repairSource: 'verify',
+        ...(repairTask.reservedWritePaths !== undefined
+          ? { reservedWritePaths: repairTask.reservedWritePaths }
+          : {}),
+      });
     }
   }
 
@@ -203,6 +299,21 @@ export class FeatureLifecycleCoordinator {
     noun: string,
     summary?: string,
   ): void {
+    if (!this.beginRepairAttempt(featureId)) {
+      return;
+    }
+
+    const detail = summary?.trim();
+    this.addOneRepairTask(
+      featureId,
+      detail && detail.length > 0
+        ? `Repair ${noun}: ${detail}`
+        : `Repair ${noun}`,
+      { repairSource },
+    );
+  }
+
+  private beginRepairAttempt(featureId: FeatureId): boolean {
     const feature = this.requireFeature(featureId);
     const repairCount = this.countRepairTasks(featureId);
 
@@ -210,30 +321,79 @@ export class FeatureLifecycleCoordinator {
       if (repairCount >= MAX_REPAIR_ATTEMPTS) {
         this.markPhaseFailed(featureId);
         this.advancePhase(featureId, 'replanning');
-        return;
+        return false;
       }
-    } else {
-      this.markPhaseFailed(featureId);
-      if (repairCount >= MAX_REPAIR_ATTEMPTS) {
-        this.advancePhase(featureId, 'executing_repair');
-        this.markPhaseFailed(featureId);
-        this.advancePhase(featureId, 'replanning');
-        return;
-      }
-
-      this.advancePhase(featureId, 'executing_repair');
+      return true;
     }
 
-    const detail = summary?.trim();
+    this.markPhaseFailed(featureId);
+    if (repairCount >= MAX_REPAIR_ATTEMPTS) {
+      this.advancePhase(featureId, 'executing_repair');
+      this.markPhaseFailed(featureId);
+      this.advancePhase(featureId, 'replanning');
+      return false;
+    }
+
+    this.advancePhase(featureId, 'executing_repair');
+    return true;
+  }
+
+  private addOneRepairTask(
+    featureId: FeatureId,
+    description: string,
+    opts: {
+      repairSource: 'ci_check' | 'verify' | 'integration';
+      reservedWritePaths?: string[];
+    },
+  ): void {
     const repairTask = this.graph.addTask({
       featureId,
-      description:
-        detail && detail.length > 0
-          ? `Repair ${noun}: ${detail}`
-          : `Repair ${noun}`,
-      repairSource,
+      description,
+      repairSource: opts.repairSource,
+      ...(opts.reservedWritePaths !== undefined
+        ? { reservedWritePaths: opts.reservedWritePaths }
+        : {}),
     });
     this.graph.transitionTask(repairTask.id, { status: 'ready' });
+  }
+
+  private describeVerifyIssue(issue: VerifyIssue): string {
+    const location = issue.location?.trim();
+    const suggestedFix = issue.suggestedFix?.trim();
+    return `${issue.description}${location !== undefined && location.length > 0 ? ` @ ${location}` : ''}${suggestedFix !== undefined && suggestedFix.length > 0 ? `\n\nSuggested: ${suggestedFix}` : ''}`;
+  }
+
+  private describeFallbackVerifyRepair(fallback?: {
+    summary?: string;
+    failedChecks?: readonly string[];
+    repairFocus?: readonly string[];
+  }): string {
+    const detail =
+      fallback?.failedChecks
+        ?.find((entry) => entry.trim().length > 0)
+        ?.trim() ??
+      fallback?.repairFocus?.find((entry) => entry.trim().length > 0)?.trim() ??
+      fallback?.summary?.trim() ??
+      'feature verification issues';
+
+    // A zero-task executing_repair feature would never re-enter ci_check, so
+    // repair_needed without actionable issues still gets one fallback repair task.
+    return `Repair feature verification issues: ${detail}`;
+  }
+
+  private reservedWritePathsFromLocation(
+    location?: string,
+  ): string[] | undefined {
+    const trimmed = location?.trim();
+    if (
+      trimmed === undefined ||
+      trimmed.length === 0 ||
+      trimmed.includes(' ') ||
+      !/[\\/.]/.test(trimmed)
+    ) {
+      return undefined;
+    }
+    return [trimmed];
   }
 
   private allFeatureTasksLanded(featureId: FeatureId): boolean {

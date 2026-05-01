@@ -34,6 +34,12 @@ function buildDeps(params: { task: Task; run: AgentRun }) {
     createAgentRun: vi.fn(),
     appendEvent: vi.fn(),
     listEvents: vi.fn(() => []),
+    appendInboxItem: vi.fn(),
+    listInboxItems: vi.fn(() => []),
+    resolveInboxItem: vi.fn(),
+    setLastCommitSha: vi.fn(),
+    setTrailerObservedAt: vi.fn(),
+    getTrailerObservedAt: vi.fn(() => undefined),
   };
 
   const ports = {
@@ -194,6 +200,67 @@ describe('handleSchedulerEvent — lock release on terminal worker messages', ()
       onShutdown: () => {},
     });
 
+    const reclaim = locks.tryClaim(
+      { agentRunId: 'run-other', taskId: 't-other', featureId: 'f-1' },
+      ['src/held.ts'],
+    );
+    expect(reclaim.granted).toBe(true);
+  });
+
+  it('releases locks held by the run on wait_checkpointed', async () => {
+    const task = createTaskFixture({
+      id: 't-1',
+      featureId: 'f-1',
+      status: 'running',
+      collabControl: 'branch_open',
+    });
+    const run: AgentRun = {
+      id: 'run-1',
+      scopeType: 'task',
+      scopeId: 't-1',
+      phase: 'execute',
+      runStatus: 'await_response',
+      owner: 'manual',
+      attention: 'none',
+      restartCount: 0,
+      maxRetries: 3,
+      sessionId: 'sess-1',
+    };
+    const { graph, ports, features, conflicts, summaries } = buildDeps({
+      task,
+      run,
+    });
+    const locks = new ActiveLocks();
+    locks.tryClaim({ agentRunId: 'run-1', taskId: 't-1', featureId: 'f-1' }, [
+      'src/held.ts',
+    ]);
+
+    await handleSchedulerEvent({
+      event: {
+        type: 'worker_message',
+        message: {
+          type: 'wait_checkpointed',
+          taskId: 't-1',
+          agentRunId: 'run-1',
+          waitKind: 'await_response',
+        },
+      },
+      graph,
+      ports,
+      features,
+      conflicts,
+      summaries,
+      activeLocks: locks,
+      emitEmptyVerificationChecksWarning: () => {},
+      cancelFeatureRunWork: () => Promise.resolve(),
+      onShutdown: () => {},
+    });
+
+    expect(ports.store.updateAgentRun).toHaveBeenCalledWith('run-1', {
+      runStatus: 'checkpointed_await_response',
+      owner: 'manual',
+      sessionId: 'sess-1',
+    });
     const reclaim = locks.tryClaim(
       { agentRunId: 'run-other', taskId: 't-other', featureId: 'f-1' },
       ['src/held.ts'],

@@ -1,6 +1,8 @@
 import type {
   DependencyOptions,
+  MilestoneEditPatch,
   PlannerFeatureEditPatch,
+  SplitSpec,
   TaskEditPatch,
 } from '@core/graph/index';
 import type {
@@ -25,7 +27,13 @@ import type {
   VerifyIssueSeverity,
 } from '@core/types/index';
 
-export type { DependencyOptions, PlannerFeatureEditPatch, TaskEditPatch };
+export type {
+  DependencyOptions,
+  MilestoneEditPatch,
+  PlannerFeatureEditPatch,
+  SplitSpec,
+  TaskEditPatch,
+};
 
 export interface AddMilestoneOptions {
   name: string;
@@ -38,6 +46,15 @@ export interface AddFeatureOptions {
   description: string;
 }
 
+export interface EditMilestoneOptions {
+  milestoneId: MilestoneId;
+  patch: MilestoneEditPatch;
+}
+
+export interface RemoveMilestoneOptions {
+  milestoneId: MilestoneId;
+}
+
 export interface RemoveFeatureOptions {
   featureId: FeatureId;
 }
@@ -45,6 +62,21 @@ export interface RemoveFeatureOptions {
 export interface EditFeatureOptions {
   featureId: FeatureId;
   patch: PlannerFeatureEditPatch;
+}
+
+export interface MoveFeatureOptions {
+  featureId: FeatureId;
+  milestoneId: MilestoneId;
+}
+
+export interface SplitFeatureOptions {
+  featureId: FeatureId;
+  splits: SplitSpec[];
+}
+
+export interface MergeFeaturesOptions {
+  featureIds: FeatureId[];
+  name: string;
 }
 
 export interface AddTaskOptions {
@@ -78,6 +110,11 @@ export interface EditTaskOptions {
   patch: TaskEditPatch;
 }
 
+export interface ReorderTasksOptions {
+  featureId: FeatureId;
+  taskIds: Task['id'][];
+}
+
 export interface SubmitProposalOptions extends ProposalPhaseDetails {}
 
 export interface GetFeatureStateOptions {
@@ -105,6 +142,7 @@ export interface ListFeatureRunsOptions {
 
 export interface GetChangedFilesOptions {
   featureId?: FeatureId;
+  baseRef?: string;
 }
 
 export interface SubmitDiscussOptions extends DiscussPhaseDetails {
@@ -142,12 +180,18 @@ export interface TaskResultLookup {
 
 export type ProposalToolName =
   | 'addMilestone'
+  | 'editMilestone'
+  | 'removeMilestone'
   | 'addFeature'
   | 'removeFeature'
   | 'editFeature'
+  | 'moveFeature'
+  | 'splitFeature'
+  | 'mergeFeatures'
   | 'addTask'
   | 'removeTask'
   | 'editTask'
+  | 'reorderTasks'
   | 'setFeatureObjective'
   | 'setFeatureDoD'
   | 'addDependency'
@@ -176,12 +220,18 @@ export type FeaturePhaseToolName =
 
 export interface PlannerToolArgsMap {
   addMilestone: AddMilestoneOptions;
+  editMilestone: EditMilestoneOptions;
+  removeMilestone: RemoveMilestoneOptions;
   addFeature: AddFeatureOptions;
   removeFeature: RemoveFeatureOptions;
   editFeature: EditFeatureOptions;
+  moveFeature: MoveFeatureOptions;
+  splitFeature: SplitFeatureOptions;
+  mergeFeatures: MergeFeaturesOptions;
   addTask: AddTaskOptions;
   removeTask: RemoveTaskOptions;
   editTask: EditTaskOptions;
+  reorderTasks: ReorderTasksOptions;
   setFeatureObjective: SetFeatureObjectiveOptions;
   setFeatureDoD: SetFeatureDoDOptions;
   addDependency: DependencyOptions;
@@ -191,12 +241,18 @@ export interface PlannerToolArgsMap {
 
 export interface PlannerToolResultMap {
   addMilestone: Milestone;
+  editMilestone: Milestone;
+  removeMilestone: undefined;
   addFeature: Feature;
   removeFeature: undefined;
   editFeature: Feature;
+  moveFeature: Feature;
+  splitFeature: Feature[];
+  mergeFeatures: Feature;
   addTask: Task;
   removeTask: undefined;
   editTask: Task;
+  reorderTasks: Task[];
   setFeatureObjective: Feature;
   setFeatureDoD: Feature;
   addDependency: undefined;

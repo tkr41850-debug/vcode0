@@ -196,6 +196,29 @@ describe('SqliteStore', () => {
       expect(loaded).toMatchObject({ ...run, tokenUsage: TOKEN_USAGE });
     });
 
+    it('persists trailerObservedAt through the store round-trip', () => {
+      const run = makeTaskRun();
+      store.createAgentRun(run);
+
+      expect(store.getTrailerObservedAt(run.id)).toBeUndefined();
+
+      store.setTrailerObservedAt(run.id, 1234);
+      store.setTrailerObservedAt(run.id, 5678);
+
+      expect(store.getTrailerObservedAt(run.id)).toBe(1234);
+      expect(store.getAgentRun(run.id)).toEqual({
+        ...run,
+        trailerObservedAt: 1234,
+      });
+
+      const row = db
+        .prepare<[string], { trailer_observed_at: number | null }>(
+          'SELECT trailer_observed_at FROM agent_runs WHERE id = ?',
+        )
+        .get(run.id);
+      expect(row?.trailer_observed_at).toBe(1234);
+    });
+
     it('updateAgentRun throws on missing run without touching any row', () => {
       const run = makeTaskRun();
       store.createAgentRun(run);
@@ -278,6 +301,98 @@ describe('SqliteStore', () => {
       expect(store.listEvents({ since: 150 })).toHaveLength(2);
       expect(store.listEvents({ until: 200 })).toHaveLength(2);
       expect(store.listEvents({ since: 150, until: 250 })).toHaveLength(1);
+    });
+  });
+
+  describe('inbox items', () => {
+    it('lists unresolved inbox items with query filters in descending time order', () => {
+      store.appendInboxItem({
+        id: 'inbox-1',
+        ts: 100,
+        taskId: 't-1',
+        agentRunId: 'run-1',
+        featureId: 'f-1',
+        kind: 'agent_help',
+        payload: { query: 'Need input' },
+      });
+      store.appendInboxItem({
+        id: 'inbox-2',
+        ts: 200,
+        taskId: 't-2',
+        agentRunId: 'run-2',
+        featureId: 'f-1',
+        kind: 'agent_approval',
+        payload: { kind: 'custom', label: 'Approve', detail: 'Ship it' },
+      });
+      store.resolveInboxItem('inbox-1', {
+        kind: 'answered',
+        resolvedAt: 300,
+        note: 'Done',
+      });
+
+      expect(store.listInboxItems().map((item) => item.id)).toEqual([
+        'inbox-2',
+        'inbox-1',
+      ]);
+      expect(
+        store.listInboxItems({ unresolvedOnly: true }).map((item) => item.id),
+      ).toEqual(['inbox-2']);
+      expect(store.listInboxItems({ kind: 'agent_help' })).toHaveLength(1);
+      expect(store.listInboxItems({ taskId: 't-2' })).toHaveLength(1);
+      expect(store.listInboxItems({ agentRunId: 'run-2' })).toHaveLength(1);
+      expect(store.listInboxItems({ featureId: 'f-1' })).toHaveLength(2);
+    });
+
+    it('round-trips payload and resolution JSON for inbox items', () => {
+      store.appendInboxItem({
+        id: 'inbox-1',
+        ts: 100,
+        taskId: 't-1',
+        agentRunId: 'run-1',
+        featureId: 'f-1',
+        kind: 'agent_approval',
+        payload: {
+          kind: 'replan_proposal',
+          summary: 'Replan this',
+          proposedMutations: ['add task', 'drop task'],
+        },
+      });
+      store.resolveInboxItem('inbox-1', {
+        kind: 'approved',
+        resolvedAt: 200,
+        note: 'Looks good',
+        fanoutTaskIds: ['t-1', 't-9'],
+      });
+
+      expect(store.listInboxItems()).toEqual([
+        {
+          id: 'inbox-1',
+          ts: 100,
+          taskId: 't-1',
+          agentRunId: 'run-1',
+          featureId: 'f-1',
+          kind: 'agent_approval',
+          payload: {
+            kind: 'replan_proposal',
+            summary: 'Replan this',
+            proposedMutations: ['add task', 'drop task'],
+          },
+          resolution: {
+            kind: 'approved',
+            resolvedAt: 200,
+            note: 'Looks good',
+            fanoutTaskIds: ['t-1', 't-9'],
+          },
+        },
+      ]);
+
+      const row = db
+        .prepare<[string], { payload: string; resolution: string | null }>(
+          'SELECT payload, resolution FROM inbox_items WHERE id = ?',
+        )
+        .get('inbox-1');
+      expect(row?.payload).toContain('replan_proposal');
+      expect(row?.resolution).toContain('fanoutTaskIds');
     });
   });
 });

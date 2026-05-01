@@ -24,6 +24,8 @@ export type {
   DiscussPhaseResult,
   FeaturePhaseResult,
   FeaturePhaseRunContext,
+  PlannerRunContext,
+  PlannerSessionMode,
   ProposalPhaseDetails,
   ResearchFileDetail,
   ResearchPhaseDetails,
@@ -31,6 +33,7 @@ export type {
   SummarizePhaseDetails,
   SummarizePhaseResult,
   TaskResult,
+  TopPlannerRunContext,
 } from './phases.js';
 export type {
   AgentRun,
@@ -40,6 +43,8 @@ export type {
   RunAttention,
   RunOwner,
   TaskAgentRun,
+  TopPlannerAgentRun,
+  TopPlannerScopeId,
 } from './runs.js';
 export type {
   BudgetState,

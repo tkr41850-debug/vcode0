@@ -38,10 +38,7 @@ describe('feature lifecycle e2e — happy path', () => {
 
   beforeEach(() => {
     fixture = createFeatureLifecycleFixture();
-    // Worker's run-command tool uses process.cwd() as its workdir, so
-    // point the process at the fixture's tmp git repo before each run.
     originalCwd = process.cwd();
-    process.chdir(fixture.tmpDir);
   });
 
   afterEach(async () => {
@@ -50,7 +47,7 @@ describe('feature lifecycle e2e — happy path', () => {
   });
 
   it('walks planning → executing → ci_check → verifying → awaiting_merge with real worker commits', async () => {
-    const { faux, graph, store, scheduler, harness, tmpDir } = fixture;
+    const { faux, graph, store, scheduler, harness } = fixture;
 
     // Seed one feature on the graph. Tasks will be created by the
     // planner agent through the plan proposal, so we do NOT pre-seed
@@ -59,6 +56,8 @@ describe('feature lifecycle e2e — happy path', () => {
       workControl: 'planning',
       collabControl: 'none',
     });
+    const featureWorktree = fixture.featureWorktreePath(feature.featureBranch);
+    process.chdir(featureWorktree);
 
     // --- Script every LLM turn the run will consume, in order ----------
     //
@@ -73,8 +72,8 @@ describe('feature lifecycle e2e — happy path', () => {
     // `commit_done` emission (see `isGitCommitCommand`).
     const fs = await import('node:fs');
     const path = await import('node:path');
-    fs.writeFileSync(path.join(tmpDir, 'task-a.txt'), 'task-a\n');
-    fs.writeFileSync(path.join(tmpDir, 'task-b.txt'), 'task-b\n');
+    fs.writeFileSync(path.join(featureWorktree, 'task-a.txt'), 'task-a\n');
+    fs.writeFileSync(path.join(featureWorktree, 'task-b.txt'), 'task-b\n');
 
     faux.setResponses([
       // ---- Planner: emit two independent tasks + submit.
@@ -205,7 +204,7 @@ describe('feature lifecycle e2e — happy path', () => {
           feat.workControl === 'verifying'
         );
       },
-      { maxTicks: 20 },
+      { maxTicks: 40 },
     );
 
     // All tasks done+merged (task.onTaskLanded bumps feature out of executing).
@@ -263,6 +262,196 @@ describe('feature lifecycle e2e — happy path', () => {
       (m): m is typeof m & { type: 'commit_done' } => m.type === 'commit_done',
     );
     expect(commitFrames.length).toBeGreaterThanOrEqual(2);
+    for (const frame of commitFrames) {
+      expect(frame.trailerOk).toBe(true);
+      expect(frame.sha).toMatch(/^[0-9a-f]{7,}$/);
+    }
+  }, 30_000);
+});
+
+describe('feature lifecycle e2e — repair loop', () => {
+  let fixture: FeatureLifecycleFixture;
+  let originalCwd: string;
+
+  beforeEach(() => {
+    fixture = createFeatureLifecycleFixture();
+    originalCwd = process.cwd();
+  });
+
+  afterEach(async () => {
+    process.chdir(originalCwd);
+    await fixture.teardown();
+  });
+
+  it('re-runs execute → ci_check → verify after a verify repair task lands', async () => {
+    const { faux, graph, store } = fixture;
+    const feature = fixture.seedFeature('f-repair', {
+      workControl: 'executing',
+      collabControl: 'branch_open',
+      tasks: ['implement X'],
+    });
+    const featureWorktree = fixture.featureWorktreePath(feature.featureBranch);
+    process.chdir(featureWorktree);
+
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    fs.writeFileSync(path.join(featureWorktree, 'task-a.txt'), 'task-a\n');
+    fs.writeFileSync(path.join(featureWorktree, 'repair.txt'), 'repair\n');
+
+    faux.setResponses([
+      fauxAssistantMessage(
+        [
+          fauxToolCall('run_command', {
+            command: 'git add task-a.txt',
+          }),
+          fauxToolCall('run_command', {
+            command: 'git commit -m "feat: task-a"',
+          }),
+          fauxToolCall('submit', {
+            summary: 'implemented X',
+            filesChanged: ['task-a.txt'],
+          }),
+        ],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage([fauxText('task-a done')]),
+      fauxAssistantMessage(
+        [
+          fauxToolCall('submitVerify', {
+            outcome: 'repair_needed',
+            summary: 'Repair needed: integrated flow not proven.',
+            failedChecks: ['integrated flow not proven'],
+            repairFocus: ['add proof for integrated flow'],
+          }),
+        ],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage([fauxText('Verification complete.')]),
+      fauxAssistantMessage(
+        [
+          fauxToolCall('run_command', {
+            command: 'git add repair.txt',
+          }),
+          fauxToolCall('run_command', {
+            command: 'git commit -m "fix: verify repair"',
+          }),
+          fauxToolCall('submit', {
+            summary: 'repaired verify issues',
+            filesChanged: ['repair.txt'],
+          }),
+        ],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage([fauxText('verify repair done')]),
+      fauxAssistantMessage(
+        [
+          fauxToolCall('submitVerify', {
+            outcome: 'pass',
+            summary: 'repair verified',
+          }),
+        ],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage([fauxText('Verification complete.')]),
+    ]);
+
+    await fixture.stepUntil(
+      () => graph.features.get(feature.id)?.workControl === 'executing_repair',
+      { maxTicks: 40 },
+    );
+
+    const midFeature = graph.features.get(feature.id);
+    expect(midFeature).toMatchObject({
+      workControl: 'executing_repair',
+      collabControl: 'branch_open',
+    });
+    const repairTask = [...graph.tasks.values()].find(
+      (task) => task.featureId === feature.id && task.repairSource === 'verify',
+    );
+    expect(repairTask).toBeDefined();
+    expect(repairTask?.description).toContain(
+      'Repair feature verification issues',
+    );
+
+    const firstVerifyEvents = store
+      .listEvents({ entityId: feature.id })
+      .filter(
+        (event) =>
+          event.eventType === 'feature_phase_completed' &&
+          (event.payload as { phase?: string }).phase === 'verify',
+      );
+    expect(firstVerifyEvents).toHaveLength(1);
+    expect(firstVerifyEvents[0]?.payload).toMatchObject({
+      phase: 'verify',
+      extra: {
+        outcome: 'repair_needed',
+        failedChecks: ['integrated flow not proven'],
+      },
+    });
+
+    await fixture.stepUntil(
+      () => graph.features.get(feature.id)?.workControl === 'awaiting_merge',
+      { maxTicks: 40 },
+    );
+
+    const finalFeature = graph.features.get(feature.id);
+    expect(finalFeature?.workControl).toBe('awaiting_merge');
+    expect(['merge_queued', 'integrating']).toContain(
+      finalFeature?.collabControl,
+    );
+
+    const featureTasks = [...graph.tasks.values()].filter(
+      (task) => task.featureId === feature.id,
+    );
+    expect(featureTasks).toHaveLength(2);
+    for (const task of featureTasks) {
+      expect(task).toMatchObject({
+        status: 'done',
+        collabControl: 'merged',
+      });
+    }
+
+    const verifyEvents = store
+      .listEvents({ entityId: feature.id })
+      .filter(
+        (event) =>
+          event.eventType === 'feature_phase_completed' &&
+          (event.payload as { phase?: string }).phase === 'verify',
+      );
+    expect(verifyEvents).toHaveLength(2);
+    expect(verifyEvents[0]?.payload).toMatchObject({
+      phase: 'verify',
+      extra: {
+        outcome: 'repair_needed',
+        failedChecks: ['integrated flow not proven'],
+      },
+    });
+    expect(verifyEvents[1]?.payload).toMatchObject({
+      phase: 'verify',
+      extra: {
+        ok: true,
+        outcome: 'pass',
+        summary: 'repair verified',
+      },
+    });
+
+    const verifyRun = store.getAgentRun('run-feature:f-repair:verify');
+    expect(verifyRun).toMatchObject({
+      runStatus: 'completed',
+      owner: 'system',
+    });
+    expect(JSON.parse(verifyRun?.payloadJson ?? '{}')).toMatchObject({
+      ok: true,
+      outcome: 'pass',
+      summary: 'repair verified',
+    });
+
+    const featureTaskIds = new Set<string>(featureTasks.map((task) => task.id));
+    const commitFrames = fixture.workerMessages.filter(
+      (message): message is Extract<typeof message, { type: 'commit_done' }> =>
+        message.type === 'commit_done' && featureTaskIds.has(message.taskId),
+    );
+    expect(commitFrames).toHaveLength(2);
     for (const frame of commitFrames) {
       expect(frame.trailerOk).toBe(true);
       expect(frame.sha).toMatch(/^[0-9a-f]{7,}$/);

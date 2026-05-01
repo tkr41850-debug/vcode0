@@ -1,5 +1,5 @@
-import type { BudgetState, Feature, Task } from '@core/types';
 import type { VerificationLayerName } from '@config';
+import type { BudgetState, Feature, Task } from '@core/types';
 
 export type WarningCategory =
   /** Global budget usage crosses its configured warn threshold. */

@@ -298,4 +298,89 @@ describe('MergeTrainCoordinator', () => {
     expect(afterReenqueue?.mergeTrainEntrySeq).toBe(2);
     expect(afterReenqueue?.collabControl).toBe('merge_queued');
   });
+
+  // ── re-entry cap enforcement ─────────────────────────────────────
+
+  describe('re-entry cap enforcement', () => {
+    it('eject with cap=1 at count 0 increments to 1 and returns cap_reached', () => {
+      const coord = new MergeTrainCoordinator(1);
+      const feat = createFeatureFixture({
+        id: 'f-1',
+        workControl: 'awaiting_merge',
+        collabControl: 'merge_queued',
+        mergeTrainReentryCount: 0,
+        mergeTrainEntrySeq: 1,
+      });
+      const graph = buildGraph(feat);
+
+      const result = coord.ejectFromQueue('f-1', graph);
+
+      expect(result).toBe('cap_reached');
+      const updated = graph.features.get('f-1');
+      expect(updated?.collabControl).toBe('branch_open');
+      expect(updated?.mergeTrainReentryCount).toBe(1);
+    });
+
+    it('eject with cap=2 returns ejected below cap and cap_reached at cap', () => {
+      const coord = new MergeTrainCoordinator(2);
+      const feat = createFeatureFixture({
+        id: 'f-1',
+        workControl: 'awaiting_merge',
+        collabControl: 'merge_queued',
+        mergeTrainReentryCount: 0,
+        mergeTrainEntrySeq: 1,
+      });
+      const graph = buildGraph(feat);
+
+      // First eject: count goes from 0 → 1, below cap (2) → ejected
+      const result1 = coord.ejectFromQueue('f-1', graph);
+      expect(result1).toBe('ejected');
+      expect(graph.features.get('f-1')?.mergeTrainReentryCount).toBe(1);
+
+      // Re-enqueue
+      coord.enqueueFeatureMerge('f-1', graph);
+
+      // Second eject: count goes from 1 → 2, at cap (2) → cap_reached
+      const result2 = coord.ejectFromQueue('f-1', graph);
+      expect(result2).toBe('cap_reached');
+      expect(graph.features.get('f-1')?.mergeTrainReentryCount).toBe(2);
+    });
+
+    it('enqueueFeatureMerge throws GraphValidationError when reentryCount is already at cap', () => {
+      const coord = new MergeTrainCoordinator(1);
+      const feat = createFeatureFixture({
+        id: 'f-1',
+        workControl: 'awaiting_merge',
+        collabControl: 'branch_open',
+        mergeTrainReentryCount: 1,
+        dependsOn: [],
+      });
+      const graph = buildGraph(feat);
+
+      expect(() => coord.enqueueFeatureMerge('f-1', graph)).toThrow(
+        GraphValidationError,
+      );
+      expect(() => coord.enqueueFeatureMerge('f-1', graph)).toThrow(/cap/);
+    });
+
+    it('uncapped coordinator (no reentryCap arg) always returns ejected', () => {
+      const coord = new MergeTrainCoordinator();
+      const feat = createFeatureFixture({
+        id: 'f-1',
+        workControl: 'awaiting_merge',
+        collabControl: 'merge_queued',
+        mergeTrainReentryCount: 0,
+        mergeTrainEntrySeq: 1,
+      });
+      const graph = buildGraph(feat);
+
+      for (let i = 0; i < 5; i++) {
+        const result = coord.ejectFromQueue('f-1', graph);
+        expect(result).toBe('ejected');
+        // Re-enqueue for next iteration
+        graph.transitionFeature('f-1', { collabControl: 'merge_queued' });
+        graph.updateMergeTrainState('f-1', { mergeTrainEntrySeq: i + 2 });
+      }
+    });
+  });
 });

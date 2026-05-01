@@ -79,9 +79,7 @@ describe('GvcConfigSchema', () => {
 
   it('rejects missing role mapping (REQ-CONFIG-01)', () => {
     const { taskWorker: _drop, ...incomplete } = validMinimal.models;
-    expect(() =>
-      GvcConfigSchema.parse({ models: incomplete }),
-    ).toThrow();
+    expect(() => GvcConfigSchema.parse({ models: incomplete })).toThrow();
   });
 
   it('reports the missing-role path in the error', () => {

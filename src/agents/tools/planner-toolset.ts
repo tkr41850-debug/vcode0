@@ -7,15 +7,21 @@ import type {
   AddTaskOptions,
   DependencyOptions,
   EditFeatureOptions,
+  EditMilestoneOptions,
   EditTaskOptions,
+  MergeFeaturesOptions,
+  MoveFeatureOptions,
   PlannerToolDefinition,
   PlannerToolResult,
   PlannerToolset,
   ProposalToolName,
   RemoveFeatureOptions,
+  RemoveMilestoneOptions,
   RemoveTaskOptions,
+  ReorderTasksOptions,
   SetFeatureDoDOptions,
   SetFeatureObjectiveOptions,
+  SplitFeatureOptions,
   SubmitProposalOptions,
 } from './types.js';
 
@@ -29,6 +35,21 @@ export function createPlannerToolset(
         description: 'Add a new milestone to the proposal graph.',
         execute: (args: AddMilestoneOptions) =>
           Promise.resolve(host.addMilestone(args)),
+      },
+      {
+        name: 'editMilestone',
+        description:
+          'Edit an existing milestone in the proposal graph without changing authoritative state.',
+        execute: (args: EditMilestoneOptions) =>
+          Promise.resolve(host.editMilestone(args)),
+      },
+      {
+        name: 'removeMilestone',
+        description: 'Remove an empty milestone from the proposal graph.',
+        execute: (args: RemoveMilestoneOptions) => {
+          host.removeMilestone(args);
+          return Promise.resolve(undefined);
+        },
       },
       {
         name: 'addFeature',
@@ -53,6 +74,27 @@ export function createPlannerToolset(
           Promise.resolve(host.editFeature(args)),
       },
       {
+        name: 'moveFeature',
+        description:
+          'Move an existing feature to a different milestone in the proposal graph.',
+        execute: (args: MoveFeatureOptions) =>
+          Promise.resolve(host.moveFeature(args)),
+      },
+      {
+        name: 'splitFeature',
+        description:
+          'Split an existing feature into multiple features in the proposal graph.',
+        execute: (args: SplitFeatureOptions) =>
+          Promise.resolve(host.splitFeature(args)),
+      },
+      {
+        name: 'mergeFeatures',
+        description:
+          'Merge multiple existing features into one feature in the proposal graph.',
+        execute: (args: MergeFeaturesOptions) =>
+          Promise.resolve(host.mergeFeatures(args)),
+      },
+      {
         name: 'addTask',
         description: 'Add a task to an existing feature in the proposal graph.',
         execute: (args: AddTaskOptions) => Promise.resolve(host.addTask(args)),
@@ -70,6 +112,13 @@ export function createPlannerToolset(
         description: 'Edit an existing task in the proposal graph.',
         execute: (args: EditTaskOptions) =>
           Promise.resolve(host.editTask(args)),
+      },
+      {
+        name: 'reorderTasks',
+        description:
+          'Reorder all tasks within a feature in the proposal graph.',
+        execute: (args: ReorderTasksOptions) =>
+          Promise.resolve(host.reorderTasks(args)),
       },
       {
         name: 'setFeatureObjective',
@@ -124,6 +173,10 @@ export function formatToolText(
       const milestone = result as Milestone;
       return `Added milestone ${milestone.id} (${milestone.name}).`;
     }
+    case 'editMilestone': {
+      const milestone = result as Milestone;
+      return `Updated milestone ${milestone.id}.`;
+    }
     case 'addFeature': {
       const feature = result as Feature;
       return `Added feature ${feature.id} (${feature.name}).`;
@@ -132,6 +185,18 @@ export function formatToolText(
       const feature = result as Feature;
       return `Updated feature ${feature.id}.`;
     }
+    case 'moveFeature': {
+      const feature = result as Feature;
+      return `Moved feature ${feature.id} to milestone ${feature.milestoneId}.`;
+    }
+    case 'splitFeature': {
+      const features = result as Feature[];
+      return `Split feature into ${features.length} features.`;
+    }
+    case 'mergeFeatures': {
+      const feature = result as Feature;
+      return `Merged features into ${feature.id} (${feature.name}).`;
+    }
     case 'addTask': {
       const task = result as Task;
       return `Added task ${task.id} to feature ${task.featureId}.`;
@@ -139,6 +204,13 @@ export function formatToolText(
     case 'editTask': {
       const task = result as Task;
       return `Updated task ${task.id}.`;
+    }
+    case 'reorderTasks': {
+      const tasks = result as Task[];
+      const featureId = tasks[0]?.featureId;
+      return featureId === undefined
+        ? 'Reordered tasks.'
+        : `Reordered ${tasks.length} tasks in feature ${featureId}.`;
     }
     case 'setFeatureObjective': {
       const feature = result as Feature;
@@ -150,6 +222,8 @@ export function formatToolText(
     }
     case 'submit':
       return 'Proposal submitted.';
+    case 'removeMilestone':
+      return 'Milestone removed from proposal.';
     case 'removeFeature':
       return 'Feature removed from proposal.';
     case 'removeTask':

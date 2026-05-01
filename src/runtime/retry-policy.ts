@@ -67,7 +67,19 @@ export function decideRetry(
   }
 
   const msg = errorToString(error);
-  const isTransient = config.transientErrorPatterns.some((pat) => pat.test(msg));
+  const isNoCommit = /\bno_commit\b/i.test(msg);
+  if (isNoCommit) {
+    const exp = Math.min(
+      config.maxDelayMs,
+      config.baseDelayMs * 2 ** (attempt - 1),
+    );
+    const jitter = Math.floor(Math.random() * MAX_JITTER_MS);
+    return { kind: 'retry', delayMs: exp + jitter, attempt: attempt + 1 };
+  }
+
+  const isTransient = config.transientErrorPatterns.some((pat) =>
+    pat.test(msg),
+  );
   if (!isTransient) {
     return {
       kind: 'escalate_inbox',

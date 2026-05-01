@@ -7,7 +7,7 @@ import {
   createProposalToolHost,
   type DefaultFeaturePhaseToolHost,
 } from '@agents/tools';
-import type { FeatureGraph } from '@core/graph/index';
+import type { FeatureGraph, GraphSnapshot } from '@core/graph/index';
 import type {
   AgentRun,
   DiscussPhaseDetails,
@@ -23,6 +23,7 @@ import type {
   SummarizePhaseDetails,
   SummarizePhaseResult,
   Task,
+  TopPlannerRunContext,
   VerificationSummary,
   VerifyIssue,
 } from '@core/types/index';
@@ -74,6 +75,8 @@ type PhaseResultExtra<Phase extends TextPhase> = Phase extends 'discuss'
     ? ResearchPhaseDetails
     : SummarizePhaseDetails;
 
+type PlannerRunContextLike = FeaturePhaseRunContext | TopPlannerRunContext;
+
 export class PiFeatureAgentRuntime {
   constructor(private readonly deps: FeatureAgentRuntimeConfig) {}
 
@@ -96,6 +99,33 @@ export class PiFeatureAgentRuntime {
     run: FeaturePhaseRunContext,
   ): Promise<ProposalPhaseResult> {
     return this.runProposalPhase('plan', feature, run);
+  }
+
+  async planTopLevel(
+    prompt: string,
+    run: TopPlannerRunContext,
+  ): Promise<ProposalPhaseResult> {
+    const systemPrompt = this.renderTopLevelPlanningPrompt(run);
+    const host = createProposalToolHost(this.deps.graph, 'plan');
+    const tools = buildProposalAgentToolset(host);
+    const messages = await this.loadMessages(run.sessionId);
+    const { agent, model } = this.createTopPlannerAgent(
+      systemPrompt,
+      tools,
+      run,
+      messages,
+    );
+
+    await this.executePromptTurn(agent, prompt);
+    if (!host.wasSubmitted()) {
+      throw new Error('top-level plan must call submit before completion');
+    }
+
+    const finalMessages = agent.state.messages;
+    await this.persistMessages(run, finalMessages, model.provider, model.id);
+    const proposal = host.buildProposal();
+    const details = host.getProposalDetails();
+    return { summary: details.summary, proposal, details };
   }
 
   verifyFeature(
@@ -130,11 +160,12 @@ export class PiFeatureAgentRuntime {
     feature: Feature,
     run: FeaturePhaseRunContext,
   ): Promise<FeaturePhaseResult<PhaseResultExtra<Phase>>> {
-    const prompt = this.renderPrompt({ feature, run, phase });
+    const prompt = await this.renderPrompt({ feature, run, phase });
     const host = createFeaturePhaseToolHost(
       feature.id,
       this.deps.graph,
       this.deps.store,
+      this.deps.projectRoot,
     );
     const tools = buildFeaturePhaseAgentToolset(
       host,
@@ -179,7 +210,7 @@ export class PiFeatureAgentRuntime {
     run: FeaturePhaseRunContext,
     reason?: string,
   ): Promise<ProposalPhaseResult> {
-    const prompt = this.renderPrompt({
+    const prompt = await this.renderPrompt({
       feature,
       run,
       phase,
@@ -190,6 +221,7 @@ export class PiFeatureAgentRuntime {
       feature.id,
       this.deps.graph,
       this.deps.store,
+      this.deps.projectRoot,
     );
     const tools = buildProposalAgentToolset(host, inspectionHost);
     const messages = await this.loadMessages(run.sessionId);
@@ -226,11 +258,12 @@ export class PiFeatureAgentRuntime {
     feature: Feature,
     run: FeaturePhaseRunContext,
   ): Promise<VerificationSummary> {
-    const prompt = this.renderPrompt({ feature, run, phase: 'verify' });
+    const prompt = await this.renderPrompt({ feature, run, phase: 'verify' });
     const host = createFeaturePhaseToolHost(
       feature.id,
       this.deps.graph,
       this.deps.store,
+      this.deps.projectRoot,
     );
     const tools = buildFeaturePhaseAgentToolset(host, 'verify');
     const messages = await this.loadMessages(run.sessionId);
@@ -256,6 +289,9 @@ export class PiFeatureAgentRuntime {
     );
     const verification = host.getVerificationSummary();
     const summary = verification.summary ?? 'Verification complete.';
+    this.deps.store.updateAgentRun(run.agentRunId, {
+      payloadJson: JSON.stringify(verification),
+    });
 
     this.recordPhaseCompletion(
       feature.id,
@@ -268,12 +304,12 @@ export class PiFeatureAgentRuntime {
     return verification;
   }
 
-  private renderPrompt({
+  private async renderPrompt({
     feature,
     run,
     phase,
     reason,
-  }: PhaseContextInput): string {
+  }: PhaseContextInput): Promise<string> {
     const template = this.deps.promptLibrary.get(phaseToTemplateName(phase));
     const events = this.deps.store.listEvents({ entityId: feature.id });
     const tasks = [...this.deps.graph.tasks.values()]
@@ -281,6 +317,21 @@ export class PiFeatureAgentRuntime {
       .sort((a, b) => a.orderInFeature - b.orderInFeature);
     const summaryContext = buildSummaryContext(events, tasks);
     const proposalSummary = summaryContext.planSummary;
+    const changedFiles =
+      phase === 'verify'
+        ? await createFeaturePhaseToolHost(
+            feature.id,
+            this.deps.graph,
+            this.deps.store,
+            this.deps.projectRoot,
+          ).getChangedFiles({ featureId: feature.id })
+        : undefined;
+    const changedFilesText =
+      phase !== 'verify'
+        ? undefined
+        : changedFiles !== undefined && changedFiles.length > 0
+          ? changedFiles.map((file) => `- ${file}`).join('\n')
+          : 'No changes on feature branch vs base.';
 
     return template.render({
       feature,
@@ -304,6 +355,7 @@ export class PiFeatureAgentRuntime {
       ),
       decisions: summarizeEvents(events, ['proposal_applied']),
       successCriteria: summaryContext.successCriteria ?? feature.description,
+      changedFiles: changedFilesText,
       executionEvidence: summaryContext.executionEvidence ?? feature.summary,
       verificationResults: summaryContext.verificationSummary,
       integratedOutcome: summaryContext.integratedOutcome ?? feature.summary,
@@ -323,6 +375,34 @@ export class PiFeatureAgentRuntime {
     });
   }
 
+  private renderTopLevelPlanningPrompt(run: TopPlannerRunContext): string {
+    return renderTopLevelPlanningPrompt({
+      snapshot: this.deps.graph.snapshot(),
+      run,
+    });
+  }
+
+  private createTopPlannerAgent(
+    systemPrompt: string,
+    tools: AgentTool<TSchema, unknown>[],
+    run: TopPlannerRunContext,
+    messages: AgentMessage[],
+  ): { agent: Agent; model: ReturnType<typeof resolveModel> } {
+    return this.buildAgent(
+      systemPrompt,
+      tools,
+      run,
+      messages,
+      resolveModel(
+        {
+          model: `${this.deps.config.models.topPlanner.provider}:${this.deps.config.models.topPlanner.model}`,
+          tier: 'standard',
+        },
+        defaultModelRoutingConfig(this.deps.modelId),
+      ),
+    );
+  }
+
   private createAgent(
     phase: Extract<
       PromptTemplateName,
@@ -330,27 +410,53 @@ export class PiFeatureAgentRuntime {
     >,
     systemPrompt: string,
     tools: AgentTool<TSchema, unknown>[],
-    run: FeaturePhaseRunContext,
+    run: PlannerRunContextLike,
     messages: AgentMessage[],
   ): { agent: Agent; model: ReturnType<typeof resolveModel> } {
-    const model = resolveModel(
-      {
-        model: this.deps.config.modelRouting?.ceiling ?? this.deps.modelId,
-        tier: phaseRoutingTier(phase),
-      },
-      this.deps.config.modelRouting ?? {
-        enabled: false,
-        ceiling: this.deps.modelId,
-        tiers: {
-          heavy: this.deps.modelId,
-          standard: this.deps.modelId,
-          light: this.deps.modelId,
+    return this.buildAgent(
+      systemPrompt,
+      tools,
+      run,
+      messages,
+      resolveModel(
+        {
+          model:
+            this.resolveFeaturePhaseModelSpec(phase) ??
+            this.deps.config.modelRouting?.ceiling ??
+            this.deps.modelId,
+          tier: phaseRoutingTier(phase),
         },
-        escalateOnFailure: false,
-        budgetPressure: false,
-      },
+        defaultModelRoutingConfig(this.deps.modelId, this.deps.config),
+      ),
     );
+  }
 
+  private resolveFeaturePhaseModelSpec(
+    phase: Extract<
+      PromptTemplateName,
+      'discuss' | 'research' | 'plan' | 'verify' | 'summarize' | 'replan'
+    >,
+  ): string | undefined {
+    switch (phase) {
+      case 'plan':
+      case 'replan':
+        return `${this.deps.config.models.featurePlanner.provider}:${this.deps.config.models.featurePlanner.model}`;
+      case 'verify':
+        return `${this.deps.config.models.verifier.provider}:${this.deps.config.models.verifier.model}`;
+      case 'discuss':
+      case 'research':
+      case 'summarize':
+        return undefined;
+    }
+  }
+
+  private buildAgent(
+    systemPrompt: string,
+    tools: AgentTool<TSchema, unknown>[],
+    run: PlannerRunContextLike,
+    messages: AgentMessage[],
+    model: ReturnType<typeof resolveModel>,
+  ): { agent: Agent; model: ReturnType<typeof resolveModel> } {
     const options: NonNullable<ConstructorParameters<typeof Agent>[0]> = {
       initialState: {
         systemPrompt,
@@ -377,6 +483,13 @@ export class PiFeatureAgentRuntime {
     await agent.prompt(promptInput);
   }
 
+  private async executePromptTurn(
+    agent: Agent,
+    promptInput: string,
+  ): Promise<void> {
+    await agent.prompt(promptInput);
+  }
+
   private async loadMessages(
     sessionId: string | undefined,
   ): Promise<AgentMessage[]> {
@@ -387,7 +500,7 @@ export class PiFeatureAgentRuntime {
   }
 
   private async persistMessages(
-    run: FeaturePhaseRunContext,
+    run: PlannerRunContextLike,
     messages: AgentMessage[],
     provider: string,
     model: string,
@@ -1115,6 +1228,87 @@ function renderCodebaseMap(
     `Current phase: ${feature.workControl}`,
     `Feature summary: ${summary ?? 'none yet'}`,
   ].join('\n');
+}
+
+function renderTopLevelPlanningPrompt(params: {
+  snapshot: GraphSnapshot;
+  run: TopPlannerRunContext;
+}): string {
+  const milestoneLines =
+    params.snapshot.milestones.length === 0
+      ? 'No milestones yet.'
+      : params.snapshot.milestones
+          .map((milestone) => {
+            return `- ${milestone.id}: ${milestone.name} [status=${milestone.status}${milestone.steeringQueuePosition !== undefined ? `, queue=${milestone.steeringQueuePosition + 1}` : ''}]`;
+          })
+          .join('\n');
+  const featureLines =
+    params.snapshot.features.length === 0
+      ? 'No features yet.'
+      : params.snapshot.features
+          .map((feature) => {
+            const deps =
+              feature.dependsOn.length > 0
+                ? ` deps=${feature.dependsOn.join(',')}`
+                : '';
+            return `- ${feature.id}: ${feature.name} [milestone=${feature.milestoneId}, work=${feature.workControl}, collab=${feature.collabControl}${deps}]`;
+          })
+          .join('\n');
+
+  return [
+    `You are gvc0's top-level planner agent.
+
+You turn a raw project-planning request into a concrete graph proposal spanning milestones, features, tasks, and dependencies across the whole project graph.`,
+    `## Operating Rules
+- inspect the current graph snapshot below before mutating the draft graph
+- build the proposal with proposal tools such as addMilestone(...), addFeature(...), addTask(...), addDependency(...), and edit/remove variants
+- choose one coherent approach instead of listing many equivalent options
+- sequence work by proof value, dependency clarity, and risk reduction
+- prefer truthful, testable decomposition over speculative architecture
+- when editing existing graph nodes, preserve useful in-flight structure unless the request clearly replaces it
+- use submit(...) exactly once after the draft graph matches your recommendation`,
+    `## Run Context
+- Agent run: ${params.run.agentRunId}${params.run.sessionId !== undefined ? `\n- Session: ${params.run.sessionId}` : ''}`,
+    `## Current Graph Snapshot
+### Milestones (${params.snapshot.milestones.length})
+${milestoneLines}
+
+### Features (${params.snapshot.features.length})
+${featureLines}
+
+### Tasks
+- ${params.snapshot.tasks.length} total tasks currently exist in the graph.`,
+    `## Output Contract
+Your submit(...) payload must include:
+- summary
+- chosen approach
+- key constraints
+- decomposition rationale
+- ordering rationale
+- verification expectations
+- risks, trade-offs, and assumptions that still matter downstream`,
+    `## User Request
+The next user message is the raw top-level planning request. Use that text as the requested outcome.`,
+  ].join('\n\n');
+}
+
+function defaultModelRoutingConfig(
+  modelId: string,
+  config?: GvcConfig,
+): NonNullable<GvcConfig['modelRouting']> {
+  return (
+    config?.modelRouting ?? {
+      enabled: false,
+      ceiling: modelId,
+      tiers: {
+        heavy: modelId,
+        standard: modelId,
+        light: modelId,
+      },
+      escalateOnFailure: false,
+      budgetPressure: false,
+    }
+  );
 }
 
 function getSubmittedPhaseResult<Phase extends TextPhase>(

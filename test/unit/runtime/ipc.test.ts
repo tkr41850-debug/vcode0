@@ -7,7 +7,7 @@ import {
   ChildNdjsonStdioTransport,
   NdjsonStdioTransport,
 } from '@runtime/ipc/index';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 const tick = () => new Promise<void>((r) => process.nextTick(r));
 

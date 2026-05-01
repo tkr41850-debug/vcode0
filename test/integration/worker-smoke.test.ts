@@ -4,7 +4,15 @@ import * as os from 'node:os';
 import { performance } from 'node:perf_hooks';
 import { PassThrough, type Writable } from 'node:stream';
 
-import type { Task } from '@core/types/index';
+import { InMemoryFeatureGraph } from '@core/graph/index';
+import type { AgentRun, Task } from '@core/types/index';
+import type { ConflictCoordinator } from '@orchestrator/conflicts/index';
+import type { FeatureLifecycleCoordinator } from '@orchestrator/features/index';
+import type { OrchestratorPorts } from '@orchestrator/ports/index';
+import { ActiveLocks } from '@orchestrator/scheduler/active-locks';
+import { handleSchedulerEvent } from '@orchestrator/scheduler/events';
+import type { SummaryCoordinator } from '@orchestrator/summaries/index';
+import { respondToInboxHelp } from '@root/compose';
 import type {
   OrchestratorToWorkerMessage,
   WorkerToOrchestratorMessage,
@@ -17,6 +25,12 @@ import {
 import type { SessionStore } from '@runtime/sessions/index';
 import { LocalWorkerPool } from '@runtime/worker-pool';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { testGvcConfigDefaults } from '../helpers/config-fixture.js';
+import {
+  createFeatureFixture,
+  createMilestoneFixture,
+  createTaskFixture,
+} from '../helpers/graph-builders.js';
 
 import {
   createFauxProvider,
@@ -27,6 +41,7 @@ import {
 } from './harness/faux-stream.js';
 import { InMemorySessionStore } from './harness/in-memory-session-store.js';
 import { InProcessHarness } from './harness/in-process-harness.js';
+import { InMemoryStore } from './harness/store-memory.js';
 
 /**
  * End-to-end smoke test for the runtime plumbing: registers pi-ai's faux
@@ -71,7 +86,7 @@ describe('worker smoke (faux provider + in-process harness)', () => {
     });
 
     completions = [];
-    pool = new LocalWorkerPool(harness, 1, (message) => {
+    pool = new LocalWorkerPool(harness, 2, (message) => {
       completions.push(message);
     });
   });
@@ -156,7 +171,10 @@ describe('worker smoke (faux provider + in-process harness)', () => {
       ): message is WorkerToOrchestratorMessage & { type: 'request_help' } =>
         message.type === 'request_help' && message.taskId === task.id,
     );
-    expect(helpRequest).toMatchObject({ query: 'Need operator guidance' });
+    expect(helpRequest).toMatchObject({
+      query: 'Need operator guidance',
+      toolCallId: expect.any(String),
+    });
     expect(
       completions.some(
         (message) => message.type === 'result' && message.taskId === task.id,
@@ -231,6 +249,7 @@ describe('worker smoke (faux provider + in-process harness)', () => {
         label: 'Need approval',
         detail: 'Proceed with guarded change',
       },
+      toolCallId: expect.any(String),
     });
     expect(
       completions.some(
@@ -256,6 +275,378 @@ describe('worker smoke (faux provider + in-process harness)', () => {
         filesChanged: ['src/approval.ts'],
       },
     });
+  });
+
+  it('checkpoints a help wait after the hot window, then resumes from persisted tool output', async () => {
+    pool = new LocalWorkerPool(
+      harness,
+      2,
+      (message) => {
+        completions.push(message);
+      },
+      undefined,
+      {
+        hotWindowMs: 10,
+      },
+    );
+    faux.setResponses([
+      fauxAssistantMessage(
+        [fauxToolCall('request_help', { query: 'Need operator guidance' })],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage(
+        [
+          fauxToolCall('submit', {
+            summary: 'completed after help',
+            filesChanged: ['src/help.ts'],
+          }),
+        ],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage([fauxText('done after help')]),
+    ]);
+
+    const graph = new InMemoryFeatureGraph({
+      milestones: [createMilestoneFixture()],
+      features: [
+        createFeatureFixture({
+          id: 'f-smoke',
+          workControl: 'executing',
+          collabControl: 'branch_open',
+        }),
+      ],
+      tasks: [
+        createTaskFixture({
+          id: 't-help-checkpointed',
+          featureId: 'f-smoke',
+          description: 'Task checkpointed',
+          status: 'running',
+          collabControl: 'branch_open',
+        }),
+      ],
+    });
+    const store = new InMemoryStore();
+    const task = makeTask({ id: 't-help-checkpointed' });
+    const dispatch = await pool.dispatchTask(
+      task,
+      { mode: 'start', agentRunId: 'run-task:t-help-checkpointed' },
+      {},
+    );
+    store.createAgentRun({
+      id: 'run-task:t-help-checkpointed',
+      scopeType: 'task',
+      scopeId: 't-help-checkpointed',
+      phase: 'execute',
+      runStatus: 'running',
+      owner: 'system',
+      attention: 'none',
+      restartCount: 0,
+      maxRetries: 3,
+      sessionId: dispatch.sessionId,
+    } as AgentRun);
+
+    const helpRequest = await waitForMessage(
+      completions,
+      (
+        message,
+      ): message is WorkerToOrchestratorMessage & { type: 'request_help' } =>
+        message.type === 'request_help' && message.taskId === task.id,
+    );
+
+    const ports = {
+      store,
+      runtime: pool,
+      config: testGvcConfigDefaults(),
+    } as unknown as OrchestratorPorts;
+    const features = {
+      onTaskLanded: vi.fn(),
+      createIntegrationRepair: vi.fn(),
+      completePhase: vi.fn(),
+      completeIntegration: vi.fn(),
+      failIntegration: vi.fn(),
+      beginNextIntegration: vi.fn(),
+    } as unknown as FeatureLifecycleCoordinator;
+    const conflicts = {
+      reconcileSameFeatureTasks: vi.fn(() => Promise.resolve()),
+      releaseCrossFeatureOverlap: vi.fn(() => Promise.resolve([])),
+      resumeCrossFeatureTasks: vi.fn(() =>
+        Promise.resolve({ kind: 'resumed' }),
+      ),
+      clearCrossFeatureBlock: vi.fn(),
+    } as unknown as ConflictCoordinator;
+    const summaries = {
+      completeSummary: vi.fn(),
+      reconcilePostMerge: vi.fn(),
+    } as unknown as SummaryCoordinator;
+
+    await handleSchedulerEvent({
+      event: { type: 'worker_message', message: helpRequest },
+      graph,
+      ports,
+      features,
+      conflicts,
+      summaries,
+      activeLocks: new ActiveLocks(),
+      emitEmptyVerificationChecksWarning: () => {},
+      cancelFeatureRunWork: () => Promise.resolve(),
+      onShutdown: () => {},
+    });
+
+    const checkpointed = await waitForMessage(
+      completions,
+      (
+        message,
+      ): message is WorkerToOrchestratorMessage & {
+        type: 'wait_checkpointed';
+      } => message.type === 'wait_checkpointed' && message.taskId === task.id,
+    );
+
+    await handleSchedulerEvent({
+      event: { type: 'worker_message', message: checkpointed },
+      graph,
+      ports,
+      features,
+      conflicts,
+      summaries,
+      activeLocks: new ActiveLocks(),
+      emitEmptyVerificationChecksWarning: () => {},
+      cancelFeatureRunWork: () => Promise.resolve(),
+      onShutdown: () => {},
+    });
+
+    expect(store.getAgentRun('run-task:t-help-checkpointed')).toMatchObject({
+      runStatus: 'checkpointed_await_response',
+      owner: 'manual',
+    });
+    const inboxItem = store.listInboxItems({
+      unresolvedOnly: true,
+      kind: 'agent_help',
+    })[0];
+    expect(inboxItem).toBeDefined();
+    if (inboxItem === undefined) {
+      throw new Error('expected unresolved checkpointed help inbox item');
+    }
+
+    await expect(
+      respondToInboxHelp(
+        { store, runtime: pool, graph, projectRoot: os.tmpdir() },
+        inboxItem.id,
+        {
+          kind: 'answer',
+          text: 'Use option B',
+        },
+      ),
+    ).resolves.toBe('Sent help response to t-help-checkpointed.');
+
+    await harness.drain();
+
+    const result = completions.find(
+      (message): message is WorkerToOrchestratorMessage & { type: 'result' } =>
+        message.type === 'result' && message.taskId === task.id,
+    );
+    expect(result).toMatchObject({
+      agentRunId: 'run-task:t-help-checkpointed',
+      completionKind: 'submitted',
+      result: {
+        summary: 'completed after help',
+        filesChanged: ['src/help.ts'],
+      },
+    });
+  });
+
+  it('fans one inbox help answer out to multiple equivalent live waits', async () => {
+    faux.setResponses([
+      fauxAssistantMessage(
+        [fauxToolCall('request_help', { query: 'Need operator guidance' })],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage(
+        [fauxToolCall('request_help', { query: 'Need operator guidance' })],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage([fauxText('done after shared help')]),
+      fauxAssistantMessage([fauxText('done after shared help')]),
+    ]);
+
+    const graph = new InMemoryFeatureGraph({
+      milestones: [createMilestoneFixture()],
+      features: [
+        createFeatureFixture({
+          id: 'f-smoke',
+          workControl: 'executing',
+          collabControl: 'branch_open',
+        }),
+      ],
+      tasks: [
+        createTaskFixture({
+          id: 't-help-a',
+          featureId: 'f-smoke',
+          description: 'Task A',
+          status: 'running',
+          collabControl: 'branch_open',
+        }),
+        createTaskFixture({
+          id: 't-help-b',
+          featureId: 'f-smoke',
+          description: 'Task B',
+          orderInFeature: 1,
+          status: 'running',
+          collabControl: 'branch_open',
+        }),
+      ],
+    });
+    const store = new InMemoryStore();
+
+    const taskA = makeTask({ id: 't-help-a' });
+    const taskB = makeTask({ id: 't-help-b' });
+    const dispatchA = await pool.dispatchTask(
+      taskA,
+      { mode: 'start', agentRunId: 'run-task:t-help-a' },
+      {},
+    );
+    const dispatchB = await pool.dispatchTask(
+      taskB,
+      { mode: 'start', agentRunId: 'run-task:t-help-b' },
+      {},
+    );
+
+    store.createAgentRun({
+      id: 'run-task:t-help-a',
+      scopeType: 'task',
+      scopeId: 't-help-a',
+      phase: 'execute',
+      runStatus: 'running',
+      owner: 'system',
+      attention: 'none',
+      restartCount: 0,
+      maxRetries: 3,
+      sessionId: dispatchA.sessionId,
+    } as AgentRun);
+    store.createAgentRun({
+      id: 'run-task:t-help-b',
+      scopeType: 'task',
+      scopeId: 't-help-b',
+      phase: 'execute',
+      runStatus: 'running',
+      owner: 'system',
+      attention: 'none',
+      restartCount: 0,
+      maxRetries: 3,
+      sessionId: dispatchB.sessionId,
+    } as AgentRun);
+
+    const helpA = await waitForMessage(
+      completions,
+      (
+        message,
+      ): message is WorkerToOrchestratorMessage & { type: 'request_help' } =>
+        message.type === 'request_help' && message.taskId === 't-help-a',
+    );
+    const helpB = await waitForMessage(
+      completions,
+      (
+        message,
+      ): message is WorkerToOrchestratorMessage & { type: 'request_help' } =>
+        message.type === 'request_help' && message.taskId === 't-help-b',
+    );
+
+    const ports = {
+      store,
+      runtime: pool,
+      config: testGvcConfigDefaults(),
+    } as unknown as OrchestratorPorts;
+    const features = {
+      onTaskLanded: vi.fn(),
+      createIntegrationRepair: vi.fn(),
+      completePhase: vi.fn(),
+      completeIntegration: vi.fn(),
+      failIntegration: vi.fn(),
+      beginNextIntegration: vi.fn(),
+    } as unknown as FeatureLifecycleCoordinator;
+    const conflicts = {
+      reconcileSameFeatureTasks: vi.fn(() => Promise.resolve()),
+      releaseCrossFeatureOverlap: vi.fn(() => Promise.resolve([])),
+      resumeCrossFeatureTasks: vi.fn(() =>
+        Promise.resolve({ kind: 'resumed' }),
+      ),
+      clearCrossFeatureBlock: vi.fn(),
+    } as unknown as ConflictCoordinator;
+    const summaries = {
+      completeSummary: vi.fn(),
+      reconcilePostMerge: vi.fn(),
+    } as unknown as SummaryCoordinator;
+
+    await handleSchedulerEvent({
+      event: { type: 'worker_message', message: helpA },
+      graph,
+      ports,
+      features,
+      conflicts,
+      summaries,
+      activeLocks: new ActiveLocks(),
+      emitEmptyVerificationChecksWarning: () => {},
+      cancelFeatureRunWork: () => Promise.resolve(),
+      onShutdown: () => {},
+    });
+    await handleSchedulerEvent({
+      event: { type: 'worker_message', message: helpB },
+      graph,
+      ports,
+      features,
+      conflicts,
+      summaries,
+      activeLocks: new ActiveLocks(),
+      emitEmptyVerificationChecksWarning: () => {},
+      cancelFeatureRunWork: () => Promise.resolve(),
+      onShutdown: () => {},
+    });
+
+    const inboxItems = store.listInboxItems({
+      unresolvedOnly: true,
+      kind: 'agent_help',
+    });
+    expect(inboxItems).toHaveLength(2);
+
+    const [firstInboxItem] = inboxItems;
+    expect(firstInboxItem).toBeDefined();
+    if (firstInboxItem === undefined) {
+      throw new Error('expected unresolved agent_help inbox item');
+    }
+
+    await expect(
+      respondToInboxHelp({ store, runtime: pool }, firstInboxItem.id, {
+        kind: 'answer',
+        text: 'Use option B',
+      }),
+    ).resolves.toBe('Sent help response to t-help-a, t-help-b.');
+
+    await harness.drain();
+
+    const resolvedItems = store.listInboxItems({ kind: 'agent_help' });
+    expect(resolvedItems).toHaveLength(2);
+    for (const item of resolvedItems) {
+      expect(item.resolution).toEqual({
+        kind: 'answered',
+        resolvedAt: expect.any(Number),
+        note: 'Use option B',
+        fanoutTaskIds: ['t-help-a', 't-help-b'],
+      });
+    }
+    expect(store.getAgentRun('run-task:t-help-a')).toMatchObject({
+      runStatus: 'running',
+      owner: 'manual',
+    });
+    expect(store.getAgentRun('run-task:t-help-b')).toMatchObject({
+      runStatus: 'running',
+      owner: 'manual',
+    });
+
+    const results = completions.filter(
+      (message): message is WorkerToOrchestratorMessage & { type: 'result' } =>
+        message.type === 'result' &&
+        (message.taskId === 't-help-a' || message.taskId === 't-help-b'),
+    );
+    expect(results).toHaveLength(2);
   });
 });
 
@@ -340,6 +731,20 @@ function makeTask(id: `t-${string}` = 't-smoke'): Task {
     status: 'ready',
     collabControl: 'none',
   };
+}
+
+async function waitForMessage<T extends WorkerToOrchestratorMessage>(
+  completions: WorkerToOrchestratorMessage[],
+  predicate: (msg: WorkerToOrchestratorMessage) => msg is T,
+  timeoutMs = 5000,
+): Promise<T> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const found = completions.find(predicate);
+    if (found !== undefined) return found;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error('timed out waiting for message');
 }
 
 describe('worker NDJSON hardening — malformed-line survival', () => {

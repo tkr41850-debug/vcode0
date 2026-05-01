@@ -33,17 +33,24 @@ function makeEnv(
   overrides: Partial<
     Omit<
       ComposerProposalEnvironment,
-      'enqueueApprovalDecision' | 'enqueueRerun'
+      | 'enqueueApprovalDecision'
+      | 'enqueueTopPlannerApprovalDecision'
+      | 'enqueueRerun'
+      | 'enqueueTopPlannerRerun'
     >
   > = {},
 ): ComposerProposalEnvironment & {
   enqueueApprovalDecision: ReturnType<typeof vi.fn>;
+  enqueueTopPlannerApprovalDecision: ReturnType<typeof vi.fn>;
   enqueueRerun: ReturnType<typeof vi.fn>;
+  enqueueTopPlannerRerun: ReturnType<typeof vi.fn>;
 } {
   let autoEnabled = true;
   const runs = new Map<string, AgentRun>();
   const enqueueApprovalDecision = vi.fn();
+  const enqueueTopPlannerApprovalDecision = vi.fn();
   const enqueueRerun = vi.fn();
+  const enqueueTopPlannerRerun = vi.fn();
 
   return {
     snapshot: () => graph.snapshot(),
@@ -56,11 +63,17 @@ function makeEnv(
       const run = runs.get(`run-feature:${featureId}:${phase}`);
       return run?.scopeType === 'feature_phase' ? run : undefined;
     },
+    getTopPlannerRun: () => {
+      const run = runs.get('run-top-planner');
+      return run?.scopeType === 'top_planner' ? run : undefined;
+    },
     saveFeatureRun: (run) => {
       runs.set(run.id, run);
     },
     enqueueApprovalDecision,
+    enqueueTopPlannerApprovalDecision,
     enqueueRerun,
+    enqueueTopPlannerRerun,
     ...overrides,
   };
 }
@@ -249,6 +262,118 @@ describe('ComposerProposalController', () => {
         (feature) => feature.name === 'Selection feature',
       ),
     ).toBe(true);
+  });
+
+  it('stages feature move on the draft graph', async () => {
+    const graph = makePlanningGraph();
+    graph.createMilestone({
+      id: 'm-2',
+      name: 'Milestone 2',
+      description: 'desc',
+    });
+    const controller = new ComposerProposalController(makeEnv(graph));
+
+    const result = await controller.execute(
+      '/feature-move --feature f-1 --milestone m-2',
+      { featureId: 'f-1' },
+    );
+
+    expect(result.message).toBe('Moved feature f-1 to milestone m-2.');
+    expect(
+      controller
+        .getDraftSnapshot()
+        ?.features.find((feature) => feature.id === 'f-1'),
+    ).toEqual(expect.objectContaining({ milestoneId: 'm-2' }));
+    expect(graph.features.get('f-1')?.milestoneId).toBe('m-1');
+  });
+
+  it('stages feature split, merge, and task reorder on the draft graph', async () => {
+    const graph = makePlanningGraph();
+    graph.createFeature({
+      id: 'f-2',
+      milestoneId: 'm-1',
+      name: 'Second feature',
+      description: 'desc',
+    });
+    updateFeature(graph, 'f-2', {
+      workControl: 'planning',
+      collabControl: 'none',
+    });
+    graph.createTask({ id: 't-1', featureId: 'f-1', description: 'Task 1' });
+    graph.createTask({ id: 't-2', featureId: 'f-1', description: 'Task 2' });
+    const controller = new ComposerProposalController(makeEnv(graph));
+
+    await controller.execute(
+      '/feature-split --feature f-2 "api|API feature|API work" "ui|UI feature|UI work|api"',
+      { featureId: 'f-1' },
+    );
+    const splitSnapshot = controller.getDraftSnapshot();
+    expect(
+      splitSnapshot?.features.find((feature) => feature.id === 'f-3'),
+    ).toEqual(expect.objectContaining({ name: 'API feature', dependsOn: [] }));
+    expect(
+      splitSnapshot?.features.find((feature) => feature.id === 'f-4'),
+    ).toEqual(
+      expect.objectContaining({ name: 'UI feature', dependsOn: ['f-3'] }),
+    );
+
+    const mergeResult = await controller.execute(
+      '/feature-merge --name "Merged feature" f-3 f-4',
+      { featureId: 'f-1' },
+    );
+    const reorderResult = await controller.execute(
+      '/task-reorder --feature f-1 t-2 t-1',
+      { featureId: 'f-1' },
+    );
+
+    const draftSnapshot = controller.getDraftSnapshot();
+    const reorderedTasks = draftSnapshot?.tasks
+      .filter((task) => task.featureId === 'f-1')
+      .sort((left, right) => left.orderInFeature - right.orderInFeature)
+      .map((task) => task.id);
+    expect(mergeResult.message).toBe('Merged features into f-3.');
+    expect(reorderResult.message).toBe('Reordered 2 tasks in feature f-1.');
+    expect(
+      draftSnapshot?.features.find((feature) => feature.id === 'f-3'),
+    ).toEqual(expect.objectContaining({ name: 'Merged feature' }));
+    expect(
+      draftSnapshot?.features.some((feature) => feature.id === 'f-2'),
+    ).toBe(false);
+    expect(
+      draftSnapshot?.features.some((feature) => feature.id === 'f-4'),
+    ).toBe(false);
+    expect(reorderedTasks).toEqual(['t-2', 't-1']);
+  });
+
+  it('rejects malformed split specs, duplicate split aliases, missing merge ids, and incomplete reorder lists', async () => {
+    const graph = makePlanningGraph();
+    graph.createTask({ id: 't-1', featureId: 'f-1', description: 'Task 1' });
+    graph.createTask({ id: 't-2', featureId: 'f-1', description: 'Task 2' });
+    const controller = new ComposerProposalController(makeEnv(graph));
+
+    await expect(
+      controller.execute('/feature-split --feature f-1 "api|API feature"', {
+        featureId: 'f-1',
+      }),
+    ).rejects.toThrow('invalid split spec "api|API feature"');
+    await expect(
+      controller.execute(
+        '/feature-split --feature f-1 "api|API feature|API work" "api|UI feature|UI work"',
+        { featureId: 'f-1' },
+      ),
+    ).rejects.toThrow('duplicate split alias "api"');
+    await expect(
+      controller.execute('/feature-merge --name "Merged feature"', {
+        featureId: 'f-1',
+      }),
+    ).rejects.toThrow('feature merge requires at least two feature ids');
+    await expect(
+      controller.execute('/task-reorder --feature f-1 t-1', {
+        featureId: 'f-1',
+      }),
+    ).rejects.toThrow(
+      'task reorder requires all 2 tasks for feature "f-1", got 1',
+    );
   });
 
   it('rejects missing selection or draft preconditions with exact messages', async () => {

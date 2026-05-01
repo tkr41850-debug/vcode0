@@ -11,12 +11,12 @@ import { ConflictCoordinator } from '@orchestrator/conflicts/index';
 import type { OrchestratorPorts } from '@orchestrator/ports/index';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { testGvcConfigDefaults } from '../../helpers/config-fixture.js';
 import {
   createFeatureFixture,
   createTaskFixture,
   updateTask,
 } from '../../helpers/graph-builders.js';
-import { testGvcConfigDefaults } from '../../helpers/config-fixture.js';
 import { useTmpDir } from '../../helpers/tmp-dir.js';
 import { InMemorySessionStore } from '../../integration/harness/in-memory-session-store.js';
 
@@ -37,6 +37,7 @@ function createPorts(root: string): OrchestratorPorts {
       ensureFeatureWorktree: () => Promise.resolve(root),
       ensureTaskWorktree: () => Promise.resolve(root),
       removeWorktree: () => Promise.resolve(),
+      deleteBranch: () => Promise.resolve(),
       pruneStaleWorktrees: () => Promise.resolve([]),
       sweepStaleLocks: () => Promise.resolve([]),
     },

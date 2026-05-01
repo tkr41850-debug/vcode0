@@ -46,7 +46,9 @@ describe('maybeInjectTrailer', () => {
     expect(maybeInjectTrailer('git status', TASK_ID, RUN_ID)).toBe(
       'git status',
     );
-    expect(maybeInjectTrailer('git log -5', TASK_ID, RUN_ID)).toBe('git log -5');
+    expect(maybeInjectTrailer('git log -5', TASK_ID, RUN_ID)).toBe(
+      'git log -5',
+    );
     expect(maybeInjectTrailer('git show HEAD', TASK_ID, RUN_ID)).toBe(
       'git show HEAD',
     );

@@ -279,11 +279,15 @@ export function agentRunToRow(
     max_retries: r.maxRetries,
     restart_count: r.restartCount,
     retry_at: nullish(r.retryAt),
+    trailer_observed_at: nullish(r.trailerObservedAt),
   };
   if (r.scopeType === 'task') {
     return { ...base, scope_type: 'task', scope_id: r.scopeId };
   }
-  return { ...base, scope_type: 'feature_phase', scope_id: r.scopeId };
+  if (r.scopeType === 'feature_phase') {
+    return { ...base, scope_type: 'feature_phase', scope_id: r.scopeId };
+  }
+  return { ...base, scope_type: 'top_planner', scope_id: r.scopeId };
 }
 
 export function rowToAgentRun(row: AgentRunRow): AgentRun {
@@ -302,13 +306,21 @@ export function rowToAgentRun(row: AgentRunRow): AgentRun {
       parseJson<TokenUsageAggregate>(row.token_usage) ?? undefined,
     ),
     ...optional('retryAt', row.retry_at),
+    ...optional('trailerObservedAt', row.trailer_observed_at),
   };
   if (row.scope_type === 'task') {
     return { ...base, scopeType: 'task', scopeId: row.scope_id };
   }
+  if (row.scope_type === 'feature_phase') {
+    return {
+      ...base,
+      scopeType: 'feature_phase',
+      scopeId: row.scope_id,
+    };
+  }
   return {
     ...base,
-    scopeType: 'feature_phase',
+    scopeType: 'top_planner',
     scopeId: row.scope_id,
   };
 }

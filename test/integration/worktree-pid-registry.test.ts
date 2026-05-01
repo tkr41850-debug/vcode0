@@ -1,13 +1,12 @@
 import type { ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { PassThrough, Writable } from 'node:stream';
-
+import type { AgentRun } from '@core/types/index';
 import { openDatabase } from '@persistence/db';
 import { SqliteStore } from '@persistence/sqlite-store';
 import { PiSdkHarness } from '@runtime/harness/index';
 import type { SessionStore } from '@runtime/sessions/index';
 import { createWorkerPidRegistry } from '@runtime/worktree/pid-registry';
-import type { AgentRun } from '@core/types/index';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createTaskFixture } from '../helpers/graph-builders.js';
@@ -167,9 +166,8 @@ describe('WorkerPidRegistry ↔ PiSdkHarness lifecycle', () => {
     const seenInsideHandler: Array<number | undefined> = [];
     handle.onExit(() => {
       seenInsideHandler.push(
-        store
-          .getLiveWorkerPids()
-          .find((r) => r.agentRunId === 'run-int-err')?.pid,
+        store.getLiveWorkerPids().find((r) => r.agentRunId === 'run-int-err')
+          ?.pid,
       );
     });
 

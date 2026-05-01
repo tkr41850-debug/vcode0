@@ -41,7 +41,9 @@ export function deriveTaskBlocked(
 
   if (
     run.runStatus === 'await_response' ||
-    run.runStatus === 'await_approval'
+    run.runStatus === 'await_approval' ||
+    run.runStatus === 'checkpointed_await_response' ||
+    run.runStatus === 'checkpointed_await_approval'
   ) {
     return true;
   }

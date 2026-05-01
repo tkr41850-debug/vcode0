@@ -1,7 +1,6 @@
-import { describe, expect, it, vi } from 'vitest';
-
 import type { ClaimLockResult, IpcBridge } from '@agents/worker';
 import { createPathLockClaimer } from '@agents/worker/path-lock';
+import { describe, expect, it, vi } from 'vitest';
 
 /**
  * Plan 03-04, Task 3: narrow regression coverage for the path-lock
@@ -25,6 +24,7 @@ function stubBridge(response: ClaimLockResult): {
     progress: () => {},
     requestHelp: () => Promise.resolve({ kind: 'discuss' as const }),
     requestApproval: () => Promise.resolve({ kind: 'approved' as const }),
+    recordToolOutput: () => Promise.resolve(),
     claimLock,
     submitResult: () => {},
   };

@@ -56,7 +56,15 @@ export type DiscussPhaseResult = FeaturePhaseResult<DiscussPhaseDetails>;
 export type ResearchPhaseResult = FeaturePhaseResult<ResearchPhaseDetails>;
 export type SummarizePhaseResult = FeaturePhaseResult<SummarizePhaseDetails>;
 
-export interface FeaturePhaseRunContext {
+export type PlannerSessionMode = 'continue' | 'fresh';
+
+export interface PlannerRunContext {
   agentRunId: string;
   sessionId?: string;
+}
+
+export type FeaturePhaseRunContext = PlannerRunContext;
+
+export interface TopPlannerRunContext extends PlannerRunContext {
+  sessionMode?: PlannerSessionMode;
 }

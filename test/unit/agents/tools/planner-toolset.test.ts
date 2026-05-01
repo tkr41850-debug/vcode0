@@ -45,12 +45,18 @@ describe('createPlannerToolset', () => {
 
     expect(toolset.tools.map((tool) => tool.name)).toEqual([
       'addMilestone',
+      'editMilestone',
+      'removeMilestone',
       'addFeature',
       'removeFeature',
       'editFeature',
+      'moveFeature',
+      'splitFeature',
+      'mergeFeatures',
       'addTask',
       'removeTask',
       'editTask',
+      'reorderTasks',
       'setFeatureObjective',
       'setFeatureDoD',
       'addDependency',
@@ -92,6 +98,13 @@ describe('createPlannerToolset', () => {
       description: 'Draft task',
     });
 
+    const reorderedTasks = await requireTool(toolset, 'reorderTasks').execute({
+      featureId: 'f-1',
+      taskIds: [task.id],
+    });
+    expect(reorderedTasks).toHaveLength(1);
+    expect(reorderedTasks[0]?.id).toBe(task.id);
+
     await requireTool(toolset, 'submit').execute(proposalDetails);
     expect(host.wasSubmitted()).toBe(true);
   });
@@ -107,6 +120,7 @@ describe('createPlannerToolset', () => {
     });
 
     expect(formatToolText('addMilestone', milestone)).toContain(milestone.id);
+    expect(formatToolText('reorderTasks', [])).toContain('Reordered tasks');
     expect(formatToolText('submit', undefined)).toContain('submitted');
     expect(formatToolText('removeFeature', undefined)).toContain('removed');
   });

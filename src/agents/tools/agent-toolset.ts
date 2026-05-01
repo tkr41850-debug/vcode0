@@ -122,8 +122,10 @@ function buildFeatureInspectionTools(
       description:
         'Collect deduplicated files changed by landed tasks for current feature.',
       parameters: featurePhaseToolParameters.getChangedFiles,
-      execute: (_toolCallId: string, args: unknown) => {
-        const result = host.getChangedFiles(args as GetChangedFilesOptions);
+      execute: async (_toolCallId: string, args: unknown) => {
+        const result = await host.getChangedFiles(
+          args as GetChangedFilesOptions,
+        );
         return buildToolResult(
           `Collected ${result.length} changed files.`,
           result,

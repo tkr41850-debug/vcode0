@@ -46,9 +46,7 @@ const MAX_STREAM_BYTES = 1 * 1024 * 1024;
  * completes (exit 0) and we've asserted the required trailers. Wires into
  * the worker runtime to emit a `commit_done` IPC frame.
  */
-export interface CommitDoneEmitter {
-  (sha: string, trailerOk: boolean): void;
-}
+export type CommitDoneEmitter = (sha: string, trailerOk: boolean) => void;
 
 export interface RunCommandDeps {
   /** Absolute path to the task's git worktree. */
@@ -160,7 +158,12 @@ function runQuick(
   cwd: string,
 ): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
   return new Promise((resolve, reject) => {
-    const child = spawn(args[0]!, args.slice(1), {
+    const [command, ...rest] = args;
+    if (command === undefined) {
+      reject(new Error('runQuick requires at least one argv entry'));
+      return;
+    }
+    const child = spawn(command, rest, {
       cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -198,13 +201,20 @@ export function createRunCommandTool(
       // Rewrite git-commit invocations so every worker-produced commit
       // carries the required trailers. `maybeInjectTrailer` is a no-op for
       // every other command (git status, git log, npm test, …).
+      const commitTrailerRef =
+        cfg.taskId !== undefined && cfg.agentRunId !== undefined
+          ? { taskId: cfg.taskId, agentRunId: cfg.agentRunId }
+          : undefined;
       const needsTrailerRewrite =
-        isGitCommitCommand(params.command) &&
-        cfg.taskId !== undefined &&
-        cfg.agentRunId !== undefined;
-      const rewritten = needsTrailerRewrite
-        ? maybeInjectTrailer(params.command, cfg.taskId!, cfg.agentRunId!)
-        : params.command;
+        isGitCommitCommand(params.command) && commitTrailerRef !== undefined;
+      const rewritten =
+        commitTrailerRef !== undefined && needsTrailerRewrite
+          ? maybeInjectTrailer(
+              params.command,
+              commitTrailerRef.taskId,
+              commitTrailerRef.agentRunId,
+            )
+          : params.command;
 
       const result = await runShell(rewritten, cfg.workdir, timeoutMs, signal);
 
@@ -213,7 +223,8 @@ export function createRunCommandTool(
         needsTrailerRewrite &&
         result.exitCode === 0 &&
         !result.timedOut &&
-        cfg.onCommitDone !== undefined
+        cfg.onCommitDone !== undefined &&
+        commitTrailerRef !== undefined
       ) {
         try {
           const shaRes = await runQuick(
@@ -237,8 +248,8 @@ export function createRunCommandTool(
               trailerRes.stdout.length > 0 ? trailerRes.stdout : logRes.stdout;
             const trailerOk = validateTrailers(
               trailerSource,
-              cfg.taskId!,
-              cfg.agentRunId!,
+              commitTrailerRef.taskId,
+              commitTrailerRef.agentRunId,
             );
             cfg.onCommitDone(sha, trailerOk);
           }

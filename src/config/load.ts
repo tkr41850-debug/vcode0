@@ -11,6 +11,7 @@ export interface ConfigLoader {
 }
 
 export interface ConfigSource extends ConfigLoader {
+  save(config: GvcConfig): Promise<void>;
   /**
    * Phase-2 stub. Returns a no-op disposable so callers can wire the API shape
    * now; Phase 7 replaces with a real fs.watch wiring for whitelisted
@@ -23,9 +24,7 @@ export class JsonConfigLoader implements ConfigSource {
   constructor(private readonly configPath: string = DEFAULT_CONFIG_PATH) {}
 
   async load(): Promise<GvcConfig> {
-    const resolved = path.isAbsolute(this.configPath)
-      ? this.configPath
-      : path.resolve(process.cwd(), this.configPath);
+    const resolved = this.resolvePrimaryPath();
 
     let raw: string;
     try {
@@ -49,28 +48,18 @@ export class JsonConfigLoader implements ConfigSource {
       }
     }
 
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(raw);
-    } catch (err) {
-      throw new Error(
-        `Invalid JSON in ${resolved}: ${(err as Error).message}`,
-      );
-    }
+    return parseConfig(raw, resolved);
+  }
 
-    const result = GvcConfigSchema.safeParse(parsed);
-    if (!result.success) {
-      const firstIssue = result.error.issues[0];
-      if (firstIssue === undefined) {
-        throw new Error(`Invalid config at ${resolved}: unknown validation error`);
-      }
-      const fieldPath =
-        firstIssue.path.length > 0 ? firstIssue.path.join('.') : '(root)';
-      throw new Error(
-        `Invalid config at ${resolved}: field \`${fieldPath}\` — ${firstIssue.message}`,
-      );
-    }
-    return result.data;
+  async save(config: GvcConfig): Promise<void> {
+    const resolved = this.resolvePrimaryPath();
+    const validated = GvcConfigSchema.parse(config);
+    await fs.mkdir(path.dirname(resolved), { recursive: true });
+    await fs.writeFile(
+      resolved,
+      `${JSON.stringify(validated, null, 2)}\n`,
+      'utf-8',
+    );
   }
 
   watch(): { close(): void } {
@@ -80,6 +69,37 @@ export class JsonConfigLoader implements ConfigSource {
       },
     };
   }
+
+  private resolvePrimaryPath(): string {
+    return path.isAbsolute(this.configPath)
+      ? this.configPath
+      : path.resolve(process.cwd(), this.configPath);
+  }
+}
+
+function parseConfig(raw: string, resolved: string): GvcConfig {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    throw new Error(`Invalid JSON in ${resolved}: ${(err as Error).message}`);
+  }
+
+  const result = GvcConfigSchema.safeParse(parsed);
+  if (!result.success) {
+    const firstIssue = result.error.issues[0];
+    if (firstIssue === undefined) {
+      throw new Error(
+        `Invalid config at ${resolved}: unknown validation error`,
+      );
+    }
+    const fieldPath =
+      firstIssue.path.length > 0 ? firstIssue.path.join('.') : '(root)';
+    throw new Error(
+      `Invalid config at ${resolved}: field \`${fieldPath}\` — ${firstIssue.message}`,
+    );
+  }
+  return result.data;
 }
 
 function isEnoent(err: unknown): boolean {

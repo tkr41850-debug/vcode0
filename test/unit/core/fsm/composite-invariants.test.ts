@@ -60,15 +60,17 @@ const COLLAB_VALUES: readonly CollabControl[] = [
   'cancelled',
 ] as const;
 
-// Only the AgentRunStatus values documented in plan 01-01 as the run-state
-// axis. The type also includes 'completed' and 'failed' terminal states, but
-// the six values below are the axis the plan asked to exhaustively test.
+// Only the AgentRunStatus values exercised by the composite guard matrix.
+// The type also includes terminal states like 'failed' and 'cancelled';
+// this matrix keeps the active and completed states needed for the cross-axis rules.
 const RUN_VALUES: readonly RunState[] = [
   'ready',
   'running',
   'retry_await',
   'await_response',
   'await_approval',
+  'checkpointed_await_response',
+  'checkpointed_await_approval',
   'completed',
 ] as const;
 
@@ -116,9 +118,19 @@ function isLegalByRules(
     if (illegalWhenCancelled.includes(work)) return false;
   }
   // Rule 5
-  if (collab === 'merge_queued' && run === 'await_response') return false;
+  if (
+    collab === 'merge_queued' &&
+    (run === 'await_response' || run === 'checkpointed_await_response')
+  ) {
+    return false;
+  }
   // Rule 6
-  if (collab === 'merge_queued' && run === 'await_approval') return false;
+  if (
+    collab === 'merge_queued' &&
+    (run === 'await_approval' || run === 'checkpointed_await_approval')
+  ) {
+    return false;
+  }
   // Rule 7
   const preBranch: readonly WorkControl[] = [
     'discussing',
@@ -129,7 +141,12 @@ function isLegalByRules(
     return false;
   }
   // Rule 8
-  if (run === 'await_response' || run === 'await_approval') {
+  if (
+    run === 'await_response' ||
+    run === 'await_approval' ||
+    run === 'checkpointed_await_response' ||
+    run === 'checkpointed_await_approval'
+  ) {
     if (
       work === 'work_complete' ||
       collab === 'merged' ||
@@ -146,7 +163,7 @@ function isLegalByRules(
 
 describe('compositeGuard exhaustive matrix', () => {
   // Manually enumerate the matrix so each (work × collab × run) combo gets
-  // its own `it` block. This produces 10 × 7 × 6 = 420 test cases.
+  // its own `it` block. This produces 10 × 7 × 8 = 560 test cases.
   for (const work of WORK_VALUES) {
     for (const collab of COLLAB_VALUES) {
       for (const run of RUN_VALUES) {

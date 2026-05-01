@@ -98,6 +98,8 @@ function seedAll(store: SqliteStore): void {
     'retry_await',
     'await_response',
     'await_approval',
+    'checkpointed_await_response',
+    'checkpointed_await_approval',
   ];
   for (const s of openStatuses) {
     const run: AgentRun = {

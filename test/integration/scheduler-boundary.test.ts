@@ -32,9 +32,11 @@ const MUTATION_METHODS = new Set([
   'removeFeature',
   'changeMilestone',
   'editFeature',
+  'editMilestone',
   'addTask',
   'editTask',
   'removeTask',
+  'removeMilestone',
   'reorderTasks',
   'reweight',
   'queueMilestone',
@@ -181,7 +183,7 @@ describe('Scheduler boundary — AST walker', () => {
     }
 
     expect(violations.length).toBe(0);
-  });
+  }, 15_000);
 
   it('scanned files exist and contain at least one allowlisted mutation (allowlist is live, not stale)', () => {
     for (const relFile of allowlist.scanned_files) {

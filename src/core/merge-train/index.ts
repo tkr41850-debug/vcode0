@@ -2,14 +2,64 @@ import type { FeatureGraph } from '@core/graph/index';
 import { GraphValidationError } from '@core/graph/index';
 import type { Feature, FeatureId } from '@core/types/index';
 
+export type MergeTrainPriorityFeature = Pick<
+  Feature,
+  'mergeTrainManualPosition' | 'mergeTrainReentryCount' | 'mergeTrainEntrySeq'
+>;
+
+export function compareMergeTrainPriority(
+  left: MergeTrainPriorityFeature,
+  right: MergeTrainPriorityFeature,
+): number {
+  const leftHasPosition = left.mergeTrainManualPosition !== undefined;
+  const rightHasPosition = right.mergeTrainManualPosition !== undefined;
+  if (leftHasPosition && !rightHasPosition) {
+    return -1;
+  }
+  if (!leftHasPosition && rightHasPosition) {
+    return 1;
+  }
+  if (leftHasPosition && rightHasPosition) {
+    const positionDiff =
+      (left.mergeTrainManualPosition ?? 0) -
+      (right.mergeTrainManualPosition ?? 0);
+    if (positionDiff !== 0) {
+      return positionDiff;
+    }
+  }
+
+  const reentryDiff =
+    (right.mergeTrainReentryCount ?? 0) - (left.mergeTrainReentryCount ?? 0);
+  if (reentryDiff !== 0) {
+    return reentryDiff;
+  }
+
+  return (left.mergeTrainEntrySeq ?? 0) - (right.mergeTrainEntrySeq ?? 0);
+}
+
 export class MergeTrainCoordinator {
   private _entrySeq = 0;
+  private _reentryCap: number | undefined;
+
+  constructor(reentryCap?: number) {
+    this._reentryCap = reentryCap;
+  }
+
+  get reentryCap(): number | undefined {
+    return this._reentryCap;
+  }
+
+  setReentryCap(reentryCap: number | undefined): void {
+    this._reentryCap = reentryCap;
+  }
 
   /**
    * Add a feature to the merge queue.
    *
    * Validates the feature exists, is in `awaiting_merge` work control,
    * and all feature dependencies have `collabControl === 'merged'`.
+   * Throws `GraphValidationError` if the feature has already reached the
+   * re-entry cap.
    */
   enqueueFeatureMerge(featureId: FeatureId, graph: FeatureGraph): void {
     const feature = graph.features.get(featureId);
@@ -30,6 +80,13 @@ export class MergeTrainCoordinator {
           `Feature "${featureId}" depends on "${depId}" which is not merged (collabControl: "${dep?.collabControl ?? 'missing'}")`,
         );
       }
+    }
+
+    const currentCount = feature.mergeTrainReentryCount ?? 0;
+    if (this._reentryCap !== undefined && currentCount >= this._reentryCap) {
+      throw new GraphValidationError(
+        `Feature "${featureId}" has reached the merge-train re-entry cap (${currentCount}/${this._reentryCap})`,
+      );
     }
 
     this._entrySeq++;
@@ -62,26 +119,7 @@ export class MergeTrainCoordinator {
       return undefined;
     }
 
-    queued.sort((a, b) => {
-      // 1. Manual position: features with a position come first, lower position wins
-      const aHasPos = a.mergeTrainManualPosition !== undefined;
-      const bHasPos = b.mergeTrainManualPosition !== undefined;
-      if (aHasPos && !bHasPos) return -1;
-      if (!aHasPos && bHasPos) return 1;
-      if (aHasPos && bHasPos) {
-        const posDiff =
-          (a.mergeTrainManualPosition ?? 0) - (b.mergeTrainManualPosition ?? 0);
-        if (posDiff !== 0) return posDiff;
-      }
-
-      // 2. Re-entry count descending (higher count = higher priority)
-      const reentryDiff =
-        (b.mergeTrainReentryCount ?? 0) - (a.mergeTrainReentryCount ?? 0);
-      if (reentryDiff !== 0) return reentryDiff;
-
-      // 3. Entry sequence ascending (earlier = higher priority)
-      return (a.mergeTrainEntrySeq ?? 0) - (b.mergeTrainEntrySeq ?? 0);
-    });
+    queued.sort(compareMergeTrainPriority);
 
     const first = queued[0];
     return first?.id;
@@ -134,9 +172,14 @@ export class MergeTrainCoordinator {
    * Remove a feature from the queue for repair.
    *
    * Sets collabControl back to 'branch_open', clears position fields,
-   * and increments mergeTrainReentryCount.
+   * and increments mergeTrainReentryCount. Returns 'cap_reached' when the
+   * post-increment count meets or exceeds the configured re-entry cap;
+   * returns 'ejected' otherwise (including when no cap is configured).
    */
-  ejectFromQueue(featureId: FeatureId, graph: FeatureGraph): void {
+  ejectFromQueue(
+    featureId: FeatureId,
+    graph: FeatureGraph,
+  ): 'ejected' | 'cap_reached' {
     const feature = graph.features.get(featureId);
     if (!feature) {
       throw new GraphValidationError(`Feature "${featureId}" does not exist`);
@@ -151,5 +194,10 @@ export class MergeTrainCoordinator {
       mergeTrainEntrySeq: undefined,
       mergeTrainReentryCount: reentryCount,
     });
+
+    if (this._reentryCap !== undefined && reentryCount >= this._reentryCap) {
+      return 'cap_reached';
+    }
+    return 'ejected';
   }
 }

@@ -1,4 +1,7 @@
+import * as path from 'node:path';
+
 import type { FeatureGraph } from '@core/graph/index';
+import { worktreePath } from '@core/naming/index';
 import type {
   AgentRun,
   DiscussPhaseResult,
@@ -12,6 +15,7 @@ import type {
   VerifyIssue,
 } from '@core/types/index';
 import type { Store } from '@orchestrator/ports/index';
+import { simpleGit } from 'simple-git';
 
 import type {
   GetChangedFilesOptions,
@@ -30,6 +34,8 @@ import type {
 
 type HostStore = Pick<Store, 'listAgentRuns' | 'listEvents' | 'appendEvent'>;
 
+const DEFAULT_CHANGED_FILES_BASE_REF = 'main';
+
 export class DefaultFeaturePhaseToolHost {
   private discuss: DiscussPhaseResult | undefined;
   private research: ResearchPhaseResult | undefined;
@@ -41,6 +47,7 @@ export class DefaultFeaturePhaseToolHost {
     private readonly featureId: FeatureId,
     private readonly graph: FeatureGraph,
     private readonly store: HostStore,
+    private readonly projectRoot = process.cwd(),
   ) {}
 
   getFeatureState(args: GetFeatureStateOptions): Feature {
@@ -94,20 +101,17 @@ export class DefaultFeaturePhaseToolHost {
       .sort((a, b) => a.id.localeCompare(b.id));
   }
 
-  getChangedFiles(args: GetChangedFilesOptions): string[] {
-    const tasks = this.listFeatureTasks(
-      args.featureId !== undefined ? { featureId: args.featureId } : {},
+  async getChangedFiles(args: GetChangedFilesOptions): Promise<string[]> {
+    const feature = this.requireFeature(this.resolveFeatureId(args.featureId));
+    const baseRef = args.baseRef ?? DEFAULT_CHANGED_FILES_BASE_REF;
+    const git = simpleGit(
+      path.resolve(this.projectRoot, worktreePath(feature.featureBranch)),
     );
-    const files = new Set<string>();
-    for (const task of tasks) {
-      for (const file of task.result?.filesChanged ?? []) {
-        const trimmed = file.trim();
-        if (trimmed.length > 0) {
-          files.add(trimmed);
-        }
-      }
-    }
-    return [...files];
+    const diff = await git.raw(['diff', '--name-only', `${baseRef}...HEAD`]);
+    return diff
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
   }
 
   submitDiscuss(args: SubmitDiscussOptions): DiscussPhaseResult {
@@ -290,8 +294,9 @@ export function createFeaturePhaseToolHost(
   featureId: FeatureId,
   graph: FeatureGraph,
   store: HostStore,
+  projectRoot?: string,
 ): DefaultFeaturePhaseToolHost {
-  return new DefaultFeaturePhaseToolHost(featureId, graph, store);
+  return new DefaultFeaturePhaseToolHost(featureId, graph, store, projectRoot);
 }
 
 function readEventPhase(event: EventRecord): AgentRun['phase'] | undefined {

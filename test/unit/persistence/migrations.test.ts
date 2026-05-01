@@ -130,6 +130,14 @@ describe('persistence migrations', () => {
     expect(columns).toContain('token_usage');
   });
 
+  it('applies the trailer_observed_at audit column on agent_runs', () => {
+    const columns = db
+      .prepare<[], { name: string }>("PRAGMA table_info('agent_runs')")
+      .all()
+      .map((row) => row.name);
+    expect(columns).toContain('trailer_observed_at');
+  });
+
   it('enforces core foreign key relationships', () => {
     expect(() => {
       db.prepare(

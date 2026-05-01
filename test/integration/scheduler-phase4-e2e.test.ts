@@ -127,9 +127,17 @@ function createStoreStub(): Store {
     appendInboxItem: () => {
       /* no-op */
     },
+    listInboxItems: () => [],
+    resolveInboxItem: () => {
+      /* no-op */
+    },
     setLastCommitSha: () => {
       /* no-op */
     },
+    setTrailerObservedAt: () => {
+      /* no-op */
+    },
+    getTrailerObservedAt: () => undefined,
     close: () => {
       /* no-op */
     },
@@ -268,6 +276,7 @@ function buildPorts(dispatched: DispatchRecord[]): OrchestratorPorts {
       ensureFeatureWorktree: () => Promise.resolve('/repo'),
       ensureTaskWorktree: () => Promise.resolve('/repo'),
       removeWorktree: () => Promise.resolve(),
+      deleteBranch: () => Promise.resolve(),
       pruneStaleWorktrees: () => Promise.resolve([]),
       sweepStaleLocks: () => Promise.resolve([]),
     },

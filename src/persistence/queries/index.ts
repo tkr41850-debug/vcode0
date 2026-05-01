@@ -13,6 +13,7 @@ import type {
   TaskSuspendReason,
   TaskWeight,
   TestPolicy,
+  TopPlannerScopeId,
   UnitStatus,
 } from '@core/types/index';
 
@@ -97,6 +98,7 @@ interface BaseAgentRunRow {
   max_retries: number;
   restart_count: number;
   retry_at: number | null;
+  trailer_observed_at: number | null;
   created_at: number;
   updated_at: number;
 }
@@ -111,7 +113,15 @@ export interface FeaturePhaseAgentRunRow extends BaseAgentRunRow {
   scope_id: FeatureId;
 }
 
-export type AgentRunRow = TaskAgentRunRow | FeaturePhaseAgentRunRow;
+export interface TopPlannerAgentRunRow extends BaseAgentRunRow {
+  scope_type: 'top_planner';
+  scope_id: TopPlannerScopeId;
+}
+
+export type AgentRunRow =
+  | TaskAgentRunRow
+  | FeaturePhaseAgentRunRow
+  | TopPlannerAgentRunRow;
 
 export interface FeatureDependencyRow {
   from_id: FeatureId;
@@ -133,6 +143,17 @@ export interface EventRow {
   event_type: string;
   entity_id: string;
   payload: string | null;
+}
+
+export interface InboxItemRow {
+  id: string;
+  ts: number;
+  task_id: string | null;
+  agent_run_id: string | null;
+  feature_id: string | null;
+  kind: string;
+  payload: string;
+  resolution: string | null;
 }
 
 export class QuerySerializer {

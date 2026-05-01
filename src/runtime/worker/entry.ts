@@ -14,8 +14,11 @@ console.warn = stderrWrite;
 
 // console.error already goes to stderr
 
+import * as path from 'node:path';
+
 import type { OrchestratorToWorkerMessage } from '@runtime/contracts';
 import { ChildNdjsonStdioTransport } from '@runtime/ipc/index';
+import { createFileToolOutputStore } from '@runtime/resume';
 import { FileSessionStore } from '@runtime/sessions/index';
 import { WorkerRuntime } from '@runtime/worker/index';
 import { resolveWorkerProjectRoot } from '@runtime/worker/project-root';
@@ -69,6 +72,10 @@ transport.onMessage((message: OrchestratorToWorkerMessage) => {
         if (apiProvider === 'openai') return process.env.OPENAI_API_KEY;
         return undefined;
       },
+      createToolOutputStore: (sessionId: string) =>
+        createFileToolOutputStore(
+          path.join(projectRoot, '.gvc0', 'tool-outputs', sessionId),
+        ),
     });
 
     runtime

@@ -19,6 +19,7 @@ function createStubBridge(
     progress: () => {},
     requestHelp: () => Promise.resolve({ kind: 'discuss' as const }),
     requestApproval: () => Promise.resolve({ kind: 'approved' as const }),
+    recordToolOutput: () => Promise.resolve(),
     claimLock: claimLockMock,
     submitResult: () => {},
   } satisfies IpcBridge;

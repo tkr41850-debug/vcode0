@@ -9,8 +9,10 @@ import { describe, expect, it } from 'vitest';
 //   running → retry_await | await_response | await_approval
 //           | completed | failed | cancelled
 //   retry_await → ready | running | cancelled
-//   await_response → ready | running | cancelled
-//   await_approval → ready | running | cancelled
+//   await_response → checkpointed_await_response | ready | running | cancelled
+//   await_approval → checkpointed_await_approval | ready | running | cancelled
+//   checkpointed_await_response → ready | running | cancelled
+//   checkpointed_await_approval → ready | running | cancelled
 //
 //   Terminals: completed, failed, cancelled — no outbound transitions.
 //
@@ -48,12 +50,20 @@ describe('run-state axis — help / approval overlays', () => {
   });
 
   it.each([
+    ['await_response', 'checkpointed_await_response'],
     ['await_response', 'ready'],
     ['await_response', 'running'],
     ['await_response', 'cancelled'],
+    ['await_approval', 'checkpointed_await_approval'],
     ['await_approval', 'ready'],
     ['await_approval', 'running'],
     ['await_approval', 'cancelled'],
+    ['checkpointed_await_response', 'ready'],
+    ['checkpointed_await_response', 'running'],
+    ['checkpointed_await_response', 'cancelled'],
+    ['checkpointed_await_approval', 'ready'],
+    ['checkpointed_await_approval', 'running'],
+    ['checkpointed_await_approval', 'cancelled'],
   ] as const satisfies readonly (readonly [
     RunState,
     RunState,
@@ -101,6 +111,10 @@ describe('run-state axis — illegal transitions', () => {
     ['await_approval', 'await_response'],
     ['await_response', 'retry_await'],
     ['await_approval', 'retry_await'],
+    ['checkpointed_await_response', 'await_response'],
+    ['checkpointed_await_response', 'checkpointed_await_approval'],
+    ['checkpointed_await_approval', 'await_approval'],
+    ['checkpointed_await_approval', 'checkpointed_await_response'],
     // retry_await cannot skip directly to wait overlays or terminals
     ['retry_await', 'await_response'],
     ['retry_await', 'await_approval'],

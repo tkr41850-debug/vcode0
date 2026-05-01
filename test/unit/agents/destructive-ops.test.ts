@@ -1,14 +1,13 @@
-import type {
-  AgentContext,
-  BeforeToolCallContext,
-} from '@mariozechner/pi-agent-core';
-import { describe, expect, it } from 'vitest';
-
 import {
   DESTRUCTIVE_PATTERNS,
   describeDestructive,
   destructiveOpGuard,
 } from '@agents/worker/destructive-ops';
+import type {
+  AgentContext,
+  BeforeToolCallContext,
+} from '@mariozechner/pi-agent-core';
+import { describe, expect, it } from 'vitest';
 
 /**
  * Plan 03-04, Task 3: exercise the two destructive-op surfaces —

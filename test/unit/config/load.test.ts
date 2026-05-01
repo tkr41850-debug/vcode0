@@ -49,7 +49,7 @@ describe('JsonConfigLoader', () => {
     const p = join(tmp, 'broken.json');
     writeFileSync(p, '{ not json');
     await expect(new JsonConfigLoader(p).load()).rejects.toThrow(
-      new RegExp(`Invalid JSON in .*broken.json`),
+      /Invalid JSON in .*broken.json/,
     );
   });
 
@@ -69,7 +69,35 @@ describe('JsonConfigLoader', () => {
     expect(err).toBeInstanceOf(Error);
     expect((err as Error).message).toMatch(/Invalid config at .*invalid.json/);
     // First reported issue should name a concrete field path.
-    expect((err as Error).message).toMatch(/field `models\.(featurePlanner|taskWorker|verifier)`/);
+    expect((err as Error).message).toMatch(
+      /field `models\.(featurePlanner|taskWorker|verifier)`/,
+    );
+  });
+
+  it('persists validated config back to disk', async () => {
+    const p = join(tmp, 'gvc0.config.json');
+    writeFileSync(p, JSON.stringify(VALID_BODY));
+    const loader = new JsonConfigLoader(p);
+    const cfg = await loader.load();
+
+    await loader.save({
+      ...cfg,
+      workerCap: 7,
+      retryCap: 9,
+      reentryCap: 4,
+      pauseTimeouts: { hotWindowMs: 1234 },
+      models: {
+        ...cfg.models,
+        verifier: { provider: 'anthropic', model: 'claude-opus-4-7' },
+      },
+    });
+
+    const reparsed = await loader.load();
+    expect(reparsed.workerCap).toBe(7);
+    expect(reparsed.retryCap).toBe(9);
+    expect(reparsed.reentryCap).toBe(4);
+    expect(reparsed.pauseTimeouts.hotWindowMs).toBe(1234);
+    expect(reparsed.models.verifier.model).toBe('claude-opus-4-7');
   });
 
   it('watch() returns a disposable with a close() that does not throw', async () => {

@@ -1,6 +1,6 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-
+import { resolveVerificationLayerConfig } from '@config';
 import { worktreePath } from '@core/naming/index';
 import type {
   Feature,
@@ -8,7 +8,6 @@ import type {
   VerificationSummary,
 } from '@core/types/index';
 import type { OrchestratorPorts } from '@orchestrator/ports/index';
-import { resolveVerificationLayerConfig } from '@config';
 
 import {
   formatVerificationResult,

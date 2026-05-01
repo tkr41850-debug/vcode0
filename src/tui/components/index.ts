@@ -7,10 +7,14 @@ import {
 import type { TuiKeybindHint } from '@tui/commands/index';
 import type {
   ComposerViewModel,
+  ConfigOverlayViewModel,
   DagNodeViewModel,
   DependencyDetailViewModel,
   EmptyStateViewModel,
+  InboxOverlayViewModel,
+  MergeTrainOverlayViewModel,
   StatusBarViewModel,
+  TaskTranscriptViewModel,
   WorkerLogViewModel,
 } from '@tui/view-model/index';
 
@@ -111,7 +115,7 @@ export class StatusBar implements Component {
     const bottom = this.model.notice
       ? `notice: ${this.model.notice}`
       : this.model.pendingProposalPhase !== undefined
-        ? `approval: ${this.model.pendingProposalPhase}`
+        ? `approval: ${this.model.pendingProposalPhase}${this.model.pendingProposalHint !== undefined ? ` (${this.model.pendingProposalHint})` : ''}`
         : this.model.selectedLabel
           ? `selected: ${this.model.selectedLabel}`
           : `keys: ${keybindSummary}`;
@@ -332,6 +336,123 @@ export class DependencyDetailOverlay implements Component {
           ];
 
     return drawBox(' Dependency Detail [d/q/esc hide] ', body, safeWidth);
+  }
+
+  invalidate(): void {}
+}
+
+export class InboxOverlay implements Component {
+  private model: InboxOverlayViewModel = {
+    items: [],
+    unresolvedCount: 0,
+  };
+
+  setModel(model: InboxOverlayViewModel): void {
+    this.model = model;
+  }
+
+  render(width: number): string[] {
+    const safeWidth = Math.max(1, width);
+    const body =
+      this.model.items.length === 0
+        ? ['No pending inbox items.']
+        : this.model.items.map((item) => {
+            return `${item.id} [${item.kind}] ${item.summary}`;
+          });
+
+    return drawBox(
+      ` Inbox [${this.model.unresolvedCount} pending] [i/q/esc hide] `,
+      body,
+      safeWidth,
+    );
+  }
+
+  invalidate(): void {}
+}
+
+export class MergeTrainOverlay implements Component {
+  private model: MergeTrainOverlayViewModel = {
+    items: [],
+    integratingCount: 0,
+    queuedCount: 0,
+  };
+
+  setModel(model: MergeTrainOverlayViewModel): void {
+    this.model = model;
+  }
+
+  render(width: number): string[] {
+    const safeWidth = Math.max(1, width);
+    const body =
+      this.model.items.length === 0
+        ? ['No integrating or queued features.']
+        : this.model.items.map((item) => {
+            return `${item.label} [${item.state}] ${item.summary}`;
+          });
+
+    return drawBox(
+      ` Merge Train [${this.model.integratingCount} active, ${this.model.queuedCount} queued] [t/q/esc hide] `,
+      body,
+      safeWidth,
+    );
+  }
+
+  invalidate(): void {}
+}
+
+export class ConfigOverlay implements Component {
+  private model: ConfigOverlayViewModel = {
+    entries: [],
+  };
+
+  setModel(model: ConfigOverlayViewModel): void {
+    this.model = model;
+  }
+
+  render(width: number): string[] {
+    const safeWidth = Math.max(1, width);
+    const body =
+      this.model.entries.length === 0
+        ? ['No editable config values.']
+        : [
+            ...this.model.entries.map(
+              (entry) => `${entry.key} = ${entry.value}`,
+            ),
+            'Use /config-set --key <path> --value "..." to update a value.',
+          ];
+
+    return drawBox(' Config [c/q/esc hide] ', body, safeWidth);
+  }
+
+  invalidate(): void {}
+}
+
+export class TaskTranscriptOverlay implements Component {
+  private model: TaskTranscriptViewModel = {
+    taskId: undefined,
+    label: 'no task selected',
+    lines: [],
+  };
+  private readonly maxVisibleLines = 12;
+
+  setModel(model: TaskTranscriptViewModel): void {
+    this.model = model;
+  }
+
+  render(width: number): string[] {
+    const safeWidth = Math.max(1, width);
+    const body =
+      this.model.taskId === undefined
+        ? ['No task selected.']
+        : this.model.lines.length === 0
+          ? ['No output yet.']
+          : this.model.lines.slice(-this.maxVisibleLines);
+
+    return drawBox(
+      ` Transcript: ${this.model.label} [r/q/esc hide] `,
+      body,
+      safeWidth,
+    );
   }
 
   invalidate(): void {}

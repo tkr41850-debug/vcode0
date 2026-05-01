@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 
 import {
   createPromptLibrary,
@@ -6,6 +8,7 @@ import {
   type PromptLibrary,
   promptLibrary,
 } from '@agents';
+import { worktreePath } from '@core/naming/index';
 import type {
   DiscussPhaseDetails,
   EventRecord,
@@ -14,12 +17,15 @@ import type {
   GvcConfig,
   ProposalPhaseDetails,
   SummarizePhaseDetails,
+  TopPlannerRunContext,
   VerificationCriterionEvidence,
 } from '@core/types/index';
+import { simpleGit } from 'simple-git';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { testGvcConfigDefaults } from '../../helpers/config-fixture.js';
 import { createGraphWithFeature } from '../../helpers/graph-builders.js';
+import { useTmpDir } from '../../helpers/tmp-dir.js';
 import {
   createFauxProvider,
   type FauxProviderRegistration,
@@ -52,6 +58,8 @@ function createFeatureGraph(): {
   return { graph, feature };
 }
 
+const getTmpDir = useTmpDir('agents-runtime');
+
 function createFeatureRun(
   phase: FeaturePhaseAgentRun['phase'],
 ): FeaturePhaseAgentRun {
@@ -73,6 +81,7 @@ function createRuntimeFixture(
   options: {
     config?: Partial<GvcConfig>;
     promptLibrary?: PromptLibrary;
+    projectRoot?: string;
   } = {},
 ): {
   graph: ReturnType<typeof createGraphWithFeature>;
@@ -95,10 +104,46 @@ function createRuntimeFixture(
     graph,
     store,
     sessionStore,
-    projectRoot: '/repo',
+    projectRoot: options.projectRoot ?? '/repo',
   });
 
   return { graph, feature, store, sessionStore, run, runtime };
+}
+
+async function initFeatureWorktreeRepo(
+  projectRoot: string,
+  feature: Feature,
+  changes: Array<{ filePath: string; content: string }> = [],
+): Promise<string> {
+  const worktreeDir = path.join(
+    projectRoot,
+    worktreePath(feature.featureBranch),
+  );
+  await fs.mkdir(worktreeDir, { recursive: true });
+
+  const git = simpleGit(worktreeDir);
+  await git.init();
+  await git.addConfig('user.email', 'test@example.com', false, 'local');
+  await git.addConfig('user.name', 'Test Runner', false, 'local');
+
+  await fs.writeFile(path.join(worktreeDir, 'seed.txt'), 'seed\n');
+  await git.add(['seed.txt']);
+  await git.commit('seed');
+  await git.branch(['-M', 'main']);
+  await git.checkoutLocalBranch(feature.featureBranch);
+
+  for (const change of changes) {
+    const filePath = path.join(worktreeDir, change.filePath);
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.writeFile(filePath, change.content);
+  }
+
+  if (changes.length > 0) {
+    await git.add(['.']);
+    await git.commit('feature changes');
+  }
+
+  return worktreeDir;
 }
 
 function addMergedTask(
@@ -205,7 +250,11 @@ describe('PiFeatureAgentRuntime', () => {
     faux = createFauxProvider({
       api: 'anthropic-messages',
       provider: 'anthropic',
-      models: [{ id: 'claude-sonnet-4-6' }],
+      models: [
+        { id: 'claude-sonnet-4-6' },
+        { id: 'claude-opus-4-7' },
+        { id: 'claude-haiku-4-5' },
+      ],
     });
   });
 
@@ -315,8 +364,14 @@ describe('PiFeatureAgentRuntime', () => {
       fauxAssistantMessage([fauxText('Summary structured.')]),
     ]);
 
-    const { graph, feature, store, run, runtime } =
-      createRuntimeFixture('summarize');
+    const projectRoot = getTmpDir();
+    const { graph, feature, store, run, runtime } = createRuntimeFixture(
+      'summarize',
+      { projectRoot },
+    );
+    await initFeatureWorktreeRepo(projectRoot, feature, [
+      { filePath: 'src/api.ts', content: 'export const api = true;\n' },
+    ]);
     addMergedTask(graph, feature.id, 't-1', 'Task 1', {
       summary: 'Implemented API path',
       filesChanged: ['src/api.ts'],
@@ -333,7 +388,7 @@ describe('PiFeatureAgentRuntime', () => {
     });
 
     expect(result).toEqual({ summary: 'Summary after inspection.', extra });
-  });
+  }, 20_000);
 
   it('builds plan prompt from structured discuss and research outputs', async () => {
     const { library, captured } = createPromptCapturingLibrary();
@@ -448,6 +503,174 @@ describe('PiFeatureAgentRuntime', () => {
     });
   });
 
+  it('uses config.models.featurePlanner for plan instead of the routing ceiling', async () => {
+    faux.setResponses([
+      fauxAssistantMessage(
+        [
+          fauxToolCall('addTask', {
+            featureId: 'f-1',
+            description: 'Draft task',
+            reservedWritePaths: ['src/new.ts'],
+          }),
+          fauxToolCall('submit', proposalDetails),
+        ],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage([fauxText('Plan ready.')]),
+    ]);
+
+    const { feature, store, run, runtime } = createRuntimeFixture('plan', {
+      config: {
+        models: {
+          ...testGvcConfigDefaults().models,
+          featurePlanner: { provider: 'anthropic', model: 'claude-opus-4-7' },
+        },
+        modelRouting: {
+          enabled: true,
+          ceiling: 'claude-sonnet-4-6',
+          tiers: {
+            heavy: 'claude-sonnet-4-6',
+            standard: 'claude-sonnet-4-6',
+            light: 'claude-sonnet-4-6',
+          },
+          escalateOnFailure: false,
+          budgetPressure: false,
+        },
+      },
+    });
+
+    await runtime.planFeature(feature, {
+      agentRunId: run.id,
+    });
+
+    expect(
+      Object.keys(store.getAgentRun(run.id)?.tokenUsage?.byModel ?? {}),
+    ).toEqual(['anthropic:claude-opus-4-7']);
+  });
+
+  it('uses config.models.featurePlanner for replan instead of the routing ceiling', async () => {
+    faux.setResponses([
+      fauxAssistantMessage(
+        [
+          fauxToolCall('addTask', {
+            featureId: 'f-1',
+            description: 'Replanned task',
+            reservedWritePaths: ['src/replan.ts'],
+          }),
+          fauxToolCall('submit', proposalDetails),
+        ],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage([fauxText('Replan ready.')]),
+    ]);
+
+    const { feature, store, run, runtime } = createRuntimeFixture('replan', {
+      config: {
+        models: {
+          ...testGvcConfigDefaults().models,
+          featurePlanner: { provider: 'anthropic', model: 'claude-opus-4-7' },
+        },
+        modelRouting: {
+          enabled: true,
+          ceiling: 'claude-sonnet-4-6',
+          tiers: {
+            heavy: 'claude-sonnet-4-6',
+            standard: 'claude-sonnet-4-6',
+            light: 'claude-sonnet-4-6',
+          },
+          escalateOnFailure: false,
+          budgetPressure: false,
+        },
+      },
+    });
+
+    await runtime.replanFeature(feature, 'Need revised task order.', {
+      agentRunId: run.id,
+    });
+
+    expect(
+      Object.keys(store.getAgentRun(run.id)?.tokenUsage?.byModel ?? {}),
+    ).toEqual(['anthropic:claude-opus-4-7']);
+  });
+
+  it('reuses top-planner sessions by prompting a new turn instead of continuing blindly', async () => {
+    faux.setResponses([
+      fauxAssistantMessage(
+        [
+          fauxToolCall('addTask', {
+            featureId: 'f-1',
+            description: 'Draft task from continued session',
+          }),
+          fauxToolCall('submit', proposalDetails),
+        ],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage([fauxText('Plan ready again.')]),
+    ]);
+
+    const { graph, store, sessionStore } = createRuntimeFixture('plan');
+    const runtime = new PiFeatureAgentRuntime({
+      modelId: 'claude-sonnet-4-6',
+      config: createConfig({
+        models: {
+          ...testGvcConfigDefaults().models,
+          topPlanner: { provider: 'anthropic', model: 'claude-haiku-4-5' },
+        },
+      }),
+      promptLibrary,
+      graph,
+      store,
+      sessionStore,
+      projectRoot: '/repo',
+    });
+    store.createAgentRun({
+      id: 'run-top-planner',
+      scopeType: 'top_planner',
+      scopeId: 'top-planner',
+      phase: 'plan',
+      runStatus: 'running',
+      owner: 'system',
+      attention: 'none',
+      restartCount: 0,
+      maxRetries: 3,
+      sessionId: 'sess-top-1',
+    });
+    await sessionStore.save('sess-top-1', [
+      { role: 'user', content: 'first top planner prompt', timestamp: 1 },
+    ]);
+
+    const result = await runtime.planTopLevel('second top planner prompt', {
+      agentRunId: 'run-top-planner',
+      sessionId: 'sess-top-1',
+      sessionMode: 'continue',
+    } satisfies TopPlannerRunContext);
+
+    expect(result.summary).toBe('Plan ready.');
+    expect(store.getAgentRun('run-top-planner')).toEqual(
+      expect.objectContaining({ sessionId: 'sess-top-1' }),
+    );
+    expect(
+      Object.keys(
+        store.getAgentRun('run-top-planner')?.tokenUsage?.byModel ?? {},
+      ),
+    ).toEqual(['anthropic:claude-haiku-4-5']);
+    const messages = await sessionStore.load('sess-top-1');
+    expect(messages).not.toBeNull();
+    expect(messages?.filter((message) => message.role === 'user')).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ content: 'first top planner prompt' }),
+        expect.objectContaining({
+          content: [
+            expect.objectContaining({
+              type: 'text',
+              text: 'second top planner prompt',
+            }),
+          ],
+        }),
+      ]),
+    );
+  });
+
   it('returns structured verify repair-needed failures from submitVerify', async () => {
     const criteriaEvidence: VerificationCriterionEvidence[] = [
       {
@@ -473,7 +696,30 @@ describe('PiFeatureAgentRuntime', () => {
       fauxAssistantMessage([fauxText('Verification structured.')]),
     ]);
 
-    const { feature, store, run, runtime } = createRuntimeFixture('verify');
+    const projectRoot = getTmpDir();
+    const { feature, store, run, runtime } = createRuntimeFixture('verify', {
+      projectRoot,
+      config: {
+        models: {
+          ...testGvcConfigDefaults().models,
+          verifier: { provider: 'anthropic', model: 'claude-opus-4-7' },
+        },
+        modelRouting: {
+          enabled: true,
+          ceiling: 'claude-sonnet-4-6',
+          tiers: {
+            heavy: 'claude-sonnet-4-6',
+            standard: 'claude-sonnet-4-6',
+            light: 'claude-sonnet-4-6',
+          },
+          escalateOnFailure: false,
+          budgetPressure: false,
+        },
+      },
+    });
+    await initFeatureWorktreeRepo(projectRoot, feature, [
+      { filePath: 'src/feature.ts', content: 'export const feature = true;\n' },
+    ]);
 
     const result = await runtime.verifyFeature(feature, {
       agentRunId: run.id,
@@ -490,6 +736,13 @@ describe('PiFeatureAgentRuntime', () => {
     const storedRun = store.getAgentRun(run.id);
     expect(storedRun?.sessionId).toBe(run.id);
     expect(storedRun?.tokenUsage?.llmCalls).toBe(2);
+    expect(Object.keys(storedRun?.tokenUsage?.byModel ?? {})).toEqual([
+      'anthropic:claude-opus-4-7',
+    ]);
+    expect(JSON.parse(storedRun?.payloadJson ?? '{}')).toMatchObject({
+      outcome: 'repair_needed',
+      summary: 'Repair needed: missing proof for success criteria.',
+    });
     const verifyEvent = findEvent(
       store.listEvents({ entityId: feature.id }),
       'feature_phase_completed',
@@ -552,9 +805,14 @@ describe('PiFeatureAgentRuntime', () => {
 
   it('builds verify prompt from structured plan summary instead of raw proposal json', async () => {
     const { library, captured } = createPromptCapturingLibrary();
+    const projectRoot = getTmpDir();
     const { feature, store, run, runtime } = createRuntimeFixture('verify', {
       promptLibrary: library,
+      projectRoot,
     });
+    await initFeatureWorktreeRepo(projectRoot, feature, [
+      { filePath: 'src/feature.ts', content: 'export const feature = true;\n' },
+    ]);
     appendFeaturePhaseEvent(
       store,
       feature.id,
@@ -586,6 +844,8 @@ describe('PiFeatureAgentRuntime', () => {
     );
     expect(captured.verify).toContain('Verification expectations:');
     expect(captured.verify).toContain('Run prompt tests and runtime tests');
+    expect(captured.verify).toContain('### Changed Files');
+    expect(captured.verify).toContain('- src/feature.ts');
     expect(captured.verify).not.toContain('"mode":"plan"');
     expect(captured.verify).not.toContain('"ops"');
   });
@@ -645,7 +905,13 @@ describe('PiFeatureAgentRuntime', () => {
   }) => {
     faux.setResponses([fauxAssistantMessage([fauxText(response)])]);
 
-    const { feature, run, runtime } = createRuntimeFixture(runPhase);
+    const projectRoot = getTmpDir();
+    const { feature, run, runtime } = createRuntimeFixture(runPhase, {
+      projectRoot,
+    });
+    if (runPhase === 'verify') {
+      await initFeatureWorktreeRepo(projectRoot, feature);
+    }
 
     await expect(invoke(runtime, feature, run.id)).rejects.toThrow(
       expectedError,

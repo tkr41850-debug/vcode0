@@ -6,13 +6,16 @@ import type {
   AgentRunQuery,
   EventQuery,
   InboxItemAppend,
+  InboxItemRecord,
+  InboxItemResolution,
+  InboxQuery,
   QuarantinedFrameEntry,
   RehydrateSnapshot,
   Store,
 } from '@orchestrator/ports/index';
 
-interface StoredInboxItem extends InboxItemAppend {
-  resolution?: string;
+interface StoredInboxItem extends InboxItemRecord {
+  resolution?: InboxItemResolution;
 }
 
 const OPEN_RUN_STATUSES = new Set([
@@ -21,6 +24,8 @@ const OPEN_RUN_STATUSES = new Set([
   'retry_await',
   'await_response',
   'await_approval',
+  'checkpointed_await_response',
+  'checkpointed_await_approval',
 ]);
 
 /**
@@ -40,6 +45,7 @@ export class InMemoryStore implements Store {
   private readonly workerPids = new Map<string, number>();
   private readonly inboxItems: StoredInboxItem[] = [];
   private readonly lastCommitShas = new Map<string, string>();
+  private readonly trailerObservedAts = new Map<string, number>();
   private closed = false;
 
   appendQuarantinedFrame(entry: QuarantinedFrameEntry): void {
@@ -166,14 +172,61 @@ export class InMemoryStore implements Store {
     this.inboxItems.push({ ...item });
   }
 
-  /** Test-only accessor for assertions. */
-  listInboxItems(): StoredInboxItem[] {
-    return this.inboxItems.map((entry) => ({ ...entry }));
+  listInboxItems(query?: InboxQuery): InboxItemRecord[] {
+    return this.inboxItems
+      .filter((item) => {
+        if (query?.unresolvedOnly && item.resolution !== undefined) {
+          return false;
+        }
+        if (query?.kind !== undefined && item.kind !== query.kind) {
+          return false;
+        }
+        if (query?.taskId !== undefined && item.taskId !== query.taskId) {
+          return false;
+        }
+        if (
+          query?.agentRunId !== undefined &&
+          item.agentRunId !== query.agentRunId
+        ) {
+          return false;
+        }
+        if (
+          query?.featureId !== undefined &&
+          item.featureId !== query.featureId
+        ) {
+          return false;
+        }
+        return true;
+      })
+      .sort((left, right) =>
+        left.ts === right.ts
+          ? right.id.localeCompare(left.id)
+          : right.ts - left.ts,
+      )
+      .map((entry) => ({ ...entry }));
+  }
+
+  resolveInboxItem(id: string, resolution: InboxItemResolution): void {
+    const entry = this.inboxItems.find((item) => item.id === id);
+    if (entry !== undefined) {
+      entry.resolution = resolution;
+    }
   }
 
   setLastCommitSha(agentRunId: string, sha: string): void {
     if (!this.runs.has(agentRunId)) return;
     this.lastCommitShas.set(agentRunId, sha);
+  }
+
+  setTrailerObservedAt(agentRunId: string, ts: number): void {
+    if (!this.runs.has(agentRunId)) return;
+    if (!this.trailerObservedAts.has(agentRunId)) {
+      this.trailerObservedAts.set(agentRunId, ts);
+    }
+  }
+
+  getTrailerObservedAt(agentRunId: string): number | undefined {
+    return this.trailerObservedAts.get(agentRunId);
   }
 
   /** Test-only accessor for assertions. */

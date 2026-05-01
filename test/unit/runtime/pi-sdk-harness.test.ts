@@ -92,7 +92,7 @@ describe('PiSdkHarness', () => {
     expect(forkWorker).toHaveBeenCalledWith(
       '/tmp/project-root/.gvc0/worktrees/feat-custom-branch',
     );
-    expect(handle.sessionId).toBeTypeOf('string');
+    expect(handle.sessionId).toBe('run-42');
     expect(child.writes).toHaveLength(1);
     expect(JSON.parse(child.writes[0] ?? '')).toMatchObject({
       type: 'run',

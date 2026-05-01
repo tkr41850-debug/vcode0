@@ -1,5 +1,4 @@
 import * as child_process from 'node:child_process';
-import * as crypto from 'node:crypto';
 import * as path from 'node:path';
 import type { Readable, Writable } from 'node:stream';
 
@@ -25,6 +24,7 @@ export interface SessionExitInfo {
 export interface SessionHandle {
   sessionId: string;
   abort(this: void): void;
+  release(this: void): void;
   sendInput(this: void, text: string): Promise<void>;
   send(this: void, message: OrchestratorToWorkerMessage): void;
   onWorkerMessage(
@@ -98,14 +98,22 @@ export class PiSdkHarness implements SessionHarness {
   // `GVC0_TASK_MODEL_PROVIDER` + `GVC0_TASK_MODEL_ID` env vars. When not
   // supplied the harness falls back to whatever the caller sets in
   // `process.env` (e.g., tests that already exported the vars directly).
+  private taskWorkerModel: ModelRef | undefined;
+
   constructor(
     private readonly sessionStore: SessionStore,
     private readonly projectRoot: string,
     private readonly entryPath: string = WORKER_ENTRY,
     private readonly health: HarnessHealthConfig = {},
     private readonly pidRegistry?: WorkerPidRegistry,
-    private readonly taskWorkerModel?: ModelRef,
-  ) {}
+    taskWorkerModel?: ModelRef,
+  ) {
+    this.taskWorkerModel = taskWorkerModel;
+  }
+
+  setTaskWorkerModel(taskWorkerModel: ModelRef): void {
+    this.taskWorkerModel = taskWorkerModel;
+  }
 
   private resolveHealthTimeoutMs(): number {
     return (
@@ -118,7 +126,7 @@ export class PiSdkHarness implements SessionHarness {
     payload: TaskPayload,
     agentRunId: string,
   ): Promise<SessionHandle> {
-    const sessionId = crypto.randomUUID();
+    const sessionId = agentRunId;
     const worktreeDir = this.resolveWorktreePath(task);
 
     const child = this.forkWorker(worktreeDir);
@@ -357,6 +365,13 @@ function createSessionHandle(
           child.kill('SIGKILL');
         }
       }, ABORT_GRACE_MS);
+    },
+
+    release() {
+      transport.close();
+      if (!child.killed) {
+        child.kill('SIGKILL');
+      }
     },
 
     sendInput(text: string): Promise<void> {

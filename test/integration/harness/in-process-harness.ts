@@ -1,3 +1,5 @@
+import * as path from 'node:path';
+
 import type { Task } from '@core/types/index';
 import type { TaskPayload } from '@runtime/context/index';
 import type {
@@ -12,6 +14,7 @@ import type {
   SessionHandle,
   SessionHarness,
 } from '@runtime/harness/index';
+import { createFileToolOutputStore } from '@runtime/resume/index';
 import type { SessionStore } from '@runtime/sessions/index';
 import { WorkerRuntime, type WorkerRuntimeConfig } from '@runtime/worker/index';
 
@@ -87,7 +90,20 @@ export class InProcessHarness implements SessionHarness {
   ): SessionHandle {
     const { orchestrator, worker } = createLoopbackTransportPair();
 
-    const runtime = new WorkerRuntime(worker, this.sessionStore, this.config);
+    const runtime = new WorkerRuntime(worker, this.sessionStore, {
+      ...this.config,
+      createToolOutputStore:
+        this.config.createToolOutputStore ??
+        ((runtimeSessionId: string) =>
+          createFileToolOutputStore(
+            path.join(
+              this.config.projectRoot,
+              '.gvc0',
+              'tool-outputs',
+              runtimeSessionId,
+            ),
+          )),
+    });
     const exitHandlers: Array<(info: SessionExitInfo) => void> = [];
     let exitInfo: SessionExitInfo | undefined;
     const fireExit = (info: SessionExitInfo): void => {
@@ -139,6 +155,17 @@ export class InProcessHarness implements SessionHarness {
       sessionId,
       abort: () => {
         orchestrator.send({
+          type: 'abort',
+          taskId: task.id,
+          agentRunId: dispatch.agentRunId,
+        });
+      },
+      release: () => {
+        if (exitInfo !== undefined) {
+          return;
+        }
+        orchestrator.close();
+        runtime.handleMessage({
           type: 'abort',
           taskId: task.id,
           agentRunId: dispatch.agentRunId,

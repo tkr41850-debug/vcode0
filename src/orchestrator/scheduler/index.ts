@@ -1,5 +1,5 @@
 import type { FeatureGraph } from '@core/graph/index';
-import type { Feature, FeatureId, Task } from '@core/types/index';
+import type { Feature, FeatureId, Task, TaskId } from '@core/types/index';
 import {
   DEFAULT_LONG_FEATURE_BLOCKING_MS,
   DEFAULT_VERIFY_REPLAN_LOOP_THRESHOLD,
@@ -17,6 +17,7 @@ import {
   markTaskRunning as markRunningTask,
 } from './dispatch.js';
 import { handleSchedulerEvent, type SchedulerEvent } from './events.js';
+import { runIntegrationIfPending } from './integration-runner.js';
 import {
   coordinateCrossFeatureRuntimeOverlaps as coordinateCrossFeatureRuntimeOverlapGroups,
   coordinateSameFeatureRuntimeOverlaps as coordinateSameFeatureRuntimeOverlapGroups,
@@ -37,6 +38,9 @@ export type { SchedulerEvent } from './events.js';
 // dep and a no-op is used.
 export interface SchedulerLoopOptions {
   cancelFeatureRunWork?: (featureId: FeatureId) => Promise<void>;
+  cancelTaskPreserveWorktree?: (taskId: TaskId) => Promise<void>;
+  cancelTaskCleanWorktree?: (taskId: TaskId) => Promise<void>;
+  abandonFeatureBranch?: (featureId: FeatureId) => Promise<void>;
 }
 
 export class SchedulerLoop {
@@ -50,6 +54,13 @@ export class SchedulerLoop {
   private readonly cancelFeatureRunWork: (
     featureId: FeatureId,
   ) => Promise<void>;
+  private readonly cancelTaskPreserveWorktree: (
+    taskId: TaskId,
+  ) => Promise<void>;
+  private readonly cancelTaskCleanWorktree: (taskId: TaskId) => Promise<void>;
+  private readonly abandonFeatureBranch: (
+    featureId: FeatureId,
+  ) => Promise<void>;
   private emittedWarnings = new Set<string>();
   private running = false;
   private loopPromise: Promise<void> | undefined;
@@ -61,7 +72,10 @@ export class SchedulerLoop {
     private readonly ports: OrchestratorPorts,
     options: SchedulerLoopOptions = {},
   ) {
-    this.features = new FeatureLifecycleCoordinator(graph);
+    this.features = new FeatureLifecycleCoordinator(
+      graph,
+      ports.config.reentryCap,
+    );
     this.conflicts = new ConflictCoordinator(ports, graph);
     this.summaries = new SummaryCoordinator(graph, ports.config.tokenProfile);
     this.warnings = new WarningEvaluator({
@@ -78,6 +92,12 @@ export class SchedulerLoop {
     });
     this.cancelFeatureRunWork =
       options.cancelFeatureRunWork ?? (() => Promise.resolve());
+    this.cancelTaskPreserveWorktree =
+      options.cancelTaskPreserveWorktree ?? (() => Promise.resolve());
+    this.cancelTaskCleanWorktree =
+      options.cancelTaskCleanWorktree ?? (() => Promise.resolve());
+    this.abandonFeatureBranch =
+      options.abandonFeatureBranch ?? (() => Promise.resolve());
   }
 
   enqueue(event: SchedulerEvent): void {
@@ -98,6 +118,10 @@ export class SchedulerLoop {
 
   isRunning(): boolean {
     return this.running;
+  }
+
+  setReentryCap(reentryCap: number | undefined): void {
+    this.features.setReentryCap(reentryCap);
   }
 
   run(): Promise<void> {
@@ -172,6 +196,7 @@ export class SchedulerLoop {
 
       this.summaries.reconcilePostMerge();
       this.features.beginNextIntegration();
+      await this.runPendingIntegration(now);
       await this.coordinateSameFeatureRuntimeOverlaps();
       await this.coordinateCrossFeatureRuntimeOverlaps();
       const warningsChanged = this.emitWarningSignals(now);
@@ -201,6 +226,10 @@ export class SchedulerLoop {
       emitEmptyVerificationChecksWarning: (entityId, layer, now) =>
         this.emitEmptyVerificationChecksWarning(entityId, layer, now),
       cancelFeatureRunWork: (featureId) => this.cancelFeatureRunWork(featureId),
+      cancelTaskPreserveWorktree: (taskId) =>
+        this.cancelTaskPreserveWorktree(taskId),
+      cancelTaskCleanWorktree: (taskId) => this.cancelTaskCleanWorktree(taskId),
+      abandonFeatureBranch: (featureId) => this.abandonFeatureBranch(featureId),
       onShutdown: () => this.requestShutdown(),
     });
   }
@@ -224,6 +253,15 @@ export class SchedulerLoop {
       markTaskRunning: (task) => this.markTaskRunning(task),
       markFeaturePhaseRunning: (feature) =>
         this.markFeaturePhaseRunning(feature),
+    });
+  }
+
+  protected async runPendingIntegration(now: number): Promise<void> {
+    await runIntegrationIfPending({
+      graph: this.graph,
+      ports: this.ports,
+      handleEvent: (event) => this.handleEvent(event),
+      now,
     });
   }
 

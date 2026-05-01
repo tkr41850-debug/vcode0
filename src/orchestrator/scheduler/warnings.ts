@@ -1,3 +1,7 @@
+import {
+  resolveVerificationLayerConfig,
+  type VerificationLayerName,
+} from '@config';
 import type { FeatureGraph } from '@core/graph/index';
 import type { FeatureId, GvcConfig } from '@core/types/index';
 import {
@@ -7,10 +11,6 @@ import {
   type WarningEvaluator,
 } from '@core/warnings/index';
 import type { OrchestratorPorts } from '@orchestrator/ports/index';
-import {
-  resolveVerificationLayerConfig,
-  type VerificationLayerName,
-} from '@config';
 
 interface SchedulerWarningDeps {
   graph: FeatureGraph;

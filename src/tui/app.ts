@@ -16,10 +16,14 @@ import {
 import {
   AgentMonitorOverlay,
   ComposerStatus,
+  ConfigOverlay,
   DagView,
   DependencyDetailOverlay,
   HelpOverlay,
+  InboxOverlay,
+  MergeTrainOverlay,
   StatusBar,
+  TaskTranscriptOverlay,
 } from '@tui/components/index';
 import { ComposerProposalController } from '@tui/proposal-controller';
 import { TuiViewModelBuilder } from '@tui/view-model/index';
@@ -39,9 +43,14 @@ import {
   hideTopOverlay,
   type OverlayState,
   pushWorkerOutput,
+  shouldRenderAfterWorkerOutput,
   toggleAgentMonitorOverlay,
+  toggleConfigOverlay,
   toggleDependencyOverlay,
   toggleHelpOverlay,
+  toggleInboxOverlay,
+  toggleMergeTrainOverlay,
+  toggleTranscriptOverlay,
 } from './app-overlays.js';
 import {
   buildFlattenedNodes,
@@ -79,6 +88,10 @@ export class TuiApp implements UiPort {
   });
   private readonly monitorOverlay = new AgentMonitorOverlay();
   private readonly dependencyOverlay = new DependencyDetailOverlay();
+  private readonly inboxOverlay = new InboxOverlay();
+  private readonly mergeTrainOverlay = new MergeTrainOverlay();
+  private readonly configOverlay = new ConfigOverlay();
+  private readonly transcriptOverlay = new TaskTranscriptOverlay();
   private readonly helpOverlay = new HelpOverlay();
   private readonly commands = new CommandRegistry();
   private readonly viewModels = new TuiViewModelBuilder();
@@ -87,10 +100,16 @@ export class TuiApp implements UiPort {
     monitorHandle: undefined,
     dependencyHandle: undefined,
     helpHandle: undefined,
+    inboxHandle: undefined,
+    mergeTrainHandle: undefined,
+    configHandle: undefined,
+    transcriptHandle: undefined,
   };
   private started = false;
   private selectedNodeId: string | undefined;
   private selectedWorkerId: string | undefined;
+  private lastWorkerRenderAt = 0;
+  private readonly workerRenderIntervalMs = 100;
   private notice: string | undefined;
   private focusMode: 'composer' | 'graph' = 'composer';
   private composerText = '';
@@ -104,12 +123,19 @@ export class TuiApp implements UiPort {
         this.deps.setAutoExecutionEnabled(enabled),
       getFeatureRun: (featureId, phase) =>
         this.deps.getFeatureRun(featureId, phase),
+      getTopPlannerRun: () => this.deps.getTopPlannerRun(),
       saveFeatureRun: (run) => this.deps.saveFeatureRun(run),
       enqueueApprovalDecision: (event) => {
         this.deps.enqueueApprovalDecision(event);
       },
+      enqueueTopPlannerApprovalDecision: (event) => {
+        this.deps.enqueueTopPlannerApprovalDecision(event);
+      },
       enqueueRerun: (event) => {
         this.deps.rerunFeatureProposal(event);
+      },
+      enqueueTopPlannerRerun: (event) => {
+        this.deps.rerunTopPlannerProposal(event);
       },
     });
 
@@ -121,6 +147,7 @@ export class TuiApp implements UiPort {
       void handleComposerSubmit({
         text,
         executeSlashCommand: (input) => this.executeSlashCommand(input),
+        requestTopLevelPlan: (prompt) => this.deps.requestTopLevelPlan(prompt),
         addToHistory: (input) => this.composer.addToHistory(input),
         setNotice: (notice) => {
           this.notice = notice;
@@ -136,6 +163,10 @@ export class TuiApp implements UiPort {
       selectedFeatureId: () => this.selectedFeatureId(),
       toggleAgentMonitor: () => this.toggleAgentMonitorOverlay(),
       toggleHelp: () => this.toggleHelpOverlay(),
+      toggleInbox: () => this.toggleInboxOverlay(),
+      toggleMergeTrain: () => this.toggleMergeTrainOverlay(),
+      toggleTranscript: () => this.toggleTranscriptOverlay(),
+      toggleConfig: () => this.toggleConfigOverlay(),
       toggleDependencyDetail: () => this.toggleDependencyOverlay(),
       setSelectedWorkerId: (workerId) => {
         this.selectedWorkerId = workerId;
@@ -185,12 +216,13 @@ export class TuiApp implements UiPort {
 
     const selectedNode = findSelectedNode(flattened, this.selectedNodeId);
     const draftState = this.proposalController.getDraftState();
-    const pendingRun = pendingProposalForSelection({
+    const pendingProposal = pendingProposalForSelection({
       draftState,
       selectedFeatureId: this.selectedFeatureId(),
       authoritativeSnapshot: this.deps.snapshot(),
       getFeatureRun: (featureId, phase) =>
         this.deps.getFeatureRun(featureId, phase),
+      getTopPlannerRun: () => this.deps.getTopPlannerRun(),
     });
     const pendingTaskRun = pendingTaskRunForSelection({
       draftState,
@@ -216,8 +248,17 @@ export class TuiApp implements UiPort {
         ...(this.notice !== undefined ? { notice: this.notice } : {}),
         dataMode: draftState !== undefined ? 'draft' : 'live',
         focusMode: this.focusMode,
-        ...(pendingRun !== undefined
-          ? { pendingProposalPhase: pendingRun.phase }
+        ...(pendingProposal !== undefined
+          ? {
+              pendingProposalPhase: pendingProposal.run.phase,
+              pendingProposalTarget:
+                pendingProposal.run.scopeType === 'top_planner'
+                  ? 'top-planner'
+                  : pendingProposal.run.scopeId,
+              ...(pendingProposal.approvalHint !== undefined
+                ? { pendingProposalHint: pendingProposal.approvalHint }
+                : {}),
+            }
           : {}),
       }),
     );
@@ -232,10 +273,16 @@ export class TuiApp implements UiPort {
               draftCommandCount: draftState.commandCount,
             }
           : {}),
-        ...(pendingRun !== undefined
+        ...(pendingProposal !== undefined
           ? {
-              pendingProposalPhase: pendingRun.phase,
-              pendingFeatureId: pendingRun.scopeId,
+              pendingProposalPhase: pendingProposal.run.phase,
+              pendingProposalTarget:
+                pendingProposal.run.scopeType === 'top_planner'
+                  ? 'top-planner'
+                  : pendingProposal.run.scopeId,
+              ...(pendingProposal.approvalHint !== undefined
+                ? { pendingProposalHint: pendingProposal.approvalHint }
+                : {}),
             }
           : {}),
         ...(pendingTaskRun !== undefined
@@ -259,6 +306,29 @@ export class TuiApp implements UiPort {
               snapshot.milestones,
               snapshot.features,
             ),
+      );
+    }
+    if (this.overlays.inboxHandle !== undefined) {
+      this.inboxOverlay.setModel(
+        this.viewModels.buildInbox(this.deps.listInboxItems()),
+      );
+    }
+    if (this.overlays.mergeTrainHandle !== undefined) {
+      this.mergeTrainOverlay.setModel(
+        this.viewModels.buildMergeTrain(snapshot.features),
+      );
+    }
+    if (this.overlays.configHandle !== undefined) {
+      this.configOverlay.setModel(
+        this.viewModels.buildConfig(this.deps.getConfig()),
+      );
+    }
+    if (this.overlays.transcriptHandle !== undefined) {
+      this.transcriptOverlay.setModel(
+        this.viewModels.buildTaskTranscript(
+          selectedNode?.taskId,
+          this.monitorOverlay.getLogs(),
+        ),
       );
     }
 
@@ -293,7 +363,17 @@ export class TuiApp implements UiPort {
       taskId,
       text,
     });
-    this.refresh();
+    const now = Date.now();
+    if (
+      shouldRenderAfterWorkerOutput(
+        this.lastWorkerRenderAt,
+        now,
+        this.workerRenderIntervalMs,
+      )
+    ) {
+      this.lastWorkerRenderAt = now;
+      this.refresh();
+    }
   }
 
   private handleInput(data: string): boolean {
@@ -436,6 +516,63 @@ export class TuiApp implements UiPort {
       viewModels: this.viewModels,
       snapshot: this.displayedSnapshot(),
       selectedFeatureId: this.selectedFeatureId(),
+      refresh: () => this.refresh(),
+      setNotice: (notice) => {
+        this.notice = notice;
+      },
+    });
+  }
+
+  private toggleInboxOverlay(): void {
+    toggleInboxOverlay({
+      state: this.overlays,
+      tui: this.tui,
+      inboxOverlay: this.inboxOverlay,
+      viewModels: this.viewModels,
+      items: this.deps.listInboxItems(),
+      refresh: () => this.refresh(),
+      setNotice: (notice) => {
+        this.notice = notice;
+      },
+    });
+  }
+
+  private toggleMergeTrainOverlay(): void {
+    toggleMergeTrainOverlay({
+      state: this.overlays,
+      tui: this.tui,
+      mergeTrainOverlay: this.mergeTrainOverlay,
+      viewModels: this.viewModels,
+      snapshot: this.displayedSnapshot(),
+      refresh: () => this.refresh(),
+      setNotice: (notice) => {
+        this.notice = notice;
+      },
+    });
+  }
+
+  private toggleConfigOverlay(): void {
+    toggleConfigOverlay({
+      state: this.overlays,
+      tui: this.tui,
+      configOverlay: this.configOverlay,
+      viewModels: this.viewModels,
+      getConfig: () => this.deps.getConfig(),
+      refresh: () => this.refresh(),
+      setNotice: (notice) => {
+        this.notice = notice;
+      },
+    });
+  }
+
+  private toggleTranscriptOverlay(): void {
+    toggleTranscriptOverlay({
+      state: this.overlays,
+      tui: this.tui,
+      transcriptOverlay: this.transcriptOverlay,
+      viewModels: this.viewModels,
+      taskId: this.selectedNode()?.taskId,
+      logs: this.monitorOverlay.getLogs(),
       refresh: () => this.refresh(),
       setNotice: (notice) => {
         this.notice = notice;

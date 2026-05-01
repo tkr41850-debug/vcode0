@@ -3,7 +3,11 @@ import * as path from 'node:path';
 
 import { worktreePath } from '@core/naming/index';
 import type { Feature, Task } from '@core/types/index';
-import { GitWorktreeProvisioner } from '@runtime/worktree/index';
+import {
+  GitWorktreeProvisioner,
+  inspectManagedTaskWorktrees,
+  sweepRecoveryLocks,
+} from '@runtime/worktree/index';
 import { simpleGit } from 'simple-git';
 import { describe, expect, it } from 'vitest';
 
@@ -186,6 +190,41 @@ describe('GitWorktreeProvisioner', () => {
   );
 
   it(
+    'deleteBranch removes an existing branch and is idempotent',
+    async () => {
+      const root = getTmp();
+      await initRepo(root);
+      const git = simpleGit(root);
+      await git.raw(['branch', 'feat-demo-demo']);
+
+      const provisioner = new GitWorktreeProvisioner(root);
+
+      await provisioner.deleteBranch('feat-demo-demo');
+
+      await expect(
+        git.raw(['rev-parse', '--verify', 'feat-demo-demo']),
+      ).rejects.toThrow();
+      await expect(
+        provisioner.deleteBranch('feat-demo-demo'),
+      ).resolves.toBeUndefined();
+    },
+    GIT_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'deleteBranch on a never-created branch is a no-op',
+    async () => {
+      const root = getTmp();
+      await initRepo(root);
+      const provisioner = new GitWorktreeProvisioner(root);
+      await expect(
+        provisioner.deleteBranch('feat-never-existed'),
+      ).resolves.toBeUndefined();
+    },
+    GIT_TEST_TIMEOUT_MS,
+  );
+
+  it(
     'pruneStaleWorktrees returns names of pruned worktrees',
     async () => {
       const root = getTmp();
@@ -288,6 +327,131 @@ describe('GitWorktreeProvisioner', () => {
       // Fresh repo has no .git/worktrees dir yet.
       const cleared = await provisioner.sweepStaleLocks(() => true);
       expect(cleared).toEqual([]);
+    },
+    GIT_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'sweepRecoveryLocks removes root index.lock when no managed worker is live',
+    async () => {
+      const root = getTmp();
+      await initRepo(root);
+      const lockPath = path.join(root, '.git', 'index.lock');
+      await fs.writeFile(lockPath, 'stale-root-lock');
+
+      const report = await sweepRecoveryLocks(root, [], {
+        hasLiveManagedWorker: false,
+      });
+
+      expect(report.cleared).toEqual([
+        {
+          kind: 'root_index_lock',
+          path: lockPath,
+        },
+      ]);
+      expect(report.preserved).toEqual([]);
+      await expect(fs.access(lockPath)).rejects.toThrow();
+    },
+    GIT_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'sweepRecoveryLocks preserves root index.lock when a managed worker is live',
+    async () => {
+      const root = getTmp();
+      await initRepo(root);
+      const lockPath = path.join(root, '.git', 'index.lock');
+      await fs.writeFile(lockPath, 'live-root-lock');
+
+      const report = await sweepRecoveryLocks(root, [], {
+        hasLiveManagedWorker: true,
+      });
+
+      expect(report.cleared).toEqual([]);
+      expect(report.preserved).toEqual([
+        {
+          kind: 'root_index_lock',
+          path: lockPath,
+        },
+      ]);
+      await expect(fs.access(lockPath)).resolves.toBeUndefined();
+    },
+    GIT_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'sweepRecoveryLocks removes managed worktree index.lock when owner is dead',
+    async () => {
+      const root = getTmp();
+      await initRepo(root);
+      const git = simpleGit(root);
+      await git.raw(['branch', 'feat-demo-demo']);
+
+      const provisioner = new GitWorktreeProvisioner(root);
+      const feature = makeFeature();
+      const task = makeTask();
+      await provisioner.ensureTaskWorktree(task, feature);
+
+      const branch = task.worktreeBranch ?? '';
+      const metadataDir = path.join(root, '.git', 'worktrees', branch);
+      const lockPath = path.join(metadataDir, 'index.lock');
+      await fs.writeFile(lockPath, 'stale-task-lock');
+
+      const inspections = await inspectManagedTaskWorktrees(root, [
+        {
+          taskId: task.id,
+          featureId: task.featureId,
+          branch,
+          ownerState: 'dead',
+        },
+      ]);
+
+      const report = await sweepRecoveryLocks(root, inspections, {
+        hasLiveManagedWorker: false,
+      });
+
+      expect(report.cleared).toEqual([
+        {
+          kind: 'worktree_index_lock',
+          path: lockPath,
+          branch,
+        },
+      ]);
+      expect(report.preserved).toEqual([]);
+      await expect(fs.access(lockPath)).rejects.toThrow();
+    },
+    GIT_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'sweepRecoveryLocks ignores unrelated non-gvc0 worktree index.lock files',
+    async () => {
+      const root = getTmp();
+      await initRepo(root);
+      const git = simpleGit(root);
+      const externalPath = path.join(root, 'external-worktree');
+      await git.raw(['worktree', 'add', '-b', 'feat-external', externalPath]);
+
+      const metadataEntries = await fs.readdir(
+        path.join(root, '.git', 'worktrees'),
+      );
+      expect(metadataEntries).toHaveLength(1);
+      const lockPath = path.join(
+        root,
+        '.git',
+        'worktrees',
+        metadataEntries[0] ?? '',
+        'index.lock',
+      );
+      await fs.writeFile(lockPath, 'external-lock');
+
+      const report = await sweepRecoveryLocks(root, [], {
+        hasLiveManagedWorker: false,
+      });
+
+      expect(report.cleared).toEqual([]);
+      expect(report.preserved).toEqual([]);
+      await expect(fs.access(lockPath)).resolves.toBeUndefined();
     },
     GIT_TEST_TIMEOUT_MS,
   );

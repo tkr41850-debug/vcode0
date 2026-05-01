@@ -72,6 +72,11 @@ export interface SplitSpec {
   deps?: FeatureId[];
 }
 
+export interface MilestoneEditPatch {
+  name?: string;
+  description?: string;
+}
+
 export interface PlannerFeatureEditPatch {
   name?: string;
   description?: string;
@@ -166,6 +171,8 @@ export interface FeatureGraph {
   isComplete(): boolean;
 
   createMilestone(opts: CreateMilestoneOptions): Milestone;
+  editMilestone(milestoneId: MilestoneId, patch: MilestoneEditPatch): Milestone;
+  removeMilestone(milestoneId: MilestoneId): void;
   createFeature(opts: CreateFeatureOptions): Feature;
   createTask(opts: CreateTaskOptions): Task;
   addDependency(opts: DependencyOptions): void;

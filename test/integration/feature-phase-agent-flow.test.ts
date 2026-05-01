@@ -18,6 +18,7 @@ import type { OrchestratorPorts, UiPort } from '@orchestrator/ports/index';
 import { SchedulerLoop } from '@orchestrator/scheduler/index';
 import { VerificationService } from '@orchestrator/services/index';
 import type { RuntimePort } from '@runtime/contracts';
+import { simpleGit } from 'simple-git';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { testGvcConfigDefaults } from '../helpers/config-fixture.js';
@@ -76,11 +77,17 @@ function createUiStub(): UiPort {
   };
 }
 
-function createWorktreeStub(): OrchestratorPorts['worktree'] {
+function createWorktreeStub(
+  projectRoot: string,
+): OrchestratorPorts['worktree'] {
   return {
-    ensureFeatureWorktree: () => Promise.resolve('/repo'),
-    ensureTaskWorktree: () => Promise.resolve('/repo'),
+    ensureFeatureWorktree: (feature) =>
+      Promise.resolve(
+        path.join(projectRoot, worktreePath(feature.featureBranch)),
+      ),
+    ensureTaskWorktree: () => Promise.resolve(projectRoot),
     removeWorktree: () => Promise.resolve(),
+    deleteBranch: () => Promise.resolve(),
     pruneStaleWorktrees: () => Promise.resolve([]),
     sweepStaleLocks: () => Promise.resolve([]),
   };
@@ -106,6 +113,37 @@ async function createFeatureWorktree(
   const dir = path.join(projectRoot, worktreePath(feature.featureBranch));
   await fs.mkdir(dir, { recursive: true });
   return dir;
+}
+
+async function initFeatureWorktreeRepo(
+  projectRoot: string,
+  feature: Feature,
+  changes: Array<{ filePath: string; content: string }> = [],
+): Promise<string> {
+  const worktreeDir = await createFeatureWorktree(projectRoot, feature);
+  const git = simpleGit(worktreeDir);
+  await git.init();
+  await git.addConfig('user.email', 'test@example.com', false, 'local');
+  await git.addConfig('user.name', 'Test Runner', false, 'local');
+
+  await fs.writeFile(path.join(worktreeDir, 'seed.txt'), 'seed\n');
+  await git.add(['seed.txt']);
+  await git.commit('seed');
+  await git.branch(['-M', 'main']);
+  await git.checkoutLocalBranch(feature.featureBranch);
+
+  for (const change of changes) {
+    const filePath = path.join(worktreeDir, change.filePath);
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.writeFile(filePath, change.content);
+  }
+
+  if (changes.length > 0) {
+    await git.add(['.']);
+    await git.commit('feature changes');
+  }
+
+  return worktreeDir;
 }
 
 function createFeatureVerificationService(
@@ -249,11 +287,13 @@ function createFixture({
   tasks = [],
   configOverrides = {},
   verification,
+  projectRoot = '/repo',
 }: {
   featureOverrides?: Partial<Feature>;
   tasks?: Task[];
   configOverrides?: Partial<GvcConfig>;
   verification?: OrchestratorPorts['verification'];
+  projectRoot?: string;
 } = {}) {
   const graph = createSingleFeatureGraph(featureOverrides, tasks);
   const store = new InMemoryStore();
@@ -266,7 +306,7 @@ function createFixture({
     graph,
     store,
     sessionStore,
-    projectRoot: '/repo',
+    projectRoot,
   });
   const resolvedVerification: OrchestratorPorts['verification'] =
     verification ??
@@ -279,7 +319,7 @@ function createFixture({
     sessionStore,
     agents,
     verification: resolvedVerification,
-    worktree: createWorktreeStub(),
+    worktree: createWorktreeStub(projectRoot),
     ui: createUiStub(),
     config,
   };
@@ -727,6 +767,618 @@ describe('feature-phase agent flow', () => {
     ).resolves.not.toBeNull();
   });
 
+  it('dispatches top-level planner proposal into await_approval and applies it on approval', async () => {
+    faux.setResponses([
+      fauxAssistantMessage(
+        [
+          fauxToolCall('addTask', {
+            featureId: 'f-1',
+            description: 'Global task 1',
+          }),
+          fauxToolCall('addTask', {
+            featureId: 'f-1',
+            description: 'Global task 2',
+          }),
+          fauxToolCall('addDependency', {
+            from: 't-2',
+            to: 't-1',
+          }),
+          fauxToolCall('submit', proposalDetails),
+        ],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage([fauxText('Planning complete.')]),
+    ]);
+
+    const { graph, store, sessionStore, loop } = createFixture({
+      featureOverrides: {
+        workControl: 'executing',
+        collabControl: 'branch_open',
+      },
+    });
+
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
+      type: 'top_planner_requested',
+      prompt: 'break the current work into executable tasks',
+      sessionMode: 'fresh',
+    });
+    await loop.step(100);
+
+    const run = store.getAgentRun('run-top-planner');
+    expect(run).toEqual(
+      expect.objectContaining({
+        id: 'run-top-planner',
+        scopeType: 'top_planner',
+        scopeId: 'top-planner',
+        runStatus: 'await_approval',
+        owner: 'manual',
+        sessionId: expect.stringMatching(/^run-top-planner:\d+(?::fresh)?$/),
+      }),
+    );
+    const sessionId = run?.sessionId;
+    expect(sessionId).toEqual(
+      expect.stringMatching(/^run-top-planner:\d+(?::fresh)?$/),
+    );
+    expect(run?.payloadJson).toBeDefined();
+    expect(JSON.parse(run?.payloadJson ?? '{}')).toEqual(
+      expect.objectContaining({
+        mode: 'plan',
+        ops: [
+          expect.objectContaining({
+            kind: 'add_task',
+            featureId: 'f-1',
+            description: 'Global task 1',
+          }),
+          expect.objectContaining({
+            kind: 'add_task',
+            featureId: 'f-1',
+            description: 'Global task 2',
+          }),
+          expect.objectContaining({
+            kind: 'add_dependency',
+          }),
+        ],
+        topPlannerMeta: expect.objectContaining({
+          prompt: 'break the current work into executable tasks',
+          sessionMode: 'fresh',
+          runId: 'run-top-planner',
+          sessionId,
+          featureIds: ['f-1'],
+          milestoneIds: [],
+          collidedFeatureRuns: [],
+        }),
+      }),
+    );
+    expect([...graph.tasks.values()]).toHaveLength(0);
+    expect(
+      findEvent(
+        store.listEvents({ entityId: 'top-planner' }),
+        'top_planner_requested',
+      )?.payload,
+    ).toMatchObject({
+      prompt: 'break the current work into executable tasks',
+      sessionMode: 'fresh',
+    });
+    expect(
+      findEvent(
+        store.listEvents({ entityId: 'top-planner' }),
+        'top_planner_prompt_recorded',
+      )?.payload,
+    ).toMatchObject({
+      phase: 'plan',
+      prompt: 'break the current work into executable tasks',
+      sessionMode: 'fresh',
+      runId: 'run-top-planner',
+      sessionId,
+      featureIds: ['f-1'],
+      milestoneIds: [],
+      collidedFeatureRuns: [],
+    });
+    await expect(
+      sessionStore.load(sessionId ?? 'missing'),
+    ).resolves.not.toBeNull();
+
+    loop.enqueue({
+      type: 'top_planner_approval_decision',
+      decision: 'approved',
+    });
+    await loop.step(100);
+
+    const featureTasks = [...graph.tasks.values()].filter(
+      (task) => task.featureId === 'f-1',
+    );
+    expect(featureTasks).toHaveLength(2);
+    const task1 = featureTasks.find(
+      (task) => task.description === 'Global task 1',
+    );
+    const task2 = featureTasks.find(
+      (task) => task.description === 'Global task 2',
+    );
+    expect(task1).toEqual(expect.objectContaining({ status: 'ready' }));
+    expect(task2).toEqual(
+      expect.objectContaining({ dependsOn: [task1?.id], status: 'pending' }),
+    );
+    expect(store.getAgentRun('run-top-planner')).toEqual(
+      expect.objectContaining({
+        runStatus: 'completed',
+        owner: 'system',
+      }),
+    );
+    const appliedEvent = findEvent(
+      store.listEvents({ entityId: 'top-planner' }),
+      'proposal_applied',
+    );
+    expect(appliedEvent?.payload).toMatchObject({
+      phase: 'plan',
+      mode: 'plan',
+    });
+  });
+
+  it('reruns top-level planning in continue mode with the same session id', async () => {
+    faux.setResponses([
+      fauxAssistantMessage(
+        [
+          fauxToolCall('addTask', {
+            featureId: 'f-1',
+            description: 'Initial global task',
+          }),
+          fauxToolCall('submit', proposalDetails),
+        ],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage([fauxText('Initial planning complete.')]),
+      fauxAssistantMessage(
+        [
+          fauxToolCall('addTask', {
+            featureId: 'f-1',
+            description: 'Follow-up global task',
+          }),
+          fauxToolCall('submit', proposalDetails),
+        ],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage([fauxText('Follow-up planning complete.')]),
+    ]);
+
+    const { store, sessionStore, loop } = createFixture({
+      featureOverrides: {
+        workControl: 'executing',
+        collabControl: 'branch_open',
+      },
+    });
+
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
+      type: 'top_planner_requested',
+      prompt: 'break the current work into executable tasks',
+      sessionMode: 'fresh',
+    });
+    await loop.step(100);
+
+    const initialRun = store.getAgentRun('run-top-planner');
+    const initialSessionId = initialRun?.sessionId;
+    expect(initialSessionId).toBeDefined();
+    if (initialSessionId === undefined) {
+      throw new Error('expected initial top planner session id');
+    }
+    await expect(sessionStore.load(initialSessionId)).resolves.not.toBeNull();
+
+    loop.enqueue({
+      type: 'top_planner_rerun_requested',
+      reason: 'keep the prior thread',
+      sessionMode: 'continue',
+    });
+    await loop.step(100);
+
+    const rerun = store.getAgentRun('run-top-planner');
+    expect(rerun).toEqual(
+      expect.objectContaining({
+        runStatus: 'await_approval',
+        owner: 'manual',
+        sessionId: initialSessionId,
+      }),
+    );
+    expect(JSON.parse(rerun?.payloadJson ?? '{}')).toEqual(
+      expect.objectContaining({
+        mode: 'plan',
+        ops: [
+          expect.objectContaining({
+            kind: 'add_task',
+            featureId: 'f-1',
+            description: 'Follow-up global task',
+          }),
+        ],
+        topPlannerMeta: expect.objectContaining({
+          prompt: 'break the current work into executable tasks',
+          sessionMode: 'continue',
+          runId: 'run-top-planner',
+          sessionId: initialSessionId,
+        }),
+      }),
+    );
+    await expect(sessionStore.load(initialSessionId)).resolves.not.toBeNull();
+    expect(
+      findEvent(
+        store.listEvents({ entityId: 'top-planner' }),
+        'proposal_rerun_requested',
+      )?.payload,
+    ).toMatchObject({
+      phase: 'plan',
+      summary: 'keep the prior thread',
+      sessionMode: 'continue',
+    });
+    expect(
+      findEvent(
+        store.listEvents({ entityId: 'top-planner' }),
+        'top_planner_prompt_recorded',
+      )?.payload,
+    ).toMatchObject({
+      phase: 'plan',
+      prompt: 'break the current work into executable tasks',
+      sessionMode: 'continue',
+      runId: 'run-top-planner',
+      sessionId: initialSessionId,
+    });
+  });
+
+  it('reruns top-level planning in fresh mode with a new session id', async () => {
+    faux.setResponses([
+      fauxAssistantMessage(
+        [
+          fauxToolCall('addTask', {
+            featureId: 'f-1',
+            description: 'Initial global task',
+          }),
+          fauxToolCall('submit', proposalDetails),
+        ],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage([fauxText('Initial planning complete.')]),
+      fauxAssistantMessage(
+        [
+          fauxToolCall('addTask', {
+            featureId: 'f-1',
+            description: 'Fresh-pass global task',
+          }),
+          fauxToolCall('submit', proposalDetails),
+        ],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage([fauxText('Fresh planning complete.')]),
+    ]);
+
+    const { store, sessionStore, loop } = createFixture({
+      featureOverrides: {
+        workControl: 'executing',
+        collabControl: 'branch_open',
+      },
+    });
+
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
+      type: 'top_planner_requested',
+      prompt: 'break the current work into executable tasks',
+      sessionMode: 'fresh',
+    });
+    await loop.step(100);
+
+    const initialRun = store.getAgentRun('run-top-planner');
+    const initialSessionId = initialRun?.sessionId;
+    expect(initialSessionId).toBeDefined();
+    if (initialSessionId === undefined) {
+      throw new Error('expected initial top planner session id');
+    }
+    await expect(sessionStore.load(initialSessionId)).resolves.not.toBeNull();
+
+    loop.enqueue({
+      type: 'top_planner_rerun_requested',
+      reason: 'take a fresh pass',
+      sessionMode: 'fresh',
+    });
+    await loop.step(100);
+
+    const rerun = store.getAgentRun('run-top-planner');
+    const rerunSessionId = rerun?.sessionId;
+    expect(rerunSessionId).toBeDefined();
+    expect(rerunSessionId).not.toBe(initialSessionId);
+    if (rerun === undefined || rerunSessionId === undefined) {
+      throw new Error('expected rerun top planner session id');
+    }
+    expect(rerun).toEqual(
+      expect.objectContaining({
+        runStatus: 'await_approval',
+        owner: 'manual',
+        sessionId: rerunSessionId,
+      }),
+    );
+    expect(JSON.parse(rerun.payloadJson ?? '{}')).toEqual(
+      expect.objectContaining({
+        mode: 'plan',
+        ops: [
+          expect.objectContaining({
+            kind: 'add_task',
+            featureId: 'f-1',
+            description: 'Fresh-pass global task',
+          }),
+        ],
+        topPlannerMeta: expect.objectContaining({
+          prompt: 'break the current work into executable tasks',
+          sessionMode: 'fresh',
+          runId: 'run-top-planner',
+          sessionId: rerunSessionId,
+          previousSessionId: initialSessionId,
+        }),
+      }),
+    );
+    await expect(sessionStore.load(initialSessionId)).resolves.toBeNull();
+    await expect(sessionStore.load(rerunSessionId)).resolves.not.toBeNull();
+    expect(
+      findEvent(
+        store.listEvents({ entityId: 'top-planner' }),
+        'proposal_rerun_requested',
+      )?.payload,
+    ).toMatchObject({
+      phase: 'plan',
+      summary: 'take a fresh pass',
+      sessionMode: 'fresh',
+    });
+    expect(
+      findEvent(
+        store.listEvents({ entityId: 'top-planner' }),
+        'top_planner_prompt_recorded',
+      )?.payload,
+    ).toMatchObject({
+      phase: 'plan',
+      prompt: 'break the current work into executable tasks',
+      sessionMode: 'fresh',
+      runId: 'run-top-planner',
+      sessionId: rerunSessionId,
+      previousSessionId: initialSessionId,
+    });
+  });
+
+  it('approves a collided top-level proposal by resetting the active feature planner and rerunning it on the new shape', async () => {
+    faux.setResponses([
+      fauxAssistantMessage(
+        [
+          fauxToolCall('moveFeature', {
+            featureId: 'f-1',
+            milestoneId: 'm-2',
+          }),
+          fauxToolCall('submit', proposalDetails),
+        ],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage([fauxText('Top-level planning complete.')]),
+      fauxAssistantMessage(
+        [
+          fauxToolCall('addTask', {
+            featureId: 'f-1',
+            description: 'Planner rerun task after move',
+          }),
+          fauxToolCall('submit', proposalDetails),
+        ],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage([fauxText('Feature replanning complete.')]),
+    ]);
+
+    const { graph, store, sessionStore, loop } = createFixture({
+      featureOverrides: {
+        workControl: 'planning',
+        collabControl: 'none',
+      },
+    });
+    graph.createMilestone({
+      id: 'm-2',
+      name: 'Milestone 2',
+      description: 'second milestone',
+    });
+    store.createAgentRun(
+      createFeaturePhaseRun('plan', {
+        runStatus: 'await_approval',
+        owner: 'manual',
+        sessionId: 'sess-feature-1',
+        payloadJson: JSON.stringify(makeProposal('plan')),
+      }),
+    );
+    await sessionStore.save('sess-feature-1', []);
+
+    loop.enqueue({
+      type: 'top_planner_requested',
+      prompt: 'rebalance milestone plan',
+      sessionMode: 'fresh',
+    });
+    await loop.step(100);
+
+    const pendingTopPlannerRun = store.getAgentRun('run-top-planner');
+    expect(JSON.parse(pendingTopPlannerRun?.payloadJson ?? '{}')).toEqual(
+      expect.objectContaining({
+        mode: 'plan',
+        ops: [
+          expect.objectContaining({
+            kind: 'move_feature',
+            featureId: 'f-1',
+            milestoneId: 'm-2',
+          }),
+        ],
+        topPlannerMeta: expect.objectContaining({
+          prompt: 'rebalance milestone plan',
+          sessionMode: 'fresh',
+          collidedFeatureRuns: [
+            expect.objectContaining({
+              featureId: 'f-1',
+              runId: 'run-feature:f-1:plan',
+              phase: 'plan',
+              runStatus: 'await_approval',
+              sessionId: 'sess-feature-1',
+            }),
+          ],
+        }),
+      }),
+    );
+
+    loop.enqueue({
+      type: 'top_planner_approval_decision',
+      decision: 'approved',
+    });
+    await loop.step(100);
+
+    expect(graph.features.get('f-1')).toEqual(
+      expect.objectContaining({
+        milestoneId: 'm-2',
+        workControl: 'planning',
+      }),
+    );
+    expect(store.getAgentRun('run-top-planner')).toEqual(
+      expect.objectContaining({
+        runStatus: 'completed',
+        owner: 'system',
+      }),
+    );
+    expect(store.getAgentRun('run-feature:f-1:plan')).toEqual(
+      expect.objectContaining({
+        runStatus: 'await_approval',
+        owner: 'manual',
+        sessionId: 'run-feature:f-1:plan',
+      }),
+    );
+    expect(
+      JSON.parse(
+        store.getAgentRun('run-feature:f-1:plan')?.payloadJson ?? '{}',
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        mode: 'plan',
+        ops: [
+          expect.objectContaining({
+            kind: 'add_task',
+            featureId: 'f-1',
+            description: 'Planner rerun task after move',
+          }),
+        ],
+      }),
+    );
+    await expect(sessionStore.load('sess-feature-1')).resolves.toBeNull();
+    await expect(
+      sessionStore.load('run-feature:f-1:plan'),
+    ).resolves.not.toBeNull();
+    expect(
+      findEvent(
+        store.listEvents({ entityId: 'top-planner' }),
+        'proposal_collision_resolved',
+      )?.payload,
+    ).toMatchObject({
+      phase: 'plan',
+      featureIds: ['f-1'],
+      collidedFeatureRuns: [
+        expect.objectContaining({
+          featureId: 'f-1',
+          runId: 'run-feature:f-1:plan',
+        }),
+      ],
+      resolvedFeatureRuns: [
+        expect.objectContaining({
+          featureId: 'f-1',
+          runId: 'run-feature:f-1:plan',
+          previousSessionId: 'sess-feature-1',
+        }),
+      ],
+    });
+  });
+
+  it('rejects a collided top-level proposal without resetting the active feature planner', async () => {
+    faux.setResponses([
+      fauxAssistantMessage(
+        [
+          fauxToolCall('moveFeature', {
+            featureId: 'f-1',
+            milestoneId: 'm-2',
+          }),
+          fauxToolCall('submit', proposalDetails),
+        ],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage([fauxText('Top-level planning complete.')]),
+    ]);
+
+    const { graph, store, sessionStore, loop } = createFixture({
+      featureOverrides: {
+        workControl: 'planning',
+        collabControl: 'none',
+      },
+    });
+    graph.createMilestone({
+      id: 'm-2',
+      name: 'Milestone 2',
+      description: 'second milestone',
+    });
+    store.createAgentRun(
+      createFeaturePhaseRun('plan', {
+        runStatus: 'await_approval',
+        owner: 'manual',
+        sessionId: 'sess-feature-1',
+        payloadJson: JSON.stringify(makeProposal('plan')),
+      }),
+    );
+    await sessionStore.save('sess-feature-1', []);
+
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
+      type: 'top_planner_requested',
+      prompt: 'rebalance milestone plan',
+      sessionMode: 'fresh',
+    });
+    await loop.step(100);
+
+    loop.enqueue({
+      type: 'top_planner_approval_decision',
+      decision: 'rejected',
+      comment: 'leave the active planner alone',
+    });
+    await loop.step(100);
+
+    expect(graph.features.get('f-1')).toEqual(
+      expect.objectContaining({
+        milestoneId: 'm-1',
+        workControl: 'planning',
+      }),
+    );
+    expect(store.getAgentRun('run-feature:f-1:plan')).toEqual(
+      expect.objectContaining({
+        runStatus: 'await_approval',
+        owner: 'manual',
+        sessionId: 'sess-feature-1',
+        payloadJson: JSON.stringify(makeProposal('plan')),
+      }),
+    );
+    await expect(sessionStore.load('sess-feature-1')).resolves.not.toBeNull();
+    expect(
+      store
+        .listEvents({ entityId: 'top-planner' })
+        .some((event) => event.eventType === 'proposal_collision_resolved'),
+    ).toBe(false);
+    expect(
+      findEvent(
+        store.listEvents({ entityId: 'top-planner' }),
+        'proposal_rejected',
+      )?.payload,
+    ).toMatchObject({
+      phase: 'plan',
+      comment: 'leave the active planner alone',
+      extra: expect.objectContaining({
+        collidedFeatureRuns: [
+          expect.objectContaining({
+            featureId: 'f-1',
+            runId: 'run-feature:f-1:plan',
+            sessionId: 'sess-feature-1',
+          }),
+        ],
+      }),
+    });
+  });
+
   it('runs normal post-merge summarization from awaiting_merge to work_complete', async () => {
     faux.setResponses([
       fauxAssistantMessage(
@@ -831,7 +1483,7 @@ describe('feature-phase agent flow', () => {
     expect(sessionStore.listSessionIds()).toEqual([]);
   });
 
-  it('dispatches verify with structured repair-needed verdict into replanning', async () => {
+  it('dispatches verify with structured repair-needed verdict into executing_repair', async () => {
     faux.setResponses([
       fauxAssistantMessage(
         [
@@ -848,44 +1500,158 @@ describe('feature-phase agent flow', () => {
       fauxAssistantMessage([fauxText('Verification complete.')]),
     ]);
 
-    const { graph, store, loop } = createFixture({
-      featureOverrides: {
-        status: 'in_progress',
-        workControl: 'verifying',
-        collabControl: 'branch_open',
-      },
-    });
-    appendFeaturePhaseEvent(store, 'f-1', 'ci_check', 'feature ci green', {
-      ok: true,
-      summary: 'feature ci green',
-    });
-
-    await loop.step(100);
-
-    expect(graph.features.get('f-1')).toEqual(
-      expect.objectContaining({
-        workControl: 'replanning',
-        status: 'pending',
-        collabControl: 'branch_open',
-      }),
+    const projectRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), 'gvc0-feature-verify-repair-'),
     );
-    expect(
-      [...graph.tasks.values()].filter(
-        (task) => task.repairSource === 'verify',
-      ),
-    ).toHaveLength(0);
-    const verifyEvent = findEvent(
-      store.listEvents({ entityId: 'f-1' }),
-      'feature_phase_completed',
-    );
-    expect(verifyEvent?.payload).toMatchObject({
-      phase: 'verify',
-      summary: 'Repair needed: integrated flow not proven.',
-      extra: {
+
+    try {
+      const { graph, store, loop } = createFixture({
+        featureOverrides: {
+          status: 'in_progress',
+          workControl: 'verifying',
+          collabControl: 'branch_open',
+        },
+        projectRoot,
+      });
+      const feature = graph.features.get('f-1');
+      if (feature === undefined) {
+        throw new Error('missing feature fixture');
+      }
+      await initFeatureWorktreeRepo(projectRoot, feature, [
+        {
+          filePath: 'src/feature.ts',
+          content: 'export const feature = true;\n',
+        },
+      ]);
+      appendFeaturePhaseEvent(store, 'f-1', 'ci_check', 'feature ci green', {
+        ok: true,
+        summary: 'feature ci green',
+      });
+
+      await loop.step(100);
+
+      expect(graph.features.get('f-1')).toEqual(
+        expect.objectContaining({
+          workControl: 'executing_repair',
+          status: 'pending',
+          collabControl: 'branch_open',
+        }),
+      );
+      expect(
+        [...graph.tasks.values()].filter(
+          (task) => task.repairSource === 'verify',
+        ),
+      ).toHaveLength(1);
+      const verifyRun = store.getAgentRun('run-feature:f-1:verify');
+      expect(verifyRun).toEqual(
+        expect.objectContaining({
+          runStatus: 'completed',
+          owner: 'system',
+        }),
+      );
+      expect(JSON.parse(verifyRun?.payloadJson ?? '{}')).toMatchObject({
+        ok: false,
         outcome: 'repair_needed',
+        summary: 'Repair needed: integrated flow not proven.',
         failedChecks: ['integrated flow not proven'],
-      },
-    });
+        repairFocus: ['add proof for integrated flow'],
+      });
+      const verifyEvent = findEvent(
+        store.listEvents({ entityId: 'f-1' }),
+        'feature_phase_completed',
+      );
+      expect(verifyEvent?.payload).toMatchObject({
+        phase: 'verify',
+        summary: 'Repair needed: integrated flow not proven.',
+        extra: {
+          outcome: 'repair_needed',
+          failedChecks: ['integrated flow not proven'],
+        },
+      });
+    } finally {
+      await fs.rm(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('routes empty verify diff to repair_needed and persists the verdict', async () => {
+    const projectRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), 'gvc0-feature-verify-empty-'),
+    );
+
+    try {
+      faux.setResponses([
+        fauxAssistantMessage(
+          [
+            fauxToolCall('raiseIssue', {
+              severity: 'blocking',
+              description: 'missing implementation on feature branch',
+            }),
+            fauxToolCall('submitVerify', {
+              outcome: 'repair_needed',
+              summary: 'Repair needed: no feature diff found.',
+              repairFocus: ['add the promised implementation'],
+            }),
+          ],
+          { stopReason: 'toolUse' },
+        ),
+        fauxAssistantMessage([fauxText('Verification complete.')]),
+      ]);
+
+      const { graph, store, loop } = createFixture({
+        featureOverrides: {
+          status: 'in_progress',
+          workControl: 'verifying',
+          collabControl: 'branch_open',
+        },
+        projectRoot,
+      });
+      const feature = graph.features.get('f-1');
+      if (feature === undefined) {
+        throw new Error('missing feature fixture');
+      }
+      await initFeatureWorktreeRepo(projectRoot, feature);
+      appendFeaturePhaseEvent(store, 'f-1', 'ci_check', 'feature ci green', {
+        ok: true,
+        summary: 'feature ci green',
+      });
+
+      await loop.step(100);
+
+      expect(graph.features.get('f-1')).toEqual(
+        expect.objectContaining({
+          workControl: 'executing_repair',
+          status: 'pending',
+          collabControl: 'branch_open',
+        }),
+      );
+      expect(
+        [...graph.tasks.values()].filter(
+          (task) => task.repairSource === 'verify',
+        ),
+      ).toHaveLength(1);
+      const verifyRun = store.getAgentRun('run-feature:f-1:verify');
+      expect(verifyRun).toEqual(
+        expect.objectContaining({
+          runStatus: 'completed',
+          owner: 'system',
+        }),
+      );
+      expect(JSON.parse(verifyRun?.payloadJson ?? '{}')).toMatchObject({
+        ok: false,
+        outcome: 'repair_needed',
+        summary: 'Repair needed: no feature diff found.',
+        failedChecks: ['add the promised implementation'],
+        repairFocus: ['add the promised implementation'],
+        issues: [
+          expect.objectContaining({
+            severity: 'blocking',
+            description: 'missing implementation on feature branch',
+          }),
+        ],
+      });
+    } finally {
+      await fs.rm(projectRoot, { recursive: true, force: true });
+    }
   });
 
   it('runs real ci_check verification service and advances to verifying', async () => {
@@ -1196,5 +1962,160 @@ describe('feature-phase agent flow', () => {
       phase: 'replan',
       mode: 'replan',
     });
+  });
+});
+
+describe('task completion commit gate integration', () => {
+  it('rejects submitted completion until a trailer-valid commit is observed', async () => {
+    const task = createTaskFixture({
+      id: 't-1',
+      status: 'running',
+      collabControl: 'branch_open',
+    });
+    const { graph, store, loop } = createFixture({
+      featureOverrides: {
+        status: 'in_progress',
+        workControl: 'executing',
+        collabControl: 'branch_open',
+      },
+      tasks: [task],
+    });
+    store.createAgentRun({
+      id: 'run-task:t-1',
+      scopeType: 'task',
+      scopeId: 't-1',
+      phase: 'execute',
+      runStatus: 'running',
+      owner: 'system',
+      attention: 'none',
+      restartCount: 0,
+      maxRetries: 3,
+    });
+
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
+      type: 'worker_message',
+      message: {
+        type: 'result',
+        taskId: 't-1',
+        agentRunId: 'run-task:t-1',
+        result: { summary: 'done', filesChanged: ['src/feature.ts'] },
+        usage: {
+          provider: 'test',
+          model: 'fake',
+          inputTokens: 1,
+          outputTokens: 1,
+          totalTokens: 2,
+          usd: 0,
+        },
+        completionKind: 'submitted',
+      },
+    });
+    await loop.step(100);
+
+    expect(graph.tasks.get('t-1')).toEqual(
+      expect.objectContaining({
+        status: 'ready',
+        collabControl: 'branch_open',
+      }),
+    );
+    expect(store.getAgentRun('run-task:t-1')).toEqual(
+      expect.objectContaining({
+        runStatus: 'retry_await',
+        owner: 'system',
+      }),
+    );
+    const rejectedEvent = findEvent(
+      store.listEvents({ entityId: 't-1' }),
+      'task_completion_rejected_no_commit',
+    );
+    expect(rejectedEvent?.payload).toMatchObject({
+      agentRunId: 'run-task:t-1',
+      reason: 'no_trailer_ok_commit_observed',
+    });
+  });
+
+  it('accepts submitted completion after a trailer-valid commit is observed', async () => {
+    const task = createTaskFixture({
+      id: 't-1',
+      status: 'running',
+      collabControl: 'branch_open',
+    });
+    const { graph, store, loop } = createFixture({
+      featureOverrides: {
+        status: 'in_progress',
+        workControl: 'executing',
+        collabControl: 'branch_open',
+      },
+      tasks: [task],
+    });
+    store.createAgentRun({
+      id: 'run-task:t-1',
+      scopeType: 'task',
+      scopeId: 't-1',
+      phase: 'execute',
+      runStatus: 'running',
+      owner: 'system',
+      attention: 'none',
+      restartCount: 0,
+      maxRetries: 3,
+    });
+
+    loop.setAutoExecutionEnabled(false);
+    loop.enqueue({
+      type: 'worker_message',
+      message: {
+        type: 'commit_done',
+        taskId: 't-1',
+        agentRunId: 'run-task:t-1',
+        sha: 'abc1234',
+        trailerOk: true,
+      },
+    });
+    await loop.step(100);
+
+    loop.enqueue({
+      type: 'worker_message',
+      message: {
+        type: 'result',
+        taskId: 't-1',
+        agentRunId: 'run-task:t-1',
+        result: { summary: 'done', filesChanged: ['src/feature.ts'] },
+        usage: {
+          provider: 'test',
+          model: 'fake',
+          inputTokens: 1,
+          outputTokens: 1,
+          totalTokens: 2,
+          usd: 0,
+        },
+        completionKind: 'submitted',
+      },
+    });
+    await loop.step(200);
+
+    expect(graph.tasks.get('t-1')).toEqual(
+      expect.objectContaining({
+        status: 'done',
+        collabControl: 'merged',
+      }),
+    );
+    expect(store.getAgentRun('run-task:t-1')).toEqual(
+      expect.objectContaining({
+        runStatus: 'completed',
+        owner: 'system',
+      }),
+    );
+    expect(
+      store
+        .listEvents({ entityId: 't-1' })
+        .some(
+          (event) => event.eventType === 'task_completion_rejected_no_commit',
+        ),
+    ).toBe(false);
+    expect(store.getLastCommitSha('run-task:t-1')).toBe('abc1234');
+    expect(store.getTrailerObservedAt('run-task:t-1')).toEqual(
+      expect.any(Number),
+    );
   });
 });

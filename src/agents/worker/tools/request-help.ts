@@ -23,15 +23,25 @@ export function createRequestHelpTool(
     description:
       'Ask the human operator for guidance. Blocks the agent until the orchestrator delivers a help response.',
     parameters,
-    execute: async (_toolCallId, params) => {
-      const response = await ipc.requestHelp(params.query);
+    execute: async (toolCallId, params) => {
+      const response = await ipc.requestHelp(params.query, toolCallId);
       const text =
         response.kind === 'answer'
           ? response.text
           : '[operator chose to discuss — expect follow-up steering]';
+      const content = [{ type: 'text' as const, text }];
+      const details = { query: params.query, responseKind: response.kind };
+      await ipc.recordToolOutput({
+        toolCallId,
+        toolName: 'request_help',
+        content,
+        details,
+        isError: false,
+        timestamp: Date.now(),
+      });
       return {
-        content: [{ type: 'text', text }],
-        details: { query: params.query, responseKind: response.kind },
+        content,
+        details,
       };
     },
   };

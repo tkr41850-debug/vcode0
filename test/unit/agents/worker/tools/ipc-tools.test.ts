@@ -15,7 +15,17 @@ interface MockBridge extends IpcBridge {
   _lastResult?: TaskResult;
   _progressMessages: string[];
   _lastHelpQuery?: string;
+  _lastHelpToolCallId?: string;
   _lastApprovalPayload?: ApprovalPayload;
+  _lastApprovalToolCallId?: string;
+  _recordedToolOutputs: Array<{
+    toolCallId: string;
+    toolName: string;
+    content: unknown;
+    details?: unknown;
+    isError: boolean;
+    timestamp: number;
+  }>;
   _nextHelpResponse?: HelpResponse;
   _nextApprovalDecision?: ApprovalDecision;
 }
@@ -25,18 +35,25 @@ function createMockBridge(): MockBridge {
     taskId: 't-1',
     agentRunId: 'r-1',
     _progressMessages: [],
+    _recordedToolOutputs: [],
     progress(msg: string) {
       bridge._progressMessages.push(msg);
     },
-    requestHelp(query: string) {
+    requestHelp(query: string, toolCallId: string) {
       bridge._lastHelpQuery = query;
+      bridge._lastHelpToolCallId = toolCallId;
       return Promise.resolve(bridge._nextHelpResponse ?? { kind: 'discuss' });
     },
-    requestApproval(payload: ApprovalPayload) {
+    requestApproval(payload: ApprovalPayload, toolCallId: string) {
       bridge._lastApprovalPayload = payload;
+      bridge._lastApprovalToolCallId = toolCallId;
       return Promise.resolve(
         bridge._nextApprovalDecision ?? { kind: 'approved' },
       );
+    },
+    recordToolOutput(output) {
+      bridge._recordedToolOutputs.push(output);
+      return Promise.resolve();
     },
     claimLock(_paths: readonly string[]) {
       return Promise.resolve({ granted: true } as const);
@@ -89,8 +106,20 @@ describe('worker ipc-coupled tools', () => {
       });
 
       expect(bridge._lastHelpQuery).toBe('which option should I pick?');
+      expect(bridge._lastHelpToolCallId).toBe('call-1');
       expect((result.content[0] as { text: string }).text).toBe('use option B');
       expect(result.details.responseKind).toBe('answer');
+      expect(bridge._recordedToolOutputs).toEqual([
+        expect.objectContaining({
+          toolCallId: 'call-1',
+          toolName: 'request_help',
+          isError: false,
+          details: {
+            query: 'which option should I pick?',
+            responseKind: 'answer',
+          },
+        }),
+      ]);
     });
 
     it('reports discuss branch when operator chooses to discuss', async () => {
@@ -101,6 +130,14 @@ describe('worker ipc-coupled tools', () => {
       const result = await tool.execute('call-1', { query: 'halp' });
 
       expect(result.details.responseKind).toBe('discuss');
+      expect(bridge._recordedToolOutputs).toEqual([
+        expect.objectContaining({
+          toolCallId: 'call-1',
+          toolName: 'request_help',
+          isError: false,
+          details: { query: 'halp', responseKind: 'discuss' },
+        }),
+      ]);
     });
   });
 
@@ -118,12 +155,21 @@ describe('worker ipc-coupled tools', () => {
       });
 
       expect(bridge._lastApprovalPayload?.kind).toBe('replan_proposal');
+      expect(bridge._lastApprovalToolCallId).toBe('call-1');
       if (bridge._lastApprovalPayload?.kind === 'replan_proposal') {
         expect(bridge._lastApprovalPayload.proposedMutations).toEqual([
           'mutation-1',
         ]);
       }
       expect(result.details.decision).toBe('approved');
+      expect(bridge._recordedToolOutputs).toEqual([
+        expect.objectContaining({
+          toolCallId: 'call-1',
+          toolName: 'request_approval',
+          isError: false,
+          details: { kind: 'replan_proposal', decision: 'approved' },
+        }),
+      ]);
     });
 
     it('forwards a destructive_action payload with affected paths', async () => {
@@ -142,10 +188,19 @@ describe('worker ipc-coupled tools', () => {
       });
 
       expect(bridge._lastApprovalPayload?.kind).toBe('destructive_action');
+      expect(bridge._lastApprovalToolCallId).toBe('call-1');
       expect(result.details.decision).toBe('reject');
       expect((result.content[0] as { text: string }).text).toContain(
         'too risky',
       );
+      expect(bridge._recordedToolOutputs).toEqual([
+        expect.objectContaining({
+          toolCallId: 'call-1',
+          toolName: 'request_approval',
+          isError: false,
+          details: { kind: 'destructive_action', decision: 'reject' },
+        }),
+      ]);
     });
   });
 });

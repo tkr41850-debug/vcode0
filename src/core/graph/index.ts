@@ -24,11 +24,13 @@ import {
   createMilestone as createGraphMilestone,
   createTask as createGraphTask,
   removeFeature as deleteFeature,
+  removeMilestone as deleteMilestone,
   removeTask as deleteTask,
   queueMilestone as enqueueMilestone,
   mergeFeatures as mergeGraphFeatures,
   changeMilestone as moveFeatureMilestone,
   editFeature as patchFeature,
+  editMilestone as patchMilestone,
   editTask as patchTask,
   reorderTasks as reorderFeatureTasks,
   replaceUsageRollups as replaceGraphUsageRollups,
@@ -59,6 +61,7 @@ import type {
   FeatureTransitionPatch,
   GraphSnapshot,
   MergeTrainUpdate,
+  MilestoneEditPatch,
   SplitSpec,
   TaskEditPatch,
   TaskTransitionPatch,
@@ -83,6 +86,7 @@ export type {
   FeatureTransitionPatch,
   GraphSnapshot,
   MergeTrainUpdate,
+  MilestoneEditPatch,
   PlannerFeatureEditPatch,
   SplitSpec,
   TaskDependencyOptions,
@@ -184,6 +188,19 @@ export class InMemoryFeatureGraph
   createMilestone(opts: CreateMilestoneOptions): Milestone {
     this._assertInTick('createMilestone');
     return createGraphMilestone(this, opts);
+  }
+
+  editMilestone(
+    milestoneId: MilestoneId,
+    patch: MilestoneEditPatch,
+  ): Milestone {
+    this._assertInTick('editMilestone');
+    return patchMilestone(this, milestoneId, patch);
+  }
+
+  removeMilestone(milestoneId: MilestoneId): void {
+    this._assertInTick('removeMilestone');
+    deleteMilestone(this, milestoneId);
   }
 
   createFeature(opts: CreateFeatureOptions): Feature {

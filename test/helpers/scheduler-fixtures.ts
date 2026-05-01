@@ -397,7 +397,9 @@ export function createRunReaderFromRuns(runs: AgentRun[]): ExecutionRunReader {
       byTaskId.set(run.scopeId, run);
       continue;
     }
-    byFeaturePhase.set(`${run.scopeId}:${run.phase}`, run);
+    if (run.scopeType === 'feature_phase') {
+      byFeaturePhase.set(`${run.scopeId}:${run.phase}`, run);
+    }
   }
 
   return {

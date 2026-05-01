@@ -56,6 +56,163 @@ export interface InboxItemAppend {
   payload: unknown;
 }
 
+export interface InboxItemResolution {
+  kind: 'answered' | 'approved' | 'rejected' | 'dismissed';
+  resolvedAt: number;
+  note?: string;
+  fanoutTaskIds?: string[];
+}
+
+export interface InboxItemRecord {
+  id: string;
+  ts: number;
+  taskId?: string;
+  agentRunId?: string;
+  featureId?: string;
+  kind: string;
+  payload: unknown;
+  resolution?: InboxItemResolution;
+}
+
+export interface InboxQuery {
+  unresolvedOnly?: boolean;
+  kind?: string;
+  taskId?: string;
+  agentRunId?: string;
+  featureId?: string;
+}
+
+function normalizeInboxText(value: string): string {
+  return value.trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function normalizeInboxStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter((entry): entry is string => typeof entry === 'string')
+    .map((entry) => entry.trim())
+    .sort((left, right) => left.localeCompare(right));
+}
+
+function stripInboxEquivalenceKey(payload: unknown): unknown {
+  if (
+    payload === null ||
+    typeof payload !== 'object' ||
+    Array.isArray(payload)
+  ) {
+    return payload;
+  }
+
+  const { equivalenceKey: _equivalenceKey, ...rest } = payload as Record<
+    string,
+    unknown
+  >;
+  return rest;
+}
+
+function stableSerialize(value: unknown): string {
+  if (value === undefined) {
+    return 'null';
+  }
+  if (value === null || typeof value !== 'object') {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => stableSerialize(entry)).join(',')}]`;
+  }
+
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([, entry]) => entry !== undefined)
+    .sort(([left], [right]) => left.localeCompare(right));
+  return `{${entries
+    .map(([key, entry]) => `${JSON.stringify(key)}:${stableSerialize(entry)}`)
+    .join(',')}}`;
+}
+
+function canonicalInboxPayload(kind: string, payload: unknown): unknown {
+  const raw = stripInboxEquivalenceKey(payload);
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    return raw;
+  }
+
+  const record = raw as Record<string, unknown>;
+  if (kind === 'agent_help') {
+    return {
+      query:
+        typeof record.query === 'string'
+          ? normalizeInboxText(record.query)
+          : '',
+    };
+  }
+
+  const isApprovalKind =
+    kind === 'agent_approval' || kind === 'destructive_action';
+  if (!isApprovalKind) {
+    return raw;
+  }
+
+  switch (record.kind) {
+    case 'custom':
+      return {
+        kind: 'custom',
+        label:
+          typeof record.label === 'string'
+            ? normalizeInboxText(record.label)
+            : '',
+        detail:
+          typeof record.detail === 'string'
+            ? normalizeInboxText(record.detail)
+            : '',
+      };
+    case 'replan_proposal':
+      return {
+        kind: 'replan_proposal',
+        summary:
+          typeof record.summary === 'string'
+            ? normalizeInboxText(record.summary)
+            : '',
+        proposedMutations: normalizeInboxStringArray(record.proposedMutations),
+      };
+    case 'destructive_action':
+      return {
+        kind: 'destructive_action',
+        description:
+          typeof record.description === 'string'
+            ? normalizeInboxText(record.description)
+            : '',
+        affectedPaths: normalizeInboxStringArray(record.affectedPaths),
+      };
+    default:
+      return raw;
+  }
+}
+
+export function buildInboxEquivalenceKey(
+  kind: string,
+  payload: unknown,
+): string {
+  return `${kind}:${stableSerialize(canonicalInboxPayload(kind, payload))}`;
+}
+
+export function getInboxEquivalenceKey(
+  item: Pick<InboxItemRecord, 'kind' | 'payload'>,
+): string {
+  const payload = item.payload;
+  if (
+    payload !== null &&
+    typeof payload === 'object' &&
+    !Array.isArray(payload) &&
+    typeof (payload as { equivalenceKey?: unknown }).equivalenceKey === 'string'
+  ) {
+    return (payload as { equivalenceKey: string }).equivalenceKey;
+  }
+
+  return buildInboxEquivalenceKey(item.kind, payload);
+}
+
 export interface Store {
   // IPC quarantine (REQ-EXEC-03) — persistent tail for malformed NDJSON
   // frames. Callers MUST NOT await this in the hot line-parse path; the
@@ -98,8 +255,14 @@ export interface Store {
   // resolution tracking + richer query helpers.
   // `setLastCommitSha` persists the SHA of the most recent commit produced
   // by a worker run (migration 0006), read by Phase 6 merge-train.
+  // `setTrailerObservedAt` / `getTrailerObservedAt` persist the first
+  // trailer-valid commit observation for orchestrator-side completion gates.
   appendInboxItem(item: InboxItemAppend): void;
+  listInboxItems(query?: InboxQuery): InboxItemRecord[];
+  resolveInboxItem(id: string, resolution: InboxItemResolution): void;
   setLastCommitSha(agentRunId: string, sha: string): void;
+  setTrailerObservedAt(agentRunId: string, ts: number): void;
+  getTrailerObservedAt(agentRunId: string): number | undefined;
 
   // Lifecycle
   close(): void;
