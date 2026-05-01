@@ -7,7 +7,7 @@ Phase docs are the executable plan: Contract (frozen at start) + Plan (mutable) 
 ## Authoring
 
 - [Phase Doc Guidelines](./guidelines.md) — canonical structure, header fields, tiered step template, sizing rubric, glossary convention, closing checklist. Applies to phase docs authored after the guidelines were introduced; existing docs are not retroactively migrated.
-- [Phase Doc Example](./guidelines-example.md) — synthetic 2-step worked example covering Standard and Heavy tier shapes end to end.
+- [Phase Doc Example](./guidelines-example.md) — synthetic 3-step worked example covering Light, Standard, and Heavy tier shapes end to end.
 - [Phase Doc Rationale](./guidelines-rationale.md) — design reasoning behind the rules. Read when proposing meta-changes to the phase-doc system; not needed for day-to-day authoring.
 
 ## Tracks
