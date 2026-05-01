@@ -289,6 +289,114 @@ describe('SqliteStore', () => {
       expect(store.getAgentRun(run.id)).toEqual(run);
     });
 
+    it('listProjectSessions returns all project rows when no filter', () => {
+      store.createAgentRun(makeTaskRun({ id: 'r-task' }));
+      store.createAgentRun({
+        id: 'r-proj-1',
+        scopeType: 'project',
+        scopeId: PROJECT_SCOPE_ID,
+        phase: 'plan',
+        runStatus: 'running',
+        owner: 'system',
+        attention: 'none',
+        restartCount: 0,
+        maxRetries: 3,
+      });
+      store.createAgentRun({
+        id: 'r-proj-2',
+        scopeType: 'project',
+        scopeId: PROJECT_SCOPE_ID,
+        phase: 'plan',
+        runStatus: 'completed',
+        owner: 'system',
+        attention: 'none',
+        restartCount: 0,
+        maxRetries: 3,
+      });
+
+      const sessions = store.listProjectSessions();
+      expect(sessions.map((r) => r.id).sort()).toEqual([
+        'r-proj-1',
+        'r-proj-2',
+      ]);
+      expect(sessions.every((r) => r.scopeType === 'project')).toBe(true);
+    });
+
+    it('listProjectSessions filters by runStatuses array', () => {
+      store.createAgentRun({
+        id: 'r-running',
+        scopeType: 'project',
+        scopeId: PROJECT_SCOPE_ID,
+        phase: 'plan',
+        runStatus: 'running',
+        owner: 'system',
+        attention: 'none',
+        restartCount: 0,
+        maxRetries: 3,
+      });
+      store.createAgentRun({
+        id: 'r-await',
+        scopeType: 'project',
+        scopeId: PROJECT_SCOPE_ID,
+        phase: 'plan',
+        runStatus: 'await_response',
+        owner: 'manual',
+        attention: 'operator',
+        restartCount: 0,
+        maxRetries: 3,
+      });
+      store.createAgentRun({
+        id: 'r-completed',
+        scopeType: 'project',
+        scopeId: PROJECT_SCOPE_ID,
+        phase: 'plan',
+        runStatus: 'completed',
+        owner: 'system',
+        attention: 'none',
+        restartCount: 0,
+        maxRetries: 3,
+      });
+
+      const active = store.listProjectSessions({
+        runStatuses: ['running', 'await_response'],
+      });
+      expect(active.map((r) => r.id).sort()).toEqual(['r-await', 'r-running']);
+    });
+
+    it('listAgentRuns runStatuses filter applies generically', () => {
+      store.createAgentRun(makeTaskRun({ id: 'r1', runStatus: 'ready' }));
+      store.createAgentRun(makeTaskRun({ id: 'r2', runStatus: 'running' }));
+      store.createAgentRun(
+        makeTaskRun({ id: 'r3', runStatus: 'await_response' }),
+      );
+
+      expect(
+        store
+          .listAgentRuns({ runStatuses: ['running', 'await_response'] })
+          .map((r) => r.id)
+          .sort(),
+      ).toEqual(['r2', 'r3']);
+    });
+
+    it('getProjectSession returns row or undefined', () => {
+      store.createAgentRun({
+        id: 'r-proj-1',
+        scopeType: 'project',
+        scopeId: PROJECT_SCOPE_ID,
+        phase: 'plan',
+        runStatus: 'running',
+        owner: 'system',
+        attention: 'none',
+        restartCount: 0,
+        maxRetries: 3,
+      });
+      store.createAgentRun(makeTaskRun({ id: 'r-task' }));
+
+      expect(store.getProjectSession('r-proj-1')?.scopeType).toBe('project');
+      expect(store.getProjectSession('r-task')).toBeUndefined();
+      expect(store.getProjectSession('r-missing')).toBeUndefined();
+    });
+
     it('filters listAgentRuns by scopeType=project', () => {
       store.createAgentRun(makeTaskRun({ id: 'r-task' }));
       store.createAgentRun({

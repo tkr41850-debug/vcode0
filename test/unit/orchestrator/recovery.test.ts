@@ -144,6 +144,8 @@ function createStoreMock(runs: AgentRun[]): Store {
         byId.set(id, next as FeaturePhaseAgentRun);
       }
     }),
+    listProjectSessions: vi.fn(() => []),
+    getProjectSession: vi.fn(() => undefined),
     listEvents: vi.fn(() => []),
     appendEvent: vi.fn(),
     getIntegrationState: vi.fn(() => undefined),

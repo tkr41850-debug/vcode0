@@ -123,6 +123,8 @@ function createStoreMock(): Store {
       }
       runs.set(runId, { ...existing, ...patch } as AgentRun);
     },
+    listProjectSessions: () => [],
+    getProjectSession: () => undefined,
     listEvents: (query?: EventQuery) => {
       return events.filter((event) => {
         if (

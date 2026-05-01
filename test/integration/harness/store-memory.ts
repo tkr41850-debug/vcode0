@@ -13,6 +13,7 @@ import type {
   AgentRunPatch,
   AgentRunQuery,
   EventQuery,
+  ProjectSessionFilter,
   Store,
 } from '@orchestrator/ports/index';
 
@@ -54,12 +55,33 @@ export class InMemoryStore implements Store {
       if (query?.runStatus !== undefined && run.runStatus !== query.runStatus) {
         continue;
       }
+      if (
+        query?.runStatuses !== undefined &&
+        query.runStatuses.length > 0 &&
+        !query.runStatuses.includes(run.runStatus)
+      ) {
+        continue;
+      }
       if (query?.owner !== undefined && run.owner !== query.owner) {
         continue;
       }
       out.push(run);
     }
     return out;
+  }
+
+  listProjectSessions(filter?: ProjectSessionFilter): AgentRun[] {
+    return this.listAgentRuns({
+      scopeType: 'project',
+      ...(filter?.runStatuses !== undefined
+        ? { runStatuses: filter.runStatuses }
+        : {}),
+    });
+  }
+
+  getProjectSession(id: string): AgentRun | undefined {
+    const run = this.runs.get(id);
+    return run?.scopeType === 'project' ? run : undefined;
   }
 
   createAgentRun(run: AgentRun): void {

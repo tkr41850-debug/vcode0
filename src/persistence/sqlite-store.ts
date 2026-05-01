@@ -17,6 +17,7 @@ import type {
   AgentRunPatch,
   AgentRunQuery,
   EventQuery,
+  ProjectSessionFilter,
   Store,
 } from '@orchestrator/ports/index';
 import {
@@ -294,6 +295,15 @@ export class SqliteStore implements Store {
       clauses.push('run_status = :run_status');
       params.run_status = query.runStatus;
     }
+    if (query?.runStatuses !== undefined && query.runStatuses.length > 0) {
+      const placeholders = query.runStatuses.map(
+        (_status, idx) => `:run_status_${idx}`,
+      );
+      clauses.push(`run_status IN (${placeholders.join(', ')})`);
+      query.runStatuses.forEach((status, idx) => {
+        params[`run_status_${idx}`] = status;
+      });
+    }
     if (query?.owner !== undefined) {
       clauses.push('owner = :owner');
       params.owner = query.owner;
@@ -303,6 +313,20 @@ export class SqliteStore implements Store {
       `SELECT ${AGENT_RUN_COLUMNS} FROM agent_runs${where} ORDER BY created_at ASC, id ASC`,
     );
     return stmt.all(params).map(rowToAgentRun);
+  }
+
+  listProjectSessions(filter?: ProjectSessionFilter): AgentRun[] {
+    return this.listAgentRuns({
+      scopeType: 'project',
+      ...(filter?.runStatuses !== undefined
+        ? { runStatuses: filter.runStatuses }
+        : {}),
+    });
+  }
+
+  getProjectSession(id: string): AgentRun | undefined {
+    const run = this.getAgentRun(id);
+    return run?.scopeType === 'project' ? run : undefined;
   }
 
   createAgentRun(run: AgentRun): void {

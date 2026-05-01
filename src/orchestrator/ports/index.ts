@@ -31,7 +31,12 @@ export interface AgentRunQuery {
   scopeId?: AgentRun['scopeId'];
   phase?: AgentRun['phase'];
   runStatus?: AgentRun['runStatus'];
+  runStatuses?: AgentRun['runStatus'][];
   owner?: AgentRun['owner'];
+}
+
+export interface ProjectSessionFilter {
+  runStatuses?: AgentRun['runStatus'][];
 }
 
 export interface EventQuery {
@@ -53,6 +58,11 @@ export interface Store {
   listAgentRuns(query?: AgentRunQuery): AgentRun[];
   createAgentRun(run: AgentRun): void;
   updateAgentRun(runId: string, patch: AgentRunPatch): void;
+
+  // Project-scope session helpers (consumed by recovery rehydrate sweep
+  // and the TUI session list view).
+  listProjectSessions(filter?: ProjectSessionFilter): AgentRun[];
+  getProjectSession(id: string): AgentRun | undefined;
 
   // Events
   listEvents(query?: EventQuery): EventRecord[];
