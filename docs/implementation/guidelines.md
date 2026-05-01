@@ -26,7 +26,7 @@ See `guidelines-example.md` for a worked example. Tracks may retrofit existing p
 - Depends on: phase-<N>-<slug> (<reason>), ...
 - Default verify: npm run check:fix && npm run check
 - Phase exit: <verify command + observable post-conditions; manual smoke scenario if applicable, else omit>
-- Doc-sweep deferred: <docs that will lag this phase, or "none">
+- Doc-sweep deferred: <docs that will lag this phase>   # omit field when none
 
 Ships as N commits, in order.
 
@@ -40,8 +40,8 @@ Ships as N commits, in order.
 
 ## Plan
 
-- Background: <recon memo, paths + line ranges + current behavior; deltas only>
-- Notes: <open questions and watch items, or "none">
+- Background: <recon memo, paths + line ranges + current behavior; deltas only — ≤10 bullets, ≤300 words>
+- Notes: <open questions and watch items, or "none" — ≤5 items>
 
 ## Steps
 
@@ -80,7 +80,7 @@ For Scope.In/Out additions, prefix the new item with `(added 2026-04-12) ...`. F
 - **Depends on** — list of `phase-<N>-<slug>` ids with one-line reasons.
 - **Default verify** — runs after every step unless the step overrides.
 - **Phase exit** — single combined field carrying the verify command (stronger gate than per-step verify; runs once before closing the phase) plus the observable post-conditions and any manual smoke scenario that exercises the phase's user-visible outcome end-to-end. Multi-clause; semicolon-separated. Omit the smoke clause when not applicable.
-- **Doc-sweep deferred** — explicit list of docs that will lag code during this phase. Reconcile in a single doc-only commit at phase exit. Use `none` to assert no drift expected.
+- **Doc-sweep deferred** — explicit list of docs that will lag code during this phase. Reconcile in a single doc-only commit at phase exit. Omit the field entirely when no drift is expected.
 
 ## Contract block
 
@@ -111,7 +111,7 @@ Tier is implicit from the `[risk: ..., size: ...]` label. Author includes only f
   - `med` — touches behavior on a hot path, or shared types/contracts in-process. Examples: branch on hot path, refactor with same external surface, new method on widely-used class.
   - `high` — schema/migration/protocol/irreversible/cross-process invariant. Examples: schema migration, IPC frame change, env-var rename, signal handler, security-posture change, deploy artifact.
 
-When in doubt, round up. A bigger label costs a few extra fields; a smaller label hides risk.
+Default to Light when the step fits its shape; reviewer enforces. Round up only when risk is genuinely ambiguous — Standard or Heavy template applied to a one-line fix is its own bloat. A bigger label costs a few extra fields; a smaller label hides risk; the wrong-fit template wastes review surface.
 
 ### Light — `risk: low, size: S`
 
@@ -166,13 +166,25 @@ Crash matrix: <if recovery-relevant>
 - Phase header states total commits: "Ships as N commits, in order." If `Doc-sweep deferred` is non-empty, the closing doc-only commit is included in the count.
 - Step numbering is `X.Y`. Half-steps (`X.Y.a`, `X.Y.b`) are still **separate steps with separate commits** — the shared `X.Y` prefix only signals "these substeps land together as one logical change" for review. They do not violate one-step = one-commit. Prefer splitting into two `X.Y` entries when the substeps are independently reviewable.
 - **Commit scope** — module-scoped: `feat(runtime/ipc): ...`, `fix(persistence): ...`, `docs(implementation): ...`. Bare `feat: improvements` is banned. Subject ≤72 chars; details in the body.
-- **`Files:` format** — one path per item. Anchor with `:line` when the edit lands at a specific site (`src/runtime/ipc/frames.ts:204`); omit `:line` for whole-file rewrites or new files. New files: `src/runtime/registry/transport.ts (new)`. Multi-line lists indent under the `Files:` label, two-space indent per continuation line. Omit the field entirely when fully redundant with `What:`.
+- **`Files:` format** — one path per item. Anchor with `:line` when the edit lands at a specific site (`src/runtime/ipc/frames.ts:204`); omit `:line` for whole-file rewrites or new files. New files: `src/runtime/registry/transport.ts (new)`. Multi-line lists indent under the `Files:` label, two-space indent per continuation line. Omit the field entirely when fully redundant with `What:`. **No descriptive parentheticals** — `What:` carries intent; `Files:` is location only. The only allowed parenthetical is `(new)` to mark a new file.
 - **`Tests:` rubric** —
   - Standard / Heavy: list test files OR `tests deferred to step X.Y (<reason>)`. Silence is not allowed.
   - Light: optional. Pure-doc step: omit.
   - Refactor with no behavior change: name the existing test file that already covers the surface (`covered by test/unit/foo.test.ts`).
-- **`Review goals:`** is a numbered list of what the reviewer must check. Default word cap **250 words** unless the phase or step overrides (`Review goals: (cap 400 words) 1) ...`). Tool-agnostic; the subagent prompt is assembled from these goals at review time.
+- **`Review goals:`** is a numbered list of what the reviewer must check. Default word cap **100 words**; override up to **250 words** with explicit annotation (`Review goals: (cap 250 words) 1) ...`) when the surface genuinely demands it. Tool-agnostic; the subagent prompt is assembled from these goals at review time.
 - **`Smoke:` (per-step)** is distinct from the smoke clause of the **`Phase exit`** header field. Per-step smoke is a manual scenario that exercises just this step's behavior in isolation; phase-exit smoke exercises the phase's user-visible outcome end-to-end. A step may carry its own `Smoke:` even when the phase-exit smoke clause is omitted, and vice versa.
+
+## Phase-level budget
+
+Step tier governs per-step length; this section governs the doc as a whole. Soft targets unless the phase rationale (in Plan) justifies otherwise.
+
+- **Total phase doc** — target ≤ 2000 words; hard cap ~3000.
+- **Per-step word budgets** — Light ≤ 100 words; Standard 300–500 words; Heavy ≤ 800 words.
+- **Background** — ≤ 300 words, ≤ 10 bullets. Beyond that, hoist context into `docs/architecture/` and cite.
+- **Notes** — ≤ 5 items. Items that grow past one open question + a default belong in `docs/concerns/` or `Scope.Out`.
+- **Heavy-tier density** — more than 5 Heavy-tier steps in one phase signals the phase scope is too broad. Split before authoring; do not let scope inflate doc length.
+- **Cross-phase pin-down** ("phase-X owns Y; phase-Z wires it") belongs in the track README's dependency table or in the `Depends on:` header line. Phase docs cite the dep once and do not restate ownership prose per step.
+- **Per-step fields appear only when overriding a header default.** Do not restate `Verification:`, `Approach:`, or any field whose value matches the header.
 
 ## Anti-patterns
 
@@ -198,6 +210,21 @@ Concrete shapes to reject in review.
   - good: `feat(runtime/ipc): add help_request frame and event-kind migration`
 - **Unbounded scope creep into Out**
   - `Out:` is a boundary against tempting nearby work; if it grows past ~6 items, ask whether the phase is too narrow or another phase is missing.
+- **Per-step `Verification:` restates Default verify**
+  - bad: `Verification: npm run check:fix && npm run check.` on every step (already in header `Default verify:`)
+  - good: omit the field. Include only when this step overrides the header default.
+- **Per-step `Approach:` restates track convention**
+  - bad: `Approach: TDD.` on every step in a track that's TDD by convention.
+  - good: state the convention once in the track README; omit per-step.
+- **Background as prose narrative**
+  - bad: paragraphs explaining how the subsystem works.
+  - good: cited deltas — `frame.ts:204 currently does X; tests at foo.test.ts:88 only assert Y`.
+- **`Files:` descriptive parentheticals**
+  - bad: `src/x.ts (add zod schema and validate input)`
+  - good: `src/x.ts:204` — `What:` carries intent; `Files:` is location only. Only `(new)` is allowed.
+- **`Files:` duplicates `What:`**
+  - bad: a `Files:` block whose intent is fully recoverable from `What:` (single-file mechanical edit).
+  - good: omit the field — guidelines explicitly permit dropping it when redundant.
 
 ## Style
 
@@ -208,6 +235,13 @@ Concrete shapes to reject in review.
 - Bold labels — applies to step-field labels (`**What:**` vs `What:`, `**Files:**` vs `Files:`, etc.). Author choice; pick one and stay consistent within a phase. Header-bullet field names (`- Status:`, `- Verified state:`) and Contract/Plan field names (`- Goal:`, `- Background:`) are always plain (no bolding) because they sit inside bullet lists where bolding fights the bullet structure.
 - Hoist defaults to the phase header; per-step only when deviating.
 
+## Optional patterns
+
+These shapes recur enough to canonize but stay optional — use only when they earn their keep.
+
+- **RED→GREEN narrative** — when TDD step-ordering is load-bearing (a test must compile and fail at one point, then pass at another), distinguish in the step body: `compile-RED` (new symbol referenced before it exists, fails at typecheck), `assertion-RED` (test runs but fails on behavior), `GREEN` (implementation lands, test passes). Use only when ordering ambiguity would mislead the reviewer or the implementing session; for a single-test-then-implement step, omit and let the test file name speak.
+- **`assertNever` exhaustiveness** — when extending a discriminated union, the canonical compile-RED move is to `switch` over the discriminator and call `assertNever(value satisfies never)` in the default arm. The compiler then flags any unhandled new variant in a downstream commit as a build failure. Cite this in the step's `What:` when adding a variant: `extend Foo union; assertNever guard at bar.ts:54 will compile-RED until step X.Y handles the new arm`.
+
 ## Glossary
 
 Track-specific jargon (`submit invariants`, `frame fields`, `escalation prompt`) lives in `docs/implementation/<track>/glossary.md` once a term recurs across 3+ phases. Phase docs link the term on first occurrence per phase.
@@ -215,6 +249,8 @@ Track-specific jargon (`submit invariants`, `frame fields`, `escalation prompt`)
 For one-off terms, gloss inline on first use: `submit invariants (rules a planner submit must satisfy)`.
 
 Cross-track concepts (`worktree`, `merge train`, `feature branch`) live in `docs/architecture/` — link there, don't redefine.
+
+**Bootstrap** — copy `docs/implementation/glossary-template.md` to `docs/implementation/<track>/glossary.md` and start populating from your phase docs. The template carries the canonical header bullets, term-definition format, and link-back convention so every track's glossary has the same shape.
 
 ## Cross-doc references
 
