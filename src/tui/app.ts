@@ -1,5 +1,9 @@
 import type { GraphSnapshot } from '@core/graph/index';
-import type { FeatureId, MilestoneId } from '@core/types/index';
+import type {
+  FeatureId,
+  MilestoneId,
+  PlannerSessionMode,
+} from '@core/types/index';
 import {
   CombinedAutocompleteProvider,
   Editor,
@@ -22,6 +26,7 @@ import {
   HelpOverlay,
   InboxOverlay,
   MergeTrainOverlay,
+  PlannerSessionOverlay,
   StatusBar,
   TaskTranscriptOverlay,
 } from '@tui/components/index';
@@ -44,6 +49,7 @@ import {
   type OverlayState,
   pushWorkerOutput,
   shouldRenderAfterWorkerOutput,
+  showPlannerSessionOverlay,
   toggleAgentMonitorOverlay,
   toggleConfigOverlay,
   toggleDependencyOverlay,
@@ -56,6 +62,8 @@ import {
   buildFlattenedNodes,
   displayedSnapshot,
   findSelectedNode,
+  hasReusableTopPlannerSession,
+  type PendingTopPlannerSessionAction,
   pendingProposalForSelection,
   pendingTaskRunForSelection,
   resolveSelectedNodeId,
@@ -91,6 +99,7 @@ export class TuiApp implements UiPort {
   private readonly inboxOverlay = new InboxOverlay();
   private readonly mergeTrainOverlay = new MergeTrainOverlay();
   private readonly configOverlay = new ConfigOverlay();
+  private readonly plannerSessionOverlay = new PlannerSessionOverlay();
   private readonly transcriptOverlay = new TaskTranscriptOverlay();
   private readonly helpOverlay = new HelpOverlay();
   private readonly commands = new CommandRegistry();
@@ -103,9 +112,13 @@ export class TuiApp implements UiPort {
     inboxHandle: undefined,
     mergeTrainHandle: undefined,
     configHandle: undefined,
+    plannerSessionHandle: undefined,
     transcriptHandle: undefined,
   };
   private started = false;
+  private pendingTopPlannerSessionAction:
+    | PendingTopPlannerSessionAction
+    | undefined;
   private selectedNodeId: string | undefined;
   private selectedWorkerId: string | undefined;
   private lastWorkerRenderAt = 0;
@@ -137,6 +150,8 @@ export class TuiApp implements UiPort {
       enqueueTopPlannerRerun: (event) => {
         this.deps.rerunTopPlannerProposal(event);
       },
+      requestTopPlannerRerunSelection: () =>
+        this.requestTopPlannerRerunSelection(),
     });
 
     this.composer.onChange = (text) => {
@@ -147,7 +162,10 @@ export class TuiApp implements UiPort {
       void handleComposerSubmit({
         text,
         executeSlashCommand: (input) => this.executeSlashCommand(input),
-        requestTopLevelPlan: (prompt) => this.deps.requestTopLevelPlan(prompt),
+        requestTopLevelPlan: (prompt, options) =>
+          this.deps.requestTopLevelPlan(prompt, options),
+        requestTopPlannerSessionSelection: (action) =>
+          this.requestTopPlannerSessionSelection(action),
         addToHistory: (input) => this.composer.addToHistory(input),
         setNotice: (notice) => {
           this.notice = notice;
@@ -229,6 +247,7 @@ export class TuiApp implements UiPort {
       selectedTaskId: selectedNode?.taskId,
       getTaskRun: (taskId) => this.deps.getTaskRun(taskId),
     });
+    const pendingTopPlannerSessionAction = this.pendingTopPlannerSessionAction;
 
     this.dagView.setModel(
       nodes,
@@ -293,6 +312,14 @@ export class TuiApp implements UiPort {
               pendingTaskPayloadJson: pendingTaskRun.payloadJson,
             }
           : {}),
+        ...(pendingTopPlannerSessionAction !== undefined
+          ? {
+              pendingSessionSummary:
+                pendingTopPlannerSessionAction.kind === 'submit'
+                  ? 'submit choice pending'
+                  : 'rerun choice pending',
+            }
+          : {}),
       }),
     );
 
@@ -322,6 +349,18 @@ export class TuiApp implements UiPort {
       this.configOverlay.setModel(
         this.viewModels.buildConfig(this.deps.getConfig()),
       );
+    }
+    if (
+      this.overlays.plannerSessionHandle !== undefined &&
+      pendingTopPlannerSessionAction !== undefined
+    ) {
+      showPlannerSessionOverlay({
+        state: this.overlays,
+        tui: this.tui,
+        plannerSessionOverlay: this.plannerSessionOverlay,
+        viewModels: this.viewModels,
+        pendingAction: pendingTopPlannerSessionAction,
+      });
     }
     if (this.overlays.transcriptHandle !== undefined) {
       this.transcriptOverlay.setModel(
@@ -403,7 +442,61 @@ export class TuiApp implements UiPort {
       setSelectedNodeId: (nodeId) => {
         this.selectedNodeId = nodeId;
       },
+      executePendingTopPlannerSessionChoice: (sessionMode) =>
+        this.executePendingTopPlannerSessionChoice(sessionMode),
     });
+  }
+
+  private requestTopPlannerSessionSelection(
+    action: PendingTopPlannerSessionAction,
+  ): string | undefined {
+    if (!hasReusableTopPlannerSession(this.deps.getTopPlannerRun())) {
+      return undefined;
+    }
+
+    this.pendingTopPlannerSessionAction = action;
+    showPlannerSessionOverlay({
+      state: this.overlays,
+      tui: this.tui,
+      plannerSessionOverlay: this.plannerSessionOverlay,
+      viewModels: this.viewModels,
+      pendingAction: action,
+    });
+    this.notice =
+      action.kind === 'submit'
+        ? 'Choose continue or fresh for top-level planning.'
+        : 'Choose continue or fresh for top-planner rerun.';
+    this.refresh();
+    return this.notice;
+  }
+
+  private requestTopPlannerRerunSelection(): boolean {
+    return (
+      this.requestTopPlannerSessionSelection({ kind: 'rerun' }) !== undefined
+    );
+  }
+
+  private executePendingTopPlannerSessionChoice(
+    sessionMode: PlannerSessionMode,
+  ): string {
+    const action = this.pendingTopPlannerSessionAction;
+    if (action === undefined) {
+      throw new Error('no pending planner session choice');
+    }
+
+    this.clearPendingTopPlannerSessionChoice();
+    if (action.kind === 'submit') {
+      return this.deps.requestTopLevelPlan(action.prompt, { sessionMode });
+    }
+
+    this.deps.rerunTopPlannerProposal({ sessionMode });
+    return 'Requested rerun for top-planner.';
+  }
+
+  private clearPendingTopPlannerSessionChoice(): void {
+    this.pendingTopPlannerSessionAction = undefined;
+    this.overlays.plannerSessionHandle?.hide();
+    this.overlays.plannerSessionHandle = undefined;
   }
 
   private displayedSnapshot(): GraphSnapshot {
@@ -423,6 +516,9 @@ export class TuiApp implements UiPort {
       refresh: () => this.refresh(),
       setNotice: (notice) => {
         this.notice = notice;
+      },
+      onHidePlannerSession: () => {
+        this.pendingTopPlannerSessionAction = undefined;
       },
     });
   }

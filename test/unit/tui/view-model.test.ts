@@ -19,6 +19,7 @@ import {
   HelpOverlay,
   InboxOverlay,
   MergeTrainOverlay,
+  PlannerSessionOverlay,
   StatusBar,
   TaskTranscriptOverlay,
 } from '@tui/components/index';
@@ -202,6 +203,37 @@ describe('TuiViewModelBuilder', () => {
       mode: 'approval',
       detail:
         'approval plan top-planner (resets 2 planner runs) /approve /reject /rerun',
+    });
+  });
+
+  it('builds planner session composer status and picker overlay copy', () => {
+    const builder = new TuiViewModelBuilder();
+
+    expect(
+      builder.buildComposer({
+        text: 'plan the next milestone slice',
+        focusMode: 'composer',
+        pendingSessionSummary: 'submit choice pending',
+      }),
+    ).toMatchObject({
+      mode: 'session',
+      detail:
+        'planner session submit choice pending /planner-continue /planner-fresh',
+    });
+
+    expect(
+      builder.buildPlannerSessionPicker({
+        mode: 'submit',
+        prompt: 'plan the next milestone slice',
+      }),
+    ).toEqual({
+      lines: [
+        'Continue the prior top-planner chat or start a fresh one against the current graph.',
+        'prompt: plan the next milestone slice',
+        'continue = reuse the existing top-planner conversation transcript',
+        'fresh = discard the prior transcript and start a new planner chat on the current graph',
+        'Use /planner-continue or /planner-fresh.',
+      ],
     });
   });
 
@@ -892,6 +924,24 @@ describe('TUI components', () => {
     expect(populated).toContain('line 2');
   });
 
+  it('renders planner session overlay placeholder and choice copy', () => {
+    const overlay = new PlannerSessionOverlay();
+
+    expect(overlay.render(80).join('\n')).toContain(
+      'No planner session choice pending.',
+    );
+
+    overlay.setModel({
+      lines: [
+        'Continue the prior top-planner chat or start a fresh one against the current graph.',
+        'Use /planner-continue or /planner-fresh.',
+      ],
+    });
+    const populated = overlay.render(80).join('\n');
+    expect(populated).toContain('Planner Session');
+    expect(populated).toContain('Use /planner-continue or /planner-fresh.');
+  });
+
   it('keeps rendered lines within requested width', () => {
     const statusBar = new StatusBar();
     statusBar.setModel({
@@ -943,6 +993,10 @@ describe('TUI components', () => {
     configOverlay.setModel({
       entries: [{ key: 'workerCap', value: '6' }],
     });
+    const plannerSessionOverlay = new PlannerSessionOverlay();
+    plannerSessionOverlay.setModel({
+      lines: ['Use /planner-continue or /planner-fresh.'],
+    });
     const transcriptOverlay = new TaskTranscriptOverlay();
     transcriptOverlay.setModel({
       taskId: 't-1',
@@ -970,6 +1024,9 @@ describe('TUI components', () => {
         expect(visibleWidth(line)).toBeLessThanOrEqual(width);
       }
       for (const line of configOverlay.render(width)) {
+        expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+      }
+      for (const line of plannerSessionOverlay.render(width)) {
         expect(visibleWidth(line)).toBeLessThanOrEqual(width);
       }
       for (const line of transcriptOverlay.render(width)) {

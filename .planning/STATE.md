@@ -5,14 +5,14 @@
 See: .planning/PROJECT.md (updated 2026-04-23)
 
 **Core value:** From one prompt, orchestrate parallel autonomous coding that lands on `main` without breaking it — live-steerable from a single TUI.
-**Current focus:** Phase 10 re-plan flows and manual edits polish is in progress — 10-01 has started with top-planner rerun session-choice plumbing at the proposal-controller seam, keeping rerun behavior on the existing top-planner path while preparing the explicit continue-vs-fresh picker and audit-reader work.
+**Current focus:** Phase 10 re-plan flows and manual edits polish is in progress — 10-01 now has a shared top-planner session-choice path in the TUI, so both plain-text submit and rerun can stop for an explicit continue-vs-fresh decision before the remaining audit-reader work lands.
 
 ## Current Position
 
 Phase: 10 of 12 (Re-plan Flows & Manual Edits Polish) in progress
 Plan: 10-01 in progress in Phase 10
-Status: Phase 10 is underway. The first 10-01 step is verified: top-planner reruns can now hand control back to the TUI for an explicit continue-vs-fresh choice instead of silently defaulting to fresh when the outer session-picker hook is available.
-Last activity: 2026-05-01 — Phase 10 plan 10-01 started landing. `ComposerProposalController` now exposes a top-planner rerun session-selection seam, feature reruns still dispatch directly, fallback top-planner reruns preserve the current path when no picker hook is installed, and full `npm run check` is green after adding focused controller coverage.
+Status: Phase 10 is underway. A second 10-01 step is ready to land: the TUI now routes both plain-text top-level submit and top-planner rerun through a shared continue-vs-fresh picker whenever a reusable planner session exists, and full repo verification is green.
+Last activity: 2026-05-01 — Phase 10 plan 10-01 expanded from the proposal-controller seam into the TUI shell. `TuiApp` now owns pending planner-session choice state, composer submit can pause for a continue-vs-fresh decision, `/planner-continue` and `/planner-fresh` resolve the pending choice, and full `npm run check` is green after the new TUI command/view-model coverage landed.
 
 Progress: [██████████] 100% for Phase 9
 
@@ -21,7 +21,7 @@ Progress: [██████████] 100% for Phase 9
 **Velocity:**
 - Total plans completed: 33
 - Phases completed: 9 of 12
-- Latest focused verification: 2026-05-01 — `npm run typecheck`, `test/unit/compose.test.ts`, `test/unit/tui/commands.test.ts`, `test/unit/tui/view-model.test.ts`, and `test/integration/persistence/rehydration.test.ts` green
+- Latest verification: 2026-05-01 — full `npm run check` green for the shared planner-session picker step (`vitest`: 1944 passed, 3 skipped)
 
 **Recent Trend:** Phase 9 is complete: crash recovery is now operator-visible through the existing inbox and command surfaces, with startup summary/orphan triage backed by real-file restart coverage. The next phase can focus on planner session and manual-edit polish instead of recovery truthfulness gaps.
 
@@ -66,6 +66,6 @@ Full decision log lives in PROJECT.md Key Decisions table. Highlights from initi
 
 ## Session Continuity
 
-Last session: 2026-05-01 — Phase 09 plan 09-03 synced to shipped code and artifacts; focused verification is green for `npm run typecheck`, `test/unit/compose.test.ts`, `test/unit/tui/commands.test.ts`, `test/unit/tui/view-model.test.ts`, and `test/integration/persistence/rehydration.test.ts`.
-Stopped at: Phase 9 is complete with 09-01 through 09-03 shipped. Next slice is Phase 10 planner session picker / continue-vs-fresh and audit-log UX work.
+Last session: 2026-05-01 — Phase 10 plan 10-01 shared planner-session picker step is complete locally and full `npm run check` is green.
+Stopped at: commit this planner-session picker step with `.planning`, then continue Phase 10 audit-log reader work.
 Resume file: continue under `.planning/phases/10-re-plan-flows-and-manual-edits-polish/`.

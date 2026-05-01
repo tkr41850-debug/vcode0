@@ -670,6 +670,14 @@ export function buildComposerSlashCommands({
     },
     staticSlashCommand('submit', 'Submit proposal draft for approval.'),
     staticSlashCommand('discard', 'Discard current draft proposal.'),
+    staticSlashCommand(
+      'planner-continue',
+      'Continue the pending top-planner session choice.',
+    ),
+    staticSlashCommand(
+      'planner-fresh',
+      'Start a fresh top-planner session for the pending choice.',
+    ),
     {
       name: 'approve',
       description: 'Approve pending proposal.',

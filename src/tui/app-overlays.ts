@@ -11,12 +11,15 @@ import type {
   HelpOverlay,
   InboxOverlay,
   MergeTrainOverlay,
+  PlannerSessionOverlay,
   TaskTranscriptOverlay,
 } from '@tui/components/index';
 import type {
   TuiViewModelBuilder,
   WorkerLogViewModel,
 } from '@tui/view-model/index';
+
+import type { PendingTopPlannerSessionAction } from './app-state.js';
 
 export interface OverlayState {
   monitorHandle: OverlayHandle | undefined;
@@ -25,6 +28,7 @@ export interface OverlayState {
   inboxHandle: OverlayHandle | undefined;
   mergeTrainHandle: OverlayHandle | undefined;
   configHandle: OverlayHandle | undefined;
+  plannerSessionHandle: OverlayHandle | undefined;
   transcriptHandle: OverlayHandle | undefined;
 }
 
@@ -41,6 +45,8 @@ export function hideAllOverlays(state: OverlayState): void {
   state.mergeTrainHandle = undefined;
   state.configHandle?.hide();
   state.configHandle = undefined;
+  state.plannerSessionHandle?.hide();
+  state.plannerSessionHandle = undefined;
   state.transcriptHandle?.hide();
   state.transcriptHandle = undefined;
 }
@@ -53,6 +59,7 @@ export function hasVisibleOverlay(state: OverlayState): boolean {
     state.inboxHandle !== undefined ||
     state.mergeTrainHandle !== undefined ||
     state.configHandle !== undefined ||
+    state.plannerSessionHandle !== undefined ||
     state.transcriptHandle !== undefined
   );
 }
@@ -61,8 +68,9 @@ export function hideTopOverlay(params: {
   state: OverlayState;
   refresh: () => void;
   setNotice: (notice: string) => void;
+  onHidePlannerSession?: () => void;
 }): boolean {
-  const { state, refresh, setNotice } = params;
+  const { state, refresh, setNotice, onHidePlannerSession } = params;
   if (state.helpHandle !== undefined) {
     state.helpHandle.hide();
     state.helpHandle = undefined;
@@ -102,6 +110,14 @@ export function hideTopOverlay(params: {
     state.configHandle.hide();
     state.configHandle = undefined;
     setNotice('config hidden');
+    refresh();
+    return true;
+  }
+  if (state.plannerSessionHandle !== undefined) {
+    state.plannerSessionHandle.hide();
+    state.plannerSessionHandle = undefined;
+    onHidePlannerSession?.();
+    setNotice('planner session hidden');
     refresh();
     return true;
   }
@@ -323,6 +339,33 @@ export function toggleConfigOverlay(params: {
   });
   setNotice('config shown');
   refresh();
+}
+
+export function showPlannerSessionOverlay(params: {
+  state: OverlayState;
+  tui: TUI;
+  plannerSessionOverlay: PlannerSessionOverlay;
+  viewModels: TuiViewModelBuilder;
+  pendingAction: PendingTopPlannerSessionAction;
+}): void {
+  const { state, tui, plannerSessionOverlay, viewModels, pendingAction } =
+    params;
+
+  plannerSessionOverlay.setModel(
+    viewModels.buildPlannerSessionPicker(
+      pendingAction.kind === 'submit'
+        ? { mode: 'submit', prompt: pendingAction.prompt }
+        : { mode: 'rerun' },
+    ),
+  );
+
+  if (state.plannerSessionHandle === undefined) {
+    state.plannerSessionHandle = tui.showOverlay(plannerSessionOverlay, {
+      width: '70%',
+      maxHeight: '40%',
+      anchor: 'center',
+    });
+  }
 }
 
 export function shouldRenderAfterWorkerOutput(

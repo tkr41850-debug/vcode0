@@ -13,6 +13,7 @@ import type {
   EmptyStateViewModel,
   InboxOverlayViewModel,
   MergeTrainOverlayViewModel,
+  PlannerSessionOverlayViewModel,
   StatusBarViewModel,
   TaskTranscriptViewModel,
   WorkerLogViewModel,
@@ -146,6 +147,28 @@ export class HelpOverlay implements Component {
       body.length === 0 ? ['No keybinds available.'] : body,
       safeWidth,
     );
+  }
+
+  invalidate(): void {}
+}
+
+export class PlannerSessionOverlay implements Component {
+  private model: PlannerSessionOverlayViewModel = {
+    lines: [],
+  };
+
+  setModel(model: PlannerSessionOverlayViewModel): void {
+    this.model = model;
+  }
+
+  render(width: number): string[] {
+    const safeWidth = Math.max(1, width);
+    const body =
+      this.model.lines.length === 0
+        ? ['No planner session choice pending.']
+        : this.model.lines;
+
+    return drawBox(' Planner Session [q/esc hide] ', body, safeWidth);
   }
 
   invalidate(): void {}

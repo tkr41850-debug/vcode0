@@ -112,6 +112,10 @@ export type PendingProposalRun =
   | PendingFeatureProposalRun
   | PendingTopPlannerProposalRun;
 
+export type PendingTopPlannerSessionAction =
+  | { kind: 'submit'; prompt: string }
+  | { kind: 'rerun' };
+
 export interface PendingProposalSelection {
   run: PendingProposalRun;
   approvalHint?: string;
@@ -205,6 +209,12 @@ function isPendingTopPlannerProposalRun(
     run.runStatus === 'await_approval' &&
     run.phase === 'plan'
   );
+}
+
+export function hasReusableTopPlannerSession(
+  run: TopPlannerAgentRun | undefined,
+): run is TopPlannerAgentRun & { sessionId: string } {
+  return run?.sessionId !== undefined;
 }
 
 export function pendingTaskRunForSelection(params: {

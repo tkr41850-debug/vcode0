@@ -175,6 +175,37 @@ describe('handleComposerSubmit', () => {
     );
     expect(refresh).toHaveBeenCalled();
   });
+
+  it('routes plain text through pending planner session selection when available', async () => {
+    const addToHistory = vi.fn();
+    const setNotice = vi.fn();
+    const refresh = vi.fn();
+    const requestTopLevelPlan = vi.fn(
+      () => 'Queued top-level planning request.',
+    );
+    const requestTopPlannerSessionSelection = vi.fn(
+      () => 'Choose continue or fresh for top-level planning.',
+    );
+
+    await handleComposerSubmit({
+      text: 'plan the next milestone slice',
+      executeSlashCommand: vi.fn(),
+      requestTopLevelPlan,
+      requestTopPlannerSessionSelection,
+      addToHistory,
+      setNotice,
+      refresh,
+    });
+
+    expect(requestTopPlannerSessionSelection).toHaveBeenCalledWith({
+      kind: 'submit',
+      prompt: 'plan the next milestone slice',
+    });
+    expect(requestTopLevelPlan).not.toHaveBeenCalled();
+    expect(setNotice).toHaveBeenCalledWith(
+      'Choose continue or fresh for top-level planning.',
+    );
+  });
 });
 
 describe('buildComposerSlashCommands', () => {
@@ -502,6 +533,36 @@ describe('buildComposerSlashCommands', () => {
 
     await expect(
       executeSlashCommand({
+        input: '/planner-continue',
+        commandContext: {} as never,
+        notice: undefined,
+        dataSource,
+        proposalController: { execute: vi.fn() } as never,
+        currentSelection: {},
+        setSelectedNodeId: vi.fn(),
+        executePendingTopPlannerSessionChoice: vi.fn(
+          () => 'Queued top-level planning request.',
+        ),
+      }),
+    ).resolves.toBe('Queued top-level planning request.');
+
+    await expect(
+      executeSlashCommand({
+        input: '/planner-fresh',
+        commandContext: {} as never,
+        notice: undefined,
+        dataSource,
+        proposalController: { execute: vi.fn() } as never,
+        currentSelection: {},
+        setSelectedNodeId: vi.fn(),
+        executePendingTopPlannerSessionChoice: vi.fn(
+          () => 'Requested rerun for top-planner.',
+        ),
+      }),
+    ).resolves.toBe('Requested rerun for top-planner.');
+
+    await expect(
+      executeSlashCommand({
         input: '/inbox-reply --id inbox-1 --text "Use option B"',
         commandContext: {} as never,
         notice: undefined,
@@ -783,6 +844,7 @@ describe('tui overlay helpers', () => {
         inboxHandle: undefined,
         mergeTrainHandle: undefined,
         configHandle: undefined,
+        plannerSessionHandle: undefined,
         transcriptHandle: { hide: vi.fn() } as never,
       }),
     ).toBe(true);

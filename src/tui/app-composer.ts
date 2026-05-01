@@ -12,7 +12,10 @@ import {
 } from '@tui/commands/index';
 import type { ComposerProposalController } from '@tui/proposal-controller';
 import type { TuiAppDeps } from './app-deps.js';
-import { formatUnknownError } from './app-state.js';
+import {
+  formatUnknownError,
+  type PendingTopPlannerSessionAction,
+} from './app-state.js';
 
 export async function handleComposerSubmit(params: {
   text: string;
@@ -21,6 +24,9 @@ export async function handleComposerSubmit(params: {
     prompt: string,
     options?: { sessionMode?: 'continue' | 'fresh' },
   ) => string;
+  requestTopPlannerSessionSelection?: (
+    action: PendingTopPlannerSessionAction,
+  ) => string | undefined;
   addToHistory: (input: string) => void;
   setNotice: (notice: string | undefined) => void;
   refresh: () => void;
@@ -35,7 +41,10 @@ export async function handleComposerSubmit(params: {
   try {
     const message = trimmed.startsWith('/')
       ? await params.executeSlashCommand(trimmed)
-      : params.requestTopLevelPlan(trimmed);
+      : (params.requestTopPlannerSessionSelection?.({
+          kind: 'submit',
+          prompt: trimmed,
+        }) ?? params.requestTopLevelPlan(trimmed));
     params.addToHistory(trimmed);
     params.setNotice(message);
   } catch (error) {
@@ -52,6 +61,9 @@ export async function executeSlashCommand(params: {
   proposalController: ComposerProposalController;
   currentSelection: ComposerSelection;
   setSelectedNodeId: (nodeId: string) => void;
+  executePendingTopPlannerSessionChoice?: (
+    sessionMode: 'continue' | 'fresh',
+  ) => string;
 }): Promise<string> {
   const parsed = parseSlashCommand(params.input);
 
@@ -141,6 +153,16 @@ export async function executeSlashCommand(params: {
       params.setSelectedNodeId(created.featureId);
       return `Initialized ${created.milestoneId} and ${created.featureId}.`;
     }
+    case 'planner-continue':
+      if (params.executePendingTopPlannerSessionChoice === undefined) {
+        throw new Error('no pending planner session choice');
+      }
+      return params.executePendingTopPlannerSessionChoice('continue');
+    case 'planner-fresh':
+      if (params.executePendingTopPlannerSessionChoice === undefined) {
+        throw new Error('no pending planner session choice');
+      }
+      return params.executePendingTopPlannerSessionChoice('fresh');
     case 'reply': {
       const taskId = params.currentSelection.taskId;
       if (taskId === undefined) {

@@ -71,7 +71,7 @@ export interface StatusBarViewModel extends WorkerCountsViewModel {
 }
 
 export interface ComposerViewModel {
-  mode: 'command' | 'draft' | 'approval' | 'task';
+  mode: 'command' | 'draft' | 'approval' | 'task' | 'session';
   focusMode: 'composer' | 'graph';
   text: string;
   detail: string;
@@ -112,6 +112,10 @@ export interface InboxItemViewModel {
 export interface InboxOverlayViewModel {
   items: InboxItemViewModel[];
   unresolvedCount: number;
+}
+
+export interface PlannerSessionOverlayViewModel {
+  lines: string[];
 }
 
 export interface MergeTrainItemViewModel {
@@ -377,11 +381,22 @@ export class TuiViewModelBuilder {
     pendingProposalPhase?: FeaturePhaseAgentRun['phase'];
     pendingProposalTarget?: string;
     pendingProposalHint?: string;
+    pendingSessionPrompt?: string;
+    pendingSessionSummary?: string;
     pendingTaskId?: TaskId;
     pendingTaskRunStatus?: TaskAgentRun['runStatus'];
     pendingTaskOwner?: TaskAgentRun['owner'];
     pendingTaskPayloadJson?: string;
   }): ComposerViewModel {
+    if (input.pendingSessionSummary !== undefined) {
+      return {
+        mode: 'session',
+        focusMode: input.focusMode,
+        text: input.text,
+        detail: `planner session ${input.pendingSessionSummary} /planner-continue /planner-fresh`,
+      };
+    }
+
     if (
       input.pendingProposalPhase !== undefined &&
       input.pendingProposalTarget !== undefined
@@ -434,6 +449,22 @@ export class TuiViewModelBuilder {
       text: input.text,
       detail: 'composer /help /milestone-add /feature-add /task-add /dep-add',
     };
+  }
+
+  buildPlannerSessionPicker(input: {
+    mode: 'submit' | 'rerun';
+    prompt?: string;
+  }): PlannerSessionOverlayViewModel {
+    const lines = [
+      input.mode === 'submit'
+        ? 'Continue the prior top-planner chat or start a fresh one against the current graph.'
+        : 'Rerun the pending top-planner proposal by continuing the prior chat or starting fresh against the current graph.',
+      ...(input.prompt !== undefined ? [`prompt: ${input.prompt}`] : []),
+      'continue = reuse the existing top-planner conversation transcript',
+      'fresh = discard the prior transcript and start a new planner chat on the current graph',
+      'Use /planner-continue or /planner-fresh.',
+    ];
+    return { lines };
   }
 
   buildInbox(items: InboxItemRecord[]): InboxOverlayViewModel {
