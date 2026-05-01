@@ -2,7 +2,7 @@
 
 How to author phase docs under `docs/implementation/<track>/`. Distilled from patterns across the baseline, project-planner, and distributed tracks.
 
-See `guidelines-example.md` for a worked example. Tracks may retrofit existing phases on a per-track basis when convenient; not required.
+See `guidelines-example.md` for a worked example, `guidelines-rationale.md` for the design reasoning behind these rules. Tracks may retrofit existing phases on a per-track basis when convenient; not required.
 
 ## Authority
 
