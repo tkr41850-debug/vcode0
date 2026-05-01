@@ -199,7 +199,7 @@ Plans:
 **Plans**: TBD (~2 plans)
 
 Plans:
-- [ ] 10-01: Planner session picker + continue/fresh UX + audit-log reader surface
+- [x] 10-01: Planner session picker + continue/fresh UX + audit-log reader surface
 - [ ] 10-02: Proposal preview (read-only) + comprehensive collision surfacing
 
 ### Phase 11: Documentation & Diagnostic Tooling
@@ -257,4 +257,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 
 ---
 *Roadmap created: 2026-04-23*
-*Last updated: 2026-05-01 — Phase 10 is active. Plan 10-01 now exposes planner-audit history end-to-end through the TUI with a read-only overlay and `/planner-audit` command; focused typecheck and TUI verification are green, and the next slice is 10-02 proposal-preview/collision polish.*
+*Last updated: 2026-05-01 — Phase 10 is active. Plan 10-01 is complete with explicit planner-session intent and planner-audit TUI reading shipped; `npm run check` is green, and the next slice is 10-02 proposal-preview/collision polish.*

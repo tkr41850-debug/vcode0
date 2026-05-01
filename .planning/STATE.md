@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-04-23)
 
 **Core value:** From one prompt, orchestrate parallel autonomous coding that lands on `main` without breaking it — live-steerable from a single TUI.
-**Current focus:** Phase 10 re-plan flows and manual edits polish is in progress — 10-01 now has a read-only planner-audit overlay and `/planner-audit` command wired into the TUI on top of the event-backed audit reader, so the next work can close out 10-01 and move into proposal preview/collision polish for 10-02.
+**Current focus:** Phase 10 re-plan flows and manual edits polish is in progress — 10-01 is now complete with the planner session picker and read-only planner-audit TUI surface shipped, and the next work is 10-02 proposal preview plus richer collision surfacing.
 
 ## Current Position
 
 Phase: 10 of 12 (Re-plan Flows & Manual Edits Polish) in progress
-Plan: 10-01 in progress in Phase 10
-Status: Phase 10 is underway. Plan 10-01 now exposes planner audit history end-to-end in the TUI through the normalized reader, a feature-aware read-only overlay, and the `/planner-audit` command surface; the next work is to close out 10-01 and advance into 10-02 proposal-preview/collision polish.
-Last activity: 2026-05-01 — Added the read-only planner-audit overlay and `/planner-audit` command surface on top of the normalized audit reader, then proved the slice with focused `typecheck` plus TUI view-model/command tests.
+Plan: 10-02 next in Phase 10
+Status: Phase 10 is underway. Plan 10-01 is complete: the TUI now makes continue-vs-fresh planner session intent explicit and exposes planner provenance through a feature-aware read-only audit overlay. The next work is 10-02 proposal preview plus comprehensive collision surfacing.
+Last activity: 2026-05-01 — Closed out 10-01 with its summary artifact after landing the planner-session picker, normalized audit reader, and `/planner-audit` overlay, with verification green through `npm run check`.
 
 Progress: [██████████] 100% for Phase 9
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 33
+- Total plans completed: 34
 - Phases completed: 9 of 12
-- Latest verification: 2026-05-01 — focused green for the planner-audit overlay step (`npm run typecheck`; `npx vitest run test/unit/tui/view-model.test.ts test/unit/tui/commands.test.ts test/integration/tui/smoke.test.ts` → 46 passed)
+- Latest verification: 2026-05-01 — full green for Phase 10 plan 10-01 closeout (`npm run check`), with focused green for `npm run typecheck` plus `npx vitest run test/unit/tui/view-model.test.ts test/unit/tui/commands.test.ts test/integration/tui/smoke.test.ts` (46 passed)
 
 **Recent Trend:** Phase 9 is complete: crash recovery is now operator-visible through the existing inbox and command surfaces, with startup summary/orphan triage backed by real-file restart coverage. The next phase can focus on planner session and manual-edit polish instead of recovery truthfulness gaps.
 
@@ -66,6 +66,6 @@ Full decision log lives in PROJECT.md Key Decisions table. Highlights from initi
 
 ## Session Continuity
 
-Last session: 2026-05-01 — Phase 10 plan 10-01 planner-audit overlay step is complete locally and focused TUI verification is green.
-Stopped at: rerun full `npm run check`, commit this planner-audit overlay step with `.planning`, then close out 10-01 and continue into 10-02.
+Last session: 2026-05-01 — Phase 10 plan 10-01 is complete and committed, including the planner-session picker, audit reader, overlay surface, and summary artifact.
+Stopped at: begin 10-02 proposal preview and collision-surface work, then verify and commit that slice with `.planning`.
 Resume file: continue under `.planning/phases/10-re-plan-flows-and-manual-edits-polish/`.
