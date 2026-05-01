@@ -164,7 +164,7 @@ Tests (write first, expect red):
 - Same file — assert `resumeProjectPlannerSession` re-dispatches a `running` row, no-ops on `await_approval` / `await_response`, rejects on `cancelled` and on `failed` (phase-1-scheduler-hygiene's failed-filter applies to project runs too — failed sessions need an explicit operator action, not silent re-dispatch). RED.
 - Same file — assert `cancelProjectPlannerSession` moves any non-terminal state to `cancelled` and dispatches no further work. RED.
 - Same file — assert per-session file is created at `.gvc0/sessions/<sessionId>.json`. RED.
-- `test/unit/orchestrator/recovery-service.test.ts` — extend with a project-rehydrate fixture: boot finds `running` project rows and re-invokes `dispatchProjectRunUnit`; also assert `failed` and `cancelled` project rows are not re-dispatched (parity with feature-phase recovery semantics). RED (phase-2-agent-runs-scope left a placeholder branch).
+- `test/unit/orchestrator/recovery.test.ts` — extend with a project-rehydrate fixture: boot finds `running` project rows and re-invokes `dispatchProjectRunUnit`; also assert `failed` and `cancelled` project rows are not re-dispatched (parity with feature-phase recovery semantics). RED (phase-2-agent-runs-scope left a placeholder branch).
 
 Implementation (drive to GREEN):
 - `src/orchestrator/services/project-planner-coordinator.ts` (new) — coordinator surface; calls `dispatchProjectRunUnit` from Step 4.2.
