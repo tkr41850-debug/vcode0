@@ -65,9 +65,6 @@ Use these entry points depending on what you need:
 - [Implementation Tracks](./implementation/README.md)
 - [Phase Doc Guidelines](./implementation/guidelines.md)
 - [Phase Doc Example](./implementation/guidelines-example.md)
-- [01-baseline](./implementation/01-baseline/README.md)
-- [02-project-planner](./implementation/02-project-planner/README.md)
-- [03-distributed](./implementation/03-distributed/README.md)
 
 ## Deferred Notes
 
