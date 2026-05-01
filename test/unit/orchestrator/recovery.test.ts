@@ -469,6 +469,7 @@ function createPorts(
         ensureFeatureBranch: () => Promise.resolve(),
         ensureFeatureWorktree: () => Promise.resolve('/repo'),
         ensureTaskWorktree: () => Promise.resolve('/repo'),
+        removeWorktree: () => Promise.resolve(),
       },
       ui,
       config: { tokenProfile: 'balanced' },

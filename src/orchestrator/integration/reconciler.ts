@@ -6,6 +6,7 @@ import { worktreePath } from '@core/naming/index';
 import type { FeatureId } from '@core/types/index';
 import type { FeatureLifecycleCoordinator } from '@orchestrator/features/index';
 import type { OrchestratorPorts } from '@orchestrator/ports/index';
+import { disposeFeatureAndLeftoverTaskWorktrees } from '@orchestrator/worktree-disposal';
 import { type SimpleGit, simpleGit } from 'simple-git';
 
 export type ReconcilerOutcome =
@@ -96,6 +97,11 @@ export class IntegrationReconciler {
       });
       this.deps.features.completeIntegration(featureId);
       this.deps.ports.store.clearIntegrationState();
+      await disposeFeatureAndLeftoverTaskWorktrees(
+        this.deps.ports,
+        this.deps.graph,
+        featureId,
+      );
       return {
         kind: 'completed',
         featureId,

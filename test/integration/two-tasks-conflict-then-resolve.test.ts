@@ -84,6 +84,7 @@ function buildPorts(projectRoot: string): {
         Promise.resolve(path.join(projectRoot, worktreePath(FEATURE_BRANCH))),
       ensureTaskWorktree: () =>
         Promise.resolve(path.join(projectRoot, worktreePath(TASK_A_BRANCH))),
+      removeWorktree: () => Promise.resolve(),
     },
     ui,
     config: { tokenProfile: 'balanced' },

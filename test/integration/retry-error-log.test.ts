@@ -77,6 +77,7 @@ function buildPorts(projectRoot: string): {
       ensureFeatureBranch: () => Promise.resolve(),
       ensureFeatureWorktree: () => Promise.resolve(projectRoot),
       ensureTaskWorktree: () => Promise.resolve(projectRoot),
+      removeWorktree: () => Promise.resolve(),
     },
     ui,
     config: { tokenProfile: 'balanced' },

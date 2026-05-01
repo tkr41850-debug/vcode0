@@ -11,6 +11,7 @@ import type {
 } from '@core/types/index';
 import type { FeatureLifecycleCoordinator } from '@orchestrator/features/index';
 import type { OrchestratorPorts } from '@orchestrator/ports/index';
+import { disposeFeatureAndLeftoverTaskWorktrees } from '@orchestrator/worktree-disposal';
 import { type SimpleGit, simpleGit } from 'simple-git';
 
 export type IntegrationOutcome =
@@ -247,6 +248,11 @@ export class IntegrationCoordinator {
     });
     this.deps.ports.store.clearIntegrationState();
     this.deps.features.completeIntegration(featureId);
+    await disposeFeatureAndLeftoverTaskWorktrees(
+      this.deps.ports,
+      this.deps.graph,
+      featureId,
+    );
 
     return { kind: 'merged', mainMergeSha, branchHeadSha };
   }

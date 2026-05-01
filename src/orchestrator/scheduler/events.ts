@@ -15,6 +15,7 @@ import {
   summarizeProposalApply,
 } from '@orchestrator/proposals/index';
 import type { SummaryCoordinator } from '@orchestrator/summaries/index';
+import { disposeFeatureAndLeftoverTaskWorktrees } from '@orchestrator/worktree-disposal';
 import { defaultMaxSquashRetries, defaultRetryPolicy } from '@root/config';
 import type { SynthesizedErrorReason } from '@runtime/error-log/index';
 import { decideRetry, type RetryPolicy } from '@runtime/retry-policy';
@@ -272,6 +273,14 @@ export async function handleSchedulerEvent(params: {
         collabControl: 'merged',
         result: message.result,
       });
+      void ports.worktree
+        .removeWorktree(taskWorktreePath, taskBranch)
+        .catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.warn(
+            `[scheduler] task worktree disposal failed taskId=${taskRow.id} branch=${taskBranch} error=${msg}`,
+          );
+        });
       features.onTaskLanded(run.scopeId);
       const landedTask = graph.tasks.get(run.scopeId);
       if (landedTask !== undefined) {
@@ -744,6 +753,7 @@ export async function handleSchedulerEvent(params: {
     if (feature !== undefined && feature.collabControl !== 'merged') {
       features.completeIntegration(event.featureId);
     }
+    await disposeFeatureAndLeftoverTaskWorktrees(ports, graph, event.featureId);
     const releases = await conflicts.releaseCrossFeatureOverlap(
       event.featureId,
     );

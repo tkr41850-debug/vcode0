@@ -8,6 +8,7 @@ export interface WorktreeProvisioner {
   ensureFeatureBranch(feature: Feature): Promise<void>;
   ensureFeatureWorktree(feature: Feature): Promise<string>;
   ensureTaskWorktree(task: Task, feature: Feature): Promise<string>;
+  removeWorktree(target: string, branch: string): Promise<void>;
 }
 
 export class GitWorktreeProvisioner implements WorktreeProvisioner {
@@ -48,6 +49,23 @@ export class GitWorktreeProvisioner implements WorktreeProvisioner {
     const target = path.join(this.projectRoot, worktreePath(branch));
     await this.ensureWorktree(target, branch, feature.featureBranch);
     return target;
+  }
+
+  async removeWorktree(target: string, branch: string): Promise<void> {
+    if (await this.hasRegisteredWorktree(target)) {
+      try {
+        await this.git.raw(['worktree', 'remove', '--force', target]);
+      } catch (err: unknown) {
+        if (!isMissingWorktreeError(err)) throw err;
+      }
+    }
+    if (await this.hasLocalBranch(branch)) {
+      try {
+        await this.git.raw(['branch', '-D', branch]);
+      } catch (err: unknown) {
+        if (!isMissingBranchError(err)) throw err;
+      }
+    }
   }
 
   private async ensureWorktree(
@@ -109,4 +127,21 @@ function isAlreadyExistsError(err: unknown): boolean {
     msg.includes('already checked out') ||
     msg.includes('already registered')
   );
+}
+
+function isMissingWorktreeError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const msg = err.message.toLowerCase();
+  return (
+    msg.includes('is not a working tree') ||
+    msg.includes('no such worktree') ||
+    msg.includes("doesn't exist") ||
+    msg.includes('not a working tree')
+  );
+}
+
+function isMissingBranchError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const msg = err.message.toLowerCase();
+  return msg.includes('not found') || msg.includes('does not exist');
 }

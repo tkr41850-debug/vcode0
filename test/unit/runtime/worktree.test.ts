@@ -157,6 +157,78 @@ describe('GitWorktreeProvisioner', () => {
     ).resolves.toBeUndefined();
   });
 
+  it('removeWorktree removes a registered worktree and its branch', async () => {
+    const root = getTmp();
+    await initRepo(root);
+    const git = simpleGit(root);
+    await git.raw(['branch', 'feat-dispose-001']);
+
+    const provisioner = new GitWorktreeProvisioner(root);
+    const feature = makeFeature({ featureBranch: 'feat-dispose-001' });
+    const target = await provisioner.ensureFeatureWorktree(feature);
+
+    await provisioner.removeWorktree(target, feature.featureBranch);
+
+    await expect(fs.stat(target)).rejects.toThrow();
+    const list = await git.raw(['worktree', 'list', '--porcelain']);
+    expect(list).not.toContain(target);
+    const branches = await git.raw([
+      'for-each-ref',
+      '--format=%(refname:short)',
+      'refs/heads/feat-dispose-001',
+    ]);
+    expect(branches.trim()).toBe('');
+  });
+
+  it('removeWorktree is idempotent on second call', async () => {
+    const root = getTmp();
+    await initRepo(root);
+    const git = simpleGit(root);
+    await git.raw(['branch', 'feat-dispose-002']);
+
+    const provisioner = new GitWorktreeProvisioner(root);
+    const feature = makeFeature({ featureBranch: 'feat-dispose-002' });
+    const target = await provisioner.ensureFeatureWorktree(feature);
+
+    await provisioner.removeWorktree(target, feature.featureBranch);
+    await expect(
+      provisioner.removeWorktree(target, feature.featureBranch),
+    ).resolves.toBeUndefined();
+  });
+
+  it('removeWorktree on a never-registered target is a no-op', async () => {
+    const root = getTmp();
+    await initRepo(root);
+
+    const provisioner = new GitWorktreeProvisioner(root);
+    await expect(
+      provisioner.removeWorktree(
+        path.join(root, '.gvc0', 'worktrees', 'nope'),
+        'feat-never-existed',
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it('removeWorktree swallows branch-already-gone errors', async () => {
+    const root = getTmp();
+    await initRepo(root);
+    const git = simpleGit(root);
+    await git.raw(['branch', 'feat-dispose-003']);
+
+    const provisioner = new GitWorktreeProvisioner(root);
+    const feature = makeFeature({ featureBranch: 'feat-dispose-003' });
+    const target = await provisioner.ensureFeatureWorktree(feature);
+
+    // Manually delete worktree+branch under the provisioner to simulate
+    // a concurrent disposer winning the race.
+    await git.raw(['worktree', 'remove', '--force', target]);
+    await git.raw(['branch', '-D', 'feat-dispose-003']);
+
+    await expect(
+      provisioner.removeWorktree(target, feature.featureBranch),
+    ).resolves.toBeUndefined();
+  });
+
   it('ensureFeatureWorktree bootstraps the branch when missing', async () => {
     const root = getTmp();
     await initRepo(root);

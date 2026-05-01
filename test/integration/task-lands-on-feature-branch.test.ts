@@ -81,6 +81,7 @@ function buildPorts(projectRoot: string): {
         Promise.resolve(path.join(projectRoot, worktreePath(FEATURE_BRANCH))),
       ensureTaskWorktree: () =>
         Promise.resolve(path.join(projectRoot, worktreePath(TASK_BRANCH))),
+      removeWorktree: () => Promise.resolve(),
     },
     ui,
     config: { tokenProfile: 'balanced' },
@@ -219,7 +220,8 @@ describe('task lands on feature branch', () => {
     ]);
     expect(tree).toContain('task-output.txt');
 
-    // Task worktree is left in place — disposal is Phase 4.
+    // Stub `removeWorktree` is a no-op here; real disposal is exercised in
+    // task-squash-disposes-worktree.test.ts using GitWorktreeProvisioner.
     const taskDir = path.join(projectRoot, worktreePath(TASK_BRANCH));
     const stat = await fs.stat(taskDir);
     expect(stat.isDirectory()).toBe(true);

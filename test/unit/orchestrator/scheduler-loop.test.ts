@@ -448,6 +448,7 @@ function createPorts(
         ensureFeatureBranch: () => Promise.resolve(),
         ensureFeatureWorktree: () => Promise.resolve('/repo'),
         ensureTaskWorktree: () => Promise.resolve('/repo'),
+        removeWorktree: () => Promise.resolve(),
       },
       projectRoot: '/repo',
       runErrorLogSink: { writeFirstFailure: async () => {} },

@@ -35,6 +35,7 @@ function createPorts(root: string): OrchestratorPorts {
       ensureFeatureBranch: () => Promise.resolve(),
       ensureFeatureWorktree: () => Promise.resolve(root),
       ensureTaskWorktree: () => Promise.resolve(root),
+      removeWorktree: () => Promise.resolve(),
     },
     ui: {} as OrchestratorPorts['ui'],
     sessionStore: new InMemorySessionStore(),
