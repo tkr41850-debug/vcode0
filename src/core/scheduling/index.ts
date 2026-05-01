@@ -460,7 +460,11 @@ export class CriticalPathScheduler {
     for (const feature of graph.readyFeatures()) {
       const phase = workControlToAgentRunPhase(feature.workControl);
       const run = runs.getExecutionRun(feature.id, phase);
-      if (run?.runStatus === 'running' || isBlockedByRun(run, now)) {
+      if (
+        run?.runStatus === 'running' ||
+        run?.runStatus === 'failed' ||
+        isBlockedByRun(run, now)
+      ) {
         continue;
       }
 

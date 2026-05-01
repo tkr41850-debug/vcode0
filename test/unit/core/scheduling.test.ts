@@ -996,6 +996,75 @@ describe('CriticalPathScheduler.prioritizeReadyWork', () => {
     expect(ids).not.toContain('f-backoff');
   });
 
+  it('excludes feature phases whose runs are running', () => {
+    const g = createGraphWithMilestone();
+    g.createFeature({
+      id: 'f-running',
+      milestoneId: 'm-1',
+      name: 'Running feature',
+      description: 'desc',
+    });
+    updateFeature(g, 'f-running', { workControl: 'planning' });
+
+    g.createFeature({
+      id: 'f-ready',
+      milestoneId: 'm-1',
+      name: 'Ready feature',
+      description: 'desc',
+    });
+    updateFeature(g, 'f-ready', { workControl: 'planning' });
+
+    g.queueMilestone('m-1');
+
+    const runs = createRunReader(
+      makeFeaturePhaseRun('f-running', 'plan', { runStatus: 'running' }),
+    );
+
+    const result = runScheduler(g, runs, undefined, 100);
+    const ids = extractSchedulableIds(result);
+
+    expect(ids).toContain('f-ready');
+    expect(ids).not.toContain('f-running');
+  });
+
+  it('excludes feature phases whose runs are failed (across plan, discuss, verify)', () => {
+    const g = createGraphWithMilestone();
+    for (const [id, wc] of [
+      ['f-plan-failed', 'planning'],
+      ['f-discuss-failed', 'discussing'],
+      ['f-verify-failed', 'verifying'],
+      ['f-plan-ready', 'planning'],
+    ] as const) {
+      g.createFeature({
+        id,
+        milestoneId: 'm-1',
+        name: id,
+        description: 'desc',
+      });
+      updateFeature(g, id, { workControl: wc });
+    }
+
+    g.queueMilestone('m-1');
+
+    const runs = createRunReader(
+      makeFeaturePhaseRun('f-plan-failed', 'plan', { runStatus: 'failed' }),
+      makeFeaturePhaseRun('f-discuss-failed', 'discuss', {
+        runStatus: 'failed',
+      }),
+      makeFeaturePhaseRun('f-verify-failed', 'verify', {
+        runStatus: 'failed',
+      }),
+    );
+
+    const result = runScheduler(g, runs, undefined, 100);
+    const ids = extractSchedulableIds(result);
+
+    expect(ids).toContain('f-plan-ready');
+    expect(ids).not.toContain('f-plan-failed');
+    expect(ids).not.toContain('f-discuss-failed');
+    expect(ids).not.toContain('f-verify-failed');
+  });
+
   it('keys feature-phase readiness age by unit identity rather than feature id', () => {
     const g = createGraphWithMilestone();
     g.createFeature({

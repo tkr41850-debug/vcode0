@@ -5815,6 +5815,52 @@ describe('SchedulerLoop', () => {
     );
   });
 
+  it('does not re-dispatch a failed feature-phase run on subsequent ticks', async () => {
+    const order: string[] = [];
+    const { ports, runtime } = createPorts(order);
+    const appendInboxItem = ports.store.appendInboxItem as ReturnType<
+      typeof vi.fn
+    >;
+    (runtime.dispatchRun as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error('planner returned malformed plan'),
+    );
+    const graph = createProposalApprovalGraph({
+      status: 'pending',
+      workControl: 'planning',
+      collabControl: 'none',
+    });
+
+    const loop = new ObservingSchedulerLoop(graph, ports);
+
+    await loop.step(100);
+
+    expect(ports.store.getAgentRun('run-feature:f-1:plan')?.runStatus).toBe(
+      'failed',
+    );
+    const planDispatches = (
+      runtime.dispatchRun as ReturnType<typeof vi.fn>
+    ).mock.calls.filter(
+      ([scope]) => scope.kind === 'feature_phase' && scope.phase === 'plan',
+    ).length;
+    expect(planDispatches).toBe(1);
+    const inboxCallsAfterFailure = appendInboxItem.mock.calls.length;
+
+    await loop.step(200);
+    await loop.step(300);
+    await loop.step(400);
+
+    const planDispatchesAfter = (
+      runtime.dispatchRun as ReturnType<typeof vi.fn>
+    ).mock.calls.filter(
+      ([scope]) => scope.kind === 'feature_phase' && scope.phase === 'plan',
+    ).length;
+    expect(planDispatchesAfter).toBe(1);
+    expect(appendInboxItem.mock.calls.length).toBe(inboxCallsAfterFailure);
+    expect(ports.store.getAgentRun('run-feature:f-1:plan')?.runStatus).toBe(
+      'failed',
+    );
+  });
+
   it('escalates a transient feature-phase error past retryCap to inbox with retry_exhausted kind', async () => {
     const order: string[] = [];
     const { ports } = createPorts(order);
