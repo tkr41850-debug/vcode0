@@ -5,10 +5,8 @@ import * as path from 'node:path';
 import { promisify } from 'node:util';
 
 import { expect, Key, test } from '@microsoft/tui-test';
-import { INITIALIZE_PROJECT_EXAMPLE_COMMAND } from '@tui/commands/index';
 
 const tuiReadyTimeoutMs = 30_000;
-const initializeProjectCommand = `/init ${INITIALIZE_PROJECT_EXAMPLE_COMMAND}`;
 const execFileAsync = promisify(execFile);
 const workspaces: string[] = [];
 
@@ -36,9 +34,7 @@ test('starts with composer focus and runs help from composer', async ({
     timeout: tuiReadyTimeoutMs,
   });
   await expect(
-    terminal.getByText(
-      'Run /init to create first milestone and planning feature.',
-    ),
+    terminal.getByText('Run /init to start a project-planner session.'),
   ).toBeVisible({ timeout: tuiReadyTimeoutMs });
 
   terminal.submit('/help');
@@ -60,30 +56,6 @@ test('opens monitor overlay from composer command', async ({ terminal }) => {
 
   terminal.keyEscape();
   await expect(terminal.getByText('Agent Monitor')).not.toBeVisible();
-});
-
-test('initializes starter milestone and planning feature from empty workspace', async ({
-  terminal,
-}) => {
-  const workspace = await createWorkspace();
-
-  startTui(terminal, workspace);
-  await waitForTuiReady(terminal);
-
-  terminal.submit(initializeProjectCommand);
-
-  await expect(terminal.getByText('m-1: Milestone 1')).toBeVisible({
-    timeout: tuiReadyTimeoutMs,
-  });
-  await expect(terminal.getByText('f-1: Project startup')).toBeVisible({
-    timeout: tuiReadyTimeoutMs,
-  });
-  await expect(terminal.getByText('queue: 1')).toBeVisible({
-    timeout: tuiReadyTimeoutMs,
-  });
-  await expect(terminal.getByText('work: planning')).toBeVisible({
-    timeout: tuiReadyTimeoutMs,
-  });
 });
 
 test('esc toggles composer/graph focus and preserves typed text', async ({
@@ -176,18 +148,25 @@ async function createWorkspace(
           "import * as path from 'node:path';",
           "import { openDatabase } from './src/persistence/db.ts';",
           "import { PersistentFeatureGraph } from './src/persistence/feature-graph.ts';",
-          "import { initializeProjectGraph } from './src/compose.ts';",
           'const workspace = process.env.GVC0_TUI_WORKSPACE;',
           "if (workspace === undefined) throw new Error('missing GVC0_TUI_WORKSPACE');",
           "const db = openDatabase(path.join(workspace, '.gvc0', 'state.db'));",
           'try {',
           '  const graph = new PersistentFeatureGraph(db);',
-          '  initializeProjectGraph(graph, {',
-          "    milestoneName: 'Milestone 1',",
-          "    milestoneDescription: 'desc',",
-          "    featureName: 'Planner feature',",
-          "    featureDescription: 'desc',",
-          '  });',
+          '  graph.__enterTick();',
+          '  try {',
+          "    graph.createMilestone({ id: 'm-1', name: 'Milestone 1', description: 'desc' });",
+          "    graph.queueMilestone('m-1');",
+          "    graph.createFeature({ id: 'f-1', milestoneId: 'm-1', name: 'Planner feature', description: 'desc' });",
+          "    graph.transitionFeature('f-1', { status: 'in_progress' });",
+          "    graph.transitionFeature('f-1', { status: 'done' });",
+          "    graph.transitionFeature('f-1', { workControl: 'researching', status: 'pending' });",
+          "    graph.transitionFeature('f-1', { status: 'in_progress' });",
+          "    graph.transitionFeature('f-1', { status: 'done' });",
+          "    graph.transitionFeature('f-1', { workControl: 'planning', status: 'pending' });",
+          '  } finally {',
+          '    graph.__leaveTick();',
+          '  }',
           '} finally {',
           '  db.close();',
           '}',

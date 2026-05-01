@@ -1,7 +1,8 @@
 import type { GraphSnapshot } from '@core/graph/index';
 import type { FeaturePhaseAgentRun } from '@core/types/index';
 import type { TuiAppDeps } from '@tui/app';
-import { routePlainTextInput } from '@tui/app-composer';
+import { executeSlashCommand, routePlainTextInput } from '@tui/app-composer';
+import type { ComposerProposalController } from '@tui/proposal-controller';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
@@ -53,7 +54,7 @@ function buildDataSource(overrides: Partial<TuiAppDeps> = {}): TuiAppDeps & {
     isAutoExecutionEnabled: () => false,
     setAutoExecutionEnabled: () => false,
     toggleAutoExecution: () => false,
-    initializeProject: () => ({ milestoneId: 'm-1', featureId: 'f-1' }),
+    initializeProject: () => Promise.resolve({ kind: 'existing' as const }),
     toggleMilestoneQueue: () => {},
     cancelFeature: () => Promise.resolve(),
     saveFeatureRun: () => {},
@@ -197,5 +198,94 @@ describe('routePlainTextInput', () => {
 
     expect(dataSource.sendPlannerChatInput).not.toHaveBeenCalled();
     expect(message).toMatch(/not found|planner not running/i);
+  });
+});
+
+describe('executeSlashCommand /init', () => {
+  function buildCommandContext() {
+    return {
+      toggleAutoExecution: vi.fn(),
+      toggleMilestoneQueue: vi.fn(),
+      toggleAgentMonitor: vi.fn(),
+      selectNextWorker: vi.fn(),
+      toggleHelp: vi.fn(),
+      toggleDependencyDetail: vi.fn(),
+      cancelSelectedFeature: vi.fn(() => Promise.resolve()),
+      requestQuit: vi.fn(),
+    };
+  }
+
+  function buildProposalController(): ComposerProposalController {
+    return {} as ComposerProposalController;
+  }
+
+  it('forwards greenfield-bootstrap result to user-facing notice with sessionId', async () => {
+    const initializeProject = vi.fn(() =>
+      Promise.resolve({
+        kind: 'greenfield-bootstrap' as const,
+        sessionId: 'run-project:abc123',
+      }),
+    );
+    const dataSource = buildDataSource({ initializeProject });
+
+    const message = await executeSlashCommand({
+      input:
+        '/init --milestone-name m --milestone-description md --feature-name f --feature-description fd',
+      commandContext: buildCommandContext(),
+      notice: undefined,
+      dataSource,
+      proposalController: buildProposalController(),
+      currentSelection: {},
+      setSelectedNodeId: vi.fn(),
+    });
+
+    expect(initializeProject).toHaveBeenCalledTimes(1);
+    expect(message).toMatch(/run-project:abc123/);
+    expect(message).toMatch(/started/i);
+  });
+
+  it('forwards existing result to a benign already-initialized notice', async () => {
+    const initializeProject = vi.fn(() =>
+      Promise.resolve({ kind: 'existing' as const }),
+    );
+    const dataSource = buildDataSource({ initializeProject });
+
+    const message = await executeSlashCommand({
+      input:
+        '/init --milestone-name m --milestone-description md --feature-name f --feature-description fd',
+      commandContext: buildCommandContext(),
+      notice: undefined,
+      dataSource,
+      proposalController: buildProposalController(),
+      currentSelection: {},
+      setSelectedNodeId: vi.fn(),
+    });
+
+    expect(initializeProject).toHaveBeenCalledTimes(1);
+    expect(message).toMatch(/already initialized/i);
+  });
+
+  it('does not dereference featureId on bootstrap result (typed greenfield-bootstrap has no featureId field)', async () => {
+    const setSelectedNodeId = vi.fn();
+    const initializeProject = vi.fn(() =>
+      Promise.resolve({
+        kind: 'greenfield-bootstrap' as const,
+        sessionId: 'run-project:zzz',
+      }),
+    );
+    const dataSource = buildDataSource({ initializeProject });
+
+    await executeSlashCommand({
+      input:
+        '/init --milestone-name m --milestone-description md --feature-name f --feature-description fd',
+      commandContext: buildCommandContext(),
+      notice: undefined,
+      dataSource,
+      proposalController: buildProposalController(),
+      currentSelection: {},
+      setSelectedNodeId,
+    });
+
+    expect(setSelectedNodeId).not.toHaveBeenCalled();
   });
 });
