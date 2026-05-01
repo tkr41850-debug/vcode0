@@ -846,6 +846,17 @@ export async function dispatchReadyWork(params: {
       break;
     }
 
+    const featureId =
+      unit.kind === 'task' ? unit.task.featureId : unit.feature.id;
+    const depCheck = hasUnmergedFeatureDep(params.graph, featureId);
+    if (depCheck.unmerged) {
+      const unitId = unit.kind === 'task' ? unit.task.id : unit.feature.id;
+      console.warn(
+        `[scheduler] dispatch guard: ${unit.kind} ${unitId} for feature ${featureId} has unmerged dep ${depCheck.depId}; skipping`,
+      );
+      continue;
+    }
+
     if (unit.kind === 'task') {
       await dispatchTaskUnit({
         task: unit.task,
@@ -869,4 +880,20 @@ export async function dispatchReadyWork(params: {
       dispatched++;
     }
   }
+}
+
+export function hasUnmergedFeatureDep(
+  graph: FeatureGraph,
+  featureId: Feature['id'],
+): { unmerged: true; depId: Feature['id'] } | { unmerged: false } {
+  const feature = graph.features.get(featureId);
+  if (!feature) return { unmerged: false };
+  for (const depId of feature.dependsOn) {
+    const dep = graph.features.get(depId);
+    if (!dep) continue;
+    if (dep.workControl !== 'work_complete' || dep.collabControl !== 'merged') {
+      return { unmerged: true, depId };
+    }
+  }
+  return { unmerged: false };
 }
