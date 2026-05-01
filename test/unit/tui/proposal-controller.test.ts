@@ -1,5 +1,5 @@
 import { InMemoryFeatureGraph } from '@core/graph/index';
-import type { AgentRun } from '@core/types/index';
+import type { AgentRun, TopPlannerAgentRun } from '@core/types/index';
 import {
   ComposerProposalController,
   type ComposerProposalEnvironment,
@@ -26,6 +26,23 @@ function makePlanningGraph(): InMemoryFeatureGraph {
     collabControl: 'none',
   });
   return graph;
+}
+
+function makeTopPlannerRun(
+  overrides: Partial<TopPlannerAgentRun> = {},
+): TopPlannerAgentRun {
+  return {
+    id: 'run-top-planner',
+    scopeType: 'top_planner',
+    scopeId: 'top-planner',
+    phase: 'plan',
+    runStatus: 'await_approval',
+    owner: 'manual',
+    attention: 'none',
+    restartCount: 0,
+    maxRetries: 3,
+    ...overrides,
+  };
 }
 
 function makeEnv(
@@ -193,6 +210,35 @@ describe('ComposerProposalController', () => {
       featureId: 'f-1',
       phase: 'plan',
     });
+  });
+
+  it('requests top-planner rerun session selection when the UI hook handles it', async () => {
+    const requestTopPlannerRerunSelection = vi.fn(() => true);
+    const env = makeEnv(makePlanningGraph(), {
+      getTopPlannerRun: () => makeTopPlannerRun(),
+      requestTopPlannerRerunSelection,
+    });
+    const controller = new ComposerProposalController(env);
+
+    const result = await controller.execute('/rerun');
+
+    expect(result.message).toBe(
+      'Choose continue or fresh for top-planner rerun.',
+    );
+    expect(requestTopPlannerRerunSelection).toHaveBeenCalledTimes(1);
+    expect(env.enqueueTopPlannerRerun).not.toHaveBeenCalled();
+  });
+
+  it('falls back to direct top-planner rerun when no session picker hook is installed', async () => {
+    const env = makeEnv(makePlanningGraph(), {
+      getTopPlannerRun: () => makeTopPlannerRun(),
+    });
+    const controller = new ComposerProposalController(env);
+
+    const result = await controller.execute('/rerun');
+
+    expect(result.message).toBe('Requested rerun for top-planner.');
+    expect(env.enqueueTopPlannerRerun).toHaveBeenCalledWith();
   });
 
   it('discards draft and restores prior auto-execution state', async () => {

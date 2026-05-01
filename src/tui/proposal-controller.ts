@@ -62,6 +62,7 @@ export interface ComposerProposalEnvironment {
     this: void,
     event?: { reason?: string; sessionMode?: 'continue' | 'fresh' },
   ): void;
+  requestTopPlannerRerunSelection?(this: void): boolean;
 }
 
 export interface ComposerCommandResult {
@@ -411,9 +412,14 @@ export class ComposerProposalController {
         featureId: pending.scopeId,
         phase: pending.phase,
       });
-    } else {
-      this.env.enqueueTopPlannerRerun();
+      return { message: `Requested rerun for ${pending.scopeId}.` };
     }
+
+    if (this.env.requestTopPlannerRerunSelection?.() === true) {
+      return { message: 'Choose continue or fresh for top-planner rerun.' };
+    }
+
+    this.env.enqueueTopPlannerRerun();
     return { message: `Requested rerun for ${pending.scopeId}.` };
   }
 

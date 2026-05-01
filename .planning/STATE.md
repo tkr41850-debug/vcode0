@@ -5,14 +5,14 @@
 See: .planning/PROJECT.md (updated 2026-04-23)
 
 **Core value:** From one prompt, orchestrate parallel autonomous coding that lands on `main` without breaking it — live-steerable from a single TUI.
-**Current focus:** Phase 10 re-plan flows and manual edits polish is next — Phase 9 crash recovery UX completed on 2026-05-01 with startup recovery summary inbox surfacing, orphan-worktree triage commands, readable recovery/orphan inbox wording, and real-file restart coverage in the standard Vitest integration lane.
+**Current focus:** Phase 10 re-plan flows and manual edits polish is in progress — 10-01 has started with top-planner rerun session-choice plumbing at the proposal-controller seam, keeping rerun behavior on the existing top-planner path while preparing the explicit continue-vs-fresh picker and audit-reader work.
 
 ## Current Position
 
-Phase: 10 of 12 (Re-plan Flows & Manual Edits Polish) next
-Plan: 3 of 3 completed in Phase 9
-Status: Phase 9 complete. 09-01 startup recovery substrate, 09-02 startup respawn + transcript replay hookup, and 09-03 recovery summary inbox plus orphan-worktree triage are synced to shipped code.
-Last activity: 2026-05-01 — Phase 9 plan 09-03 recorded. Startup now reconciles stale locks and persisted worker PIDs before scheduler start, truthfully resumes or restarts in-flight runs, parks replay-incomplete recovery failures with inbox diagnostics, appends a durable `recovery_summary` inbox row plus per-orphan `orphan_worktree` rows, and exposes conservative `/orphan-clean`, `/orphan-inspect`, and `/orphan-keep` actions through the existing TUI command surface. Focused verification is green for `npm run typecheck`, `test/unit/compose.test.ts`, `test/unit/tui/commands.test.ts`, `test/unit/tui/view-model.test.ts`, and `test/integration/persistence/rehydration.test.ts`.
+Phase: 10 of 12 (Re-plan Flows & Manual Edits Polish) in progress
+Plan: 10-01 in progress in Phase 10
+Status: Phase 10 is underway. The first 10-01 step is verified: top-planner reruns can now hand control back to the TUI for an explicit continue-vs-fresh choice instead of silently defaulting to fresh when the outer session-picker hook is available.
+Last activity: 2026-05-01 — Phase 10 plan 10-01 started landing. `ComposerProposalController` now exposes a top-planner rerun session-selection seam, feature reruns still dispatch directly, fallback top-planner reruns preserve the current path when no picker hook is installed, and full `npm run check` is green after adding focused controller coverage.
 
 Progress: [██████████] 100% for Phase 9
 
