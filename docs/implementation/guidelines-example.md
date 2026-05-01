@@ -18,7 +18,7 @@ Doc-sweep deferred: docs/architecture/agents/help-channel.md, docs/reference/tui
 
 Ships as 2 commits, in order.
 
-## Contract (frozen at phase start)
+## Contract
 
 Goal: planners route operator-blocking questions through a single `help_request` channel that the TUI renders deterministically, replacing the current ad-hoc mix of stdout prints and tool-result strings.
 
@@ -38,7 +38,7 @@ Exit criteria:
   - TUI renders the request without falling back to raw-event panel (no `unknown event` warning in logs).
   - All planner integration tests pass; no test asserts on the old stdout path.
 
-## Plan (mutable)
+## Plan
 
 Background: planners currently signal blockers via `console.error` strings prefixed `HELP:` at `src/agents/planner/prompt-scaffold.ts:204` and via tool-result text at `src/agents/planner/tools/request-help.ts:58`. The TUI greps event logs for the prefix in `src/tui/event-bus.ts:312`, which means a planner running outside the TUI silently loses the signal. Persistence layer never sees these requests; `agent_events` schema at `src/persistence/sql/004_agent_events.sql:14` has a `kind` enum that lacks `help_request`. Tests at `test/integration/planner-help.spec.ts:42` assert on the stdout prefix and will need rewiring.
 

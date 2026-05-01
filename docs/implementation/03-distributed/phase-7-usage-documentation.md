@@ -10,7 +10,7 @@ Doc-sweep deferred: none
 
 Ships as 1 commit.
 
-## Contract (frozen at phase start)
+## Contract
 
 Goal: ship `docs/usage.md` as the single setup-and-use entry point for the post-track system. A new operator who has never seen the codebase can clone the repo, pick one of the three deployment topologies that ship out of `phase-6-deployment-packaging`, get to a working orchestrator + worker, submit a feature, and watch it run — without reading any implementation plan or jumping across `docs/deployment/`, `docs/operations/`, and `docs/architecture/`.
 
@@ -30,7 +30,7 @@ Exit criteria:
   - A fresh reader can follow any one of the three topology sections end-to-end without consulting another doc to get a working system (see phase-exit smoke).
   - Review goal #1 confirms zero stale env-var prefixes, fictional CLI flags, or broken cross-links in the new doc.
 
-## Plan (mutable)
+## Plan
 
 Background: after `phase-6-deployment-packaging`, the system supports three deployment topologies — distributed (orchestrator + N WS workers), single-machine dual-process (orchestrator + one local `npm run worker` over localhost WS), and single-machine task-only (`distributed.enabled=false`, local-spawn task workers only, feature-phase agents unavailable). Operator knowledge currently spreads across `docs/deployment/worker-systemd.md` (production install: useradd, systemd, hardening — assumes the operator already knows what they want), `docs/operations/README.md` plus its sub-pages (in-flight behaviors only — assumes a running system), and the architecture docs. None of these is the front-of-house `how do I actually use this` entry point. The gap is choose-a-topology → concrete commands → working system.
 

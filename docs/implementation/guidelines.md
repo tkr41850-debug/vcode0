@@ -29,7 +29,7 @@ Phase exit verify: npm run verify
 Phase exit smoke: <manual scenario, or "none">
 Doc-sweep deferred: <docs that will lag this phase, or "none">
 
-## Contract (frozen at phase start)
+## Contract
 
 Goal: ...
 Scope:
@@ -37,7 +37,7 @@ Scope:
   Out: ...
 Exit criteria: ...
 
-## Plan (mutable)
+## Plan
 
 Background: ...
 Notes: ...
@@ -51,7 +51,12 @@ Notes: ...
 Shipped in <SHA1>..<SHA2> on <YYYY-MM-DD>
 ```
 
-`Contract` is frozen at phase start; changes require an explicit revision note. `Plan` is mutable; revise as work progresses without ceremony.
+The two top-level sections have distinct roles:
+
+- **Contract** — the phase's commitment. Frozen at phase start. What this phase will deliver, what it will not, and what proves it landed. Changes require an explicit revision note (timestamped, in-place, do not silently rewrite). Steps and reviewers hold the phase to this.
+- **Plan** — how the work will get done. Mutable. Revise as understanding deepens — recon notes shift, open questions resolve, step substance moves around. No ceremony required for changes here.
+
+If a discovery during work would change the Contract (scope grew, exit criteria wrong), stop and surface it; do not silently re-shape the Contract to match what was actually built.
 
 ## Header fields
 
