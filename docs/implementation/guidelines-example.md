@@ -12,8 +12,7 @@ The fictional phase below would live at `docs/implementation/02-project-planner/
 - Verified state: main @ 33ffb7a on 2026-05-01
 - Depends on: phase-3-toolset-split (request_help tool surface), phase-7-escalation-prompt (escalation copy slot)
 - Default verify: npm run check:fix && npm run check
-- Phase exit verify: npm run verify
-- Phase exit smoke: Run `examples/scripted-help-loop.ts`; confirm planner emits one `help_request` event per blocked tool call and TUI renders the prompt without duplication.
+- Phase exit: `npm run verify`; `grep -RIn 'HELP:' src/agents` returns zero hits; smoke — run `examples/scripted-help-loop.ts`, confirm planner emits one `help_request` event per blocked tool call and TUI renders the prompt without duplication.
 - Doc-sweep deferred: docs/architecture/agents/help-channel.md, docs/reference/tui-events.md
 
 Ships as 2 commits, in order.

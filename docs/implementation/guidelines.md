@@ -25,8 +25,7 @@ See `guidelines-example.md` for a worked example. Tracks may retrofit existing p
 - Verified state: main @ <SHA> on <YYYY-MM-DD>
 - Depends on: phase-<N>-<slug> (<reason>), ...
 - Default verify: npm run check:fix && npm run check
-- Phase exit verify: npm run verify
-- Phase exit smoke: <manual scenario, or "none">
+- Phase exit: <verify command + observable post-conditions; manual smoke scenario if applicable, else omit>
 - Doc-sweep deferred: <docs that will lag this phase, or "none">
 
 Ships as N commits, in order.
@@ -77,11 +76,10 @@ For Scope.In/Out additions, prefix the new item with `(added 2026-04-12) ...`. F
 ## Header fields
 
 - **Status** — `drafting` | `active` | `paused` | `shipped <SHA>` | `superseded`. If a phase is blocked mid-flight, set `paused` and add `## Blocker:` in Plan.
-- **Verified state** — pin the `main` SHA at phase-doc authoring time, plus date. The Background reflects state at this anchor; re-verify if much time passes before work begins.
+- **Verified state** — pin the `main` SHA at phase-doc authoring time, plus date. The Background reflects state at this anchor; re-verify if much time passes before work begins. Bump the SHA when implementation-relevant code changes since the pin invalidate the Background; doc-only commits to `main` do not require a bump.
 - **Depends on** — list of `phase-<N>-<slug>` ids with one-line reasons.
 - **Default verify** — runs after every step unless the step overrides.
-- **Phase exit verify** — stronger gate than per-step verify; runs once before closing the phase.
-- **Phase exit smoke** — manual scenario that exercises the phase's user-visible outcome. Use `none` if not applicable.
+- **Phase exit** — single combined field carrying the verify command (stronger gate than per-step verify; runs once before closing the phase) plus the observable post-conditions and any manual smoke scenario that exercises the phase's user-visible outcome end-to-end. Multi-clause; semicolon-separated. Omit the smoke clause when not applicable.
 - **Doc-sweep deferred** — explicit list of docs that will lag code during this phase. Reconcile in a single doc-only commit at phase exit. Use `none` to assert no drift expected.
 
 ## Contract block
@@ -174,7 +172,7 @@ Crash matrix: <if recovery-relevant>
   - Light: optional. Pure-doc step: omit.
   - Refactor with no behavior change: name the existing test file that already covers the surface (`covered by test/unit/foo.test.ts`).
 - **`Review goals:`** is a numbered list of what the reviewer must check. Default word cap **250 words** unless the phase or step overrides (`Review goals: (cap 400 words) 1) ...`). Tool-agnostic; the subagent prompt is assembled from these goals at review time.
-- **`Smoke:` (per-step)** is distinct from the **`Phase exit smoke`** header field. Per-step smoke is a manual scenario that exercises just this step's behavior in isolation; phase-exit smoke exercises the phase's user-visible outcome end-to-end. A step may carry its own `Smoke:` even when the phase-exit smoke is `none`, and vice versa.
+- **`Smoke:` (per-step)** is distinct from the smoke clause of the **`Phase exit`** header field. Per-step smoke is a manual scenario that exercises just this step's behavior in isolation; phase-exit smoke exercises the phase's user-visible outcome end-to-end. A step may carry its own `Smoke:` even when the phase-exit smoke clause is omitted, and vice versa.
 
 ## Anti-patterns
 
@@ -226,7 +224,7 @@ Cross-track concepts (`worktree`, `merge train`, `feature branch`) live in `docs
 
 ## Closing a phase
 
-1. Run the `Phase exit verify` command and the `Phase exit smoke` scenario from the header.
+1. Run the verify command and any smoke scenario from the `Phase exit` header field.
 2. Reconcile `Doc-sweep deferred` items in a single doc-only commit.
 3. Update `Status:` to `shipped <SHA>`.
 4. Append `Shipped in <SHA1>..<SHA2> on <YYYY-MM-DD>` footer.
