@@ -1,14 +1,21 @@
-import type { GraphSnapshot } from '@core/graph/index';
+import { InMemoryFeatureGraph, type GraphSnapshot } from '@core/graph/index';
+import { applyGraphProposal, type GraphProposalOp } from '@core/proposals/index';
 import type {
   AgentRun,
   Feature,
   FeatureId,
   FeaturePhaseAgentRun,
   MilestoneId,
+  PlannerSessionMode,
   TaskAgentRun,
   TopPlannerAgentRun,
 } from '@core/types/index';
-import { readTopPlannerProposalMetadata } from '@orchestrator/proposals/index';
+import {
+  collectProposalScopeIds,
+  parseGraphProposalPayload,
+  readTopPlannerProposalMetadata,
+  type TopPlannerCollidedFeatureRun,
+} from '@orchestrator/proposals/index';
 import type { ComposerSelection } from '@tui/commands/index';
 import {
   type DagNodeViewModel,
@@ -116,8 +123,38 @@ export type PendingTopPlannerSessionAction =
   | { kind: 'submit'; prompt: string }
   | { kind: 'rerun' };
 
+export interface PendingProposalOpSummary {
+  kind: GraphProposalOp['kind'];
+  count: number;
+}
+
+export interface PendingProposalCollisionReview
+  extends TopPlannerCollidedFeatureRun {
+  resetsSavedSession: boolean;
+}
+
+export interface PendingProposalReview {
+  scopeType: PendingProposalRun['scopeType'];
+  scopeId: PendingProposalRun['scopeId'];
+  phase: PendingProposalRun['phase'];
+  prompt?: string;
+  sessionMode?: PlannerSessionMode;
+  runId: string;
+  sessionId?: string;
+  previousSessionId?: string;
+  featureIds: FeatureId[];
+  milestoneIds: MilestoneId[];
+  totalOps: number;
+  opSummaries: PendingProposalOpSummary[];
+  changeSummary: string;
+  collisions: PendingProposalCollisionReview[];
+  approvalNotice: string;
+  previewError?: string;
+}
+
 export interface PendingProposalSelection {
   run: PendingProposalRun;
+  review: PendingProposalReview;
   approvalHint?: string;
 }
 
@@ -146,7 +183,13 @@ export function pendingProposalForSelection(params: {
           params.getFeatureRun,
         );
   if (featureRun !== undefined) {
-    return { run: featureRun };
+    return {
+      run: featureRun,
+      review: buildPendingProposalReview(
+        featureRun,
+        params.authoritativeSnapshot,
+      ),
+    };
   }
 
   const topPlannerRun = params.getTopPlannerRun();
@@ -154,10 +197,14 @@ export function pendingProposalForSelection(params: {
     return undefined;
   }
 
-  const metadata = readTopPlannerProposalMetadata(topPlannerRun.payloadJson);
-  const collisionCount = metadata?.collidedFeatureRuns.length ?? 0;
+  const review = buildPendingProposalReview(
+    topPlannerRun,
+    params.authoritativeSnapshot,
+  );
+  const collisionCount = review.collisions.length;
   return {
     run: topPlannerRun,
+    review,
     ...(collisionCount > 0
       ? {
           approvalHint:
@@ -209,6 +256,141 @@ function isPendingTopPlannerProposalRun(
     run.runStatus === 'await_approval' &&
     run.phase === 'plan'
   );
+}
+
+function buildPendingProposalReview(
+  run: PendingProposalRun,
+  authoritativeSnapshot: GraphSnapshot,
+): PendingProposalReview {
+  const metadata =
+    run.scopeType === 'top_planner'
+      ? readTopPlannerProposalMetadata(run.payloadJson)
+      : undefined;
+  const collisions =
+    metadata?.collidedFeatureRuns.map((entry) => ({
+      ...entry,
+      resetsSavedSession: entry.sessionId !== undefined,
+    })) ?? [];
+  const fallbackFeatureIds =
+    run.scopeType === 'feature_phase' ? [run.scopeId] : [];
+  const fallbackMilestoneIds =
+    run.scopeType === 'feature_phase'
+      ? [featureFromSnapshot(authoritativeSnapshot, run.scopeId)?.milestoneId].filter(
+          (value): value is MilestoneId => value !== undefined,
+        )
+      : [];
+  const approvalNotice = buildPendingProposalApprovalNotice(
+    run.scopeType,
+    collisions,
+  );
+
+  try {
+    const proposal = parseGraphProposalPayload(
+      run.payloadJson,
+      run.scopeType === 'top_planner' ? 'plan' : run.phase,
+    );
+    const graph = new InMemoryFeatureGraph(authoritativeSnapshot);
+    const scope = collectProposalScopeIds(proposal, graph);
+    const result =
+      run.scopeType === 'top_planner'
+        ? applyGraphProposal(graph, proposal, {
+            additiveOnly: true,
+            ...(collisions.length > 0
+              ? {
+                  plannerCollisionFeatureIds: collisions.map(
+                    (entry) => entry.featureId,
+                  ),
+                }
+              : {}),
+          })
+        : applyGraphProposal(graph, proposal);
+
+    return {
+      scopeType: run.scopeType,
+      scopeId: run.scopeId,
+      phase: run.phase,
+      ...(metadata?.prompt !== undefined ? { prompt: metadata.prompt } : {}),
+      ...(metadata?.sessionMode !== undefined
+        ? { sessionMode: metadata.sessionMode }
+        : {}),
+      runId: metadata?.runId ?? run.id,
+      ...(metadata?.sessionId !== undefined
+        ? { sessionId: metadata.sessionId }
+        : run.sessionId !== undefined
+          ? { sessionId: run.sessionId }
+          : {}),
+      ...(metadata?.previousSessionId !== undefined
+        ? { previousSessionId: metadata.previousSessionId }
+        : {}),
+      featureIds:
+        metadata?.featureIds.length !== 0
+          ? metadata?.featureIds ?? []
+          : scope.featureIds.length !== 0
+            ? scope.featureIds
+            : fallbackFeatureIds,
+      milestoneIds:
+        metadata?.milestoneIds.length !== 0
+          ? metadata?.milestoneIds ?? []
+          : scope.milestoneIds.length !== 0
+            ? scope.milestoneIds
+            : fallbackMilestoneIds,
+      totalOps: proposal.ops.length,
+      opSummaries: summarizeProposalOps(proposal.ops),
+      changeSummary: result.summary,
+      collisions,
+      approvalNotice,
+    };
+  } catch (error) {
+    return {
+      scopeType: run.scopeType,
+      scopeId: run.scopeId,
+      phase: run.phase,
+      ...(metadata?.prompt !== undefined ? { prompt: metadata.prompt } : {}),
+      ...(metadata?.sessionMode !== undefined
+        ? { sessionMode: metadata.sessionMode }
+        : {}),
+      runId: metadata?.runId ?? run.id,
+      ...(metadata?.sessionId !== undefined
+        ? { sessionId: metadata.sessionId }
+        : run.sessionId !== undefined
+          ? { sessionId: run.sessionId }
+          : {}),
+      ...(metadata?.previousSessionId !== undefined
+        ? { previousSessionId: metadata.previousSessionId }
+        : {}),
+      featureIds: metadata?.featureIds ?? fallbackFeatureIds,
+      milestoneIds: metadata?.milestoneIds ?? fallbackMilestoneIds,
+      totalOps: 0,
+      opSummaries: [],
+      changeSummary: 'Preview unavailable.',
+      collisions,
+      approvalNotice,
+      previewError: formatUnknownError(error),
+    };
+  }
+}
+
+function summarizeProposalOps(
+  ops: readonly GraphProposalOp[],
+): PendingProposalOpSummary[] {
+  const counts = new Map<GraphProposalOp['kind'], number>();
+  for (const op of ops) {
+    counts.set(op.kind, (counts.get(op.kind) ?? 0) + 1);
+  }
+  return [...counts.entries()].map(([kind, count]) => ({ kind, count }));
+}
+
+function buildPendingProposalApprovalNotice(
+  scopeType: PendingProposalRun['scopeType'],
+  collisions: readonly PendingProposalCollisionReview[],
+): string {
+  if (scopeType === 'top_planner') {
+    return collisions.length === 0
+      ? 'Accept applies this top-planner proposal additively; reject leaves the current graph unchanged.'
+      : `Accept resets the ${collisions.length === 1 ? 'listed planner run' : 'listed planner runs'} before applying; reject leaves them untouched.`;
+  }
+
+  return 'Accept applies this feature proposal to the current graph; reject leaves the current graph unchanged.';
 }
 
 export function hasReusableTopPlannerSession(

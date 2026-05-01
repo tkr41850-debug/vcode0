@@ -5,7 +5,7 @@
 See: .planning/PROJECT.md (updated 2026-04-23)
 
 **Core value:** From one prompt, orchestrate parallel autonomous coding that lands on `main` without breaking it — live-steerable from a single TUI.
-**Current focus:** Phase 10 re-plan flows and manual edits polish is in progress — 10-01 is now complete with the planner session picker and read-only planner-audit TUI surface shipped, and the next work is 10-02 proposal preview plus richer collision surfacing.
+**Current focus:** Phase 10 re-plan flows and manual edits polish is in progress — 10-02 now has the structured pending-proposal review model landed in TUI state, and the next work is the read-only proposal-review overlay plus richer collision surfacing.
 
 ## Current Position
 
