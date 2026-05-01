@@ -38,7 +38,7 @@ Ships as **2 commits**, in order.
 
 - `src/core/scheduling/index.ts` — at the feature-phase collection site, add `run?.runStatus === 'failed'` to the skip condition. The fix applies uniformly to all seven feature-phase kinds.
 - `test/unit/core/scheduling.test.ts` — add tests that construct features in each affected phase (sample at minimum: `plan`, `discuss`, `verify`) with a `failed` feature-phase run and assert `prioritizeReadyWork` does not include them.
-- `test/unit/core/scheduling.test.ts` — add an explicit `runStatus === 'running'` skip-path test if not already present (verified gap: existing coverage hits `await_response | await_approval | retry_await` but not the `running` skip).
+- `test/unit/core/scheduling.test.ts` — add an explicit `runStatus === 'running'` skip-path test if not already present (verified **coverage** gap — the behavior is correct on `main` but no test exercises it directly; existing coverage hits `await_response | await_approval | retry_await` but not the `running` skip).
 - `test/unit/orchestrator/scheduler-loop.test.ts` — add a regression that drives a feature-phase run to `failed` (semantic_failure path), then runs additional ticks and asserts no further `dispatchRun` calls for the same `(featureId, phase)` pair.
 
 **Tests:**
@@ -64,13 +64,13 @@ Ships as **2 commits**, in order.
 
 **Files:**
 
-- `src/tui/view-model/index.ts` — extend `deriveFeatureBlocked` to return a typed reason for `failed`; update **both** call sites of `deriveFeatureBlocked` in `buildMilestoneTree(...)` (`displayStatus` and feature `meta.wait`) so failed reason flows to both surfaces; extend `iconForFeature` to map failed feature-phase runs to a distinct symbol (e.g. `✕` or `!`); preserve current behavior for non-failed runs.
+- `src/tui/view-model/index.ts` — extend `deriveFeatureBlocked` to return a typed reason for `failed`; update **both** call sites of `deriveFeatureBlocked` in `buildMilestoneTree(...)` (`displayStatus` and feature `meta.wait`) so failed reason flows to both surfaces. **Icon decision:** today `iconForDerivedStatus` already maps `'failed'` to `'✗'` for task-derived status; extend `iconForFeature` to **fall through to that same `'✗'`** when a feature-phase run is in `runStatus='failed'`. Single failed glyph across task-derived and run-derived paths — operator does not need to distinguish "task failed" from "feature-phase run failed" at glance level (the reason text disambiguates). Do **not** introduce a new symbol like `'!'`.
 - `test/unit/tui/view-model.test.ts` — add coverage for failed-run rendering. Assert reason text mentions inbox via a static "see inbox" hint (no live inbox lookup — the TUI does not read `inbox_items` today, and Step 1.2 does not add that plumbing).
 - `docs/reference/tui.md` — if the icon legend is documented, update it. (If not present, skip.)
 
 **Tests:**
 
-- Feature with planning workControl + failed feature-phase run renders with the failed icon and a blocked reason carrying the static "see inbox" hint. Both `displayStatus` and `meta.wait` reflect the failed reason.
+- Feature with planning workControl + failed feature-phase run renders with `'✗'` (same glyph as task-derived failed) and a blocked reason carrying the static "see inbox" hint. Both `displayStatus` and `meta.wait` reflect the failed reason.
 - Feature with planning workControl + running feature-phase run keeps existing rendering (no change).
 - Feature with `await_approval` keeps existing approval-pending rendering.
 
@@ -80,7 +80,7 @@ Ships as **2 commits**, in order.
 
 > Verify the TUI surface: (1) `deriveFeatureBlocked` returns a typed reason for `runStatus='failed'`; (2) `iconForFeature` distinguishes failed from running and from approval-pending; (3) running and approval-pending paths are unchanged; (4) docs/reference/tui.md (if present) is updated to match. Under 250 words.
 
-**Commit:** `feat(tui): surface failed feature-phase runs distinct from blocked`
+**Commit:** `feat(tui/feature-view): surface failed feature-phase runs distinct from blocked`
 
 ---
 

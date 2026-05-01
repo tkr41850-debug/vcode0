@@ -15,7 +15,7 @@ Add an explicit TUI mode for project-planner chat with auto-enter on greenfield 
 Verified state on `main`:
 
 - `src/tui/app.ts` is the TUI shell. Composer chrome is **not** single-mode/no-label today: `src/tui/components/index.ts` already renders a `ComposerStatus` strip and `src/tui/view-model/index.ts` drives multiple composer modes (`command | draft | approval | task | live-planner | attached`). Phase 6 extends this strip with explicit scope labels — it does not introduce chrome from scratch. There is no project-planner composer scope and no feature-discuss composer scope today.
-- Live proposal-mirror state for plan/replan lives in `src/tui/live-planner-sessions.ts` and is wired by `src/tui/app.ts`. `src/tui/proposal-controller.ts` is feature-scoped draft/edit/submit/approve only — Phase 6 does **not** reuse it as the project mirror; the project session attaches via the same live-planner-sessions surface (or a sibling).
+- Live proposal-mirror state for plan/replan lives in `src/tui/live-planner-sessions.ts`, keyed on `ProposalOpScopeRef` which today requires `featureId: FeatureId` and `phase: 'plan' | 'replan'` (`src/orchestrator/ports/index.ts:23-27`). Project sessions have neither, so reuse is not possible without breaking the feature-phase shape. **Decision: build a sibling tracker.** Step 6.2 introduces `src/tui/live-project-planner-sessions.ts` with the same internal shape (op-replay, draft snapshot, attach/detach) but keyed on the project session uid (`agent_runs.id`). `ProposalOpScopeRef` stays untouched — feature-phase consumers see no new arm to defend against. `src/tui/proposal-controller.ts` is feature-scoped draft/edit/submit/approve only — Phase 6 does **not** reuse it as the project mirror.
 - Slash commands are split: `src/tui/commands/index.ts` owns names, autocomplete, templates, and the keybind registry; execution routing lives in `src/tui/app-composer.ts`. `/project` registration touches both.
 - `await_approval` exists for feature plan/replan today: proposals are stored from `src/tui/proposal-controller.ts`, surfaced as approval mode by `src/tui/view-model/index.ts`, and applied/rejected in `src/orchestrator/scheduler/events.ts`. Current UX is **status text plus `/approve` / `/reject` / `/rerun`** — there is no graph-diff component. Step 6.4 builds the diff surface from scratch (no `proposal-review.ts` exists today).
 - `src/tui/composer-autocomplete.ts` and `src/tui/app-navigation.ts` already implement the focus-indicator chrome groundwork from `01-baseline` Phase 7. Step 6.1 extends, not replaces.
@@ -64,7 +64,7 @@ The chrome is always visible; it does not auto-hide. When the composer is defocu
 
 > Verify focus indicator: (1) chrome line is always visible; (2) label text changes per mode; (3) defocused composer still shows the most recent destination; (4) view-model derivation is testable in isolation. Under 250 words.
 
-**Commit:** `feat(tui): composer focus indicator chrome`
+**Commit:** `feat(tui/composer): focus indicator chrome`
 
 ---
 
@@ -78,7 +78,8 @@ The chrome is always visible; it does not auto-hide. When the composer is defocu
 
 - `src/tui/commands/index.ts` — register `/project` command name + autocomplete.
 - `src/tui/app-composer.ts` — wire `/project` execution routing (this is where slash execution lives, separate from the registry).
-- `src/tui/project-planner-controller.ts` (new) — drive the mode lifecycle. On entry, fetch sessions via `Store.listProjectSessions`, present the picker, on selection attach to the session's event stream and proposal mirror via the live-planner-sessions surface.
+- `src/tui/project-planner-controller.ts` (new) — drive the mode lifecycle. On entry, fetch sessions via `Store.listProjectSessions`, present the picker, on selection attach to the session via the new `LiveProjectPlannerSessions` tracker.
+- `src/tui/live-project-planner-sessions.ts` (new) — sibling to `live-planner-sessions.ts` keyed on the project session uid (`agent_runs.id`). Mirrors the feature-phase tracker's shape (`recordOp`, `snapshot`, `attach`/`detach`); operates on the project draft graph snapshot instead of a feature-scoped one. Wired into `src/tui/app.ts` alongside the existing live-planner-sessions surface.
 - `src/tui/view-model/index.ts` — extend with project-planner mode state and session list state.
 - `test/unit/tui/commands.test.ts` — coverage for the new slash command.
 - `test/integration/tui/smoke.test.ts` — coverage for entry → pick → see chat surface.
@@ -97,7 +98,7 @@ The chrome is always visible; it does not auto-hide. When the composer is defocu
 
 > Verify mode entry: (1) slash command registers; (2) session list pulls from Phase 2 Store helper; (3) entry attaches the proposal mirror and composer to the right session; (4) `esc` does not cancel the session; (5) cancellation is a separate explicit action. Under 350 words.
 
-**Commit:** `feat(tui): project-planner mode entry and session picker`
+**Commit:** `feat(tui/project-planner): mode entry and session picker`
 
 ---
 
@@ -125,7 +126,7 @@ The chrome is always visible; it does not auto-hide. When the composer is defocu
 
 > Verify auto-enter: (1) greenfield bootstrap result is consumed by TUI; (2) project-planner mode is the initial mode in greenfield; (3) existing-project startup is unchanged; (4) chrome label correctly identifies the auto-spawned session. Under 250 words.
 
-**Commit:** `feat(tui): auto-enter project-planner mode on greenfield`
+**Commit:** `feat(tui/project-planner): auto-enter mode on greenfield`
 
 ---
 
@@ -137,8 +138,8 @@ The chrome is always visible; it does not auto-hide. When the composer is defocu
 
 **Files:**
 
-- `src/tui/proposal-review.ts` (new) — graph-diff component for project-scope proposals. Renders added/removed milestones, added/removed features, and edge changes. Also renders the typed `ProposalRebaseReason` (defined and exported by Phase 4 Step 4.4) when a rebase signal arrives — both `kind: 'stale-baseline'` and `kind: 'running-tasks-affected'` get human-readable framing here.
-- `src/tui/project-planner-controller.ts` (Step 6.2's controller) — wire the cancellation-approval block. Use `compose.cancelFeatureRunWork(...)` for the cancel path; on rejection, surface the Phase 4 `ProposalRebaseReason` via the diff component.
+- `src/tui/proposal-review.ts` (new) — graph-diff component for project-scope proposals. Input format: `(before: GraphSnapshot, after: GraphSnapshot)` — derive adds/removes/edits by diffing the two snapshots rather than replaying op-lists. The project draft snapshot from `LiveProjectPlannerSessions` is "after"; the current authoritative graph is "before". Renders added/removed milestones, added/removed features, and edge changes. Also renders the typed `ProposalRebaseReason` (defined and exported by Phase 4 Step 4.4) when a rebase signal arrives — both `kind: 'stale-baseline'` and `kind: 'running-tasks-affected'` get human-readable framing here.
+- `src/tui/project-planner-controller.ts` (Step 6.2's controller) — wire the cancellation-approval block. Use the shared `running-tasks-affected` helper from Phase 4 Step 4.4 (`src/orchestrator/proposals/running-tasks-affected.ts`) to detect impact pre-flight — single source of truth with the apply-time check. For the cancel path, enumerate **all run kinds** affected by feature removal: task runs (via `compose.cancelFeatureRunWork(...)`) and feature-phase runs (via `runtime.abortRun(...)` for any in-flight `discuss | research | plan | replan | verify | summarize` on the affected feature). Cancel both before applying.
 - `src/compose.ts` — if needed, expose a batched cancel-then-apply entry point so the TUI does not interleave half a cancel with the apply.
 - `test/unit/tui/proposal-review.test.ts` (new) — unit coverage for the diff component: render adds/removes/edge-changes; render each `ProposalRebaseReason` variant.
 - `test/integration/tui/smoke.test.ts` — coverage for the cancellation-approval flow.
@@ -157,7 +158,7 @@ The chrome is always visible; it does not auto-hide. When the composer is defocu
 
 > Verify approval surface: (1) project diffs render correctly; (2) running-task-impact is detected and surfaced; (3) approve-without-cancel cleanly rejects; (4) approve-with-cancel applies both the cancellation and the topology change; (5) stale-baseline path re-opens the session. Under 400 words.
 
-**Commit:** `feat(tui): project proposal approval and cancellation gate`
+**Commit:** `feat(tui/proposal-review): project proposal approval and cancellation gate`
 
 ---
 

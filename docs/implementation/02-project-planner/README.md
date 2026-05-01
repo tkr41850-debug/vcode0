@@ -67,7 +67,7 @@ Eight phases. Phase 1 is a scheduler-hygiene unblock that makes the rest visible
 | [Phase 5](./phase-5-bootstrap-rewrite.md) | **Bootstrap rewrite** | `initializeProjectGraph` no longer creates synthetic `m-1`/`f-1`; compose layer spawns project-planner first-run on empty project | Medium — touches startup ordering and existing test fixtures that assume synthetic feature |
 | [Phase 6](./phase-6-tui-mode.md) | **TUI mode + focus indicator** | Project-planner chat mode; auto-enter on greenfield; composer focus indicator chrome; session list view | Medium — TUI surface change, multiple compose-time wires |
 | [Phase 7](./phase-7-escalation-prompt.md) | **Escalation prompt + UX** | Prompt guidance for feature planners to escalate topology concerns via `request_help`; optional structured `topology_request` inbox kind | Low — prompt + optional inbox kind |
-| [Phase 8](./phase-8-submit-compliance.md) | **Submit-compliance hardening** | Tool_choice forcing at SDK call site; prompt hardening for both planner scopes; deterministic-LLM regression test | Medium — touches every planner run; depends on Phases 1, 3, 4, and 7 |
+| [Phase 8](./phase-8-submit-compliance.md) | **Submit-compliance hardening** | Tool_choice (`'any'`, not name-allowlist) at SDK call site; prompt hardening for both planner scopes; deterministic-LLM regression test. May ship partial if Step 8.2 picks Shape 3 (defer SDK wiring) — prompt + regression-anchor only, with the LLM-side failure mode reduced but not eliminated. | Medium — touches every planner run; depends on Phases 1, 3, 4, and 7 |
 
 After Phase 6 merges, the [docs update sweep](./docs-update-sweep.md) lists every documentation file that needs updates. Bundle those into 4–5 doc-only commits at the end of the milestone.
 

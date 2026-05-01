@@ -46,7 +46,9 @@ These files mention the affected concepts in passing and need a sentence or para
 | `specs/test_package_boundary_contracts.md` | Module dependency graph | Add `src/agents/tools/agent-toolset.ts` ↔ `src/agents/tools/planner-toolset.ts` split per Phase 3; add project-planner toolset boundary |
 | `specs/test_greenfield_bootstrap.md` (new) | All sections | New spec covering Phase 5's bootstrap-rewrite behavior: greenfield → project-planner session; persisted-but-empty greenfield; existing-project no-spawn |
 
-## Already aligned
+## Already aligned ✔
+
+These items match the milestone direction now and need no further sweep work — listed for traceability so they aren't re-opened during the post-Phase-6 sweep.
 
 - `docs/concerns/concurrent-project-planner-sessions.md` — created during this milestone's design and matches the new direction. Sweep edits applied: terminology fix (`scope=` → `scope_type=`) and an "Implementation Status" section noting today's per-op skip vs Phase 4's whole-proposal CAS.
 

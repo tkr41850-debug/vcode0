@@ -55,7 +55,7 @@ Ships as **3 commits**, in order. Step 2.3 sweeps non-persistence call sites tha
 
 > Verify the union extension: (1) `src/core/types/runs.ts` has a third `AgentRun` arm with `scopeType: 'project'`; (2) codecs roundtrip the new arm without data loss; (3) `listAgentRuns` can filter by `scopeType: 'project'`; (4) decoder branches on `'task'` / `'feature_phase'` / `'project'` explicitly; (5) existing task and feature_phase paths are byte-for-byte unchanged in serialized form; (6) every other call site that pattern-matches on `scopeType` (see Step 2.3) handles the new arm. Under 300 words.
 
-**Commit:** `feat(persistence): extend agent_runs scope_type with project arm`
+**Commit:** `feat(persistence/agent-runs): extend scope_type with project arm`
 
 ---
 
@@ -65,14 +65,15 @@ Ships as **3 commits**, in order. Step 2.3 sweeps non-persistence call sites tha
 
 **Files:**
 
-- `src/orchestrator/ports/index.ts` — extend `Store` with `listProjectSessions(filter?: { status?: AgentRunStatus[] })` and `getProjectSession(id: string): AgentRun | undefined`. The `status` filter accepts any subset of the existing `AgentRunStatus` union (no new statuses are introduced by this track). Reuse existing run-query plumbing rather than introducing new infrastructure.
+- `src/orchestrator/ports/index.ts` — extend the existing `AgentRunQuery` shape (today's `runStatus?: AgentRunStatus`, singular) with an optional `runStatuses?: AgentRunStatus[]` array filter — single canonical query API, both feature-phase and project consumers benefit. Add `listProjectSessions(filter?: { runStatuses?: AgentRunStatus[] })` as a thin wrapper over `listAgentRuns({ scopeType: 'project', runStatuses: filter?.runStatuses })`. Add `getProjectSession(id: string): AgentRun | undefined`. (No parallel codepath; the wrapper exists for type-narrowing readability and so callers don't have to repeat the `scopeType: 'project'` literal.)
 - `src/persistence/sqlite-store.ts` — implement the new methods on `SqliteStore`. Match the existing convention where read methods return `undefined` (not `null`) when the row is missing, e.g. `getAgentRun(id): AgentRun | undefined`.
 - `test/unit/persistence/sqlite-store.test.ts` — add implementation coverage. (No dedicated `test/unit/orchestrator/ports.test.ts` exists today; either extend `sqlite-store.test.ts` or add a new contract-test file alongside it — pick whichever matches the convention used for `getAgentRun` coverage.)
 
 **Tests:**
 
 - `listProjectSessions` with no filter returns all rows where `scope_type='project'`.
-- `listProjectSessions({ status: ['running', 'await_response'] })` returns only active sessions (using existing union members — no new statuses).
+- `listProjectSessions({ runStatuses: ['running', 'await_response'] })` returns only active sessions (using existing union members — no new statuses).
+- `listAgentRuns({ runStatuses: ['running', 'await_response'] })` (the underlying query) returns rows whose status is in the array — confirms the new array filter applies generically.
 - `getProjectSession` returns the row or `undefined`.
 - Existing run-query tests stay green.
 
@@ -82,7 +83,7 @@ Ships as **3 commits**, in order. Step 2.3 sweeps non-persistence call sites tha
 
 > Verify the Store extension: (1) `Store` port has `listProjectSessions` and `getProjectSession` typed against the new union arm; (2) SqliteStore implementation filters correctly by `scope_type='project'` and optional status; (3) existing run queries are unchanged; (4) no leakage of project-scope concepts into task or feature_phase code paths. Under 250 words.
 
-**Commit:** `feat(orchestrator): add project-session query helpers to Store port`
+**Commit:** `feat(orchestrator/store): add project-session query helpers`
 
 ---
 
@@ -95,8 +96,8 @@ Ships as **3 commits**, in order. Step 2.3 sweeps non-persistence call sites tha
 - `src/orchestrator/scheduler/dispatch.ts` — `createRunReader` and any sibling that branches on `scopeType`. Project runs are dispatched in Phase 4; the Phase 2 change is an exhaustive branch (with a "Phase 4 wires this" placeholder if it cannot be fully implemented yet) rather than a silent fallthrough.
 - `src/orchestrator/services/recovery-service.ts` — `recoverOrphanedRuns` currently sweeps task and feature_phase runs only. Add explicit project-arm handling (recovery semantics defined in Phase 4; here, at minimum, no silent crash and no miscategorization).
 - `src/runtime/error-log/index.ts` — non-task runs are currently labeled `"feature"`. Add a `"project"` label so logs disambiguate.
-- `src/tui/view-model/index.ts` — non-task runs are currently bucketed as feature-phase. Add a project bucket (rendering may be a no-op until Phase 6, but the bucket must exist so view-model invariants are exhaustive).
-- `src/orchestrator/services/budget-service.ts` — confirm how project-scope `token_usage` rolls up. If the answer is "counts toward global spend, no per-feature attribution," document that explicitly in code (a comment + an exhaustive branch is enough).
+- `src/tui/view-model/index.ts:153` — current code is `if (run.scopeType === 'task') ... else featurePhaseRuns.set(...)`; the bug being fixed is that the `else` swallows project runs into the feature-phase bucket. Replace with an exhaustive switch, adding a `projectRuns` bucket. Phase 6 wires the bucket to a render path; Phase 2 just creates it.
+- `src/orchestrator/services/budget-service.ts:36,46` — currently branches on `'task'` and `'feature_phase'`. **Decision:** project-scope `token_usage` counts toward global spend, no per-feature attribution. Add the `'project'` arm explicitly (with a one-line comment stating the rationale) and route into the existing global-aggregation path. No change to `byPhase` / `byScope` aggregations beyond that.
 - `test/unit/...` — extend the existing tests for each touched file with a project-arm fixture; assertion is "does not throw, does not miscategorize," nothing semantic yet.
 
 **Tests:**
@@ -128,3 +129,4 @@ Ships as **3 commits**, in order. Step 2.3 sweeps non-persistence call sites tha
 - **No migration.** `scope_type` is `TEXT NOT NULL` with no CHECK; existing rows continue to deserialize cleanly. If a CHECK constraint is wanted later for type-safety, that is a separate `NNN_*.ts` migration outside this track.
 - **Scope id convention.** Project scope_id is the singleton string `'project'` (typed const). The `id` column carries the per-session uid. This matches the existing pattern where `scope_id` identifies the *target* of the scope (a task, a feature, or the project itself) and `id` identifies the *run instance*.
 - **Forward compatibility.** If a future change introduces multiple projects per orchestrator instance, scope_id widens to include a project uid; the typed union absorbs the change cleanly.
+- **`RunScope` deferral.** `src/runtime/contracts.ts` `RunScope` and `src/runtime/worker-pool.ts` dispatch typing are **not** in Step 2.3's sweep — Phase 4 Step 4.2 owns extending those (project-arm dispatch is Phase 4's territory). Step 2.3 audits them only to confirm "no creation site exists yet, so no project-scope `RunScope` value can flow through" — which is true on `main`.

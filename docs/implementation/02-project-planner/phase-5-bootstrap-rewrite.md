@@ -43,10 +43,10 @@ The synthetic `m-1` / `f-1` creation and `transitionFeatureToPlanning(f-1)` call
 
 **Files:**
 
-- `src/compose.ts` — rewrite `initializeProjectGraph`. The new function returns `{ kind: 'greenfield-bootstrap', sessionId } | { kind: 'existing' }`. Compose forwards this result so Phase 6 can auto-enter the session.
-- `src/compose.ts` — `composeApplication` plumbs the bootstrap result into the TUI initialization step.
+- `src/compose.ts` — rewrite `initializeProjectGraph`. The new function returns `{ kind: 'greenfield-bootstrap', sessionId } | { kind: 'existing' }`. Compose forwards this result so Phase 6 can auto-enter the session. **Naming note:** post-rewrite the function name is misleading on the greenfield path (it persists no graph, only triggers a project-planner session). Renaming is deferred — call out in the commit message that future phases may rename to `initializeProject` or split into two functions.
+- `src/compose.ts` — `composeApplication` plumbs the bootstrap result into the TUI initialization step. Concretely: the result flows from `initializeProjectGraph` → composeApplication local → `app-deps.ts:initializeProject` return → `app-composer.ts:169` (where `dataSource.initializeProject(...)` is called today) → stored as a new `bootstrapResult` field that Phase 6 Step 6.3 reads at startup.
 - `src/tui/app-deps.ts` — change `initializeProject(...)` return type to match the new shape; this is a breaking change to the TUI's bootstrap contract and is the reason Phase 5 cannot avoid TUI plumbing.
-- `src/tui/app-composer.ts` — stop selecting `featureId` from the bootstrap result; either no-op the selection on greenfield or delegate to Phase 6.
+- `src/tui/app-composer.ts:169` — stop selecting `featureId` from the bootstrap result. **Land a no-op consumer** that stores `bootstrapResult` on view-model state (or a deps field) and reads nothing from it yet. Phase 6 Step 6.3 replaces the no-op with auto-enter logic. Rationale: avoid an interim "delegate to Phase 6" state where the field is set but unread — that risks Phase 5 shipping with a typecheck-pass-but-runtime-broken composer flow if Phase 6 slips.
 - `src/tui/view-model/index.ts` — empty-state copy update so the operator sees an explanatory message rather than an empty graph with no context (the previous synthetic feature filled that space).
 - `test/unit/compose.test.ts` — coverage that greenfield path creates exactly one project run and zero milestones/features.
 - `test/unit/compose.test.ts` — coverage that existing-project path creates zero new runs.
@@ -54,7 +54,7 @@ The synthetic `m-1` / `f-1` creation and `transitionFeatureToPlanning(f-1)` call
 
 **Tests:**
 
-- Greenfield bootstrap (no persisted state): after init, `Store.listProjectSessions({ status: ['ready', 'running'] })` returns one row; `graph.milestones.size === 0`; `graph.features.size === 0`.
+- Greenfield bootstrap (no persisted state): after init, `Store.listProjectSessions({ status: ['running'] })` returns one row; `graph.milestones.size === 0`; `graph.features.size === 0`.
 - Greenfield bootstrap (persisted but empty: empty store + empty graph after migration): same outcome — one project run; no milestones/features.
 - Existing-project bootstrap: pre-seed graph with a real `m-x`/`f-x` from a fixture → after init, no new project session is spawned.
 - The deprecated synthetic `m-1` / `f-1` fixture path is removed or migrated.
@@ -65,7 +65,7 @@ The synthetic `m-1` / `f-1` creation and `transitionFeatureToPlanning(f-1)` call
 
 > Verify bootstrap split: (1) greenfield path creates only a project session, no synthetic milestone/feature; (2) existing-project path is unchanged; (3) compose forwards the bootstrap result to TUI init; (4) tests that previously assumed synthetic `f-1` are migrated to either set up a real fixture or work from a project-planner session result. Under 350 words.
 
-**Commit:** `feat(compose): bootstrap project-planner session on greenfield`
+**Commit:** `feat(app/compose): bootstrap project-planner session on greenfield`
 
 ---
 

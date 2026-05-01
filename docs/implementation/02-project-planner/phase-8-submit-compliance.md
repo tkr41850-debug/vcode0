@@ -4,7 +4,7 @@
 
 Eliminate the failure mode where a planner agent finishes its turn without calling `submit`, which today throws `"<phase> phase must call submit before completion"` and (pre-Phase-1) caused an infinite re-dispatch loop. The fix combines tool-choice forcing at the SDK call site with prompt hardening on both planner scopes (project planner, feature plan/replan). Phase 1 already stops the loop; Phase 8 stops the failure itself when Shape 1 or Shape 2 of Step 8.2 ships. If Step 8.2 ships Shape 3 (defer SDK), Phase 8 ships only the prompt + regression-anchor; the LLM-side failure mode is reduced (prompt is now unambiguous) but not eliminated, and a follow-up phase must complete the SDK side.
 
-Phase 8 hard-depends on Phase 1 (so the loop doesn't mask test signal), Phase 3 (so the prompt edits target the narrowed plan/replan toolset), Phase 4 (so project-planner regression has a real run to target), and Phase 7 (so the prompt edits build on Phase 7's escalation paragraph in `discuss.ts` and `plan.ts`). Phase 8 must ship after Phases 1, 3, 4, and 7 — it is **not** parallelizable with Phases 4–6 despite the README's earlier framing, which has been corrected.
+Phase 8 hard-depends on Phase 1 (so the loop doesn't mask test signal), Phase 3 (so the prompt edits target the narrowed plan/replan toolset), Phase 4 (so project-planner regression has a real run to target), and Phase 7 (so the prompt edits build on Phase 7's escalation paragraph in `discuss.ts` and `plan.ts`). Phase 8 must ship after Phases 1, 3, 4, and 7; it is not parallelizable with Phases 4–6.
 
 ## Scope
 
@@ -52,7 +52,7 @@ Ships as **3 commits**, in order.
 
 > Verify prompt hardening: (1) all four planner prompts include the submit-expectation paragraph; (2) prompts are unambiguous about plain-text completion being a failure; (3) `request_help` is identified as the correct fallback for "need more info"; (4) `docs/agent-prompts/README.md` reflects the invariant. Under 250 words.
 
-**Commit:** `docs(agent-prompts): clarify submit-call invariant in planner prompts`
+**Commit:** `feat(agents/prompts): clarify submit-call invariant in planner prompts`
 
 ---
 
@@ -64,7 +64,7 @@ Ships as **3 commits**, in order.
 2. **Replace `Agent` in our runtime** with a thin wrapper that owns the `streamSimple` call and threads `toolChoice` directly. Keeps the change in-tree but duplicates a small slice of `Agent`'s loop. Pick this if upstream is gated.
 3. **Defer the SDK change** to a follow-up; ship Phase 8 as prompt + regression test only. Documented as a known gap; revisit when 1 or 2 unblocks.
 
-Decide during implementation; document the choice in the commit message. The constraint, once wired, allows `submit` (or `submitDiscuss`) and `request_help` and disallows free-text-only turns. Both `prompt` and `continue` paths must carry it — resumed sessions go through `continue`, not `prompt`.
+Decide during implementation; document the choice in the commit message. The constraint, once wired, is **`tool_choice: 'any'` (or the provider equivalent for "any tool from the agent's toolset")** — **not** a name-allowlist. The full toolset (including `addTask`, `editTask`, `addDependency`, `setFeatureObjective`, all proposal-host mutations, `submit`, `submitDiscuss`, `request_help`) must remain callable; the constraint only forbids text-only turns. Both `prompt` and `continue` paths must carry it — resumed sessions go through `continue`, not `prompt`.
 
 **Files:**
 
@@ -82,9 +82,9 @@ Decide during implementation; document the choice in the commit message. The con
 
 **Review subagent:**
 
-> Verify tool_choice wiring: (1) `agent.prompt(...)` calls for proposal phases pass tool_choice; (2) the choice allows submit + request_help but forbids text-only completion; (3) no fork of pi-agent-core was introduced; (4) the change is isolated to proposal-bearing phases (does not affect non-proposal agent uses if any). Under 300 words.
+> Verify tool_choice wiring: (1) `agent.prompt(...)` calls for proposal phases pass tool_choice; (2) the choice is `'any'` (or provider equivalent) — **not** a name-allowlist — so proposal-host mutations (`addTask`, `editTask`, `addDependency`, etc.) remain callable alongside `submit`/`submitDiscuss`/`request_help`; (3) text-only completion is rejected; (4) no fork of pi-agent-core was introduced; (5) the change is isolated to proposal-bearing phases (does not affect non-proposal agent uses if any). Under 300 words.
 
-**Commit:** `feat(agents): force tool-call completion on proposal phases`
+**Commit:** `feat(agents/runtime): force tool-call completion on proposal phases`
 
 ---
 

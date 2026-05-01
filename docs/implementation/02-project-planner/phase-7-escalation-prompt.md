@@ -36,8 +36,8 @@ Ships as **1–2 commits**: Step 7.1 is required; Step 7.2 is optional UX polish
 
 **Files:**
 
-- `src/agents/runtime.ts` — extend the discuss agent construction (`:359-371`) to wire `request_help` into the discuss toolset. Confirm the help-response callback path is already shared between feature phases or extend it as needed.
-- `src/agents/tools/agent-toolset.ts` — if `request_help` is currently only added by `buildProposalAgentToolset`, refactor so `buildFeaturePhaseAgentToolset` also includes it (or add a sibling helper). Keep the change minimal.
+- `src/agents/runtime.ts` — extend the discuss agent construction (`:359-371`) to wire `request_help` into the discuss toolset. **New callback wiring required, not shared.** Today only proposal phases (`startProposalPhase`, `:381`) wire help via `LiveProposalPhaseSession`; discuss has no help-callback infrastructure. Step 7.1 introduces analogous wiring for discuss — either reuse `LiveProposalPhaseSession` (rename if it grows beyond proposal phases) or create a sibling `LiveDiscussPhaseSession`. Pick whichever lands more cleanly with the existing discuss session lifecycle in `runtime.ts`.
+- `src/agents/tools/agent-toolset.ts` — `request_help` is currently only added by `buildProposalAgentToolset`. Extend `buildFeaturePhaseAgentToolset` (added in Phase 3 with extensible signature) to optionally accept a help-response callback and include `request_help` when one is supplied. The discuss path supplies one; research / verify / summarize do not.
 - `src/agents/prompts/discuss.ts` — add escalation paragraph. (Note: live prompts are `.ts` files, not `.md`; the `.md` files under `docs/agent-prompts/` are documentation mirrors.)
 - `src/agents/prompts/plan.ts` — add escalation paragraph; emphasize this should be rare for plan and that scope issues should be caught in discuss. (Replan shares this prompt — single edit covers both.)
 - `docs/agent-prompts/discuss-feature.md` and `docs/agent-prompts/plan-feature.md` — sync the prose mirrors.
@@ -58,7 +58,7 @@ Ships as **1–2 commits**: Step 7.1 is required; Step 7.2 is optional UX polish
 
 > Verify escalation prompts: (1) discuss / plan / replan prompts include the escalation paragraph; (2) discuss is identified as the primary capture point; (3) integration test exercises the topology-flavored `request_help` flow end-to-end; (4) no new wait state was introduced; (5) `docs/agent-prompts` is updated. Under 350 words.
 
-**Commit:** `feat(agents): topology-escalation guidance in feature-planner prompts`
+**Commit:** `feat(agents/prompts): topology-escalation guidance in feature-planner prompts`
 
 ---
 
@@ -71,9 +71,9 @@ Ships as **1–2 commits**: Step 7.1 is required; Step 7.2 is optional UX polish
 **Files:**
 
 - `src/core/types/inbox.ts` — extend the kind union with `topology_request`. (Inbox kinds live here, not under `src/orchestrator/inbox/`.)
-- `src/persistence/migrations/` — new migration relaxing or extending any kind enforcement in the migration that owns `inbox_items` (today: `010_inbox_items.ts`).
+- `src/persistence/migrations/NNN_inbox_topology_request.ts` (new) — extend the `kind IN (...)` CHECK constraint added by `010_inbox_items.ts:12-16` with `'topology_request'`. SQLite does **not** allow modifying a CHECK constraint in-place: the migration must `CREATE TABLE inbox_items_new ...` with the new constraint, `INSERT INTO inbox_items_new SELECT ... FROM inbox_items`, `DROP TABLE inbox_items`, `ALTER TABLE inbox_items_new RENAME TO inbox_items`, recreate any indexes. Standard SQLite-CHECK-relaxation pattern; mirror whatever convention already-shipped relax-migrations use in this repo.
 - `src/orchestrator/scheduler/events.ts` — in the help-request path, detect the `[topology]` prefix and write an `inbox_items` row with `kind='topology_request'`. (Note: today no inbox row is written for `request_help` at all; this is the first such writer.)
-- TUI inbox surface — render `topology_request` rows with the click-through affordance. The exact module depends on what Phase 6 ships; coordinate with that phase rather than naming a file that does not yet exist.
+- **TUI inbox renderer.** Phase 6 ships no inbox surface (its scope is composer chrome, mode entry, auto-enter, approval surface). Phase 7.2 owns: locating the inbox-item rendering site that exists on `main` for the current four kinds (e.g. `src/tui/components/` or `src/tui/view-model/index.ts`'s inbox bucket), and extending it for `topology_request` with the click-through affordance that calls `/project` programmatically with the help-query as seeded context. If no inbox renderer exists on `main` either, Step 7.2 builds one — note this expands Step 7.2's scope and may justify deferring to a follow-up phase.
 - `test/unit/core/inbox.test.ts` (or wherever inbox unit tests live) — coverage for the new kind.
 - `test/integration/tui/smoke.test.ts` — coverage for the click-through opening project-planner mode with seeded context.
 
