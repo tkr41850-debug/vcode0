@@ -2,12 +2,13 @@
 
 How to author phase docs under `docs/implementation/<track>/`. Distilled from patterns across the baseline, project-planner, and distributed tracks.
 
-**Applies to phase docs authored after this commit.** Existing phase docs are not retroactively migrated; diverge as needed when extending an old phase. See `guidelines-example.md` for a worked example.
+See `guidelines-example.md` for a worked example. Tracks may retrofit existing phases on a per-track basis when convenient; not required.
 
 ## Authority
 
 - README of each track owns global phase ordering. Phase docs MUST NOT assert ordinal position. Banned phrasing: `Phase 5`, `the previous phase`, `next phase`, `earlier in this milestone`.
 - Phase number is **stable identity**, not ordinal claim. Insertions take the next free number (no `4.5`). Canonical id `phase-<N>-<slug>` matches the filename. Cross-phase deps cite this id with a one-line reason: `Depends on: phase-1-protocol-and-registry (registry surface)`.
+- Cumulative refs to the rest of the track are reorder-safe and allowed: `other phases in this track`, `the cumulative state shipped by this track`. Numbered ranges (`phases 0–6`) are not.
 - Intra-phase step ordering is the phase's job and lives in the phase doc.
 
 ## File path and registration
