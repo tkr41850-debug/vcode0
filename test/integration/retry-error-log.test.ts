@@ -78,6 +78,7 @@ function buildPorts(projectRoot: string): {
       ensureFeatureWorktree: () => Promise.resolve(projectRoot),
       ensureTaskWorktree: () => Promise.resolve(projectRoot),
       removeWorktree: () => Promise.resolve(),
+      sweepStaleLocks: () => Promise.resolve({ swept: [] }),
     },
     ui,
     config: { tokenProfile: 'balanced' },

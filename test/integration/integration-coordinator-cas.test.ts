@@ -117,6 +117,7 @@ function makePorts(opts: { cwd: string; verification?: VerificationSummary }): {
       ensureFeatureWorktree: () => Promise.resolve(opts.cwd),
       ensureTaskWorktree: () => Promise.resolve(opts.cwd),
       removeWorktree: () => Promise.resolve(),
+      sweepStaleLocks: () => Promise.resolve({ swept: [] }),
     },
     ui: {} as OrchestratorPorts['ui'],
     sessionStore: new InMemorySessionStore(),

@@ -470,6 +470,7 @@ function createPorts(
         ensureFeatureWorktree: () => Promise.resolve('/repo'),
         ensureTaskWorktree: () => Promise.resolve('/repo'),
         removeWorktree: () => Promise.resolve(),
+        sweepStaleLocks: () => Promise.resolve({ swept: [] }),
       },
       ui,
       config: { tokenProfile: 'balanced' },

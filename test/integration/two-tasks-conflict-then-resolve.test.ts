@@ -85,6 +85,7 @@ function buildPorts(projectRoot: string): {
       ensureTaskWorktree: () =>
         Promise.resolve(path.join(projectRoot, worktreePath(TASK_A_BRANCH))),
       removeWorktree: () => Promise.resolve(),
+      sweepStaleLocks: () => Promise.resolve({ swept: [] }),
     },
     ui,
     config: { tokenProfile: 'balanced' },

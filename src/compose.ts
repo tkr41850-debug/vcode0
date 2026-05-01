@@ -356,6 +356,17 @@ export async function composeApplication(): Promise<GvcApplication> {
       } finally {
         graph.__leaveTick();
       }
+      try {
+        const { swept } = await worktree.sweepStaleLocks();
+        if (swept.length > 0) {
+          console.warn(
+            `[boot] swept stale worktree locks: ${swept.join(', ')}`,
+          );
+        }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[boot] sweepStaleLocks failed: ${msg}`);
+      }
       await scheduler.run();
       ui.refresh();
     },

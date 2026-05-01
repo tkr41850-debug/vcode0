@@ -229,6 +229,74 @@ describe('GitWorktreeProvisioner', () => {
     ).resolves.toBeUndefined();
   });
 
+  it('sweepStaleLocks unlinks lock files for missing worktrees', async () => {
+    const root = getTmp();
+    await initRepo(root);
+    const git = simpleGit(root);
+    await git.raw(['branch', 'feat-stale-001']);
+
+    const provisioner = new GitWorktreeProvisioner(root);
+    const feature = makeFeature({ featureBranch: 'feat-stale-001' });
+    const target = await provisioner.ensureFeatureWorktree(feature);
+
+    // Find the admin entry name for this worktree (uses feature branch name).
+    const adminDir = path.join(root, '.git', 'worktrees', 'feat-stale-001');
+    await fs.writeFile(path.join(adminDir, 'locked'), '');
+
+    // Nuke the actual worktree directory to simulate a crash mid-add.
+    await fs.rm(target, { recursive: true, force: true });
+
+    const { swept } = await provisioner.sweepStaleLocks();
+    expect(swept).toContain('feat-stale-001');
+    await expect(fs.stat(path.join(adminDir, 'locked'))).rejects.toThrow();
+  });
+
+  it('sweepStaleLocks leaves locks for live worktrees alone', async () => {
+    const root = getTmp();
+    await initRepo(root);
+    const git = simpleGit(root);
+    await git.raw(['branch', 'feat-stale-002']);
+
+    const provisioner = new GitWorktreeProvisioner(root);
+    const feature = makeFeature({ featureBranch: 'feat-stale-002' });
+    await provisioner.ensureFeatureWorktree(feature);
+
+    const adminDir = path.join(root, '.git', 'worktrees', 'feat-stale-002');
+    const lockedFile = path.join(adminDir, 'locked');
+    await fs.writeFile(lockedFile, '');
+
+    const { swept } = await provisioner.sweepStaleLocks();
+    expect(swept).not.toContain('feat-stale-002');
+    const stat = await fs.stat(lockedFile);
+    expect(stat.isFile()).toBe(true);
+  });
+
+  it('sweepStaleLocks tolerates a missing .git/worktrees directory', async () => {
+    const root = getTmp();
+    await initRepo(root);
+
+    const provisioner = new GitWorktreeProvisioner(root);
+    const result = await provisioner.sweepStaleLocks();
+    expect(result.swept).toEqual([]);
+  });
+
+  it('sweepStaleLocks ignores admin entries without a locked file', async () => {
+    const root = getTmp();
+    await initRepo(root);
+    const git = simpleGit(root);
+    await git.raw(['branch', 'feat-stale-003']);
+
+    const provisioner = new GitWorktreeProvisioner(root);
+    const feature = makeFeature({ featureBranch: 'feat-stale-003' });
+    const target = await provisioner.ensureFeatureWorktree(feature);
+
+    // Remove the worktree dir but no locked file present.
+    await fs.rm(target, { recursive: true, force: true });
+
+    const { swept } = await provisioner.sweepStaleLocks();
+    expect(swept).toEqual([]);
+  });
+
   it('ensureFeatureWorktree bootstraps the branch when missing', async () => {
     const root = getTmp();
     await initRepo(root);

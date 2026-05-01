@@ -1,3 +1,4 @@
+import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
 import { resolveTaskWorktreeBranch, worktreePath } from '@core/naming/index';
@@ -9,6 +10,7 @@ export interface WorktreeProvisioner {
   ensureFeatureWorktree(feature: Feature): Promise<string>;
   ensureTaskWorktree(task: Task, feature: Feature): Promise<string>;
   removeWorktree(target: string, branch: string): Promise<void>;
+  sweepStaleLocks(): Promise<{ swept: string[] }>;
 }
 
 export class GitWorktreeProvisioner implements WorktreeProvisioner {
@@ -66,6 +68,69 @@ export class GitWorktreeProvisioner implements WorktreeProvisioner {
         if (!isMissingBranchError(err)) throw err;
       }
     }
+  }
+
+  // Sweep stale `.git/worktrees/<name>/locked` files left behind by a crash
+  // mid-`worktree add`. Only entries whose target directory no longer exists
+  // are swept; live worktrees that an operator has manually `git worktree
+  // lock`'d remain untouched (the directory-existence check below is the
+  // load-bearing guard — do not "improve" this to also sweep present-but-
+  // unused worktrees, since that would clobber a deliberate operator lock).
+  async sweepStaleLocks(): Promise<{ swept: string[] }> {
+    const worktreesDir = path.join(this.projectRoot, '.git', 'worktrees');
+    const swept: string[] = [];
+    let entries: string[];
+    try {
+      entries = await fs.readdir(worktreesDir);
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        return { swept };
+      }
+      throw err;
+    }
+    for (const name of entries) {
+      const lockedFile = path.join(worktreesDir, name, 'locked');
+      try {
+        await fs.stat(lockedFile);
+      } catch {
+        continue;
+      }
+      const gitdirFile = path.join(worktreesDir, name, 'gitdir');
+      let gitdirContents: string;
+      try {
+        gitdirContents = (await fs.readFile(gitdirFile, 'utf8')).trim();
+      } catch {
+        continue;
+      }
+      const targetDir = path.dirname(gitdirContents);
+      let targetExists = true;
+      try {
+        await fs.stat(targetDir);
+      } catch (err: unknown) {
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+          targetExists = false;
+        }
+      }
+      if (targetExists) continue;
+      try {
+        await fs.unlink(lockedFile);
+        swept.push(name);
+      } catch (err: unknown) {
+        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+      }
+    }
+    if (swept.length > 0) {
+      // Clear admin entries for the now-unlocked but still-missing worktrees
+      // so a subsequent `worktree add` for the same name does not trip on
+      // `'<path>' is a missing but already registered worktree`.
+      try {
+        await this.git.raw(['worktree', 'prune']);
+      } catch {
+        // Best-effort: a prune failure (e.g. concurrent git op) is not fatal;
+        // the next `ensureFeatureWorktree` retry path will surface it.
+      }
+    }
+    return { swept };
   }
 
   private async ensureWorktree(

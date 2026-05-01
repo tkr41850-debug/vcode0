@@ -66,6 +66,7 @@ function createWorktreeStub(): OrchestratorPorts['worktree'] {
     ensureFeatureWorktree: () => Promise.resolve('/repo'),
     ensureTaskWorktree: () => Promise.resolve('/repo'),
     removeWorktree: () => Promise.resolve(),
+    sweepStaleLocks: () => Promise.resolve({ swept: [] }),
   };
 }
 

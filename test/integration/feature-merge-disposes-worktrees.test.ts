@@ -115,6 +115,7 @@ function trackDisposals(real: WorktreeProvisioner): {
       inFlight.push(p.catch(() => {}));
       return p;
     },
+    sweepStaleLocks: real.sweepStaleLocks.bind(real),
   };
   return {
     provisioner,

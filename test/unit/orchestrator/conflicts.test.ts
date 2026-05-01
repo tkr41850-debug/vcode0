@@ -36,6 +36,7 @@ function createPorts(root: string): OrchestratorPorts {
       ensureFeatureWorktree: () => Promise.resolve(root),
       ensureTaskWorktree: () => Promise.resolve(root),
       removeWorktree: () => Promise.resolve(),
+      sweepStaleLocks: () => Promise.resolve({ swept: [] }),
     },
     ui: {} as OrchestratorPorts['ui'],
     sessionStore: new InMemorySessionStore(),
