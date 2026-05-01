@@ -13,6 +13,7 @@ import type {
   EventRecord,
   Feature,
   FeaturePhaseAgentRun,
+  ProjectAgentRun,
   RoutingTier,
   Task,
   TaskAgentRun,
@@ -27,6 +28,7 @@ import type {
   DispatchRunResult,
   FeaturePhaseRunPayload,
   PhaseOutput,
+  ProjectRunPayload,
   RuntimeDispatch,
   TaskRunPayload,
   TaskRuntimeDispatch,
@@ -493,6 +495,124 @@ export async function dispatchTaskUnit(params: {
 
   params.markTaskRunning(params.task);
   persistRunningTaskRun(params.ports, run, result);
+}
+
+function projectDispatchForRun(run: ProjectAgentRun): RuntimeDispatch {
+  if (run.sessionId === undefined) {
+    return { mode: 'start', agentRunId: run.id };
+  }
+  return {
+    mode: 'resume',
+    agentRunId: run.id,
+    sessionId: run.sessionId,
+  };
+}
+
+function projectAwaitingApprovalPatch(
+  run: Pick<ProjectAgentRun, 'runStatus' | 'restartCount' | 'sessionId'>,
+  result: Pick<
+    DispatchRunResult,
+    'sessionId' | 'harnessKind' | 'workerPid' | 'workerBootEpoch'
+  >,
+  payloadJson: string,
+): Pick<
+  ProjectAgentRun,
+  | 'runStatus'
+  | 'owner'
+  | 'sessionId'
+  | 'harnessKind'
+  | 'workerPid'
+  | 'workerBootEpoch'
+  | 'payloadJson'
+  | 'restartCount'
+> {
+  return {
+    runStatus: 'await_approval',
+    owner: 'manual',
+    sessionId: result.sessionId,
+    ...(result.harnessKind !== undefined
+      ? { harnessKind: result.harnessKind }
+      : {}),
+    ...(result.workerPid !== undefined ? { workerPid: result.workerPid } : {}),
+    ...(result.workerBootEpoch !== undefined
+      ? { workerBootEpoch: result.workerBootEpoch }
+      : {}),
+    payloadJson,
+    restartCount:
+      run.runStatus === 'retry_await' ? run.restartCount + 1 : run.restartCount,
+  };
+}
+
+/**
+ * Dispatch a project-scope agent run. Coordinator/recovery-driven (Step 4.3
+ * wires the call sites); not invoked from `prioritizeReadyWork`. Skips any
+ * feature-worktree provisioning — project sessions operate on the
+ * authoritative graph snapshot through the proposal host, not on a checked-out
+ * working tree.
+ */
+export async function dispatchProjectRunUnit(params: {
+  run: ProjectAgentRun;
+  ports: OrchestratorPorts;
+  handleEvent: (event: SchedulerEvent) => Promise<void>;
+}): Promise<void> {
+  const { run, ports, handleEvent } = params;
+  const dispatch = projectDispatchForRun(run);
+  const payload: ProjectRunPayload = { kind: 'project' };
+
+  try {
+    if (run.runStatus !== 'running') {
+      ports.store.updateAgentRun(run.id, {
+        runStatus: 'running',
+        owner: 'system',
+        sessionId: run.sessionId ?? run.id,
+        restartCount:
+          run.runStatus === 'retry_await'
+            ? run.restartCount + 1
+            : run.restartCount,
+      });
+    }
+
+    let result = await ports.runtime.dispatchRun(
+      { kind: 'project' },
+      dispatch,
+      payload,
+    );
+    if (result.kind === 'not_resumable' && dispatch.mode === 'resume') {
+      result = await ports.runtime.dispatchRun(
+        { kind: 'project' },
+        { mode: 'start', agentRunId: run.id },
+        payload,
+      );
+    }
+
+    if (result.kind === 'awaiting_approval') {
+      if (result.output.kind !== 'proposal' || result.output.phase !== 'plan') {
+        throw new Error(
+          `dispatchProjectRunUnit: expected proposal/plan output, got '${result.output.kind}'`,
+        );
+      }
+      ports.store.updateAgentRun(
+        run.id,
+        projectAwaitingApprovalPatch(
+          run,
+          result,
+          serializeStoredProposalPayload({
+            proposal: result.output.result.proposal,
+            recovery: {
+              phaseSummary: result.output.result.summary,
+              phaseDetails: result.output.result.details,
+            },
+          }),
+        ),
+      );
+    }
+  } catch (error) {
+    await handleEvent({
+      type: 'project_run_error',
+      runId: run.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 export async function dispatchFeaturePhaseUnit(params: {

@@ -68,6 +68,11 @@ export type SchedulerEvent =
       error: string;
     }
   | {
+      type: 'project_run_error';
+      runId: string;
+      error: string;
+    }
+  | {
       type: 'feature_integration_complete';
       featureId: FeatureId;
     }

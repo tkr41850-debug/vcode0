@@ -20,19 +20,26 @@ export type FeaturePhaseRunPayload = {
   replanReason?: string;
 };
 
+export type ProjectRunPayload = {
+  kind: 'project';
+};
+
 /**
  * Scope-aware run identity for `RuntimePort.dispatchRun`.
  *
- * Unifies task, feature-phase, and planner/replanner dispatch behind one
- * seam. Planner/replanner are feature-phase runs with `phase: 'plan' |
+ * Unifies task, feature-phase, project-planner, and ci_check dispatch behind
+ * one seam. Planner/replanner are feature-phase runs with `phase: 'plan' |
  * 'replan'`; `ci_check` is a feature-phase run routed to the shell
- * verification service rather than an agent backend. Scope selection drives
- * backend selection inside `LocalWorkerPool.dispatchRun` — it does not
- * change the persisted `agent_runs.scope_type` discriminator.
+ * verification service rather than an agent backend. Project runs are
+ * coordinator-driven (event-driven, not scheduler-tick-driven) and never
+ * appear in the graph. The run id rides on `RuntimeDispatch.agentRunId`.
+ * Scope selection drives backend selection inside `LocalWorkerPool.dispatchRun`
+ * — it does not change the persisted `agent_runs.scope_type` discriminator.
  */
 export type RunScope =
   | { kind: 'task'; taskId: TaskId; featureId: FeatureId }
-  | { kind: 'feature_phase'; featureId: FeatureId; phase: AgentRunPhase };
+  | { kind: 'feature_phase'; featureId: FeatureId; phase: AgentRunPhase }
+  | { kind: 'project' };
 
 /**
  * Harness-level dispatch intent: start a fresh run or resume an existing
@@ -81,7 +88,10 @@ export type TaskRunPayload = {
   routingTier: RoutingTier;
 };
 
-export type RunPayload = TaskRunPayload | FeaturePhaseRunPayload;
+export type RunPayload =
+  | TaskRunPayload
+  | FeaturePhaseRunPayload
+  | ProjectRunPayload;
 
 /**
  * Scope-aware dispatch outcome. Covers both async subprocess dispatches

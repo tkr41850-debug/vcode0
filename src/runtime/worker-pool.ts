@@ -25,6 +25,7 @@ import type {
   SessionHandle,
   SessionHarness,
 } from '@runtime/harness/index';
+import type { ProjectPlannerBackend } from '@runtime/harness/project-planner/index';
 import { ModelRouter, routingConfigOrDefault } from '@runtime/routing/index';
 
 interface LiveSession {
@@ -36,6 +37,36 @@ interface FeaturePhaseLiveSession {
   scope: Extract<RunScope, { kind: 'feature_phase' }>;
   agentRunId: string;
   handle: FeaturePhaseSessionHandle;
+}
+
+interface ProjectLiveSession {
+  scope: Extract<RunScope, { kind: 'project' }>;
+  agentRunId: string;
+  handle: FeaturePhaseSessionHandle;
+}
+
+function projectDispatchResult(
+  agentRunId: string,
+  handle: FeaturePhaseSessionHandle,
+  outcome: import('@runtime/harness/feature-phase/index').FeaturePhaseDispatchOutcome,
+): DispatchRunResult {
+  const meta = dispatchMetadata(handle);
+  if (outcome.kind === 'completed_inline') {
+    return {
+      kind: 'completed_inline',
+      agentRunId,
+      sessionId: handle.sessionId,
+      output: outcome.output,
+      ...meta,
+    };
+  }
+  return {
+    kind: 'awaiting_approval',
+    agentRunId,
+    sessionId: handle.sessionId,
+    output: outcome.output,
+    ...meta,
+  };
 }
 
 function dispatchMetadata(
@@ -66,6 +97,7 @@ export class LocalWorkerPool implements RuntimePort {
     string,
     FeaturePhaseLiveSession
   >();
+  private readonly projectLiveSessions = new Map<string, ProjectLiveSession>();
   private readonly modelRouter = new ModelRouter();
 
   constructor(
@@ -74,6 +106,7 @@ export class LocalWorkerPool implements RuntimePort {
     private readonly onTaskComplete?: TaskCompleteCallback,
     private readonly featurePhaseBackend?: FeaturePhaseBackend,
     private readonly config: GvcConfig = { tokenProfile: 'balanced' },
+    private readonly projectPlannerBackend?: ProjectPlannerBackend,
   ) {}
 
   async dispatchRun(
@@ -81,6 +114,67 @@ export class LocalWorkerPool implements RuntimePort {
     dispatch: RuntimeDispatch,
     payload: RunPayload,
   ): Promise<DispatchRunResult> {
+    if (scope.kind === 'project') {
+      if (payload.kind !== 'project') {
+        throw new Error(
+          `dispatchRun: scope.kind=${scope.kind} expects payload.kind='project', got '${payload.kind}'`,
+        );
+      }
+      if (this.projectPlannerBackend === undefined) {
+        throw new Error('project dispatch not configured');
+      }
+
+      if (dispatch.mode === 'resume') {
+        const resumeResult = await this.projectPlannerBackend.resume(
+          scope,
+          {
+            agentRunId: dispatch.agentRunId,
+            sessionId: dispatch.sessionId,
+          },
+          payload,
+        );
+        if (resumeResult.kind === 'not_resumable') {
+          return {
+            kind: 'not_resumable',
+            agentRunId: dispatch.agentRunId,
+            sessionId: dispatch.sessionId,
+            reason: resumeResult.reason,
+          };
+        }
+        this.projectLiveSessions.set(dispatch.agentRunId, {
+          scope,
+          agentRunId: dispatch.agentRunId,
+          handle: resumeResult.handle,
+        });
+        try {
+          const outcome = await resumeResult.handle.awaitOutcome();
+          return projectDispatchResult(
+            dispatch.agentRunId,
+            resumeResult.handle,
+            outcome,
+          );
+        } finally {
+          this.projectLiveSessions.delete(dispatch.agentRunId);
+        }
+      }
+
+      const handle = await this.projectPlannerBackend.start(
+        scope,
+        payload,
+        dispatch.agentRunId,
+      );
+      this.projectLiveSessions.set(dispatch.agentRunId, {
+        scope,
+        agentRunId: dispatch.agentRunId,
+        handle,
+      });
+      try {
+        const outcome = await handle.awaitOutcome();
+        return projectDispatchResult(dispatch.agentRunId, handle, outcome);
+      } finally {
+        this.projectLiveSessions.delete(dispatch.agentRunId);
+      }
+    }
     if (scope.kind === 'feature_phase') {
       if (payload.kind !== 'feature_phase') {
         throw new Error(

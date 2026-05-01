@@ -744,6 +744,39 @@ export async function handleSchedulerEvent(params: {
     return;
   }
 
+  if (event.type === 'project_run_error') {
+    const run = ports.store.getAgentRun(event.runId);
+    if (run !== undefined) {
+      await ports.runErrorLogSink.writeFirstFailure({
+        run,
+        featureId: undefined,
+        taskId: undefined,
+        error: { message: event.error },
+        nowMs: now(),
+      });
+      const decision = decideRetry(
+        { error: event.error, attempt: run.restartCount },
+        retryPolicy,
+        { random },
+      );
+      if (decision.kind === 'retry') {
+        ports.store.updateAgentRun(run.id, {
+          runStatus: 'retry_await',
+          owner: 'system',
+          retryAt: now() + decision.delayMs,
+          ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
+        });
+      } else {
+        ports.store.updateAgentRun(run.id, {
+          runStatus: 'failed',
+          owner: 'system',
+          ...(run.sessionId !== undefined ? { sessionId: run.sessionId } : {}),
+        });
+      }
+    }
+    return;
+  }
+
   if (event.type === 'feature_integration_complete') {
     // When the event originates from IntegrationCoordinator, the feature is
     // already 'merged' (coordinator persists the transition atomically with

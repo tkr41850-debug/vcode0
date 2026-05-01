@@ -262,6 +262,11 @@ export {
   type FeaturePhaseSessionHandle,
   type ResumeFeaturePhaseResult,
 } from '@runtime/harness/feature-phase/index';
+export {
+  type ProjectPlannerAgentSessionFactory,
+  type ProjectPlannerBackend,
+  ProjectPlannerBackendImpl,
+} from '@runtime/harness/project-planner/index';
 
 function createSessionHandle(
   taskId: string,
