@@ -37,6 +37,7 @@ Worker pool, IPC, harness, scheduling, persistence, repair, and budget levers.
 - [Claude Code Harness](./runtime/claude-code-harness.md)
 - [Distributed Runtime](./runtime/distributed-runtime.md)
 - [Extended Repair Profiles](./runtime/extended-repair-profiles.md)
+- [Tool-Choice Forcing for Planner Agents](./runtime/tool-choice-forcing.md)
 - [Verify Nit Task Pool](./runtime/verify-nit-task-pool.md)
 - [Worker Scheduling Policies](./runtime/worker-scheduling-policies.md)
 
