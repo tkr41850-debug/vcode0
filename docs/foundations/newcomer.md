@@ -8,22 +8,13 @@ click the inline link — this narrative never duplicates what
 
 ## The prompt
 
-The user types a prompt in the TUI and presses enter.
+The user starts in the TUI composer and submits a planning command.
 
-It might be "add a settings page", or "migrate the logger to pino", or
-anything else. gvc0 doesn't care about the content yet — the prompt becomes
-the seed for a **milestone**, and from there the planner agents decompose it
-into **features** and then into **tasks**. Those three layers (milestone /
-feature / task) are the backbone of the
-[data model](../architecture/data-model.md); their typed IDs start with
-`m-`, `f-`, and `t-` respectively.
+It might be `/init --milestone-name "Settings" --feature-name "Add a settings page"`, a `/feature-add` draft, or another graph-editing command that captures the user's goal. The prompt becomes the seed for a **milestone**, and from there planner agents decompose it into **features** and then into **tasks**. Those three layers (milestone / feature / task) are the backbone of the [data model](../architecture/data-model.md); their typed IDs start with `m-`, `f-`, and `t-` respectively.
 
 ## TUI accepts the prompt
 
-The entrypoint is the [TUI](../../src/tui/) — a terminal shell built on
-pi-sdk's rendering primitives. The TUI is strictly a view over orchestrator
-state. It doesn't decide anything; it just translates user keypresses into
-orchestrator commands and renders the current graph.
+The entrypoint is the [TUI](../../src/tui/) — a terminal shell built on `@mariozechner/pi-tui`. The TUI is strictly a view over orchestrator state. It doesn't decide anything; it translates slash commands and graph-focus hotkeys into orchestrator commands, then renders the current graph and overlays.
 
 When you hit enter, the TUI posts a command to the
 [App](../../src/app/) layer. App is the composition root — it holds the
@@ -63,7 +54,9 @@ edits. Those tool calls are proposals — they pass through the
 [`proposals`](../../src/core/proposals/) validator and land on the queue as
 mutations to apply.
 
-When the planner submits, it posts a `feature_phase_complete` event. The
+The TUI can show the planner session audit and the proposal review overlay before acceptance, so the user can inspect which prompt/session produced the draft and what graph changes will apply. Manual edits still win: conflicting proposals are visible in the review surface rather than silently overwriting the live graph.
+
+When the planner submits and the proposal is approved, it posts a `feature_phase_complete` event. The
 orchestrator picks that up on the next tick, advances the feature from
 `planning` to `executing`, and transitions collab from `none` to
 `branch_open`. The feature now has a long-lived git branch: something like
@@ -149,7 +142,7 @@ produces a commit with a gvc0 trailer identifying the task, sends the
 
 The orchestrator:
 
-1. Records the commit SHA on the task row.
+1. Records the submitted run result and changed-file summary.
 2. Squash-merges the task branch into the feature branch.
 3. Transitions task collab `branch_open → merged` and run-state to
    `completed`.
@@ -158,7 +151,7 @@ The orchestrator:
 6. Recomputes the frontier — downstream tasks become ready.
 
 Meanwhile the TUI re-renders because its view model subscribes to the graph
-changes.
+changes. The task transcript overlay can show the selected task run transcript when the persisted session data is available.
 
 ## When all tasks are done, verify runs
 
@@ -179,6 +172,8 @@ covers exactly how the issue taxonomy maps to repair vs replan.
 `awaiting_merge` is the admission ticket to the merge queue. The
 [merge-train executor](../architecture/worker-model.md) is an in-process
 coordinator that spawns a dedicated integration-worker subprocess per cycle.
+
+The merge-train overlay shows queued and integrating features plus manual queue-position context. If a feature repeatedly re-enters after failed integration, the tested cap parks it in the inbox with `merge_train_cap_reached` instead of letting it churn forever.
 
 For our settings-page feature:
 
@@ -221,27 +216,23 @@ for when budget mode engages.
 
 At any step along the way, an agent can call `request_help` or `propose`.
 Both route the run to `await_response` / `await_approval` respectively and
-post an inbox item to the TUI. The task is paused — its worker is preserved,
-its worktree is preserved — but other tasks continue. When the user answers
-the inbox item, the orchestrator clears the overlay and the run resumes at
-`ready` or `running`. The [Resume rules](./coordination-rules.md#resume)
-table enumerates every overlay and its resume trigger.
+post an inbox item to the TUI. The inbox overlay lists unresolved help, approval, destructive-action, recovery, and merge-train-cap items; the user can answer with `/inbox-reply`, `/inbox-approve`, or `/inbox-reject` without hunting for the blocked run in the graph.
 
-Critically, `await_response` and `await_approval` are **not** blocked on
-each other. Three features can each be waiting on three different inbox
-items while the other 27 features keep making progress.
+The task is paused while it waits. Hot waits preserve the worker and worktree; checkpointed waits persist enough transcript/session state to release the live worker and resume later. When the user answers the inbox item, the orchestrator clears the overlay and the run resumes through the [Resume rules](./coordination-rules.md#resume) table.
+
+Critically, `await_response`, `await_approval`, `checkpointed_await_response`, and `checkpointed_await_approval` are **not** blocked on each other. Three features can each be waiting on three different inbox items while the other 27 features keep making progress.
 
 ## Where the user steers
 
 The user never has to wait quietly. At any point they can:
 
-- **Edit the DAG manually in the TUI**: drag-drop dependencies, cancel a
-  feature, re-order milestones. Manual edits always win over agent proposals
-  (the proposal is rejected at apply time if it conflicts).
+- **Edit the DAG manually in the TUI**: add, remove, move, split, merge, or reorder feature/task nodes through draft commands. Manual edits always win over agent proposals, and the proposal review overlay shows conflicts before approval.
 - **Replan additively**: post a follow-up prompt that becomes a new
-  milestone or feature, re-using existing work.
+  milestone or feature, re-using existing work. Planner-session controls let the user continue a saved planning chat or start fresh.
+- **Resolve blocked work from the inbox**: answer help requests, approve/reject proposed actions, inspect recovery items, and handle merge-train cap escalations.
 - **Edit config via the menu**: change budget mode, swap models per-role,
   adjust the re-entry cap.
+- **Diagnose without starting the TUI**: run `gvc0 explain feature <id>`, `gvc0 explain task <id>`, or `gvc0 explain run <id>` to read persisted state from `.gvc0/state.db` before any scheduler, runtime worker, or TUI composition starts.
 
 The steering tools are documented in [../reference/tui.md](../reference/tui.md).
 
@@ -257,12 +248,13 @@ the full chain of guarantees that keeps `main` green.
 
 ## Where to go next
 
-- [state-axes.md](./state-axes.md) — the three FSM axes and the 420-row
+- [state-axes.md](./state-axes.md) — the three FSM axes and the 560-row
   validity matrix.
 - [execution-flow.md](./execution-flow.md) — the scheduler tick and event
   queue mechanics.
 - [coordination-rules.md](./coordination-rules.md) — the decision tables
   used above without repeating them.
+- [../reference/tui.md](../reference/tui.md) — the current overlays, slash commands, hotkeys, and `gvc0 explain` diagnostics.
 - [../../ARCHITECTURE.md](../../ARCHITECTURE.md) — the top-level thesis and
   component map.
 - [../architecture/README.md](../architecture/README.md) — the per-topic
