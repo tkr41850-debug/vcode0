@@ -58,9 +58,11 @@ export async function composeApplication(): Promise<GvcApplication> {
   const projectPlannerRef: {
     current: ProjectPlannerCoordinator | undefined;
   } = { current: undefined };
-  // Holds the most recent bootstrap result from `/init` (or, future: startup
-  // greenfield detection in phase 6.3). Phase 6 reads this on TUI mount to
-  // auto-enter the project-planner session. Step 5.1 only writes it.
+  // Holds the most recent bootstrap result. Written in `lifecycle.prepare`
+  // (auto-spawn at startup on greenfield) and re-written by the `/init` slash
+  // command. The TUI reads this lazily via `deps.bootstrapResult()` in
+  // `show()` to derive the initial mode (project-planner on greenfield-
+  // bootstrap, graph otherwise).
   const bootstrapResultRef: {
     current: ProjectBootstrapResult | undefined;
   } = { current: undefined };
@@ -211,6 +213,7 @@ export async function composeApplication(): Promise<GvcApplication> {
       }
       await planner.resumeProjectPlannerSession(id);
     },
+    bootstrapResult: () => bootstrapResultRef.current,
     sendPlannerChatInput: async (featureId, phase, text) => {
       const runId = `run-feature:${featureId}:${phase}`;
       const run = store.getAgentRun(runId);
@@ -379,8 +382,22 @@ export async function composeApplication(): Promise<GvcApplication> {
   schedulerRef.current = scheduler;
 
   const app = new GvcApplication(ports, {
-    prepare: (mode: AppMode) => {
+    prepare: async (mode: AppMode) => {
       scheduler.setAutoExecutionEnabled(mode === 'auto');
+      // In auto mode, run the greenfield bootstrap automatically so the
+      // operator lands inside the project-planner session from the first
+      // frame. In interactive mode, defer to the explicit `/init` slash so
+      // existing operator flows (and unit-/smoke-test fixtures) keep their
+      // graph-mode default.
+      if (mode === 'auto' && bootstrapResultRef.current === undefined) {
+        const planner = projectPlannerRef.current;
+        if (planner !== undefined) {
+          bootstrapResultRef.current = await initializeProjectGraph(
+            graph,
+            planner,
+          );
+        }
+      }
     },
     start: async () => {
       graph.__enterTick();

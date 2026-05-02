@@ -92,5 +92,14 @@ export interface TuiAppDeps {
   startProjectPlannerSession(): Promise<string>;
   /** Resume an existing project-planner session by run id. */
   resumeProjectPlannerSession(id: string): Promise<void>;
+  /**
+   * Lazy reader for the compose-time `initializeProjectGraph` result. The TUI
+   * calls this in `show()` to derive the initial mode (project-planner for
+   * greenfield, graph otherwise). Reads lazily because compose runs bootstrap
+   * after constructing TuiApp but before invoking `show()`. Undefined when
+   * compose did not run the bootstrap (e.g. tests that mount TuiApp without
+   * an /init flow).
+   */
+  bootstrapResult?: () => ProjectBootstrapResult | undefined;
   quit(): Promise<void>;
 }

@@ -91,6 +91,30 @@ test('/project detach is a no-op when not attached', async ({ terminal }) => {
   ).toBeVisible({ timeout: tuiReadyTimeoutMs });
 });
 
+test('greenfield auto mode lands inside project-planner mode immediately', async ({
+  terminal,
+}) => {
+  const workspace = await createWorkspace();
+
+  startTui(terminal, workspace, { auto: true });
+  await waitForTuiReady(terminal);
+
+  await expect(
+    terminal.getByText(/composer · project planner: run-project:/),
+  ).toBeVisible({ timeout: tuiReadyTimeoutMs });
+});
+
+test('existing project auto mode lands in graph mode', async ({ terminal }) => {
+  const workspace = await createWorkspace({ withPlanningFeature: true });
+
+  startTui(terminal, workspace, { auto: true });
+  await waitForTuiReady(terminal);
+
+  await expect(terminal.getByText('composer · graph')).toBeVisible({
+    timeout: tuiReadyTimeoutMs,
+  });
+});
+
 test('opens monitor overlay from composer command', async ({ terminal }) => {
   const workspace = await createWorkspace();
 
@@ -234,8 +258,10 @@ async function createWorkspace(
 function startTui(
   terminal: { submit(data?: string): void },
   workspace: string,
+  options: { auto?: boolean } = {},
 ): void {
-  terminal.submit(`npm run tui -- --cwd ${shellQuote(workspace)}`);
+  const flags = options.auto === true ? ' --auto' : '';
+  terminal.submit(`npm run tui -- --cwd ${shellQuote(workspace)}${flags}`);
 }
 
 type TuiTerminal = Parameters<Parameters<typeof test>[1]>[0]['terminal'];

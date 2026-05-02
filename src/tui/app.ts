@@ -29,7 +29,7 @@ import {
 import { LiveProjectPlannerSessions } from '@tui/live-project-planner-sessions';
 import { ProjectPlannerController } from '@tui/project-planner-controller';
 import { ComposerProposalController } from '@tui/proposal-controller';
-import { TuiViewModelBuilder } from '@tui/view-model/index';
+import { deriveInitialMode, TuiViewModelBuilder } from '@tui/view-model/index';
 
 import { createTuiCommandContext } from './app-command-context.js';
 import {
@@ -193,6 +193,14 @@ export class TuiApp implements UiPort {
 
     if (!this.interactiveTerminal) {
       throw new Error('gvc0 TUI requires an interactive TTY on stdin/stdout');
+    }
+
+    const initialMode = deriveInitialMode(this.deps.bootstrapResult?.());
+    if (
+      initialMode.kind === 'project-planner' &&
+      this.projectPlannerController.getAttachedSessionId() === undefined
+    ) {
+      this.projectPlannerController.attachExternal(initialMode.sessionId);
     }
 
     this.tui.addChild(this.dagView);

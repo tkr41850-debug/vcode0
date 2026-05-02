@@ -18,6 +18,7 @@ import {
 } from '@tui/components/index';
 import {
   bucketRunsByScope,
+  deriveInitialMode,
   flattenDagNodes,
   TuiViewModelBuilder,
 } from '@tui/view-model/index';
@@ -592,6 +593,29 @@ describe('TuiViewModelBuilder', () => {
       dependsOn: ['f-2: Feature 2'],
       dependents: ['f-3: Feature 3'],
     });
+  });
+});
+
+describe('deriveInitialMode', () => {
+  it('returns project-planner mode attached to session id for greenfield-bootstrap', () => {
+    const mode = deriveInitialMode({
+      kind: 'greenfield-bootstrap',
+      sessionId: 'run-project:s-1',
+    });
+    expect(mode).toEqual({
+      kind: 'project-planner',
+      sessionId: 'run-project:s-1',
+    });
+  });
+
+  it('returns graph mode for existing-project bootstrap', () => {
+    const mode = deriveInitialMode({ kind: 'existing' });
+    expect(mode).toEqual({ kind: 'graph' });
+  });
+
+  it('returns graph mode when bootstrap result is undefined', () => {
+    const mode = deriveInitialMode(undefined);
+    expect(mode).toEqual({ kind: 'graph' });
   });
 });
 

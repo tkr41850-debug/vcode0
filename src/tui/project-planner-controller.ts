@@ -91,6 +91,17 @@ export class ProjectPlannerController {
     this.state = {};
   }
 
+  /**
+   * Attach to a session that compose has already started (greenfield
+   * bootstrap auto-spawn). Skips the picker and the start/resume coordinator
+   * calls because the session already exists; only updates local state and
+   * the live proposal-mirror tracker.
+   */
+  attachExternal(sessionId: string): void {
+    this.env.attachProjectSession(sessionId);
+    this.state = { attachedSessionId: sessionId };
+  }
+
   async execute(
     parsed: ParsedSlashCommand,
   ): Promise<ProjectPlannerCommandResult> {

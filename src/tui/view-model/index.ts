@@ -68,6 +68,29 @@ export type ComposerScope =
   | { kind: 'project'; sessionId: string }
   | { kind: 'feature'; featureId: FeatureId };
 
+export type ProjectBootstrapInput =
+  | { kind: 'greenfield-bootstrap'; sessionId: string }
+  | { kind: 'existing' };
+
+export type InitialMode =
+  | { kind: 'project-planner'; sessionId: string }
+  | { kind: 'graph' };
+
+/**
+ * Pure mapping from the bootstrap result returned by initializeProjectGraph
+ * (consumed via TuiAppDeps.bootstrapResult) to the TUI's starting mode.
+ * Greenfield bootstrap → project-planner mode attached to the auto-spawned
+ * session. Existing project (or no result) → graph mode.
+ */
+export function deriveInitialMode(
+  bootstrapResult: ProjectBootstrapInput | undefined,
+): InitialMode {
+  if (bootstrapResult?.kind === 'greenfield-bootstrap') {
+    return { kind: 'project-planner', sessionId: bootstrapResult.sessionId };
+  }
+  return { kind: 'graph' };
+}
+
 export interface ComposerViewModel {
   mode: 'command' | 'draft' | 'approval' | 'task' | 'live-planner' | 'attached';
   focusMode: 'composer' | 'graph';

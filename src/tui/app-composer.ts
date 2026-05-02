@@ -225,6 +225,12 @@ export async function executeSlashCommand(params: {
       parseInitializeProjectCommand(parsed);
       const bootstrap = await params.dataSource.initializeProject();
       if (bootstrap.kind === 'greenfield-bootstrap') {
+        if (
+          params.projectPlannerController !== undefined &&
+          params.projectPlannerController.getAttachedSessionId() === undefined
+        ) {
+          params.projectPlannerController.attachExternal(bootstrap.sessionId);
+        }
         return `Started project planning session ${bootstrap.sessionId}.`;
       }
       return 'Project already initialized.';
