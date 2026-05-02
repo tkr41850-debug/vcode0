@@ -5,25 +5,25 @@
 See: .planning/PROJECT.md (updated 2026-04-23)
 
 **Core value:** From one prompt, orchestrate parallel autonomous coding that lands on `main` without breaking it — live-steerable from a single TUI.
-**Current focus:** Phase 11 documentation and diagnostic tooling continues with execution of verified plan 11-02: doc-vs-code drift checks, canonical state-diagram updates, and coordination/execution-flow decision-table consolidation.
+**Current focus:** Phase 11 documentation and diagnostic tooling continues with 11-02 shipped: doc-vs-code drift checks, canonical state-diagram updates, coordination/execution-flow decision-table consolidation, and data-model/TUI reference reconciliation.
 
 ## Current Position
 
 Phase: 11 of 12 (Documentation & Diagnostic Tooling)
-Plan: 11-02 planned and verified; execution next
-Status: Phase 11 execution is underway with the first diagnostic slice shipped and 11-02 ready to execute: doc-vs-code drift tests, canonical state-axis updates, and coordination/execution-flow docs consolidation.
-Last activity: 2026-05-02 — Planned and verified 11-02 with research, pattern mapping, validation contract, and plan-checker PASS; next is executing `.planning/phases/11-documentation-diagnostic-tooling/11-02-PLAN.md`.
+Plan: 11-03 remains for concerns-to-tests mapping and newcomer narrative docs
+Status: Phase 11 execution is underway with 11-01 and 11-02 shipped; next is 11-03 concerns-to-tests mapping and newcomer narrative documentation.
+Last activity: 2026-05-02 — Executed 11-02 with docs drift tests, canonical state/execution/coordination doc reconciliation, data-model/TUI reference updates, and full `npm run check` verification green.
 
-Progress: [###-------] 33% for Phase 11
+Progress: [#######---] 67% for Phase 11
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 35
+- Total plans completed: 36
 - Phases completed: 10 of 12
-- Latest verification: 2026-05-01 — Phase 11 planning slice green on `npm run check` (`format:check`, `lint`, `typecheck`, and `vitest run`: 1948 passed, 3 skipped)
+- Latest verification: 2026-05-02 — Phase 11 docs drift slice green on `npm run check` (`format:check`, `lint`, `typecheck`, and `vitest run`: 1967 passed, 3 skipped)
 
-**Recent Trend:** Phase 10 closed the operator-visibility gap inside the TUI, and Phase 11 has now started projecting that same clarity into read-only diagnostics via `gvc0 explain`; next the docs and canonical diagrams need to be brought into exact alignment with the shipped behavior.
+**Recent Trend:** Phase 11 now has both read-only diagnostics via `gvc0 explain` and executable doc-vs-code drift checks protecting the canonical state, execution-flow, coordination, data-model, and TUI reference docs; next is the concerns-to-tests map and newcomer narrative.
 
 *Updated after each plan completion.*
 
@@ -44,7 +44,6 @@ Full decision log lives in PROJECT.md Key Decisions table. Highlights from initi
 
 ### Pending Todos
 
-- Execute Phase 11 plan 11-02: add doc-vs-code drift checks and update the canonical state/execution-flow diagrams to match the shipped explain/state seams.
 - Plan and execute Phase 11 plan 11-03: build the concerns-to-tests map and newcomer narrative docs.
 
 ### Blockers/Concerns
@@ -67,6 +66,6 @@ Full decision log lives in PROJECT.md Key Decisions table. Highlights from initi
 
 ## Session Continuity
 
-Last session: 2026-05-02 — Phase 11 plan 11-02 was researched, planned, validated, and plan-checker verified.
-Stopped at: execute `.planning/phases/11-documentation-diagnostic-tooling/11-02-PLAN.md`.
-Resume file: `.planning/phases/11-documentation-diagnostic-tooling/11-02-PLAN.md`.
+Last session: 2026-05-02 — Phase 11 plan 11-02 shipped with executable docs drift tests and full `npm run check` verification green.
+Stopped at: plan and execute 11-03 concerns-to-tests map plus newcomer narrative documentation.
+Resume file: `.planning/phases/11-documentation-diagnostic-tooling/11-03-PLAN.md` once created.

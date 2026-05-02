@@ -14,6 +14,13 @@ Current app shows:
 - help overlay
 - dependency-detail overlay
 - agent-monitor overlay
+- inbox overlay
+- planner audit overlay
+- proposal review overlay
+- merge-train overlay
+- config overlay
+- planner-session overlay
+- task transcript overlay
 
 TUI starts in composer focus. Status line can show current focus (`composer` or `graph`) and data mode (`live` or `draft`). Composer status strip shows current composer mode (`command`, `draft`, or `approval`).
 
@@ -59,12 +66,20 @@ On integration failure, the row returns to the normal `replanning` badge once th
 ```bash
 gvc0
 gvc0 --auto
-gvc0 --cwd /path/to/project
+gvc0 --cwd <path>
+gvc0 explain feature <id>
+gvc0 explain task <id>
+gvc0 explain run <id>
 ```
 
 - `gvc0` starts interactive mode
 - `gvc0 --auto` starts with auto-execution enabled
-- `--cwd` changes working directory before composition/startup
+- `--cwd <path>` changes working directory before explain resolution or composition/startup
+- `gvc0 explain feature <id>` renders feature DAG/status context from `.gvc0/state.db`
+- `gvc0 explain task <id>` renders task/run/context details from `.gvc0/state.db`
+- `gvc0 explain run <id>` renders persisted run facts and recorded activity from `.gvc0/state.db`
+
+The `explain` entrypoints are read-only diagnostic branches that run before TUI startup, scheduler startup, and runtime worker composition.
 
 Current runtime writes under project `.gvc0/` directory:
 
@@ -119,6 +134,10 @@ Most single-key commands only work in graph focus. While composer is focused, re
 | `m` | Show or hide agent monitor overlay. |
 | `w` | Cycle active worker selection in agent monitor. |
 | `h` | Show or hide keyboard help. |
+| `i` | Show or hide inbox overlay. |
+| `t` | Show or hide merge-train overlay. |
+| `r` | Show or hide task transcript overlay. |
+| `c` | Show or hide config overlay. |
 | `d` | Show dependency detail for selected feature. Task selection resolves to its feature. |
 | `x` | Cancel selected feature and abort its running task work. Task selection resolves to its feature. |
 | `q` | Quit TUI when no overlay is open. |
@@ -146,6 +165,12 @@ Example:
 - `/monitor` — show or hide agent monitor overlay
 - `/worker-next` — cycle active worker selection
 - `/help` — show or hide keyboard help
+- `/inbox` — show or hide inbox overlay
+- `/planner-audit` — show or hide planner audit overlay
+- `/proposal-review` — show or hide proposal review overlay
+- `/merge-train` — show or hide merge-train overlay
+- `/transcript` — show or hide task transcript overlay
+- `/config` — show or hide config overlay
 - `/deps` — show dependency detail for selected feature
 - `/cancel` — cancel selected feature and abort any running task work for it
 - `/quit` — quit TUI
@@ -156,28 +181,51 @@ Draft commands operate on selected planning or replanning feature context.
 Starting draft work pauses auto-execution until draft is submitted or discarded.
 This composer `/submit` command submits a planning/replanning proposal draft for approval; it is unrelated to the worker-side task `submit()` tool.
 
+- `/init --milestone-name "" --milestone-description "" --feature-name "" --feature-description ""`
 - `/milestone-add --name "" --description ""`
 - `/feature-add`
 - `/feature-remove`
 - `/feature-edit`
+- `/feature-move`
+- `/feature-split`
+- `/feature-merge`
 - `/task-add`
 - `/task-remove`
 - `/task-edit`
+- `/task-reorder`
 - `/dep-add`
 - `/dep-remove`
 - `/submit`
 - `/discard`
+- `/planner-continue`
+- `/planner-fresh`
 
 Task commands support `--weight trivial|small|medium|heavy`.
 While draft is active, DAG title shows draft mode and status bar reports `view: draft`.
 
-### Approval commands
+### Approval and runtime commands
 
 When selected feature has pending proposal, composer enters approval mode and surfaces approval commands:
 
 - `/approve`
 - `/reject --comment "reason"`
 - `/rerun`
+
+Runtime and inbox commands act on selected task runs or explicit inbox ids:
+
+- `/reply --text "answer"`
+- `/input --text "manual input"`
+- `/merge-train-position --feature <id> --position <n>`
+- `/inbox-reply --id <id> --text "answer"`
+- `/inbox-approve --id <id>`
+- `/inbox-reject --id <id> --comment "reason"`
+- `/task-cancel-preserve --task <id>`
+- `/task-cancel-clean --task <id>`
+- `/feature-abandon --feature <id>`
+- `/orphan-clean --id <id>`
+- `/orphan-inspect --id <id>`
+- `/orphan-keep --id <id>`
+- `/config-set --key <key> --value "value"`
 
 `/submit` stores pending proposal for approval. `/discard` drops current draft. Both restore previous auto-execution setting.
 
@@ -200,6 +248,34 @@ Shows selected feature, milestone, dependencies, and dependents.
 Open with `m` in graph focus or `/monitor` from composer.
 Shows recent worker output grouped by agent run. `w` or `/worker-next` cycles selected worker. Current monitor is read-only: it displays live output, but does not expose steer or abort actions.
 
+### Inbox Overlay
+
+Open with `i` in graph focus or `/inbox` from composer. Shows unresolved inbox items and supports direct help/approval resolution through `/inbox-reply`, `/inbox-approve`, and `/inbox-reject`.
+
+### Planner Audit Overlay
+
+Open with `/planner-audit`. Shows planner session audit records and proposal mutation context.
+
+### Proposal Review Overlay
+
+Open with `/proposal-review`. Shows pending proposal review details for graph mutation drafts.
+
+### Merge-Train Overlay
+
+Open with `t` in graph focus or `/merge-train` from composer. Shows merge-queued and integrating features plus manual queue-position context.
+
+### Config Overlay
+
+Open with `c` in graph focus or `/config` from composer. Shows live editable configuration and pairs with `/config-set` for persisted updates.
+
+### Planner-Session Overlay
+
+Shown when top-planner session reuse needs operator choice; `/planner-continue` resumes the saved session and `/planner-fresh` starts over.
+
+### Task Transcript Overlay
+
+Open with `r` in graph focus or `/transcript` from composer. Shows the selected task run transcript when available.
+
 Illustrative layout:
 
 ```text
@@ -218,7 +294,7 @@ Illustrative layout:
 ## Known Limitations
 
 - composer currently supports slash commands only; plain-text planner chat is not wired
-- composer currently supports a minimal milestone authoring flow (`/milestone-add`) but still lacks milestone edit/remove commands
+- composer currently supports milestone creation but still lacks milestone edit/remove commands
 - agent monitor is read-only; no worker steer or abort controls are exposed
-- manual run ownership (operator attach, `manual_input` drop-in, `release_to_scheduler` to return a run to automatic execution) is described in `docs/operations/verification-and-recovery.md` but no TUI command surface is wired yet
+- manual run ownership is partially surfaced through `/input`; a full operator attach/release workflow is still deferred
 

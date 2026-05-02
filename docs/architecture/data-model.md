@@ -118,6 +118,7 @@ interface Feature {
   mergeTrainEnteredAt?: number;
   mergeTrainEntrySeq?: number;        // stable ordering tie-breaker for current queue entry
   mergeTrainReentryCount?: number;
+  runtimeBlockedByFeatureId?: FeatureId; // feature-level runtime overlap block; scheduling authority
   summary?: string;
   tokenUsage?: TokenUsageAggregate;   // lifetime aggregate across all task/model calls in the feature
   roughDraft?: string;                // seed text captured before `discussing` (rough idea / ticket body)
@@ -125,9 +126,7 @@ interface Feature {
   researchOutput?: string;            // raw markdown blob persisted by research-phase completion
   featureObjective?: string;          // planner-baked feature-level objective (written on plan approval)
   featureDoD?: string[];              // planner-baked definition-of-done bullets for the feature
-  verifyIssues?: VerifyIssue[];       // typed issues (any source); cleared on next approved replan
-  mainMergeSha?: string;              // commit sha on main of the most recent successful integration merge
-  branchHeadSha?: string;             // latest commit sha on the feature branch
+  verifyIssues?: VerifyIssue[];       // verifier issues; cleared on next approved replan
 }
 
 interface Task {
@@ -156,41 +155,17 @@ interface Task {
   expectedFiles?: string[];        // planner-baked list of files the task is expected to touch
   references?: string[];           // planner-baked reference pointers (paths, URLs, knowledge ids)
   outcomeVerification?: string;    // planner-baked how-to-verify text (commands, assertions)
-  branchHeadSha?: string;          // latest commit sha on the task worktree branch
 }
 
-type VerifyIssue =
-  | {
-      source: 'verify';
-      id: string;
-      severity: 'blocking' | 'concern' | 'nit';
-      location?: string;
-      description: string;
-      suggestedFix?: string;
-    }
-  | {
-      source: 'ci_check';
-      id: string;
-      severity: 'blocking' | 'concern' | 'nit';
-      phase: 'feature' | 'post_rebase';
-      checkName: string;
-      command: string;
-      exitCode?: number;
-      output?: string;              // truncated to 4KB
-      description: string;
-    }
-  | {
-      source: 'rebase';
-      id: string;
-      severity: 'blocking' | 'concern' | 'nit';
-      conflictedFiles: string[];
-      description: string;
-    };
+type VerifyIssueSeverity = 'blocking' | 'concern' | 'nit';
 
-// Persisted VerifyIssue[] payload total capped at 32KB with
-// severity-ranked retention (blocking > concern > nit,
-// most-recent first within severity). Per-ci_check `output`
-// truncated to 4KB before retention is applied.
+interface VerifyIssue {
+  id: string;
+  severity: VerifyIssueSeverity;
+  description: string;
+  location?: string;
+  suggestedFix?: string;
+}
 
 interface IntegrationState {
   featureId: FeatureId;                    // singleton: only one integration in-flight
@@ -316,6 +291,8 @@ type AgentRunStatus =
   | "retry_await"
   | "await_response"
   | "await_approval"
+  | "checkpointed_await_response"
+  | "checkpointed_await_approval"
   | "completed"
   | "failed"
   | "cancelled";

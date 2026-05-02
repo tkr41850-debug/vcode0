@@ -23,7 +23,16 @@ const VERIFICATION_LAYER_SOURCE = readFileSync(
   'src/config/verification-layer.ts',
   'utf8',
 );
+const DATA_MODEL_DOC = readFileSync('docs/architecture/data-model.md', 'utf8');
+const TUI_REFERENCE_DOC = readFileSync('docs/reference/tui.md', 'utf8');
 const RUNS_SOURCE = readFileSync('src/core/types/runs.ts', 'utf8');
+const DOMAIN_SOURCE = readFileSync('src/core/types/domain.ts', 'utf8');
+const VERIFICATION_TYPES_SOURCE = readFileSync(
+  'src/core/types/verification.ts',
+  'utf8',
+);
+const TUI_COMMANDS_SOURCE = readFileSync('src/tui/commands/index.ts', 'utf8');
+const TUI_APP_SOURCE = readFileSync('src/tui/app.ts', 'utf8');
 const COMPOSITE_TEST = readFileSync(
   'test/unit/core/fsm/composite-invariants.test.ts',
   'utf8',
@@ -42,6 +51,14 @@ function extractStringUnion(source: string, typeName: string): string[] {
     expect(value).toBeDefined();
     return value as string;
   });
+}
+
+function extractInterfaceBlock(source: string, interfaceName: string): string {
+  const match = new RegExp(
+    `export interface ${interfaceName} \\{([\\s\\S]*?)\\n\\}`,
+  ).exec(source);
+  expect(match, `missing exported interface ${interfaceName}`).not.toBeNull();
+  return match?.[1] ?? '';
 }
 
 describe('documentation drift checks', () => {
@@ -154,6 +171,112 @@ describe('documentation drift checks', () => {
       expect(VERIFICATION_DOC).not.toContain(
         'There is no separate `verification.mergeTrain` layer',
       );
+    });
+  });
+
+  describe('data model reference', () => {
+    it('keeps feature and task field lists aligned with shipped domain types', () => {
+      const featureSource = extractInterfaceBlock(DOMAIN_SOURCE, 'Feature');
+      const taskSource = extractInterfaceBlock(DOMAIN_SOURCE, 'Task');
+
+      expect(featureSource).toContain('runtimeBlockedByFeatureId?: FeatureId');
+      expect(DATA_MODEL_DOC).toContain('runtimeBlockedByFeatureId?: FeatureId');
+      expect(featureSource).not.toContain('mainMergeSha');
+      expect(featureSource).not.toContain('branchHeadSha');
+      expect(taskSource).not.toContain('branchHeadSha');
+      expect(DATA_MODEL_DOC).not.toContain('mainMergeSha?: string');
+      expect(DATA_MODEL_DOC).not.toContain('branchHeadSha?: string');
+    });
+
+    it('documents the shipped flat VerifyIssue shape', () => {
+      const verifyIssueSource = extractInterfaceBlock(
+        VERIFICATION_TYPES_SOURCE,
+        'VerifyIssue',
+      );
+
+      for (const field of [
+        'id: string',
+        'severity: VerifyIssueSeverity',
+        'description: string',
+        'location?: string',
+        'suggestedFix?: string',
+      ]) {
+        expect(verifyIssueSource).toContain(field);
+        expect(DATA_MODEL_DOC).toContain(field);
+      }
+      for (const staleClaim of [
+        "source: 'verify'",
+        "source: 'ci_check'",
+        "source: 'rebase'",
+        "phase: 'feature' | 'post_rebase'",
+        'conflictedFiles: string[]',
+      ]) {
+        expect(DATA_MODEL_DOC).not.toContain(staleClaim);
+      }
+    });
+  });
+
+  describe('TUI reference', () => {
+    it('documents shipped CLI entrypoints', () => {
+      for (const command of [
+        'gvc0',
+        'gvc0 --auto',
+        'gvc0 --cwd <path>',
+        'gvc0 explain feature <id>',
+        'gvc0 explain task <id>',
+        'gvc0 explain run <id>',
+      ]) {
+        expect(TUI_REFERENCE_DOC).toContain(command);
+      }
+    });
+
+    it('keeps documented graph hotkeys aligned with registered commands', () => {
+      for (const key of ['i', 't', 'r', 'c']) {
+        expect(TUI_COMMANDS_SOURCE).toContain(`key: '${key}'`);
+        expect(TUI_REFERENCE_DOC).toContain(`| \`${key}\``);
+      }
+    });
+
+    it('documents current overlay surfaces', () => {
+      for (const overlay of [
+        'InboxOverlay',
+        'PlannerAuditOverlay',
+        'ProposalReviewOverlay',
+        'MergeTrainOverlay',
+        'ConfigOverlay',
+        'PlannerSessionOverlay',
+        'TaskTranscriptOverlay',
+      ]) {
+        expect(TUI_APP_SOURCE).toContain(overlay);
+      }
+      for (const surface of [
+        'inbox overlay',
+        'planner audit overlay',
+        'proposal review overlay',
+        'merge-train overlay',
+        'config overlay',
+        'planner-session overlay',
+        'task transcript overlay',
+      ]) {
+        expect(TUI_REFERENCE_DOC).toContain(surface);
+      }
+    });
+
+    it('documents shipped operational slash-command surfaces', () => {
+      for (const command of [
+        '/inbox',
+        '/planner-audit',
+        '/proposal-review',
+        '/merge-train',
+        '/transcript',
+        '/config',
+        '/inbox-reply',
+        '/inbox-approve',
+        '/inbox-reject',
+        '/config-set',
+      ]) {
+        expect(TUI_REFERENCE_DOC).toContain(command);
+      }
     });
   });
 });
