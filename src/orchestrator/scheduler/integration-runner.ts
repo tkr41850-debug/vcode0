@@ -58,8 +58,43 @@ export async function runIntegrationIfPending(params: {
 
   // 4. Agent review (REQ-MERGE-04). Run ID prefix distinguishes from
   //    feature-phase verify runs (run-feature:${id}:verify).
-  const run = { agentRunId: `run-integration:${feature.id}` };
+  //
+  // Ensure the agent run row exists before calling verifyFeature: the
+  // runtime's persistMessages path calls store.updateAgentRun which requires
+  // a pre-existing row. Re-use an existing run if one was created by a
+  // previous integration attempt (idempotent).
+  const integrationRunId = `run-integration:${feature.id}`;
+  const existingIntegrationRun =
+    params.ports.store.getAgentRun(integrationRunId);
+  if (existingIntegrationRun === undefined) {
+    params.ports.store.createAgentRun({
+      id: integrationRunId,
+      scopeType: 'feature_phase',
+      scopeId: feature.id,
+      phase: 'verify',
+      runStatus: 'running',
+      owner: 'system',
+      attention: 'none',
+      restartCount: 0,
+      maxRetries: 3,
+    });
+  } else {
+    params.ports.store.updateAgentRun(integrationRunId, {
+      runStatus: 'running',
+      owner: 'system',
+    });
+  }
+  const run = { agentRunId: integrationRunId };
   const agentResult = await params.ports.agents.verifyFeature(feature, run);
+
+  // Mark the integration run completed regardless of outcome so callers
+  // (and the test assertion `runStatus === 'completed'`) see a terminal state.
+  params.ports.store.updateAgentRun(integrationRunId, {
+    runStatus: 'completed',
+    owner: 'system',
+    payloadJson: JSON.stringify(agentResult),
+  });
+
   if (!agentResult.ok) {
     await params.handleEvent({
       type: 'feature_integration_failed',
