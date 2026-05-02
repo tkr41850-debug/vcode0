@@ -25,7 +25,8 @@
     "test:tui:e2e": "command npx tui-test",
     "tui": "tsx src/main.ts",
     "typecheck": "tsc --noEmit",
-    "verify": "npm run check && npm run lint:ci"
+    "verify": "npm run check && npm run lint:ci",
+    "postinstall": "node scripts/rebuild-node-pty.cjs"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.10",

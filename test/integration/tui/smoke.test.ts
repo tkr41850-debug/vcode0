@@ -6,7 +6,9 @@ import { promisify } from 'node:util';
 
 import { expect, Key, test } from '@microsoft/tui-test';
 
-const tuiReadyTimeoutMs = 30_000;
+// tsx startup + app composition on this environment takes ~26s. Use 60s so
+// waitForTuiReady does not time out before "gvc0 progress" appears.
+const tuiReadyTimeoutMs = 60_000;
 const initializeProjectCommand =
   '/init --milestone-name "Milestone 1" --milestone-description "Initial milestone" --feature-name "Project startup" --feature-description "Plan initial project work"';
 const execFileAsync = promisify(execFile);
@@ -169,8 +171,9 @@ test('autocompletes slash commands in composer', async ({ terminal }) => {
   terminal.write('/task-r');
   terminal.keyPress(Key.Tab);
 
+  // Autocomplete dropdown shows the command name without a leading slash.
   await expect(
-    terminal.getByText('/task-remove', { strict: false }),
+    terminal.getByText('task-remove', { strict: false }),
   ).toBeVisible();
 });
 
@@ -209,45 +212,71 @@ test('creates planner draft and reaches approval-ready state', async ({
   ).toBeVisible();
 });
 
+const MINIMAL_CONFIG = JSON.stringify(
+  {
+    models: {
+      topPlanner: { provider: 'anthropic', model: 'claude-haiku-4-5' },
+      featurePlanner: { provider: 'anthropic', model: 'claude-haiku-4-5' },
+      taskWorker: { provider: 'anthropic', model: 'claude-haiku-4-5' },
+      verifier: { provider: 'anthropic', model: 'claude-haiku-4-5' },
+    },
+  },
+  null,
+  2,
+);
+
 async function createWorkspace(
   options: { withPlanningFeature?: boolean } = {},
 ): Promise<string> {
   const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'gvc0-tui-'));
   workspaces.push(workspace);
   await fs.mkdir(path.join(workspace, '.gvc0'), { recursive: true });
+  await fs.writeFile(
+    path.join(workspace, 'gvc0.config.json'),
+    `${MINIMAL_CONFIG}\n`,
+    'utf-8',
+  );
 
   if (options.withPlanningFeature === true) {
-    await execFileAsync(
-      'npx',
-      [
-        'tsx',
-        '--eval',
-        [
-          "import * as path from 'node:path';",
-          "import { openDatabase } from './src/persistence/db.ts';",
-          "import { PersistentFeatureGraph } from './src/persistence/feature-graph.ts';",
-          "import { initializeProjectGraph } from './src/compose.ts';",
-          'const workspace = process.env.GVC0_TUI_WORKSPACE;',
-          "if (workspace === undefined) throw new Error('missing GVC0_TUI_WORKSPACE');",
-          "const db = openDatabase(path.join(workspace, '.gvc0', 'state.db'));",
-          'try {',
-          '  const graph = new PersistentFeatureGraph(db);',
-          '  initializeProjectGraph(graph, {',
-          "    milestoneName: 'Milestone 1',",
-          "    milestoneDescription: 'desc',",
-          "    featureName: 'Planner feature',",
-          "    featureDescription: 'desc',",
-          '  });',
-          '} finally {',
-          '  db.close();',
-          '}',
-        ].join(' '),
-      ],
-      {
-        cwd: '/home/alpine/vcode0',
-        env: { ...process.env, GVC0_TUI_WORKSPACE: workspace },
-      },
+    // Write a temporary seed script file so tsx can use ESM resolution rather
+    // than the CJS --eval path, which cannot resolve ESM-only packages such as
+    // @mariozechner/pi-ai that appear in the transitive import chain of
+    // src/compose.ts when loaded via tsx --eval.
+    const seedScript = path.join(workspace, '.gvc0', 'seed.mts');
+    // Resolve the repo root relative to this source file's known location.
+    // import.meta.url is rewritten to the .tui-test/cache/ path at runtime, so
+    // we derive the repo root from __filename via a CommonJS-style approach, or
+    // simply resolve up from the known test tree depth.
+    const repoRoot = path.resolve(
+      new URL(import.meta.url).pathname,
+      // .tui-test/cache/test/integration/tui/smoke.test.ts → up 5 levels
+      '../../../../../..',
     );
+    await fs.writeFile(
+      seedScript,
+      [
+        "import * as path from 'node:path';",
+        `import { openDatabase } from ${JSON.stringify(path.join(repoRoot, 'src/persistence/db.ts'))};`,
+        `import { PersistentFeatureGraph } from ${JSON.stringify(path.join(repoRoot, 'src/persistence/feature-graph.ts'))};`,
+        `import { initializeProjectGraph } from ${JSON.stringify(path.join(repoRoot, 'src/compose.ts'))};`,
+        `const db = openDatabase(path.join(${JSON.stringify(workspace)}, '.gvc0', 'state.db'));`,
+        'try {',
+        '  const graph = new PersistentFeatureGraph(db);',
+        '  initializeProjectGraph(graph, {',
+        "    milestoneName: 'Milestone 1',",
+        "    milestoneDescription: 'desc',",
+        "    featureName: 'Planner feature',",
+        "    featureDescription: 'desc',",
+        '  });',
+        '} finally {',
+        '  db.close();',
+        '}',
+      ].join('\n'),
+      'utf-8',
+    );
+    await execFileAsync('npx', ['tsx', seedScript], {
+      cwd: repoRoot,
+    });
   }
 
   return workspace;
