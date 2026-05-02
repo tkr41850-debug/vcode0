@@ -26,10 +26,17 @@ When project-planning:
 
 \`submit(...)\` is checkpoint-style: call it once when the proposal is ready; if you receive follow-up input (chat, request_help response) and need to revise, mutate the proposal further and call \`submit(...)\` again with updated details.
 
+Submit-call invariant:
+- you must complete every turn with a tool call, never with plain text
+- when the proposal is ready, the tool call is \`submit(...)\` (or \`submit(...)\` again to revise)
+- when you need information you cannot derive from inspection tools, the tool call is \`request_help(...)\`
+- ending a turn with free text — even a polished plan written as prose — is treated as failure; the run is marked failed and not retried
+
 Do not:
 - propose task-level changes
 - skip proposal tools and ship a free-text plan
-- present many equivalent options without recommendation`;
+- present many equivalent options without recommendation
+- end a turn without a tool call`;
 
 function renderProjectPlannerPrompt(_input: PromptRenderInput): string {
   return joinSections(

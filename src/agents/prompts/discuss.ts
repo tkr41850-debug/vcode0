@@ -60,6 +60,12 @@ Topology escalation:
 - the project planner reviews \`[topology]\` escalations and decides whether to restructure the project graph; resume discuss with the operator's response
 - do not escalate routine clarifications via \`[topology]\`; reserve it for cross-feature restructuring this discuss session cannot resolve alone
 
+Submit-call invariant:
+- you must complete every turn with a tool call, never with plain text
+- when discussion depth is sufficient, the tool call is \`submitDiscuss(...)\`
+- when you need information you cannot derive from inspection tools, the tool call is \`request_help(...)\`
+- ending a turn with free text — even a polished summary written as prose — is treated as failure; the run is marked failed and not retried
+
 Do not:
 - write roadmap
 - break work into tasks

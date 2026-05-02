@@ -6,6 +6,7 @@ These docs keep purpose, prompt text, and upstream provenance in one browsable p
 
 ## Index
 
+- [Project Planner](./project-planner.md) — project-level feature DAG planning prompt (milestones, features, cross-feature dependencies)
 - [Discuss Feature](./discuss-feature.md) — interactive clarification prompt for feature intent, constraints, and success criteria
 - [Research Feature](./research-feature.md) — planner-facing code map and risk/verification reconnaissance prompt
 - [Plan Feature](./plan-feature.md) — shared planning/replanning doctrine prompt
@@ -21,6 +22,10 @@ These docs keep purpose, prompt text, and upstream provenance in one browsable p
 - `Summarize Feature` is live post-merge prompt source; budget profile may skip invoking it.
 - `Discuss Feature`, `Research Feature`, and `Summarize Feature` end with structured `submitDiscuss(...)`, `submitResearch(...)`, and `submitSummarize(...)` outputs.
 - `Verify Feature` verifies real feature outcome, not generic style, and ends with structured `submitVerify(...)` output.
+
+## Submit-call invariant
+
+Every planner agent (project-planner, feature plan/replan, discuss) must complete its turn with a tool call, never with plain text. The terminal tool depends on the phase: `submit(...)` for project-planner / plan / replan; `submitDiscuss(...)` for discuss. When the agent needs information it cannot derive from inspection tools, the correct tool call is `request_help(...)`. A turn that ends with free text — even a polished plan or summary written as prose — is treated as failure: the run is marked `failed` and is not retried (the failed-run filter from phase-1 prevents re-dispatch). Operators see the failure as a `semantic_failure` inbox row and the run icon stuck on `failed`.
 
 ## Topology escalation
 
