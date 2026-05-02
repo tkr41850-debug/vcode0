@@ -6,8 +6,6 @@ import { promisify } from 'node:util';
 
 import { expect, Key, test } from '@microsoft/tui-test';
 
-// tsx startup + app composition on this environment takes ~26s. Use 60s so
-// waitForTuiReady does not time out before "gvc0 progress" appears.
 const tuiReadyTimeoutMs = 60_000;
 const initializeProjectCommand =
   '/init --milestone-name "Milestone 1" --milestone-description "Initial milestone" --feature-name "Project startup" --feature-description "Plan initial project work"';
@@ -212,20 +210,11 @@ test('creates planner draft and reaches approval-ready state', async ({
   ).toBeVisible();
 });
 
-// Golden-path TUI E2E smoke (Phase 12-02, SC12-3)
-//
-// Covers the full operator-visible golden path in a single test:
-//   startup → /init → graph feedback → steering overlay → draft task →
-//   approval state → clean quit
-//
-// Does NOT reproduce full autonomous execution or live LLM calls.
-// Cite 12-01 Vitest proof for backend prompt-to-main lifecycle.
 test('golden path tui e2e smoke: init, steer, draft, submit, and quit', async ({
   terminal,
 }) => {
   const workspace = await createWorkspace();
 
-  // ── 1. Startup ──────────────────────────────────────────────────────────
   startTui(terminal, workspace);
   await waitForTuiReady(terminal);
 
@@ -241,7 +230,6 @@ test('golden path tui e2e smoke: init, steer, draft, submit, and quit', async ({
     ),
   ).toBeVisible({ timeout: tuiReadyTimeoutMs });
 
-  // ── 2. /init — graph feedback ────────────────────────────────────────────
   terminal.submit(initializeProjectCommand);
 
   await expect(terminal.getByText('m-1: Milestone 1')).toBeVisible({
@@ -257,7 +245,6 @@ test('golden path tui e2e smoke: init, steer, draft, submit, and quit', async ({
     timeout: tuiReadyTimeoutMs,
   });
 
-  // ── 3. Steering overlay (Help) ───────────────────────────────────────────
   terminal.submit('/help');
   await expect(terminal.getByText('Help [h/q/esc hide]')).toBeVisible();
   await expect(terminal.getByText('Show or hide keyboard help.')).toBeVisible();
@@ -265,26 +252,18 @@ test('golden path tui e2e smoke: init, steer, draft, submit, and quit', async ({
   terminal.keyEscape();
   await expect(terminal.getByText('Help [h/q/esc hide]')).not.toBeVisible();
 
-  // ── 4. Graph focus ───────────────────────────────────────────────────────
-  // esc from empty composer → graph focus
   terminal.keyEscape();
   await expect(terminal.getByText('focus: graph')).toBeVisible();
 
-  // The DAG renders milestone first. Move down twice to skip the milestone
-  // header and land on f-1: Project startup.
   terminal.keyDown();
   terminal.keyDown();
   await expect(
     terminal.getByText('selected: f-1: Project startup'),
   ).toBeVisible();
 
-  // ── 5. Draft task via composer ───────────────────────────────────────────
-  // '/' from graph focus → opens composer with '/' seed
   terminal.keyPress('/');
   await expect(terminal.getByText('focus: composer')).toBeVisible();
 
-  // Provide --feature explicitly so the draft is attached to f-1 regardless
-  // of any selection timing edge case.
   terminal.submit(
     'task-add --feature f-1 --description "Golden path task" --weight small',
   );
@@ -298,7 +277,6 @@ test('golden path tui e2e smoke: init, steer, draft, submit, and quit', async ({
     timeout: tuiReadyTimeoutMs,
   });
 
-  // ── 6. Submit for approval ───────────────────────────────────────────────
   terminal.submit('/submit');
   await expect(
     terminal.getByText(
@@ -306,10 +284,7 @@ test('golden path tui e2e smoke: init, steer, draft, submit, and quit', async ({
     ),
   ).toBeVisible({ timeout: tuiReadyTimeoutMs });
 
-  // ── 7. Clean quit ────────────────────────────────────────────────────────
-  // /quit from composer exits the TUI without leaving a hanging process.
   terminal.submit('/quit');
-  // terminal.kill() in afterEach ensures teardown even if quit is slow.
 });
 
 const MINIMAL_CONFIG = JSON.stringify(
@@ -338,18 +313,9 @@ async function createWorkspace(
   );
 
   if (options.withPlanningFeature === true) {
-    // Write a temporary seed script file so tsx can use ESM resolution rather
-    // than the CJS --eval path, which cannot resolve ESM-only packages such as
-    // @mariozechner/pi-ai that appear in the transitive import chain of
-    // src/compose.ts when loaded via tsx --eval.
     const seedScript = path.join(workspace, '.gvc0', 'seed.mts');
-    // Resolve the repo root relative to this source file's known location.
-    // import.meta.url is rewritten to the .tui-test/cache/ path at runtime, so
-    // we derive the repo root from __filename via a CommonJS-style approach, or
-    // simply resolve up from the known test tree depth.
     const repoRoot = path.resolve(
       new URL(import.meta.url).pathname,
-      // .tui-test/cache/test/integration/tui/smoke.test.ts → up 5 levels
       '../../../../../..',
     );
     await fs.writeFile(

@@ -1,20 +1,4 @@
 #!/usr/bin/env node
-// Rebuild node-pty from source when the prebuild is incompatible with this
-// environment (e.g. Alpine Linux / musl libc). The prebuilds in
-// node_modules/node-pty/prebuilds/ are glibc binaries; musl-based systems need
-// a local compile via node-gyp.
-//
-// node-pty's own install script (node scripts/prebuild.js || node-gyp rebuild)
-// only tests whether the prebuild *directory* exists, not whether the binary is
-// loadable, so it silently picks up the incompatible prebuild on Alpine.
-//
-// This script:
-//   1. Tries to require the pty.node native addon via node-pty's normal loader.
-//   2. If it loads cleanly, exits 0 (nothing to do).
-//   3. If it fails with a symbol-not-found or load error, invokes node-gyp
-//      rebuild inside node_modules/node-pty and exits with that result code.
-//
-// Run via `npm run postinstall` (wired in package.json scripts).
 
 'use strict';
 
