@@ -82,7 +82,7 @@ describe('ProposalPhaseSessionImpl pre-bind queuing', () => {
   it('awaitOutcome before bindOutcome throws', () => {
     const session = new ProposalPhaseSessionImpl(scope);
     expect(() => session.awaitOutcome()).toThrow(
-      'proposal phase outcome not bound',
+      'feature phase outcome not bound',
     );
   });
 

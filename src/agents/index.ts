@@ -20,6 +20,7 @@ export type { ProposalAgent, ProposalPhaseResult } from '@agents/proposal';
 export type { ReplannerAgent } from '@agents/replanner';
 export type {
   FeatureAgentRuntimeConfig,
+  LiveFeaturePhaseSession,
   LiveProposalPhaseSession,
   ProjectPlannerSession,
   ProjectPlannerSessionInputs,
@@ -29,6 +30,7 @@ export type {
 } from '@agents/runtime';
 export {
   FeaturePhaseOrchestrator,
+  FeaturePhaseSessionImpl,
   ProposalPhaseSessionImpl,
   persistPhaseOutputToFeature,
   startProjectPlannerSession,

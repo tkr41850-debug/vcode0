@@ -141,7 +141,7 @@ function deriveComposerScope(input: {
   attachedFeatureId?: FeatureId;
   attachedPhase?: 'plan' | 'replan';
   liveProposalFeatureId?: FeatureId;
-  liveProposalPhase?: 'plan' | 'replan';
+  liveProposalPhase?: 'plan' | 'replan' | 'discuss';
 }): ComposerScope {
   if (input.projectSessionId !== undefined) {
     return { kind: 'project', sessionId: input.projectSessionId };
@@ -376,7 +376,7 @@ export class TuiViewModelBuilder {
     pendingTaskOwner?: TaskAgentRun['owner'];
     pendingTaskPayloadJson?: string;
     liveProposalFeatureId?: FeatureId;
-    liveProposalPhase?: 'plan' | 'replan';
+    liveProposalPhase?: 'plan' | 'replan' | 'discuss';
     liveProposalOpCount?: number;
     liveProposalSubmissionCount?: number;
     attachedFeatureId?: FeatureId;

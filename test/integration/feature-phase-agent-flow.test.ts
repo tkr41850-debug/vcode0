@@ -423,6 +423,140 @@ describe('feature-phase agent flow', () => {
     });
   });
 
+  it('discuss request_help with [topology] prefix lands run at await_response, persists query, then resumes via respondToRunHelp', async () => {
+    faux.setResponses([
+      fauxAssistantMessage(
+        [
+          fauxToolCall('request_help', {
+            query:
+              '[topology] f-1 spec covers two unrelated capabilities; split into f-1a/f-1b?',
+          }),
+        ],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage(
+        [
+          fauxToolCall('submitDiscuss', {
+            summary: 'Operator approved split; defer to project planner.',
+            intent: 'Capture topology issue early',
+            successCriteria: ['Operator answer routed back to discuss'],
+            constraints: ['No graph topology mutation here'],
+            risks: ['Spec too broad to plan'],
+            externalIntegrations: ['None'],
+            antiGoals: ['No planner output'],
+            openQuestions: ['Should f-1 split?'],
+          }),
+        ],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage([fauxText('Discussion structured.')]),
+    ]);
+
+    const graph = createSingleFeatureGraph({ workControl: 'discussing' });
+    const store = new InMemoryStore();
+    const sessionStore = new InMemorySessionStore();
+    const config = createConfig();
+    const agentRunId = 'run-feature:f-1:discuss';
+    const sink: ProposalOpSink = {
+      onOpRecorded: () => {},
+      onSubmitted: () => {},
+      onHelpRequested: (scope, toolCallId, query) => {
+        const runId = `run-feature:${scope.featureId}:${scope.phase}`;
+        const run = store.getAgentRun(runId);
+        if (run?.scopeType === 'feature_phase') {
+          store.updateAgentRun(runId, {
+            runStatus: 'await_response',
+            payloadJson: JSON.stringify({ toolCallId, query }),
+          });
+        }
+      },
+      onHelpResolved: (scope, _toolCallId) => {
+        const runId = `run-feature:${scope.featureId}:${scope.phase}`;
+        const run = store.getAgentRun(runId);
+        if (
+          run?.scopeType === 'feature_phase' &&
+          run.runStatus === 'await_response'
+        ) {
+          store.updateAgentRun(runId, {
+            runStatus: 'running',
+            payloadJson: undefined,
+          });
+        }
+      },
+      onPhaseEnded: () => {},
+    };
+    const agents = new FeaturePhaseOrchestrator({
+      modelId: 'claude-sonnet-4-6',
+      config,
+      promptLibrary,
+      graph,
+      store,
+      sessionStore,
+      projectRoot: '/repo',
+      proposalOpSink: sink,
+    });
+    const verification = {
+      verifyFeature: () => Promise.resolve({ ok: true, summary: 'ok' }),
+    } as unknown as OrchestratorPorts['verification'];
+    const pool = new LocalWorkerPool(
+      createUnusedTaskHarness(),
+      1,
+      undefined,
+      new DiscussFeaturePhaseBackend(graph, agents, verification, sessionStore),
+    );
+    const ports: OrchestratorPorts = {
+      store,
+      runtime: pool,
+      sessionStore,
+      verification,
+      worktree: createWorktreeStub(),
+      ui: createUiStub(),
+      config,
+      projectRoot: '/repo',
+      runErrorLogSink: { writeFirstFailure: async () => {} },
+    };
+    const loop = new SchedulerLoop(graph, ports);
+
+    const stepPromise = loop.step(100);
+
+    // Wait for the discuss agent's request_help to land in the store
+    // through compose-style sink wiring.
+    let payload: { toolCallId: string; query: string } | undefined;
+    for (let i = 0; i < 200 && payload === undefined; i += 1) {
+      await new Promise((resolve) => setImmediate(resolve));
+      const run = store.getAgentRun(agentRunId);
+      if (run?.runStatus === 'await_response' && run.payloadJson) {
+        payload = JSON.parse(run.payloadJson) as {
+          toolCallId: string;
+          query: string;
+        };
+      }
+    }
+    expect(payload).toBeDefined();
+    expect(payload?.query).toMatch(/^\[topology\]/);
+    expect(store.getAgentRun(agentRunId)?.runStatus).toBe('await_response');
+
+    const delivered = await pool.respondToRunHelp(
+      agentRunId,
+      payload?.toolCallId ?? '',
+      { kind: 'answer', text: 'Defer split to project planner; proceed.' },
+    );
+    expect(delivered.kind).toBe('delivered');
+
+    await stepPromise;
+
+    expect(store.getAgentRun(agentRunId)).toEqual(
+      expect.objectContaining({
+        runStatus: 'completed',
+      }),
+    );
+    const completedRun = store.getAgentRun(agentRunId);
+    expect(completedRun?.payloadJson).toBeUndefined();
+    expect(graph.features.get('f-1')).toEqual(
+      expect.objectContaining({ workControl: 'researching' }),
+    );
+  });
+
   it('dispatches research end-to-end with structured submitResearch and advances to planning', async () => {
     faux.setResponses([
       fauxAssistantMessage(

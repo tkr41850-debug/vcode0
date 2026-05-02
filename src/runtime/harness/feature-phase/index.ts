@@ -1,9 +1,13 @@
 import type { PlannerAgent } from '@agents/planner';
 import type { ProposalPhaseResult } from '@agents/proposal';
 import type { ReplannerAgent } from '@agents/replanner';
-import type { LiveProposalPhaseSession } from '@agents/runtime';
+import type {
+  LiveFeaturePhaseSession,
+  LiveProposalPhaseSession,
+} from '@agents/runtime';
 import type { FeatureGraph } from '@core/graph/index';
 import type {
+  DiscussPhaseResult,
   Feature,
   FeaturePhaseResult,
   FeaturePhaseRunContext,
@@ -35,13 +39,14 @@ export type FeaturePhaseDispatchOutcome =
 export interface FeaturePhaseSessionHandle extends SessionHandle {
   awaitOutcome(this: void): Promise<FeaturePhaseDispatchOutcome>;
   /**
-   * For plan/replan handles backed by a {@link LiveProposalPhaseSession},
-   * exposes the underlying session so the orchestrator can introspect /
-   * resolve pending help requests. Undefined for synthetic handles built
-   * around legacy planFeature/replanFeature wrappers and for non-proposal
-   * phases (discuss/research/verify/ci_check/summarize).
+   * For phase handles backed by a {@link LiveFeaturePhaseSession} (plan,
+   * replan, or discuss), exposes the underlying session so the orchestrator
+   * can introspect / resolve pending help requests via listPendingHelp /
+   * respondToHelp. Undefined for synthetic handles built around legacy
+   * Promise-only wrappers and for phases without a help session
+   * (research/verify/ci_check/summarize).
    */
-  proposalSession?: LiveProposalPhaseSession;
+  proposalSession?: LiveFeaturePhaseSession<unknown>;
 }
 
 export type ResumeFeaturePhaseResult =
@@ -69,6 +74,10 @@ export interface FeaturePhaseBackend {
 }
 
 export interface ProposalPhaseAgent {
+  startDiscussFeature?(
+    feature: Feature,
+    run: FeaturePhaseRunContext,
+  ): LiveFeaturePhaseSession<DiscussPhaseResult>;
   startPlanFeature(
     feature: Feature,
     run: FeaturePhaseRunContext,
@@ -150,13 +159,18 @@ export class DiscussFeaturePhaseBackend implements FeaturePhaseBackend {
     const sessionId = runContext.sessionId ?? runContext.agentRunId;
 
     switch (scope.phase) {
-      case 'discuss':
+      case 'discuss': {
+        if (this.agent.startDiscussFeature !== undefined) {
+          const session = this.agent.startDiscussFeature(feature, runContext);
+          return createDiscussPhaseSessionHandle({ sessionId, session });
+        }
         return createFeaturePhaseHandle({
           sessionId,
           outcome: this.agent
             .discussFeature(feature, runContext)
             .then((result) => textPhaseOutcome('discuss', result)),
         });
+      }
       case 'research':
         return createFeaturePhaseHandle({
           sessionId,
@@ -456,6 +470,93 @@ export function createProposalPhaseSessionHandle(params: {
       // Phase 5 defers the Agent.subscribe → worker-message adapter for
       // attach observation; help-response routing flows through send()
       // above instead.
+    },
+    onExit(handler: (info: SessionExitInfo) => void): void {
+      if (exitInfo !== undefined) {
+        handler(exitInfo);
+        return;
+      }
+      exitHandlers.push(handler);
+    },
+    awaitOutcome(): Promise<FeaturePhaseDispatchOutcome> {
+      return outcome;
+    },
+    proposalSession: params.session,
+  };
+}
+
+/**
+ * Builds a feature-phase handle backed by a discuss-typed
+ * {@link LiveFeaturePhaseSession}. Mirrors {@link createProposalPhaseSessionHandle}
+ * but the session resolves to a {@link DiscussPhaseResult} (text-phase outcome)
+ * instead of a proposal outcome. send() still routes `help_response` messages
+ * to {@link LiveFeaturePhaseSession.respondToHelp} so topology-flavored help
+ * requests from a discuss agent can be answered through the same orchestrator
+ * surface as plan/replan.
+ */
+export function createDiscussPhaseSessionHandle(params: {
+  sessionId: string;
+  session: LiveFeaturePhaseSession<DiscussPhaseResult>;
+  harnessKind?: HarnessKind;
+  workerPid?: number;
+  workerBootEpoch?: number;
+}): FeaturePhaseSessionHandle {
+  const outcome = params.session
+    .awaitOutcome()
+    .then((result) => textPhaseOutcome('discuss', result));
+  let exitInfo: SessionExitInfo | undefined;
+  const exitHandlers: Array<(info: SessionExitInfo) => void> = [];
+
+  const fireExit = (info: SessionExitInfo): void => {
+    if (exitInfo !== undefined) {
+      return;
+    }
+    exitInfo = info;
+    for (const handler of exitHandlers) {
+      handler(info);
+    }
+  };
+
+  void outcome.then(
+    () => {
+      fireExit({ code: 0, signal: null });
+    },
+    (error: unknown) => {
+      fireExit({
+        code: 1,
+        signal: null,
+        error:
+          error instanceof Error
+            ? error
+            : new Error(String(error ?? 'unknown')),
+      });
+    },
+  );
+
+  return {
+    sessionId: params.sessionId,
+    harnessKind: params.harnessKind ?? 'pi-sdk',
+    ...(params.workerPid !== undefined ? { workerPid: params.workerPid } : {}),
+    ...(params.workerBootEpoch !== undefined
+      ? { workerBootEpoch: params.workerBootEpoch }
+      : {}),
+    abort(): void {
+      params.session.abort();
+    },
+    sendInput(text: string): Promise<void> {
+      params.session.sendUserMessage(text);
+      return Promise.resolve();
+    },
+    send(message: OrchestratorToWorkerMessage): void {
+      if (message.type === 'help_response') {
+        params.session.respondToHelp(message.toolCallId, message.response);
+      }
+    },
+    onWorkerMessage(
+      _handler: (message: WorkerToOrchestratorMessage) => void,
+    ): void {
+      // Mirrors createProposalPhaseSessionHandle: the in-process agent does
+      // not speak worker IPC; help-response routing flows through send().
     },
     onExit(handler: (info: SessionExitInfo) => void): void {
       if (exitInfo !== undefined) {

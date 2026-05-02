@@ -65,6 +65,12 @@ Output should call `submit(...)` after building draft proposal with available to
 
 `submit(...)` is checkpoint-style: call it once when initial proposal is ready; if you receive follow-up input (chat, request_help response, replan reason) and need to revise, mutate the proposal further and call `submit(...)` again with updated details. Each submit replaces the prior pending proposal payload.
 
+Topology escalation (rare):
+- topology issues should be caught in discuss; if one surfaces here, proceed only if it can be resolved within this feature's scope
+- if it cannot (feature should split, duplicates another feature, missing prerequisite blocks planning), call `request_help` with a query prefixed `[topology]` describing the proposed restructure
+- the project planner reviews `[topology]` escalations and decides whether to restructure the project graph; resume planning with the operator's response
+- do not use `[topology]` for routine clarifications; reserve it for cross-feature restructuring this plan cannot resolve alone
+
 Do not:
 - present many equivalent options without recommendation
 - over-decompose simple work

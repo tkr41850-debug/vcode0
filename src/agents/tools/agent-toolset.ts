@@ -230,11 +230,16 @@ export function buildFeaturePhaseAgentToolset(
   host: DefaultFeaturePhaseToolHost,
   phase: 'discuss' | 'research' | 'summarize' | 'verify',
   projectRoot?: string,
+  requestHelp?: ProposalRequestHelpFn,
 ): FeaturePhaseAgentTool[] {
   const tools: FeaturePhaseAgentTool[] = buildFeatureInspectionTools(host);
 
   if (phase === 'research' && projectRoot !== undefined) {
     tools.push(...buildRepoInspectionTools(projectRoot));
+  }
+
+  if (requestHelp !== undefined) {
+    tools.push(createProposalRequestHelpTool(requestHelp));
   }
 
   switch (phase) {

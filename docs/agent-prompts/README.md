@@ -22,6 +22,10 @@ These docs keep purpose, prompt text, and upstream provenance in one browsable p
 - `Discuss Feature`, `Research Feature`, and `Summarize Feature` end with structured `submitDiscuss(...)`, `submitResearch(...)`, and `submitSummarize(...)` outputs.
 - `Verify Feature` verifies real feature outcome, not generic style, and ends with structured `submitVerify(...)` output.
 
+## Topology escalation
+
+Feature-phase agents that uncover project-graph topology issues (a feature that should split, two features that duplicate each other, a missing prerequisite, or wrong dependency edges) escalate via `request_help` with a query prefixed `[topology]`. Discuss is the primary capture point; plan/replan only escalate when the issue cannot be resolved within the current feature's scope. The project planner reviews `[topology]` escalations and decides whether to restructure the project graph; the help query surfaces from the run row (`agent_runs.payload_json`) while the run sits at `await_response`.
+
 ## Main source families
 
 - GSD-2 prompts under `gsd-2/src/resources/extensions/gsd/prompts/`

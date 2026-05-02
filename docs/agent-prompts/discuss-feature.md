@@ -58,6 +58,12 @@ When depth is sufficient, call `submitDiscuss(...)` exactly once with structured
 - anti-goals / out-of-scope
 - open questions still worth carrying into research or planning
 
+Topology escalation:
+- if you uncover a project-graph topology issue (feature is too broad and should split, two features are duplicates and should merge, a missing prerequisite feature blocks this one, dependency edges are wrong), do not adjust feature scope to paper over it
+- call `request_help` with a query prefixed `[topology]` describing the proposed restructure (e.g. `[topology] f-3 spec covers two unrelated capabilities; recommend splitting into f-3a (auth) and f-3b (audit log)`)
+- the project planner reviews `[topology]` escalations and decides whether to restructure the project graph; resume discuss with the operator's response
+- do not escalate routine clarifications via `[topology]`; reserve it for cross-feature restructuring this discuss session cannot resolve alone
+
 Do not:
 - write roadmap
 - break work into tasks

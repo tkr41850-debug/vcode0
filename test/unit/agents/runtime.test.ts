@@ -592,7 +592,160 @@ describe('FeaturePhaseOrchestrator', () => {
 
     const helpPromise = session.requestHelp('call-x', 'q');
     session.abort();
-    await expect(helpPromise).rejects.toThrow('proposal phase aborted');
+    await expect(helpPromise).rejects.toThrow('feature phase aborted');
+  });
+
+  it('discuss request_help blocks until session.respondToHelp resolves; submitDiscuss then completes', async () => {
+    const discussExtra: DiscussPhaseDetails = {
+      intent: 'Capture topology issue early',
+      successCriteria: ['Operator answer routed back to discuss'],
+      constraints: ['No graph topology mutation here'],
+      risks: ['Spec too broad to plan'],
+      externalIntegrations: ['None'],
+      antiGoals: ['No planner output'],
+      openQuestions: ['Should f-3 split?'],
+    };
+    faux.setResponses([
+      fauxAssistantMessage(
+        [
+          fauxToolCall('request_help', {
+            query: '[topology] f-3 spec is too broad — split or keep?',
+          }),
+        ],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage(
+        [
+          fauxToolCall('submitDiscuss', {
+            summary: 'Discussion summary after operator answer.',
+            ...discussExtra,
+          }),
+        ],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage([fauxText('Discussion structured.')]),
+    ]);
+
+    const helpRequests: Array<{
+      scope: { phase: string };
+      toolCallId: string;
+      query: string;
+    }> = [];
+    const helpResolutions: string[] = [];
+    const sink: ProposalOpSink = {
+      onOpRecorded: () => {},
+      onSubmitted: () => {},
+      onHelpRequested: (scope, toolCallId, query) => {
+        helpRequests.push({ scope, toolCallId, query });
+      },
+      onHelpResolved: (_scope, toolCallId) => {
+        helpResolutions.push(toolCallId);
+      },
+      onPhaseEnded: () => {},
+    };
+
+    const { feature, run, runtime } = createRuntimeFixture('discuss', {
+      proposalOpSink: sink,
+    });
+    const session = runtime.startDiscussFeature(feature, {
+      agentRunId: run.id,
+    });
+    expect(session.scope).toEqual({
+      featureId: 'f-1',
+      phase: 'discuss',
+      agentRunId: run.id,
+    });
+
+    const outcomePromise = session.awaitOutcome();
+
+    while (helpRequests.length === 0) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    expect(helpRequests).toHaveLength(1);
+    expect(helpRequests[0]?.scope.phase).toBe('discuss');
+    expect(helpRequests[0]?.query).toBe(
+      '[topology] f-3 spec is too broad — split or keep?',
+    );
+    expect(session.listPendingHelp()).toHaveLength(1);
+
+    const toolCallId = helpRequests[0]?.toolCallId;
+    expect(toolCallId).toBeDefined();
+    const delivered = session.respondToHelp(toolCallId ?? '', {
+      kind: 'answer',
+      text: 'split into f-3a and f-3b',
+    });
+    expect(delivered).toBe(true);
+    expect(helpResolutions).toEqual([toolCallId]);
+
+    const result = await outcomePromise;
+    expect(result.summary).toBe('Discussion summary after operator answer.');
+    expect(result.extra).toEqual(discussExtra);
+    expect(session.listPendingHelp()).toEqual([]);
+  });
+
+  it('replan request_help blocks until session.respondToHelp resolves; submit then completes', async () => {
+    faux.setResponses([
+      fauxAssistantMessage(
+        [
+          fauxToolCall('request_help', {
+            query: '[topology] f-1 needs a missing prerequisite feature first',
+          }),
+        ],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage(
+        [
+          fauxToolCall('addTask', {
+            featureId: 'f-1',
+            description: 'Replan task after operator answer',
+          }),
+          fauxToolCall('submit', proposalDetails),
+        ],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage([fauxText('Replan ready.')]),
+    ]);
+
+    const helpRequests: Array<{
+      scope: { phase: 'plan' | 'replan' | 'discuss' };
+      query: string;
+    }> = [];
+    const sink: ProposalOpSink = {
+      onOpRecorded: () => {},
+      onSubmitted: () => {},
+      onHelpRequested: (scope, _toolCallId, query) => {
+        helpRequests.push({ scope, query });
+      },
+      onHelpResolved: () => {},
+      onPhaseEnded: () => {},
+    };
+
+    const { feature, run, runtime } = createRuntimeFixture('replan', {
+      proposalOpSink: sink,
+    });
+    const session = runtime.startReplanFeature(feature, 'CI flapped', {
+      agentRunId: run.id,
+    });
+    const outcomePromise = session.awaitOutcome();
+
+    while (helpRequests.length === 0) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    expect(helpRequests).toHaveLength(1);
+    expect(helpRequests[0]?.scope.phase).toBe('replan');
+    expect(helpRequests[0]?.query).toMatch(/^\[topology\]/);
+
+    const pending = session.listPendingHelp();
+    expect(pending).toHaveLength(1);
+    const delivered = session.respondToHelp(pending[0]?.toolCallId ?? '', {
+      kind: 'answer',
+      text: 'Defer prerequisite to project planner; proceed without it.',
+    });
+    expect(delivered).toBe(true);
+
+    const result = await outcomePromise;
+    expect(result.proposal.ops).toHaveLength(1);
+    expect(session.listPendingHelp()).toEqual([]);
   });
 
   it('startReplanFeature carries replan reason into prompt + returns live session', async () => {
@@ -620,7 +773,7 @@ describe('FeaturePhaseOrchestrator', () => {
           kind: 'op';
           scope: {
             featureId: string;
-            phase: 'plan' | 'replan';
+            phase: 'plan' | 'replan' | 'discuss';
             agentRunId: string;
           };
           opKind: string;
@@ -630,7 +783,7 @@ describe('FeaturePhaseOrchestrator', () => {
           kind: 'submit';
           scope: {
             featureId: string;
-            phase: 'plan' | 'replan';
+            phase: 'plan' | 'replan' | 'discuss';
             agentRunId: string;
           };
           submissionIndex: number;
@@ -640,7 +793,7 @@ describe('FeaturePhaseOrchestrator', () => {
           kind: 'ended';
           scope: {
             featureId: string;
-            phase: 'plan' | 'replan';
+            phase: 'plan' | 'replan' | 'discuss';
             agentRunId: string;
           };
           outcome: 'completed' | 'failed';

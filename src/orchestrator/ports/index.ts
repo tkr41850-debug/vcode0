@@ -22,7 +22,7 @@ import type { WorktreeProvisioner } from '@runtime/worktree/index';
 
 export interface ProposalOpScopeRef {
   featureId: FeatureId;
-  phase: 'plan' | 'replan';
+  phase: 'plan' | 'replan' | 'discuss';
   agentRunId: string;
 }
 

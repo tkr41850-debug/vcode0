@@ -39,7 +39,7 @@ import type { TSchema } from '@sinclair/typebox';
 
 export interface ProposalOpScope {
   featureId: FeatureId;
-  phase: 'plan' | 'replan';
+  phase: 'plan' | 'replan' | 'discuss';
   agentRunId: string;
 }
 
@@ -77,18 +77,18 @@ export type ProposalHelpResponse =
   | { kind: 'answer'; text: string }
   | { kind: 'discuss' };
 
-export interface LiveProposalPhaseSession {
+export interface LiveFeaturePhaseSession<TOutcome> {
   readonly scope: ProposalOpScope;
-  /** Queue a user follow-up turn on the running planner agent. */
+  /** Queue a user follow-up turn on the running agent. */
   sendUserMessage(text: string): void;
-  /** Abort the running planner agent. */
+  /** Abort the running agent. */
   abort(): void;
-  /** Resolves with the final ProposalPhaseResult after the agent settles. */
-  awaitOutcome(): Promise<ProposalPhaseResult>;
+  /** Resolves with the final phase outcome after the agent settles. */
+  awaitOutcome(): Promise<TOutcome>;
   /**
    * Register a pending help request and return a Promise that resolves once
    * an operator delivers a response via {@link respondToHelp}. Used by the
-   * planner's `request_help` tool to block its own run on operator input.
+   * agent's `request_help` tool to block its own run on operator input.
    */
   requestHelp(toolCallId: string, query: string): Promise<ProposalHelpResponse>;
   /**
@@ -99,6 +99,12 @@ export interface LiveProposalPhaseSession {
   /** Snapshot of currently-pending help requests on this session. */
   listPendingHelp(): readonly { toolCallId: string; query: string }[];
 }
+
+/**
+ * Plan/replan-typed alias preserved for existing call sites.
+ */
+export type LiveProposalPhaseSession =
+  LiveFeaturePhaseSession<ProposalPhaseResult>;
 
 export interface FeatureAgentRuntimeConfig {
   modelId: string;
@@ -134,18 +140,21 @@ type PhaseResultExtra<Phase extends TextPhase> = Phase extends 'discuss'
 
 /**
  * @internal
- * LiveProposalPhaseSession implementation. The agent binding is deferred so
- * the session reference can be returned synchronously from startProposalPhase
+ * LiveFeaturePhaseSession implementation. The agent binding is deferred so
+ * the session reference can be returned synchronously from the start* methods
  * before the (async) message-loading + agent-creation step begins. Calls to
  * sendUserMessage / abort issued before bind queue onto the agent the moment
  * it becomes available. Exported only for direct testing of pre-bind queuing
  * semantics; production code should obtain instances via
  * {@link FeaturePhaseOrchestrator.startPlanFeature} /
- * {@link FeaturePhaseOrchestrator.startReplanFeature}.
+ * {@link FeaturePhaseOrchestrator.startReplanFeature} /
+ * {@link FeaturePhaseOrchestrator.startDiscussFeature}.
  */
-export class ProposalPhaseSessionImpl implements LiveProposalPhaseSession {
+export class FeaturePhaseSessionImpl<TOutcome>
+  implements LiveFeaturePhaseSession<TOutcome>
+{
   private agent: Agent | undefined;
-  private outcome: Promise<ProposalPhaseResult> | undefined;
+  private outcome: Promise<TOutcome> | undefined;
   private readonly pendingFollowUps: string[] = [];
   private pendingAbort = false;
   private readonly pendingHelp = new Map<
@@ -242,7 +251,7 @@ export class ProposalPhaseSessionImpl implements LiveProposalPhaseSession {
     }
   }
 
-  bindOutcome(outcome: Promise<ProposalPhaseResult>): void {
+  bindOutcome(outcome: Promise<TOutcome>): void {
     this.outcome = outcome;
   }
 
@@ -255,7 +264,7 @@ export class ProposalPhaseSessionImpl implements LiveProposalPhaseSession {
   }
 
   abort(): void {
-    this.rejectAllPendingHelp(new Error('proposal phase aborted'));
+    this.rejectAllPendingHelp(new Error('feature phase aborted'));
     if (this.agent === undefined) {
       this.pendingAbort = true;
       return;
@@ -263,9 +272,9 @@ export class ProposalPhaseSessionImpl implements LiveProposalPhaseSession {
     this.agent.abort();
   }
 
-  awaitOutcome(): Promise<ProposalPhaseResult> {
+  awaitOutcome(): Promise<TOutcome> {
     if (this.outcome === undefined) {
-      throw new Error('proposal phase outcome not bound');
+      throw new Error('feature phase outcome not bound');
     }
     return this.outcome;
   }
@@ -279,14 +288,27 @@ export class ProposalPhaseSessionImpl implements LiveProposalPhaseSession {
   }
 }
 
+/**
+ * Plan/replan-typed alias preserved for existing call sites + tests that
+ * construct the impl directly.
+ */
+export class ProposalPhaseSessionImpl extends FeaturePhaseSessionImpl<ProposalPhaseResult> {}
+
 export class FeaturePhaseOrchestrator {
   constructor(private readonly deps: FeatureAgentRuntimeConfig) {}
+
+  startDiscussFeature(
+    feature: Feature,
+    run: FeaturePhaseRunContext,
+  ): LiveFeaturePhaseSession<DiscussPhaseResult> {
+    return this.startDiscussPhase(feature, run);
+  }
 
   discussFeature(
     feature: Feature,
     run: FeaturePhaseRunContext,
   ): Promise<DiscussPhaseResult> {
-    return this.runTextPhase('discuss', feature, run);
+    return this.startDiscussFeature(feature, run).awaitOutcome();
   }
 
   researchFeature(
@@ -475,6 +497,77 @@ export class FeaturePhaseOrchestrator {
         // explicit abort already calls rejectAllPendingHelp).
         session.rejectAllPendingHelp(
           new Error(`proposal phase ${phase} ended (outcome=${outcome})`),
+        );
+        sink?.onPhaseEnded(scope, outcome);
+      }
+    })();
+
+    session.bindOutcome(settled);
+    return session;
+  }
+
+  private startDiscussPhase(
+    feature: Feature,
+    run: FeaturePhaseRunContext,
+  ): LiveFeaturePhaseSession<DiscussPhaseResult> {
+    const prompt = this.renderPrompt({ feature, run, phase: 'discuss' });
+    const host = createFeaturePhaseToolHost(
+      feature.id,
+      this.deps.graph,
+      this.deps.store,
+    );
+    const sink = this.deps.proposalOpSink;
+    const scope: ProposalOpScope = {
+      featureId: feature.id,
+      phase: 'discuss',
+      agentRunId: run.agentRunId,
+    };
+
+    const session = new FeaturePhaseSessionImpl<DiscussPhaseResult>(scope);
+    if (sink !== undefined) {
+      session.setHelpListener({
+        onRequested: (toolCallId, query) => {
+          sink.onHelpRequested(scope, toolCallId, query);
+        },
+        onResolved: (toolCallId) => {
+          sink.onHelpResolved(scope, toolCallId);
+        },
+      });
+    }
+    const tools = buildFeaturePhaseAgentToolset(
+      host,
+      'discuss',
+      this.deps.projectRoot,
+      (toolCallId, query) => session.requestHelp(toolCallId, query),
+    );
+
+    const settled = (async (): Promise<DiscussPhaseResult> => {
+      const messages = await this.loadMessages(run.sessionId);
+      const { agent, model } = this.createAgent(
+        'discuss',
+        prompt,
+        tools,
+        run,
+        messages,
+      );
+      session.bindAgent(agent);
+
+      let outcome: 'completed' | 'failed' = 'failed';
+      try {
+        await this.executeAgent(agent, feature.description);
+        const finalMessages = agent.state.messages;
+        const result = getSubmittedPhaseResult(host, 'discuss');
+        await this.persistMessages(
+          run,
+          finalMessages,
+          model.provider,
+          model.id,
+        );
+        outcome = 'completed';
+        return result;
+      } finally {
+        session.rejectAllPendingHelp(
+          new Error(`feature phase discuss ended (outcome=${outcome})`),
         );
         sink?.onPhaseEnded(scope, outcome);
       }
