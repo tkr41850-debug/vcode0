@@ -296,22 +296,19 @@ expect({ passes, attempts, failures }).toMatchObject({ passes: 5, attempts: 5 })
 | A2 | Existing lifecycle fixture may need a narrow merge-layout extension for root-repo fast-forward merge. | Pitfall 6 | Planner may under-scope the merge-train drain task. |
 | A3 | Shared faux queue can become nondeterministic if `maxConcurrency` is raised above 1. | Pitfall 2 | Flaky scripted scenario under parallel execution. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Should 12-01 add a package script for the flake audit or keep it as a default integration test?**
    - What we know: Context allows an explicit npm script if default `npm run check` would become too slow. [VERIFIED: /home/alpine/vcode0/.planning/phases/12-integration-polish/12-CONTEXT.md:80-83]
-   - What's unclear: Actual runtime after implementation.
-   - Recommendation: Start as a focused Vitest test; add `test:verify-flake` only if five repeats materially slow default check. [ASSUMED]
+   - Resolution: Keep the audit as a default deterministic integration test for 12-01 and use focused Vitest commands directly. Do not add a package script in this plan; revisit only if implementation proves default check runtime is unacceptable. [ASSUMED]
 
 2. **Can `createFeatureLifecycleFixture()` drain merge train into root `main` without extension?**
    - What we know: Existing lifecycle test intentionally stops at `awaiting_merge`/`merge_queued`/`integrating`. [VERIFIED: /home/alpine/vcode0/test/integration/feature-lifecycle-e2e.test.ts:228-234]
-   - What's unclear: Whether the fixture’s root repo has the feature branch refs needed by `simpleGit(cwd).merge([featureBranch, '--ff-only'])`.
-   - Recommendation: Planner should include Wave 0 investigation or first task to make fixture merge refs explicit. [ASSUMED]
+   - Resolution: Make fixture merge-layout validation part of Task 1 and allow only a narrow `test/helpers/feature-lifecycle-fixture.ts` extension if the root repo cannot see the feature branch refs needed by `simpleGit(cwd).merge([featureBranch, '--ff-only'])`. [ASSUMED]
 
 3. **Should summarization be included in prompt-to-main proof?**
    - What we know: Newcomer flow ends with `work_complete` after post-merge summarize or budget-mode shortcut. [VERIFIED: /home/alpine/vcode0/docs/foundations/newcomer.md:199-213]
-   - What's unclear: Whether 12-01 acceptance requires `work_complete` or only “main contains expected commits.”
-   - Recommendation: Prefer one scripted summarize turn if runtime cost is acceptable; otherwise assert `collabControl='merged'` and document summarize as already covered by existing integration test. [VERIFIED: /home/alpine/vcode0/test/integration/feature-phase-agent-flow.test.ts:1382-1485]
+   - Resolution: 12-01 requires merge-train drain and root/main expected commit evidence, not post-merge summarize. Summarization remains covered by existing feature-phase tests and final v1 traceability can cite or extend it in 12-03 if needed. [VERIFIED: /home/alpine/vcode0/test/integration/feature-phase-agent-flow.test.ts:1382-1485]
 
 ## Environment Availability
 
