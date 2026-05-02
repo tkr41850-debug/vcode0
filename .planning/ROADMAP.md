@@ -216,7 +216,7 @@ Plans:
 Plans:
 - [x] 11-01: `gvc0 explain` CLI + view-model reuse for text output
 - [x] 11-02: Doc-vs-code drift check + state diagram update + decision-table consolidation
-- [ ] 11-03: Concerns-to-tests map + newcomer narrative doc
+- [x] 11-03: Concerns-to-tests map + newcomer narrative doc
 
 ### Phase 12: Integration & Polish
 **Goal**: Prove the core loop end-to-end; tune verify agent; establish a source-install runbook that a fresh clone can follow.
@@ -252,9 +252,9 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 8. TUI Surfaces | 5/5 | ✓ Complete | 2026-04-29 |
 | 9. Crash Recovery UX | 3/3 | ✓ Complete | 2026-05-01 |
 | 10. Re-plan Flows & Manual Edits Polish | 2/2 | ✓ Complete | 2026-05-01 |
-| 11. Documentation & Diagnostic Tooling | 2/TBD (~3) | In progress | - |
+| 11. Documentation & Diagnostic Tooling | 3/3 | ✓ Complete | 2026-05-02 |
 | 12. Integration & Polish | 0/TBD (~3) | Not started | - |
 
 ---
 *Roadmap created: 2026-04-23*
-*Last updated: 2026-05-02 — Phase 11 execution is underway. Plan 11-01 shipped a read-only pre-TUI `gvc0 explain` diagnostic CLI, and 11-02 shipped executable doc-vs-code drift checks plus canonical docs reconciliation; 11-03 concerns/newcomer docs remain.*
+*Last updated: 2026-05-02 — Phase 11 is complete. Plan 11-01 shipped read-only pre-TUI `gvc0 explain` diagnostics, 11-02 shipped executable doc-vs-code drift checks plus canonical docs reconciliation, and 11-03 shipped concerns-to-tests traceability plus the refreshed newcomer prompt-to-`main` narrative.*
