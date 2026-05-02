@@ -6,37 +6,39 @@ const { execSync } = require('node:child_process');
 const path = require('node:path');
 
 const nodePtyDir = path.join(__dirname, '..', 'node_modules', 'node-pty');
+const sourceBuildPath = path.join(nodePtyDir, 'build', 'Release', 'pty.node');
+const isMuslLinux =
+  process.platform === 'linux' &&
+  process.report?.getReport().header.glibcVersionRuntime === undefined;
 
-function tryLoadPty() {
+function tryLoadPty(binaryPath) {
   try {
-    // Attempt the same load that node-pty's utils.js does at runtime.
-    require(path.join(nodePtyDir, 'build', 'Release', 'pty.node'));
-    return true;
-  } catch {
-    // fall through to prebuild check
-  }
-  try {
-    const prebuildPath = path.join(
-      nodePtyDir,
-      'prebuilds',
-      `${process.platform}-${process.arch}`,
-      'pty.node',
-    );
-    require(prebuildPath);
+    require(binaryPath);
     return true;
   } catch {
     return false;
   }
 }
 
-if (tryLoadPty()) {
-  // Binary already works; nothing to rebuild.
+if (tryLoadPty(sourceBuildPath)) {
   process.exit(0);
 }
 
+if (!isMuslLinux) {
+  const prebuildPath = path.join(
+    nodePtyDir,
+    'prebuilds',
+    `${process.platform}-${process.arch}`,
+    'pty.node',
+  );
+  if (tryLoadPty(prebuildPath)) {
+    process.exit(0);
+  }
+}
+
 console.log(
-  '[gvc0 postinstall] node-pty prebuild not loadable in this environment ' +
-    '(likely musl/Alpine). Rebuilding from source via node-gyp...',
+  '[gvc0 postinstall] node-pty native binary not loadable for this environment. ' +
+    'Rebuilding from source via node-gyp...',
 );
 
 try {
