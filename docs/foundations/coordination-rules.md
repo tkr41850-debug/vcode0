@@ -118,7 +118,7 @@ the dominant task can continue.
   `suspendedFiles`, `blockedByFeatureId`): see
   [../architecture/data-model.md](../architecture/data-model.md).
 - Cross-feature runtime block: `Feature.runtimeBlockedByFeatureId` as
-  scheduling authority (documented in
+  scheduling authority; task-level `blockedByFeatureId` is reconstruction and UI display metadata (documented in
   [../operations/conflict-coordination.md § Persistence Notes](../operations/conflict-coordination.md#persistence-notes)).
 - Per-feature blocking rationale:
   [../operations/conflict-coordination.md § Cross-Feature Overlap](../operations/conflict-coordination.md#cross-feature-overlap).
@@ -174,15 +174,15 @@ happens only on suspension resolution (see [Resume](#resume)).
 
 | merge-train state | rebase result | verify result | next state | re-entry? |
 | ----------------- | ------------- | ------------- | ---------- | --------- |
-| `integrating` | rebase clean (no conflicts) | `ci_check` pass + `verify` pass | collab `merged`, work `awaiting_merge → summarizing` (or `work_complete` in budget mode) | no — terminal |
-| `integrating` | rebase clean | `ci_check` or `verify` fail | collab `branch_open`, work `awaiting_merge → replanning` with typed `VerifyIssue[]` | yes, after replan lands |
-| `integrating` | rebase conflict (merge markers or unresolvable) | n/a (not run) | collab `conflict`; conflict steering injected on the feature branch | yes, once conflict resolved |
-| `conflict` | repair landed; re-enter queue | n/a (deferred to next `integrating`) | collab `conflict → merge_queued` (requires `work = awaiting_merge`) | yes |
-| `merge_queued` | ejected for repair without integrating | n/a | collab `merge_queued → branch_open` (requires `work = awaiting_merge`) | yes |
+| `integrating` | rebase clean (no conflicts) | post-rebase `ci_check` pass | collab `merged`, work later advances `awaiting_merge → summarizing` (or `work_complete` in budget mode) | no — terminal |
+| `integrating` | rebase clean | post-rebase `ci_check` fail | collab `conflict`, work routes through integration repair / replanning with typed failure context | yes, after repair or replan lands |
+| `integrating` | rebase conflict (merge markers or unresolvable) | n/a (not run) | collab `conflict`; integration repair is created or the feature is parked if the re-entry cap is hit | yes, once repair lands |
+| `conflict` | repair landed; verifier passes and re-enters queue | n/a (deferred to next `integrating`) | collab `conflict → merge_queued` (requires `work = awaiting_merge`) | yes |
+| `merge_queued` | ejected before integration for repair/cap handling | n/a | collab `merge_queued → branch_open` (requires `work = awaiting_merge`) | yes unless capped |
 
-Verify-shaped failures (`verify`, `ci_check` pre-verify or post-rebase, or
-rebase itself) all route to `replanning` with a typed `VerifyIssue[]` per
-[ARCHITECTURE.md](../../ARCHITECTURE.md#core-thesis).
+Verify-shaped failures (`verify`, pre-verify `ci_check`, post-rebase
+`ci_check`, or rebase itself) all route into repair or replanning on the same
+feature branch; capped merge-train re-entry parks the feature in the inbox.
 
 ### Rebase — integration-worker lifecycle
 

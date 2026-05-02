@@ -6,6 +6,20 @@ canonical summary of the end-to-end execution model; the detail references are
 scheduler pseudocode and [../architecture/worker-model.md](../architecture/worker-model.md)
 for worker/IPC mechanics.
 
+## CLI entrypoints
+
+`gvc0` has one read-only diagnostic branch before TUI startup and before
+application composition:
+
+| command | path | side effects |
+| ------- | ---- | ------------ |
+| `gvc0 explain feature <id>` | parse `explain` target, open `.gvc0/state.db` read-only, render feature DAG/status context | no startup notice, no TUI, no scheduler, no runtime workers |
+| `gvc0 explain task <id>` | parse `explain` target, open `.gvc0/state.db` read-only, render task/run/context details | no startup notice, no TUI, no scheduler, no runtime workers |
+| `gvc0 explain run <id>` | parse `explain` target, open `.gvc0/state.db` read-only, render persisted run facts and recorded activity | no startup notice, no TUI, no scheduler, no runtime workers |
+
+Normal `gvc0` / `gvc0 --auto` startup continues through the TUI/application path
+below. `--cwd <path>` is applied before either explain resolution or TUI startup.
+
 ## Event-loop overview
 
 gvc0 runs a **hybrid serial core with async feature phases**. All

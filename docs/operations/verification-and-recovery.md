@@ -59,7 +59,9 @@ Current code separates worker closeout from feature-level verification.
 Verification layers are configured as editable command lists in `.gvc0/config.json`. The commands shown below are examples only; actual projects may use different tools and ecosystems (`npm`, `cargo`, `go test`, `pytest`, `mix`, etc.).
 
 Current wiring:
-- `verification.feature` is executed during pre-verify `ci_check` and during post-rebase `ci_check` inside the integration executor. The integration snapshot captures `verification.feature` at integration begin so both `ci_check` runs within one integration cycle use identical commands even if config is edited mid-integration.
+- `verification.feature` is executed during pre-verify `ci_check`.
+- `verification.mergeTrain` is used for post-rebase `ci_check` inside the integration executor when configured; otherwise the resolver falls back through `mergeTrain -> feature -> empty defaults`.
+- The integration snapshot captures the effective merge-train verification layer at integration begin so the post-rebase gate stays stable even if config is edited mid-integration.
 - `verification.task` is executed as the task-level lightweight check.
 
 ```jsonc
@@ -87,7 +89,7 @@ Current wiring:
 }
 ```
 
-Feature checks run in the feature branch during `ci_check` and are the heavy branch-level gate before spec review. `verifying` is an agent-level review that checks whether the feature branch meets the feature spec. There is no separate `verification.mergeTrain` layer — post-rebase `ci_check` reuses `verification.feature` from the integration snapshot. Empty effective check lists are advisory-only: the phase still passes, but the orchestrator emits a warning because verification ran without configured commands (deduped per integration cycle — see [Warnings](./warnings.md)). Timeouts are configurable per verification layer; the 60s / 600s values shown above are baseline examples for local-machine workflows. Support for substantially longer-running verification windows is deferred. See [Feature Candidate: Long Verification Timeouts](../feature-candidates/long-verification-timeouts.md). Slow-check warnings and feature-churn warnings are described in [Warnings](./warnings.md). Upstream sync recommendation and conflict escalation behavior are described in [Conflict Coordination](./conflict-coordination.md).
+Feature checks run in the feature branch during `ci_check` and are the heavy branch-level gate before spec review. `verifying` is an agent-level review that checks whether the feature branch meets the feature spec. Post-rebase `ci_check` resolves the merge-train layer with the shipped `mergeTrain -> feature -> empty defaults` fallback, so projects may either define a dedicated `verification.mergeTrain` layer or rely on `verification.feature`. Empty effective check lists are advisory-only: the phase still passes, but the orchestrator emits a warning because verification ran without configured commands (deduped per integration cycle — see [Warnings](./warnings.md)). Timeouts are configurable per verification layer; the 60s / 600s values shown above are baseline examples for local-machine workflows. Support for substantially longer-running verification windows is deferred. See [Feature Candidate: Long Verification Timeouts](../feature-candidates/long-verification-timeouts.md). Slow-check warnings and feature-churn warnings are described in [Warnings](./warnings.md). Upstream sync recommendation and conflict escalation behavior are described in [Conflict Coordination](./conflict-coordination.md).
 
 ### Unified Failure Routing to Replanning
 
