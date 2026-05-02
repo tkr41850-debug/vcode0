@@ -20,7 +20,7 @@ gvc0's v1 journey is **completing and clarifying** an existing design rather tha
 - [x] **Phase 8: TUI Surfaces** — Four-surface TUI (feature DAG, inbox, merge-train, task transcript), manual DAG editing, three cancel levers, config editor menu. ✓ 2026-04-29 (5/5 plans, verification green on focused runtime/TUI/scheduler-boundary lanes and `npm run check`; separate `@microsoft/tui-test` smoke lane still blocked by the pre-existing workerpool `SIGSEGV` crash across all eight smoke tests.)
 - [x] **Phase 9: Crash Recovery UX** — Seamless auto-resume, orphan-worktree triage, stale-lock sweep, recovery-summary inbox item. ✓ 2026-05-01 (3/3 plans; startup recovery substrate, truthful respawn/replay handling, recovery-summary inbox surfacing, orphan-worktree triage commands, and real-file restart proof shipped with focused verification green.)
 - [x] **Phase 10: Re-plan Flows & Manual Edits Polish** — Continue-vs-fresh planner session picker, audit-log reader, proposal preview, collision-surface polish. ✓ 2026-05-01 (2/2 plans; planner-session picker, planner-audit reader, read-only proposal-review overlay, explicit collision surfacing, and collision-reset truthfulness verification shipped with `npm run check` green.)
-- [ ] **Phase 11: Documentation & Diagnostic Tooling** — `gvc0 explain` CLI, canonical diagrams matched to shipped code, concerns-to-tests map, newcomer narrative.
+- [ ] **Phase 11: Documentation & Diagnostic Tooling** — `gvc0 explain` CLI, canonical diagrams matched to shipped code, concerns-to-tests map, newcomer narrative. In progress: 11-01 shipped the read-only pre-TUI `gvc0 explain` diagnostic surface with shared DAG/planner/wait summary reuse; 11-02 and 11-03 remain.
 - [ ] **Phase 12: Integration & Polish** — End-to-end scenarios, verify-agent flake-rate audit, TUI e2e smoke tests, source-install runbook.
 
 ## Phase Details
@@ -214,7 +214,7 @@ Plans:
 **Plans**: TBD (~3 plans)
 
 Plans:
-- [ ] 11-01: `gvc0 explain` CLI + view-model reuse for text output
+- [x] 11-01: `gvc0 explain` CLI + view-model reuse for text output
 - [ ] 11-02: Doc-vs-code drift check + state diagram update + decision-table consolidation
 - [ ] 11-03: Concerns-to-tests map + newcomer narrative doc
 
@@ -252,9 +252,9 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 8. TUI Surfaces | 5/5 | ✓ Complete | 2026-04-29 |
 | 9. Crash Recovery UX | 3/3 | ✓ Complete | 2026-05-01 |
 | 10. Re-plan Flows & Manual Edits Polish | 2/2 | ✓ Complete | 2026-05-01 |
-| 11. Documentation & Diagnostic Tooling | 0/TBD (~3) | Planning in progress | - |
+| 11. Documentation & Diagnostic Tooling | 1/TBD (~3) | In progress | - |
 | 12. Integration & Polish | 0/TBD (~3) | Not started | - |
 
 ---
 *Roadmap created: 2026-04-23*
-*Last updated: 2026-05-01 — Phase 10 is complete. Plans 10-01 and 10-02 shipped explicit planner-session intent, planner-audit reading, proposal-review overlay visibility, and collision truthfulness with `npm run check` green; Phase 11 research and 11-01 planning are now verified, with implementation next on a pre-TUI `gvc0 explain` diagnostic CLI and shared text-summary reuse.*
+*Last updated: 2026-05-02 — Phase 11 execution is underway. Plan 11-01 shipped a read-only pre-TUI `gvc0 explain` diagnostic CLI with shared planner-audit and wait-summary reuse plus truthful recorded-activity rendering; 11-02 doc-vs-code drift checks and 11-03 concerns/newcomer docs remain.*

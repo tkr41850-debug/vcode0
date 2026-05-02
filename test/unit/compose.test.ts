@@ -23,6 +23,7 @@ import {
   cleanOrphanWorktree,
   composeApplication,
   decideInboxApproval,
+  explainFromStore,
   formatWorkerOutput,
   initializeProjectGraph,
   inspectOrphanWorktree,
@@ -455,6 +456,163 @@ describe('compose helpers', () => {
         collisionCount: 1,
       },
     ]);
+  });
+
+  it('explains feature state with planner provenance and task wait context', () => {
+    const store = new InMemoryStore();
+    const graph = store.graph() as InMemoryFeatureGraph;
+    graph.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    graph.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'Feature 1',
+      description: 'desc',
+    });
+    graph.createTask({ id: 't-1', featureId: 'f-1', description: 'Task 1' });
+
+    const feature = graph.features.get('f-1');
+    const task = graph.tasks.get('t-1');
+    assert(feature !== undefined, 'missing f-1 fixture');
+    assert(task !== undefined, 'missing t-1 fixture');
+    graph.features.set('f-1', {
+      ...feature,
+      status: 'in_progress',
+      workControl: 'planning',
+      collabControl: 'none',
+    });
+    graph.tasks.set('t-1', {
+      ...task,
+      status: 'running',
+      collabControl: 'none',
+    });
+    store.createAgentRun(
+      makeTaskRun({
+        runStatus: 'await_response',
+        owner: 'manual',
+        payloadJson: JSON.stringify({ query: 'Need operator guidance' }),
+      }),
+    );
+    store.appendEvent({
+      eventType: 'top_planner_prompt_recorded',
+      entityId: 'top-planner',
+      timestamp: Date.UTC(2026, 4, 1, 17, 34),
+      payload: {
+        prompt: 'Plan the next milestone slice',
+        sessionMode: 'fresh',
+        runId: 'run-top-planner',
+        sessionId: 'sess-top-1',
+        featureIds: ['f-1'],
+        milestoneIds: ['m-1'],
+        collidedFeatureRuns: [],
+      },
+    });
+
+    const output = explainFromStore(store, { kind: 'feature', id: 'f-1' }, 100);
+
+    expect(output).toContain('Feature f-1: Feature 1');
+    expect(output).toContain('display=in_progress');
+    expect(output).toContain(
+      't-1 [blocked] Task 1 · wait: await_response · collab: none',
+    );
+    expect(output).toContain('2026-05-01 17:34 · prompt recorded');
+  });
+
+  it('explains task and run state without inventing missing activity', () => {
+    const store = new InMemoryStore();
+    const graph = store.graph() as InMemoryFeatureGraph;
+    graph.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    graph.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'Feature 1',
+      description: 'desc',
+    });
+    graph.createTask({ id: 't-1', featureId: 'f-1', description: 'Task 1' });
+
+    const task = graph.tasks.get('t-1');
+    assert(task !== undefined, 'missing t-1 fixture');
+    graph.tasks.set('t-1', {
+      ...task,
+      status: 'running',
+      collabControl: 'none',
+    });
+    store.createAgentRun(
+      makeTaskRun({
+        runStatus: 'await_approval',
+        owner: 'manual',
+        payloadJson: JSON.stringify({
+          summary: 'Switch to fallback task order',
+        }),
+      }),
+    );
+
+    const taskOutput = explainFromStore(
+      store,
+      { kind: 'task', id: 't-1' },
+      100,
+    );
+    const runOutput = explainFromStore(
+      store,
+      { kind: 'run', id: 'run-task:t-1' },
+      100,
+    );
+
+    expect(taskOutput).toContain('display=blocked');
+    expect(taskOutput).toContain('run=await_approval');
+    expect(taskOutput).toContain('ask=Switch to fallback task order');
+    expect(runOutput).toContain('Recorded activity');
+    expect(runOutput).toContain('No persisted related activity for this run.');
+  });
+
+  it('explains run recorded activity from persisted events only', () => {
+    const store = new InMemoryStore();
+    const graph = store.graph() as InMemoryFeatureGraph;
+    graph.createMilestone({ id: 'm-1', name: 'M', description: 'd' });
+    graph.createFeature({
+      id: 'f-1',
+      milestoneId: 'm-1',
+      name: 'Feature 1',
+      description: 'desc',
+    });
+    store.createAgentRun(
+      makeFeaturePhaseRun({
+        id: 'run-feature:f-1:verify',
+        phase: 'verify',
+        runStatus: 'failed',
+        owner: 'manual',
+      }),
+    );
+    store.appendEvent({
+      eventType: 'feature_phase_completed',
+      entityId: 'f-1',
+      timestamp: Date.UTC(2026, 4, 1, 18, 0),
+      payload: {
+        phase: 'verify',
+        summary: 'verify failed with 1 issue',
+      },
+    });
+    store.appendEvent({
+      eventType: 'warning_emitted',
+      entityId: 'f-1',
+      timestamp: Date.UTC(2026, 4, 1, 18, 5),
+      payload: {
+        category: 'verify_replan_loop',
+        message: 'verify loop warning',
+      },
+    });
+
+    const output = explainFromStore(
+      store,
+      { kind: 'run', id: 'run-feature:f-1:verify' },
+      100,
+    );
+
+    expect(output).toContain(
+      '2026-05-01 18:00 · feature phase completed · verify failed with 1 issue',
+    );
+    expect(output).toContain(
+      '2026-05-01 18:05 · warning emitted · verify_replan_loop: verify loop warning',
+    );
   });
 
   it('cancels feature runs and aborts running tasks while leaving non-running tasks alone', async () => {

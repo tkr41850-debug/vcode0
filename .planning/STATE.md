@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-04-23)
 
 **Core value:** From one prompt, orchestrate parallel autonomous coding that lands on `main` without breaking it — live-steerable from a single TUI.
-**Current focus:** Phase 11 documentation and diagnostic tooling is underway, starting with 11-01: a read-only `gvc0 explain` CLI that reuses shipped state/view-model summaries for feature, task, and run diagnostics.
+**Current focus:** Phase 11 documentation and diagnostic tooling continues with 11-02 doc-vs-code drift checks and state-diagram consolidation, after shipping 11-01: a read-only `gvc0 explain` CLI that reuses shipped state/view-model summaries for feature, task, and run diagnostics.
 
 ## Current Position
 
 Phase: 11 of 12 (Documentation & Diagnostic Tooling)
-Plan: 11-01 ready to execute
-Status: Research and planning are complete for a pre-TUI `gvc0 explain` path backed by read-only compose/store helpers and shared summary builders.
-Last activity: 2026-05-01 — Wrote `11-RESEARCH.md` and `11-01-PLAN.md`, synced roadmap/state, and verified the planning slice with `npm run check`; 11-01 implementation is next.
+Plan: 11-01 complete; 11-02 next
+Status: Phase 11 execution is underway with the first diagnostic slice shipped: `gvc0 explain feature|task|run <id>` now branches before TUI startup, reads `.gvc0/state.db` through a read-only compose/store seam, and reuses shared DAG/planner/wait summaries.
+Last activity: 2026-05-02 — Implemented and verified 11-01 with focused green coverage on `npm run typecheck` and `npx vitest run test/unit/tui/main.test.ts test/unit/compose.test.ts test/unit/tui/view-model.test.ts`; next is 11-02 doc-vs-code drift and state-diagram consolidation.
 
-Progress: [----------] 0% for Phase 11
+Progress: [###-------] 33% for Phase 11
 
 ## Performance Metrics
 
@@ -23,7 +23,7 @@ Progress: [----------] 0% for Phase 11
 - Phases completed: 10 of 12
 - Latest verification: 2026-05-01 — Phase 11 planning slice green on `npm run check` (`format:check`, `lint`, `typecheck`, and `vitest run`: 1948 passed, 3 skipped)
 
-**Recent Trend:** Phase 10 closed the operator-visibility gap inside the TUI, and Phase 11 is now shifting that clarity into read-only diagnostics and documentation truthfulness, starting with a pre-TUI `gvc0 explain` CLI.
+**Recent Trend:** Phase 10 closed the operator-visibility gap inside the TUI, and Phase 11 has now started projecting that same clarity into read-only diagnostics via `gvc0 explain`; next the docs and canonical diagrams need to be brought into exact alignment with the shipped behavior.
 
 *Updated after each plan completion.*
 
@@ -44,8 +44,8 @@ Full decision log lives in PROJECT.md Key Decisions table. Highlights from initi
 
 ### Pending Todos
 
-- Execute Phase 11 plan 11-01: add a pre-TUI `gvc0 explain` CLI for feature/task/run diagnostics using read-only compose/store helpers and shared state/view-model summaries.
-- After 11-01 lands, plan and execute 11-02 doc-vs-code drift checks/state-diagram consolidation and 11-03 concerns-to-tests mapping plus newcomer narrative docs.
+- Plan and execute Phase 11 plan 11-02: add doc-vs-code drift checks and update the canonical state/execution-flow diagrams to match the shipped explain/state seams.
+- Plan and execute Phase 11 plan 11-03: build the concerns-to-tests map and newcomer narrative docs.
 
 ### Blockers/Concerns
 
@@ -67,6 +67,6 @@ Full decision log lives in PROJECT.md Key Decisions table. Highlights from initi
 
 ## Session Continuity
 
-Last session: 2026-05-01 — Phase 11 research and 11-01 planning are complete and verified for the read-only `gvc0 explain` CLI slice.
-Stopped at: begin 11-01 implementation for the pre-TUI `gvc0 explain` path and shared text-summary reuse.
-Resume file: continue under `.planning/phases/11-documentation-diagnostic-tooling/11-01-PLAN.md`.
+Last session: 2026-05-02 — Phase 11 plan 11-01 shipped a read-only `gvc0 explain` CLI with shared text-summary reuse and focused verification green.
+Stopped at: move into 11-02 doc-vs-code drift and canonical diagram consolidation work.
+Resume file: continue under `.planning/phases/11-documentation-diagnostic-tooling/` with 11-02 planning next.

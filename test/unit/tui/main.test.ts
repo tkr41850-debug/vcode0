@@ -1,15 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const composeApplication = vi.fn();
+const explainProject = vi.fn();
 
 vi.mock('@root/compose', () => ({
   composeApplication,
+  explainProject,
 }));
 
 describe('main CLI', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     composeApplication.mockReset();
+    explainProject.mockReset();
     vi.spyOn(process.stdout, 'write').mockReturnValue(true);
     process.exitCode = undefined;
   });
@@ -80,6 +83,44 @@ describe('main CLI', () => {
 
     expect(chdirSpy).toHaveBeenCalledWith('/tmp/tui-e2e');
     expect(app.start).toHaveBeenCalledWith('interactive');
+  });
+
+  it('runs explain before TUI startup', async () => {
+    explainProject.mockResolvedValue('Feature f-1: Feature 1');
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+
+    const { runCli } = await import('@root/main');
+    await runCli(['explain', 'feature', 'f-1']);
+
+    expect(explainProject).toHaveBeenCalledWith({ kind: 'feature', id: 'f-1' });
+    expect(composeApplication).not.toHaveBeenCalled();
+    expect(stdoutSpy).toHaveBeenCalledWith('Feature f-1: Feature 1\n');
+  });
+
+  it('applies --cwd before explain resolution', async () => {
+    explainProject.mockResolvedValue('Task t-1');
+    const chdirSpy = vi.spyOn(process, 'chdir').mockImplementation(() => {});
+
+    const { runCli } = await import('@root/main');
+    await runCli(['--cwd', '/tmp/explain-e2e', 'explain', 'task', 't-1']);
+
+    expect(chdirSpy).toHaveBeenCalledWith('/tmp/explain-e2e');
+    expect(explainProject).toHaveBeenCalledWith({ kind: 'task', id: 't-1' });
+    expect(composeApplication).not.toHaveBeenCalled();
+  });
+
+  it('fails cleanly on invalid explain args without starting TUI', async () => {
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+
+    const { runCli } = await import('@root/main');
+    await runCli(['explain', 'milestone', 'm-1']);
+
+    expect(composeApplication).not.toHaveBeenCalled();
+    expect(explainProject).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(1);
+    expect(stderrSpy).toHaveBeenCalledWith(
+      'Unsupported explain target "milestone". Usage: gvc0 explain <feature|task|run> <id>\n',
+    );
   });
 
   it('detects tsx direct execution as main', async () => {

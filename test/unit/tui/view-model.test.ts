@@ -24,7 +24,12 @@ import {
   StatusBar,
   TaskTranscriptOverlay,
 } from '@tui/components/index';
-import { flattenDagNodes, TuiViewModelBuilder } from '@tui/view-model/index';
+import {
+  flattenDagNodes,
+  summarizePlannerAuditEntry,
+  summarizeTaskWaitPayload,
+  TuiViewModelBuilder,
+} from '@tui/view-model/index';
 import { describe, expect, it } from 'vitest';
 
 import { testGvcConfigDefaults } from '../../helpers/config-fixture.js';
@@ -240,36 +245,47 @@ describe('TuiViewModelBuilder', () => {
 
   it('builds planner audit overlay rows for feature-scoped history', () => {
     const builder = new TuiViewModelBuilder();
+    const entry = {
+      ts: Date.UTC(2026, 4, 1, 17, 34),
+      action: 'applied' as const,
+      prompt: 'Plan the next milestone slice',
+      sessionMode: 'continue' as const,
+      runId: 'run-top-planner',
+      sessionId: 'sess-top-1',
+      previousSessionId: 'sess-top-0',
+      featureIds: ['f-1', 'f-2'] as `f-${string}`[],
+      milestoneIds: ['m-1'] as `m-${string}`[],
+      collisionCount: 1,
+      detail: '1 applied, 0 skipped, 0 warnings',
+    };
 
     expect(
-      builder.buildPlannerAudit({
-        selectedFeatureId: 'f-1',
-        entries: [
-          {
-            ts: Date.UTC(2026, 4, 1, 17, 34),
-            action: 'applied',
-            prompt: 'Plan the next milestone slice',
-            sessionMode: 'continue',
-            runId: 'run-top-planner',
-            sessionId: 'sess-top-1',
-            previousSessionId: 'sess-top-0',
-            featureIds: ['f-1', 'f-2'],
-            milestoneIds: ['m-1'],
-            collisionCount: 1,
-            detail: '1 applied, 0 skipped, 0 warnings',
-          },
-        ],
-      }),
+      builder.buildPlannerAudit({ selectedFeatureId: 'f-1', entries: [entry] }),
     ).toEqual({
       title: ' Planner Audit [f-1, 1 entries] [q/esc hide] ',
       items: [
         {
-          summary:
-            '2026-05-01 17:34 · applied · mode=continue · session=sess-top-1 · prev=sess-top-0 · run=run-top-planner · features=f-1,f-2 · milestones=m-1 · collisions=1 · prompt=Plan the next milestone slice · detail=1 applied, 0 skipped, 0 warnings',
+          summary: summarizePlannerAuditEntry(entry),
         },
       ],
       emptyMessage: 'No planner audit entries for f-1.',
     });
+  });
+
+  it('exports the same wait-summary wording reused by explain surfaces', () => {
+    expect(
+      summarizeTaskWaitPayload(
+        'await_response',
+        JSON.stringify({ query: 'Need operator guidance' }),
+      ),
+    ).toBe('q=Need operator guidance');
+
+    expect(
+      summarizeTaskWaitPayload(
+        'await_approval',
+        JSON.stringify({ summary: 'Switch to fallback task order' }),
+      ),
+    ).toBe('ask=Switch to fallback task order');
   });
 
   it('derives collision hint from pending top-planner metadata', () => {

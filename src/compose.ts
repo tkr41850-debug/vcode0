@@ -29,7 +29,7 @@ import {
   RecoveryService,
   VerificationService,
 } from '@orchestrator/services/index';
-import { openDatabase } from '@persistence/db';
+import { openDatabase, openReadOnlyDatabase } from '@persistence/db';
 import { PersistentFeatureGraph } from '@persistence/feature-graph';
 import { SqliteStore } from '@persistence/sqlite-store';
 import { buildTaskPayload } from '@runtime/context/index';
@@ -55,8 +55,24 @@ import {
 } from '@runtime/worktree/index';
 import { TuiApp } from '@tui/app';
 import type { PlannerAuditEntry, PlannerAuditQuery } from '@tui/app-deps';
+import {
+  flattenDagNodes,
+  summarizePlannerAuditEntry,
+  summarizeTaskWaitPayload,
+  TuiViewModelBuilder,
+} from '@tui/view-model/index';
 
 const DEFAULT_MODEL_ID = 'claude-sonnet-4-6';
+
+export interface ExplainTarget {
+  kind: 'feature' | 'task' | 'run';
+  id: string;
+}
+
+type ExplainStore = Pick<
+  OrchestratorPorts['store'],
+  'snapshotGraph' | 'getAgentRun' | 'listAgentRuns' | 'listEvents'
+>;
 
 type StartupRecoverySummarySource = Awaited<
   ReturnType<RecoveryService['recoverStartupState']>
@@ -927,6 +943,282 @@ export function listPlannerAuditEntries(
       }
       return left.action.localeCompare(right.action);
     });
+}
+
+export async function explainProject(target: ExplainTarget): Promise<string> {
+  const db = openReadOnlyDatabase(
+    path.join(process.cwd(), '.gvc0', 'state.db'),
+  );
+  try {
+    return explainFromStore(new SqliteStore(db), target);
+  } finally {
+    db.close();
+  }
+}
+
+export function explainFromStore(
+  store: ExplainStore,
+  target: ExplainTarget,
+  now = Date.now(),
+): string {
+  const snapshot = store.snapshotGraph();
+  const runs = store.listAgentRuns();
+  const nodes = flattenDagNodes(
+    new TuiViewModelBuilder().buildMilestoneTree(
+      snapshot.milestones,
+      snapshot.features,
+      snapshot.tasks,
+      runs,
+      now,
+    ),
+  );
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+
+  switch (target.kind) {
+    case 'feature': {
+      const feature = snapshot.features.find((entry) => entry.id === target.id);
+      if (feature === undefined) {
+        throw new Error(`feature "${target.id}" not found`);
+      }
+      const node = nodeById.get(feature.id);
+      if (node?.kind !== 'feature') {
+        throw new Error(`feature "${target.id}" not found`);
+      }
+      const frontier = node.children
+        .filter(
+          (child) =>
+            child.displayStatus !== 'done' &&
+            child.displayStatus !== 'cancelled',
+        )
+        .map((child) => {
+          const summary = `${child.id} [${child.displayStatus}] ${child.label.split(': ').slice(1).join(': ')}`;
+          return child.meta.length > 0
+            ? `${summary} · ${child.meta.join(' · ')}`
+            : summary;
+        });
+      const plannerAudit = listPlannerAuditEntries(store, {
+        featureId: feature.id,
+      }).map((entry) => summarizePlannerAuditEntry(entry));
+      return [
+        `Feature ${node.label}`,
+        '',
+        'State',
+        ...renderBulletLines([
+          `display=${node.displayStatus}`,
+          `work=${node.workStatus}`,
+          `collab=${node.collabStatus}`,
+          ...(node.runStatus !== undefined ? [`run=${node.runStatus}`] : []),
+          ...node.meta,
+        ]),
+        '',
+        'Frontier',
+        ...renderBulletLines(frontier, 'No active frontier or wait context.'),
+        '',
+        'Planner provenance',
+        ...renderBulletLines(
+          plannerAudit,
+          'No planner audit entries for this feature.',
+        ),
+      ].join('\n');
+    }
+    case 'task': {
+      const task = snapshot.tasks.find((entry) => entry.id === target.id);
+      if (task === undefined) {
+        throw new Error(`task "${target.id}" not found`);
+      }
+      const feature = snapshot.features.find(
+        (entry) => entry.id === task.featureId,
+      );
+      const node = nodeById.get(task.id);
+      if (node?.kind !== 'task') {
+        throw new Error(`task "${target.id}" not found`);
+      }
+      const run = store.getAgentRun(`run-task:${task.id}`);
+      const waitSummary =
+        run?.scopeType === 'task'
+          ? summarizeTaskWaitPayload(run.runStatus, run.payloadJson)
+          : '';
+      return [
+        `Task ${node.label}`,
+        '',
+        'Parent feature',
+        ...renderBulletLines([
+          feature === undefined
+            ? task.featureId
+            : `${feature.id}: ${feature.name}`,
+        ]),
+        '',
+        'State',
+        ...renderBulletLines([
+          `display=${node.displayStatus}`,
+          `work=${task.status}`,
+          `collab=${task.collabControl}`,
+          ...(run !== undefined ? [`run=${run.runStatus}`] : []),
+        ]),
+        '',
+        'Context',
+        ...renderBulletLines([
+          ...(task.dependsOn.length > 0
+            ? [`dependsOn=${task.dependsOn.join(',')}`]
+            : ['dependsOn=none']),
+          ...(task.blockedByFeatureId !== undefined
+            ? [`blockedByFeature=${task.blockedByFeatureId}`]
+            : []),
+          ...(waitSummary.length > 0 ? [waitSummary] : []),
+          ...node.meta,
+        ]),
+      ].join('\n');
+    }
+    case 'run': {
+      const run = store.getAgentRun(target.id);
+      if (run === undefined) {
+        throw new Error(`run "${target.id}" not found`);
+      }
+      const snapshotFeature =
+        run.scopeType === 'feature_phase'
+          ? snapshot.features.find((entry) => entry.id === run.scopeId)
+          : undefined;
+      const snapshotTask =
+        run.scopeType === 'task'
+          ? snapshot.tasks.find((entry) => entry.id === run.scopeId)
+          : undefined;
+      const waitSummary =
+        run.scopeType === 'task'
+          ? summarizeTaskWaitPayload(run.runStatus, run.payloadJson)
+          : '';
+      const relatedNode =
+        run.scopeType === 'task' || run.scopeType === 'feature_phase'
+          ? nodeById.get(run.scopeId)
+          : undefined;
+      return [
+        `Run ${run.id}`,
+        '',
+        'Scope',
+        ...renderBulletLines([
+          `scopeType=${run.scopeType}`,
+          `scopeId=${run.scopeId}`,
+          `phase=${run.phase}`,
+          ...(snapshotFeature !== undefined
+            ? [`feature=${snapshotFeature.id}: ${snapshotFeature.name}`]
+            : []),
+          ...(snapshotTask !== undefined
+            ? [`task=${snapshotTask.id}: ${snapshotTask.description}`]
+            : []),
+        ]),
+        '',
+        'State',
+        ...renderBulletLines([
+          `status=${run.runStatus}`,
+          `owner=${run.owner}`,
+          `attention=${run.attention}`,
+          `restarts=${run.restartCount}/${run.maxRetries}`,
+          ...(run.sessionId !== undefined ? [`session=${run.sessionId}`] : []),
+          ...(run.retryAt !== undefined
+            ? [`retryAt=${formatExplainTimestamp(run.retryAt)}`]
+            : []),
+        ]),
+        '',
+        'Context',
+        ...renderBulletLines(
+          [
+            ...(waitSummary.length > 0 ? [waitSummary] : []),
+            ...(relatedNode?.meta ?? []),
+          ],
+          'No current blocker or wait context.',
+        ),
+        '',
+        'Recorded activity',
+        ...renderBulletLines(
+          listRecordedActivity(store, run),
+          'No persisted related activity for this run.',
+        ),
+      ].join('\n');
+    }
+  }
+}
+
+function listRecordedActivity(store: ExplainStore, run: AgentRun): string[] {
+  if (run.scopeType === 'top_planner') {
+    return listPlannerAuditEntries(store)
+      .filter(
+        (entry) =>
+          entry.runId === run.id ||
+          (run.sessionId !== undefined &&
+            (entry.sessionId === run.sessionId ||
+              entry.previousSessionId === run.sessionId)),
+      )
+      .map((entry) => summarizePlannerAuditEntry(entry));
+  }
+
+  return store.listEvents({ entityId: run.scopeId }).flatMap((event) => {
+    const payload = event.payload;
+    const phase =
+      typeof payload?.phase === 'string' ? payload.phase : undefined;
+    if (
+      phase !== undefined &&
+      (event.eventType === 'feature_phase_completed' ||
+        event.eventType === 'proposal_applied' ||
+        event.eventType === 'proposal_rejected' ||
+        event.eventType === 'proposal_apply_failed' ||
+        event.eventType === 'proposal_rerun_requested' ||
+        event.eventType === 'feature_cancelled_empty_proposal') &&
+      phase !== run.phase
+    ) {
+      return [];
+    }
+
+    const prefix = `${formatExplainTimestamp(event.timestamp)} · ${event.eventType.replaceAll('_', ' ')}`;
+    switch (event.eventType) {
+      case 'feature_phase_completed':
+        return [
+          `${prefix} · ${typeof payload?.summary === 'string' ? payload.summary : run.phase}`,
+        ];
+      case 'proposal_applied':
+      case 'proposal_rejected':
+      case 'proposal_apply_failed':
+      case 'proposal_rerun_requested':
+        return [`${prefix} · ${plannerAuditDetail(payload) ?? 'recorded'}`];
+      case 'feature_cancelled_empty_proposal':
+        return [
+          `${prefix} · ${typeof payload?.reason === 'string' ? payload.reason : 'recorded'}`,
+        ];
+      case 'warning_emitted':
+        return [
+          `${prefix} · ${typeof payload?.category === 'string' ? payload.category : 'warning'}${typeof payload?.message === 'string' ? `: ${payload.message}` : ''}`,
+        ];
+      case 'verifier_issue_raised':
+        return [
+          `${prefix} · ${typeof payload?.severity === 'string' ? `${payload.severity} ` : ''}${typeof payload?.description === 'string' ? payload.description : 'recorded'}`,
+        ];
+      case 'merge_train_feature_parked':
+        return [
+          `${prefix} · reentry=${typeof payload?.reentryCount === 'number' ? payload.reentryCount : '?'}${typeof payload?.summary === 'string' ? ` · ${payload.summary}` : ''}`,
+        ];
+      case 'task_completion_rejected_no_commit':
+        return [
+          `${prefix} · ${typeof payload?.reason === 'string' ? payload.reason : 'recorded'}`,
+        ];
+      case 'commit_trailer_missing':
+        return [
+          `${prefix} · ${typeof payload?.sha === 'string' ? `sha=${payload.sha}` : 'recorded'}`,
+        ];
+      default:
+        return [];
+    }
+  });
+}
+
+function renderBulletLines(
+  lines: readonly string[],
+  emptyMessage = 'none',
+): string[] {
+  return lines.length > 0
+    ? lines.map((line) => `- ${line}`)
+    : [`- ${emptyMessage}`];
+}
+
+function formatExplainTimestamp(ts: number): string {
+  return new Date(ts).toISOString().slice(0, 16).replace('T', ' ');
 }
 
 export async function composeApplication(): Promise<GvcApplication> {

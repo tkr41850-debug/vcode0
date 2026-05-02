@@ -2,17 +2,18 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import type { AppMode } from '@core/types/index';
-import { composeApplication } from '@root/compose';
+import {
+  composeApplication,
+  type ExplainTarget,
+  explainProject,
+} from '@root/compose';
 
 export async function main(
   argv: readonly string[] = process.argv.slice(2),
   appFactory: typeof composeApplication = composeApplication,
+  explainFactory: typeof explainProject = explainProject,
 ): Promise<void> {
-  applyWorkingDirectory(argv);
-  writeStartupNotice();
-  const app = await appFactory();
-  const mode = parseAppMode(argv);
-  await app.start(mode);
+  await runCli(argv, appFactory, explainFactory);
 }
 
 export function parseAppMode(argv: readonly string[]): AppMode {
@@ -22,17 +23,24 @@ export function parseAppMode(argv: readonly string[]): AppMode {
 export async function runCli(
   argv: readonly string[] = process.argv.slice(2),
   appFactory: typeof composeApplication = composeApplication,
+  explainFactory: typeof explainProject = explainProject,
 ): Promise<void> {
   let app: Awaited<ReturnType<typeof composeApplication>> | undefined;
 
   try {
     applyWorkingDirectory(argv);
+    const explainTarget = parseExplainTarget(argv);
+    if (explainTarget !== undefined) {
+      process.stdout.write(`${await explainFactory(explainTarget)}\n`);
+      return;
+    }
+
     writeStartupNotice();
     app = await appFactory();
     const mode = parseAppMode(argv);
     await app.start(mode);
   } catch (error) {
-    process.stderr.write(`${formatStartupError(error)}\n`);
+    process.stderr.write(`${formatCliError(error, argv)}\n`);
     process.exitCode = 1;
     if (app !== undefined) {
       try {
@@ -65,7 +73,55 @@ function writeStartupNotice(): void {
   process.stdout.write('loading...\n');
 }
 
-function formatStartupError(error: unknown): string {
+class ExplainCliError extends Error {}
+
+function parseExplainTarget(
+  argv: readonly string[],
+): ExplainTarget | undefined {
+  const args = stripGlobalCliOptions(argv);
+  if (args[0] !== 'explain') {
+    return undefined;
+  }
+
+  const [_, kind, id, ...rest] = args;
+  if (rest.length > 0 || kind === undefined || id === undefined) {
+    throw new ExplainCliError('Usage: gvc0 explain <feature|task|run> <id>');
+  }
+  if (kind !== 'feature' && kind !== 'task' && kind !== 'run') {
+    throw new ExplainCliError(
+      `Unsupported explain target "${kind}". Usage: gvc0 explain <feature|task|run> <id>`,
+    );
+  }
+
+  return { kind, id };
+}
+
+function stripGlobalCliOptions(argv: readonly string[]): string[] {
+  const args: string[] = [];
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg === undefined) {
+      continue;
+    }
+    if (arg === '--auto') {
+      continue;
+    }
+    if (arg === '--cwd') {
+      index += 1;
+      continue;
+    }
+    args.push(arg);
+  }
+  return args;
+}
+
+function formatCliError(error: unknown, argv: readonly string[]): string {
+  if (error instanceof ExplainCliError) {
+    return error.message;
+  }
+  if (stripGlobalCliOptions(argv)[0] === 'explain') {
+    return `Failed to run gvc0 explain: ${formatUnknownError(error)}`;
+  }
   return `Failed to start gvc0 TUI: ${formatUnknownError(error)}`;
 }
 

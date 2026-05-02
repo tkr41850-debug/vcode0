@@ -812,7 +812,7 @@ function formatModelRef(
   return `${modelRef.provider}:${modelRef.model}`;
 }
 
-function summarizeTaskWaitPayload(
+export function summarizeTaskWaitPayload(
   runStatus: TaskAgentRun['runStatus'],
   payloadJson: string | undefined,
 ): string {
@@ -863,7 +863,7 @@ function truncateDetail(value: string): string {
   return value.length <= 48 ? value : `${value.slice(0, 45)}...`;
 }
 
-function summarizePlannerAuditEntry(entry: {
+export function summarizePlannerAuditEntry(entry: {
   ts: number;
   action:
     | 'requested'

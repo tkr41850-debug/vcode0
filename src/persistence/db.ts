@@ -34,3 +34,16 @@ export function openDatabase(path: string): Database.Database {
 
   return db;
 }
+
+export function openReadOnlyDatabase(path: string): Database.Database {
+  const db = new Database(path, {
+    readonly: true,
+    fileMustExist: true,
+  });
+
+  db.pragma('busy_timeout = 5000');
+  db.pragma('foreign_keys = ON');
+  db.pragma('query_only = ON');
+
+  return db;
+}
