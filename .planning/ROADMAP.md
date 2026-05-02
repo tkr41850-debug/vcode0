@@ -232,7 +232,7 @@ Plans:
 
 Plans:
 - [x] 12-01: End-to-end scripted scenario + verify-agent flake-rate audit
-- [ ] 12-02: TUI e2e smoke tests (golden path)
+- [x] 12-02: TUI e2e smoke tests (golden path)
 - [ ] 12-03: README / runbook + v1 traceability green-out
 
 ## Progress
@@ -253,8 +253,8 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 9. Crash Recovery UX | 3/3 | ✓ Complete | 2026-05-01 |
 | 10. Re-plan Flows & Manual Edits Polish | 2/2 | ✓ Complete | 2026-05-01 |
 | 11. Documentation & Diagnostic Tooling | 3/3 | ✓ Complete | 2026-05-02 |
-| 12. Integration & Polish | 1/3 | In progress | - |
+| 12. Integration & Polish | 2/3 | In progress | - |
 
 ---
 *Roadmap created: 2026-04-23*
-*Last updated: 2026-05-02 — Phase 12 plan 01 complete: prompt-to-main e2e lifecycle proof (SC1) and verify-agent 5/5 flake-rate audit (SC2) green. Fixed integration-runner missing agent run creation. 94 test files, 1969 tests passed.*
+*Last updated: 2026-05-02 — Phase 12 plan 02 complete: @microsoft/tui-test SIGSEGV stabilized (node-pty musl source rebuild via postinstall); golden-path TUI e2e smoke added (SC3). All 9 smoke tests pass. npm run check green: 94 files, 1969 passed.*

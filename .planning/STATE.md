@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-04-23)
 ## Current Position
 
 Phase: 12 of 12 (Integration & Polish)
-Plan: 12-02 next
-Status: Phase 12 plan 12-01 complete; 12-02 is next.
-Last activity: 2026-05-02 — Executed 12-01 with prompt-to-main e2e lifecycle proof and verify-agent flake-rate audit. Fixed integration-runner missing agent run creation. Full `npm run check` green (94 test files, 1969 passed).
+Plan: 12-03 next
+Status: Phase 12 plan 12-02 complete; 12-03 is next.
+Last activity: 2026-05-02 — Executed 12-02: stabilized @microsoft/tui-test SIGSEGV (node-pty glibc prebuild incompatible with Alpine musl; fixed via postinstall node-gyp rebuild). Added golden-path TUI E2E smoke (SC12-3). All 9 tui-test smoke tests pass. npm run check green (94 files, 1969 passed).
 
-Progress: [##########] 100% for Phase 11 | [##        ] ~17% for Phase 12 (1/6 plans)
+Progress: [##########] 100% for Phase 11 | [####      ] ~33% for Phase 12 (2/6 plans)
 
 ## Performance Metrics
 
@@ -23,7 +23,7 @@ Progress: [##########] 100% for Phase 11 | [##        ] ~17% for Phase 12 (1/6 p
 - Phases completed: 11 of 12
 - Latest verification: 2026-05-02 — Phase 11 concerns/newcomer docs slice green on `npm run check` (`format:check`, `lint`, `typecheck`, and `vitest run`: 1967 passed, 3 skipped)
 
-**Recent Trend:** Phase 12 plan 01 delivered the prompt-to-main e2e lifecycle proof (SC1: planner→approval→inbox-help→commit→verify→merge-train→merged) and a 5/5 verify-agent flake-rate audit (SC2). Fixed three integration-path gaps: harness.drain hang on blocked workers, simpleGit.raw() missing from mock, and integration-runner not pre-creating agent run rows before calling verifyFeature.
+**Recent Trend:** Phase 12 plan 02 stabilized the @microsoft/tui-test lane (SIGSEGV root cause: node-pty glibc prebuild incompatible with Alpine musl; fixed via postinstall node-gyp rebuild from source). Added golden-path TUI E2E smoke covering SC12-3: startup→/init→graph feedback→Help overlay→graph focus→draft task→approval state→/quit. All 9 smoke tests pass. Fixed 4 secondary blockers: missing gvc0.config.json in workspaces, tsx --eval CJS/ESM mismatch for seeding, wrong autocomplete assertion string, and timeout too small for ~26s Alpine tsx startup.
 
 *Updated after each plan completion.*
 
@@ -44,13 +44,13 @@ Full decision log lives in PROJECT.md Key Decisions table. Highlights from initi
 
 ### Pending Todos
 
-- Execute Phase 12 plans 12-02 through 12-06 (TUI e2e smoke, source-install dry-run, README polish, final traceability green-out, and release checklist).
+- Execute Phase 12 plans 12-03 through 12-06 (source-install dry-run, README polish, final traceability green-out, and release checklist).
 
 ### Blockers/Concerns
 
 - **Pi-sdk Agent resume/replay fidelity** RESOLVED 2026-04-23: spike chose persist-tool-outputs fallback (Agent.continue() throws on assistant-terminated transcripts across all 5 scenarios). Phase 7 shipped checkpointed waits + replay around that decision; live-provider re-validation remains deferred to Phase 9 crash-recovery UX.
 - **Merge-train serial throughput** (acknowledged): strict-main merge train is a known v1 bottleneck under many parallel features. Optimization deferred (see `docs/feature-candidates/` and REQ-MERGE-V2-01/02).
-- **`@microsoft/tui-test` pre-1.0**: treat TUI e2e coverage as smoke-only in Phase 12; full e2e deferred. Current status (2026-04-29): workerpool `SIGSEGV` crash across all eight smoke tests, including pre-existing cases.
+- **`@microsoft/tui-test` pre-1.0**: treat TUI e2e coverage as smoke-only in Phase 12; full e2e deferred. RESOLVED 2026-05-02 (12-02): SIGSEGV was node-pty glibc prebuild incompatible with Alpine musl; fixed via postinstall node-gyp rebuild. All 9 smoke tests now pass including golden-path (SC12-3 satisfied).
 - **Parallel-vitest flakes** (Phase 3): 5 pre-existing unit tests flake under parallel-load (worktree.test.ts x4, tui/view-model.test.ts x1); logged as follow-up in 03-02-SUMMARY.md.
 - **Phase 4 perf smoke gated** (2026-04-24): Both tiers of scheduler-perf-smoke run only under `LOAD_TEST=1`. Default CI doesn't exercise the <100ms p95 budget. Follow-up in `.planning/phases/04-scheduler-tick-event-queue/deferred-items.md`.
 - **AST boundary walker narrowed to compose.ts + agents/runtime.ts** (2026-04-24): follow-up remains open from Phase 4.
@@ -66,6 +66,6 @@ Full decision log lives in PROJECT.md Key Decisions table. Highlights from initi
 
 ## Session Continuity
 
-Last session: 2026-05-02 — Phase 12 plan 01 completed: prompt-to-main e2e lifecycle proof, verify-agent flake-rate audit, integration-runner agent run fix.
-Stopped at: 12-01 complete; 12-02 is next.
-Resume file: `.planning/ROADMAP.md` Phase 12 section, starting with 12-02.
+Last session: 2026-05-02 — Phase 12 plan 02 completed: stabilized @microsoft/tui-test SIGSEGV (node-pty musl fix), added golden-path TUI E2E smoke (SC12-3), all 9 smoke tests pass, npm run check green.
+Stopped at: 12-02 complete; 12-03 is next.
+Resume file: `.planning/ROADMAP.md` Phase 12 section, starting with 12-03.
