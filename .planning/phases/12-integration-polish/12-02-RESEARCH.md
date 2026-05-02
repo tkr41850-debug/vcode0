@@ -303,16 +303,14 @@ async function waitForTuiReady(
 | A1 | The exact native/root cause of the current `SIGSEGV` was not determined in this research; it appears runner-side because every existing test fails in the workerpool child before app-specific assertions. | Common Pitfalls | Planner may choose the wrong stabilization tactic if app startup is secretly triggering the runner crash. |
 | A2 | `@microsoft/tui-test` native/worker failures can be environment-sensitive. | Common Pitfalls | Planner may under-prioritize environment capture if the crash is fully deterministic across all supported environments. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **What is the exact `SIGSEGV` root cause?**
    - What we know: `npm run test:tui:e2e` fails all 8 tests with `Workerpool Worker terminated Unexpectedly`, `signalCode: SIGSEGV`, and worker script `node_modules/@microsoft/tui-test/lib/runner/worker.js`. [VERIFIED: npm run test:tui:e2e]
-   - What's unclear: Whether the crash is caused by Node 24.13.0, optional `node-pty`, workerpool, `@xterm/headless`, the shell environment, or app launch side effects. [ASSUMED]
-   - Recommendation: Wave 0 should capture a minimal `@microsoft/tui-test` repro with trace enabled, then decide whether to isolate tests, adjust runner config, pin dependency versions, or document an upstream blocker. [CITED: /home/alpine/vcode0/node_modules/@microsoft/tui-test/README.md:117-135]
+   - Resolution: The exact native/root cause is intentionally assigned to Task 1 because it must be diagnosed against the runnable lane. The execution decision is to stabilize or isolate the runner first, using the narrowest proven `@microsoft/tui-test` config/script/dependency change, before adding golden-path coverage. [CITED: /home/alpine/vcode0/node_modules/@microsoft/tui-test/README.md:117-135]
 2. **Should golden path be a new file or extension of `smoke.test.ts`?**
    - What we know: Existing `smoke.test.ts` already contains all helper functions and fragments for startup, overlays, `/init`, autocomplete, draft, and approval. [VERIFIED: /home/alpine/vcode0/test/integration/tui/smoke.test.ts:24-275]
-   - What's unclear: Whether splitting to `golden-path.test.ts` improves isolation once runner is stable. [ASSUMED]
-   - Recommendation: Prefer extending `smoke.test.ts` if the runner remains sensitive to file count; otherwise add `golden-path.test.ts` for grep-friendly traceability. [VERIFIED: /home/alpine/vcode0/.planning/phases/12-integration-polish/12-02-CONTEXT.md:66-69]
+   - Resolution: Prefer extending `smoke.test.ts` to reuse its helpers and minimize runner file-count sensitivity. Create `golden-path.test.ts` only if Task 1 proves file-level isolation is needed or materially improves runner stability. [VERIFIED: /home/alpine/vcode0/.planning/phases/12-integration-polish/12-02-CONTEXT.md:66-69]
 
 ## Environment Availability
 
