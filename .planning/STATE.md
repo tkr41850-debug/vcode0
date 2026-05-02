@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-04-23)
 ## Current Position
 
 Phase: 12 of 12 (Integration & Polish)
-Plan: 12-01 next for end-to-end scripted scenario and verify-agent flake-rate audit
-Status: Phase 11 is complete; Phase 12 is ready to begin.
-Last activity: 2026-05-02 — Executed 11-03 with concerns-to-tests traceability, concern-page executable coverage links, refreshed newcomer prompt-to-`main` narrative, and full `npm run check` verification green.
+Plan: 12-02 next
+Status: Phase 12 plan 12-01 complete; 12-02 is next.
+Last activity: 2026-05-02 — Executed 12-01 with prompt-to-main e2e lifecycle proof and verify-agent flake-rate audit. Fixed integration-runner missing agent run creation. Full `npm run check` green (94 test files, 1969 passed).
 
-Progress: [##########] 100% for Phase 11
+Progress: [##########] 100% for Phase 11 | [##        ] ~17% for Phase 12 (1/6 plans)
 
 ## Performance Metrics
 
@@ -23,7 +23,7 @@ Progress: [##########] 100% for Phase 11
 - Phases completed: 11 of 12
 - Latest verification: 2026-05-02 — Phase 11 concerns/newcomer docs slice green on `npm run check` (`format:check`, `lint`, `typecheck`, and `vitest run`: 1967 passed, 3 skipped)
 
-**Recent Trend:** Phase 11 closed with read-only diagnostics via `gvc0 explain`, executable doc-vs-code drift checks for canonical references, a concerns-to-tests traceability map, and an updated newcomer prompt-to-`main` narrative. Phase 12 is the remaining integration/polish phase.
+**Recent Trend:** Phase 12 plan 01 delivered the prompt-to-main e2e lifecycle proof (SC1: planner→approval→inbox-help→commit→verify→merge-train→merged) and a 5/5 verify-agent flake-rate audit (SC2). Fixed three integration-path gaps: harness.drain hang on blocked workers, simpleGit.raw() missing from mock, and integration-runner not pre-creating agent run rows before calling verifyFeature.
 
 *Updated after each plan completion.*
 
@@ -44,7 +44,7 @@ Full decision log lives in PROJECT.md Key Decisions table. Highlights from initi
 
 ### Pending Todos
 
-- Plan and execute Phase 12 plan 12-01: end-to-end scripted scenario and verify-agent flake-rate audit.
+- Execute Phase 12 plans 12-02 through 12-06 (TUI e2e smoke, source-install dry-run, README polish, final traceability green-out, and release checklist).
 
 ### Blockers/Concerns
 
@@ -66,6 +66,6 @@ Full decision log lives in PROJECT.md Key Decisions table. Highlights from initi
 
 ## Session Continuity
 
-Last session: 2026-05-02 — Phase 11 completed with `gvc0 explain`, executable docs drift checks, concerns-to-tests traceability, and refreshed newcomer narrative docs.
-Stopped at: Phase 12 is ready to plan and execute.
-Resume file: `.planning/ROADMAP.md` Phase 12 section, starting with 12-01.
+Last session: 2026-05-02 — Phase 12 plan 01 completed: prompt-to-main e2e lifecycle proof, verify-agent flake-rate audit, integration-runner agent run fix.
+Stopped at: 12-01 complete; 12-02 is next.
+Resume file: `.planning/ROADMAP.md` Phase 12 section, starting with 12-02.
