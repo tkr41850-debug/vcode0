@@ -215,7 +215,7 @@ Plans:
 
 Plans:
 - [x] 11-01: `gvc0 explain` CLI + view-model reuse for text output
-- [ ] 11-02: Doc-vs-code drift check + state diagram update + decision-table consolidation
+- [ ] 11-02: Doc-vs-code drift check + state diagram update + decision-table consolidation (plan ready; execution next)
 - [ ] 11-03: Concerns-to-tests map + newcomer narrative doc
 
 ### Phase 12: Integration & Polish

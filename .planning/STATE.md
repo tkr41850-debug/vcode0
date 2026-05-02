@@ -5,14 +5,14 @@
 See: .planning/PROJECT.md (updated 2026-04-23)
 
 **Core value:** From one prompt, orchestrate parallel autonomous coding that lands on `main` without breaking it — live-steerable from a single TUI.
-**Current focus:** Phase 11 documentation and diagnostic tooling continues with 11-02 doc-vs-code drift checks and state-diagram consolidation, after shipping 11-01: a read-only `gvc0 explain` CLI that reuses shipped state/view-model summaries for feature, task, and run diagnostics.
+**Current focus:** Phase 11 documentation and diagnostic tooling continues with execution of verified plan 11-02: doc-vs-code drift checks, canonical state-diagram updates, and coordination/execution-flow decision-table consolidation.
 
 ## Current Position
 
 Phase: 11 of 12 (Documentation & Diagnostic Tooling)
-Plan: 11-01 complete; 11-02 next
-Status: Phase 11 execution is underway with the first diagnostic slice shipped: `gvc0 explain feature|task|run <id>` now branches before TUI startup, reads `.gvc0/state.db` through a read-only compose/store seam, and reuses shared DAG/planner/wait summaries.
-Last activity: 2026-05-02 — Implemented and verified 11-01 with focused green coverage on `npm run typecheck` and `npx vitest run test/unit/tui/main.test.ts test/unit/compose.test.ts test/unit/tui/view-model.test.ts`; next is 11-02 doc-vs-code drift and state-diagram consolidation.
+Plan: 11-02 planned and verified; execution next
+Status: Phase 11 execution is underway with the first diagnostic slice shipped and 11-02 ready to execute: doc-vs-code drift tests, canonical state-axis updates, and coordination/execution-flow docs consolidation.
+Last activity: 2026-05-02 — Planned and verified 11-02 with research, pattern mapping, validation contract, and plan-checker PASS; next is executing `.planning/phases/11-documentation-diagnostic-tooling/11-02-PLAN.md`.
 
 Progress: [###-------] 33% for Phase 11
 
@@ -44,7 +44,7 @@ Full decision log lives in PROJECT.md Key Decisions table. Highlights from initi
 
 ### Pending Todos
 
-- Plan and execute Phase 11 plan 11-02: add doc-vs-code drift checks and update the canonical state/execution-flow diagrams to match the shipped explain/state seams.
+- Execute Phase 11 plan 11-02: add doc-vs-code drift checks and update the canonical state/execution-flow diagrams to match the shipped explain/state seams.
 - Plan and execute Phase 11 plan 11-03: build the concerns-to-tests map and newcomer narrative docs.
 
 ### Blockers/Concerns
@@ -67,6 +67,6 @@ Full decision log lives in PROJECT.md Key Decisions table. Highlights from initi
 
 ## Session Continuity
 
-Last session: 2026-05-02 — Phase 11 plan 11-01 shipped a read-only `gvc0 explain` CLI with shared text-summary reuse and focused verification green.
-Stopped at: move into 11-02 doc-vs-code drift and canonical diagram consolidation work.
-Resume file: continue under `.planning/phases/11-documentation-diagnostic-tooling/` with 11-02 planning next.
+Last session: 2026-05-02 — Phase 11 plan 11-02 was researched, planned, validated, and plan-checker verified.
+Stopped at: execute `.planning/phases/11-documentation-diagnostic-tooling/11-02-PLAN.md`.
+Resume file: `.planning/phases/11-documentation-diagnostic-tooling/11-02-PLAN.md`.
