@@ -26,5 +26,18 @@ export function createFauxProvider(
   return registerFauxProvider(options);
 }
 
+/**
+ * Build a faux response sequence where the agent emits plain text only,
+ * with no tool call. Reproduces the planner-phase failure mode where an
+ * agent finishes without invoking `submit` / `submitDiscuss`.
+ *
+ * The runtime detects the missing tool call after the agent loop ends
+ * and throws `<phase> phase must call submit before completion`. Used as
+ * a regression anchor for that path.
+ */
+export function fauxPlainTextOnlyResponse(text: string): FauxResponseStep[] {
+  return [fauxAssistantMessage([fauxText(text)])];
+}
+
 export type { FauxProviderRegistration, FauxResponseStep };
 export { fauxAssistantMessage, fauxText, fauxThinking, fauxToolCall };

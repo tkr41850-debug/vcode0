@@ -67,4 +67,20 @@ rather than relying on the failed-run filter to clean up after the fact.
 - Failed-run filter: `src/runtime/retry-policy.ts` (`decideRetry`,
   `semantic_failure` classification)
 - Phase 8 spec: `docs/implementation/02-project-planner/phase-8-submit-compliance.md`
-- Regression anchor: `test/integration/...` (added in Step 8.3)
+- Regression anchor: `test/integration/feature-phase-agent-flow.test.ts`
+  (plan and replan plain-text-only cases added in Step 8.3)
+
+## Project-planner regression coverage gap
+
+Step 8.3's spec asks for matching coverage of project-planner runs. That is
+not landed: project-planner integration through `LocalWorkerPool` requires
+a `projectPlannerBackend` and a `ProjectPlannerAgentSessionFactory` adapter
+that are not wired in `src/compose.ts` today. The submit-call check
+(`<phase> phase must call submit before completion`) lives in
+`FeaturePhaseOrchestrator.startProposalPhase` and is reached only through
+that wiring. Closing this gap is a Phase-4 follow-up that should add the
+factory/backend wiring and an integration regression matching the
+plan/replan cases. Until then, project-planner relies on shared prompt
+hardening (Step 8.1) and the failed-run filter; the failure signature is
+structurally identical to feature-plan because both use `executeAgent` with
+phase `'plan'`.

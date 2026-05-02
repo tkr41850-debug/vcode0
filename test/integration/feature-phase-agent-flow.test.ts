@@ -36,6 +36,7 @@ import {
   createFauxProvider,
   type FauxProviderRegistration,
   fauxAssistantMessage,
+  fauxPlainTextOnlyResponse,
   fauxText,
   fauxToolCall,
 } from './harness/faux-stream.js';
@@ -1369,5 +1370,93 @@ describe('feature-phase agent flow', () => {
       phase: 'replan',
       mode: 'replan',
     });
+  });
+
+  it('plan with plain-text-only faux response lands run at runStatus=failed with semantic_failure and does not redispatch', async () => {
+    faux.setResponses(fauxPlainTextOnlyResponse('Plan notes only.'));
+
+    const { store, loop } = createFixture({
+      featureOverrides: { workControl: 'planning' },
+    });
+
+    await loop.step(100);
+
+    const run = store.getAgentRun('run-feature:f-1:plan');
+    expect(run).toEqual(
+      expect.objectContaining({
+        runStatus: 'failed',
+        owner: 'system',
+      }),
+    );
+
+    const inbox = store.listInboxItems({ featureId: 'f-1' });
+    const semanticFailure = inbox.find(
+      (item) => item.kind === 'semantic_failure',
+    );
+    expect(semanticFailure).toBeDefined();
+    expect(semanticFailure?.payload).toEqual(
+      expect.objectContaining({
+        phase: 'plan',
+        error: expect.stringMatching(/^plan phase must call submit/),
+      }),
+    );
+
+    const dispatchCountBefore = faux.state.callCount;
+    await loop.step(100);
+    expect(faux.state.callCount).toBe(dispatchCountBefore);
+    expect(store.getAgentRun('run-feature:f-1:plan')?.runStatus).toBe('failed');
+  });
+
+  it('replan with plain-text-only faux response lands run at runStatus=failed with semantic_failure and does not redispatch', async () => {
+    faux.setResponses(fauxPlainTextOnlyResponse('Replan notes only.'));
+
+    const { store, loop } = createFixture({
+      featureOverrides: {
+        status: 'in_progress',
+        workControl: 'replanning',
+        collabControl: 'branch_open',
+      },
+      tasks: [
+        createTaskFixture({
+          id: 't-stuck',
+          description: 'Existing stuck task',
+          status: 'stuck',
+          collabControl: 'branch_open',
+        }),
+      ],
+    });
+    appendFeaturePhaseEvent(store, 'f-1', 'verify', 'Repair needed.', {
+      outcome: 'replan_needed',
+      failedChecks: ['integrated flow not proven'],
+    });
+
+    await loop.step(100);
+
+    const run = store.getAgentRun('run-feature:f-1:replan');
+    expect(run).toEqual(
+      expect.objectContaining({
+        runStatus: 'failed',
+        owner: 'system',
+      }),
+    );
+
+    const inbox = store.listInboxItems({ featureId: 'f-1' });
+    const semanticFailure = inbox.find(
+      (item) => item.kind === 'semantic_failure',
+    );
+    expect(semanticFailure).toBeDefined();
+    expect(semanticFailure?.payload).toEqual(
+      expect.objectContaining({
+        phase: 'replan',
+        error: expect.stringMatching(/^replan phase must call submit/),
+      }),
+    );
+
+    const dispatchCountBefore = faux.state.callCount;
+    await loop.step(100);
+    expect(faux.state.callCount).toBe(dispatchCountBefore);
+    expect(store.getAgentRun('run-feature:f-1:replan')?.runStatus).toBe(
+      'failed',
+    );
   });
 });
