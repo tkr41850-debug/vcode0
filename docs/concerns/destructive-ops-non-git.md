@@ -73,6 +73,13 @@ Phase 3 ships the git-only guard. The inbox row with
 `kind='destructive_action'` is the extension point; Phase 7 owns the UI
 and the expanded pattern set.
 
+## Executable coverage
+
+- `test/unit/agents/destructive-ops.test.ts` covers the shipped git destructive patterns and explicitly leaves `rm -rf /` out of scope.
+- `test/integration/destructive-op-approval.test.ts` proves `git push --force` is approval-gated, does not move the test remote, and routes a `destructive_action` inbox item.
+
+Non-git destructive commands remain deferred/no-direct-coverage. Track the central status in [Testing / Concerns-to-tests traceability](../operations/testing.md#concerns-to-tests-traceability).
+
 ## Related
 
 - `src/agents/worker/destructive-ops.ts` — the current guard.

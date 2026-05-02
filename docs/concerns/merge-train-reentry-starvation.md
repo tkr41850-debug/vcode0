@@ -18,6 +18,14 @@ The re-entry-descending sort was chosen to prioritize repair work on features th
 
 Keep the re-entry-descending sort. Rely on replan-loop counters to catch broken features before starvation sets in. Revisit if observation shows meaningful starvation of healthy features.
 
+## Executable coverage
+
+- `test/unit/core/merge-train.test.ts` proves the intentional re-entry-descending tie-breaker and the cap backstop behavior.
+- `test/integration/merge-train.test.ts` covers ejection/re-entry ordering plus cap escalation in scheduler-level merge-train flows.
+- `test/unit/core/warnings.test.ts` covers `feature_churn` and `long_feature_blocking` warning signals.
+
+Fleet-level starvation detection and fairness metrics remain deferred/no-direct-coverage. Track the central status in [Testing / Concerns-to-tests traceability](../operations/testing.md#concerns-to-tests-traceability).
+
 ## Related
 
 - [Feature Candidate: Fine-Grained Merge-Train Priority](../feature-candidates/merge-train-niceness.md)

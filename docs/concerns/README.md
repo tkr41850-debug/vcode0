@@ -4,6 +4,8 @@ Known risks and watchpoints for current design.
 
 Use these pages when evaluating trade-offs or warning signs around baseline behavior.
 
+For executable proof and deferred gaps, see the [testing traceability map](../operations/testing.md#concerns-to-tests-traceability).
+
 Current entries:
 
 - [Destructive Ops (non-git)](./destructive-ops-non-git.md)

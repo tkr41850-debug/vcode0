@@ -19,6 +19,12 @@ The scheduler caps parallelism but does not cap runtime per task. A single stuck
 
 Baseline defers. Natural trigger is the budget/usage rollup work (see memory `budget_usage_rollup_architecture.md`): once `agent_runs.usd` + feature-level rollup are live, a cost cap can key off the same data. Revisit when that lands or on first observed production runaway.
 
+## Executable coverage
+
+- `test/integration/worker-smoke.test.ts` proves worker runtime bootstrap, faux-backed task execution, and help/approval wait-resume plumbing through the runtime harness.
+
+Runaway mitigation itself remains deferred/no-direct-coverage: no test currently enforces wall-clock budgets, progress-idle timeout, provider retry cutoff, or cost-based cutoff. Track the central status in [Testing / Concerns-to-tests traceability](../operations/testing.md#concerns-to-tests-traceability).
+
 ## Related
 
 - [Worker Model](../architecture/worker-model.md)

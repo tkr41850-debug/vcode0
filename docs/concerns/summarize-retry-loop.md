@@ -18,6 +18,13 @@ Other verify-shaped phases (`ci_check`, `verify`, rebase, post-rebase `ci_check`
 
 Baseline keeps the flat 1-second retry. A proper fix adds exponential backoff plus a retry cap that escalates to `manual_intervention` or marks the feature as `merged_without_summary`. Treat as follow-up after the core executor work lands.
 
+## Executable coverage
+
+- `test/unit/orchestrator/summaries.test.ts` covers summarize start, budget-mode skip, completion persistence, and empty-summary rejection.
+- `test/unit/orchestrator/scheduler-loop.test.ts` covers retry-eligible feature-phase redispatch through the generic scheduler path.
+
+Summarize-specific exponential backoff, retry cap, and escalation remain deferred/no-direct-coverage. Track the central status in [Testing / Concerns-to-tests traceability](../operations/testing.md#concerns-to-tests-traceability).
+
 ## Related
 
 - [Feature Candidate: Generalized Phase Timeouts](../feature-candidates/phase-timeouts.md)

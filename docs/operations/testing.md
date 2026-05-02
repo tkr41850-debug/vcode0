@@ -26,6 +26,20 @@ Current unit targets include:
 
 The suite is still foundation-first, but integration coverage now exists for the merge-train path, the worker runtime bootstrap, feature-phase agent flow, and a dedicated terminal-E2E lane for the interactive pi-tui shell.
 
+## Concerns-to-tests traceability
+
+Use this map with [docs/concerns/](../concerns/README.md) to tell whether a risk is guarded by executable tests, covered only partially, or still a watchpoint.
+
+| Concern | Executable proof | Coverage status | Remaining gap |
+|---|---|---|---|
+| [Destructive Ops (non-git)](../concerns/destructive-ops-non-git.md) | `test/unit/agents/destructive-ops.test.ts`; `test/integration/destructive-op-approval.test.ts` | Partial: git destructive commands are detected, approval-gated, and routed into `destructive_action` inbox rows. | Non-git destructive shell commands such as `rm -rf`, `find -delete`, `dd`, `mkfs`, `truncate`, `sudo`, and recursive permission changes remain deferred/no-direct-coverage. |
+| [Merge-Train Re-entry Cap](../concerns/merge-train-reentry-cap.md) | `test/unit/core/merge-train.test.ts`; `test/integration/merge-train.test.ts`; `test/unit/core/warnings.test.ts` | Covered for queue ordering, cap enforcement, cap-reached inbox escalation, and churn warnings. | Alternating real-world failure sources can still consume turns before the cap; operators should watch churn rate and cap-hit inbox items. |
+| [Merge-Train Re-entry Starvation](../concerns/merge-train-reentry-starvation.md) | `test/unit/core/merge-train.test.ts`; `test/integration/merge-train.test.ts`; `test/unit/core/warnings.test.ts` | Partial: the intentional re-entry-descending sort, conflict/ejection path, cap backstop, and long-blocking/churn warnings are tested. | Fleet-level starvation detection and fairness metrics remain deferred/no-direct-coverage. |
+| [Planner Write-Reservation Accuracy](../concerns/planner-write-reservation-accuracy.md) | `test/unit/orchestrator/verify-repairs.test.ts`; `test/unit/core/proposals.test.ts`; `test/unit/orchestrator/scheduler-loop.test.ts` | Partial: repair issues map file-like locations into `reservedWritePaths`, proposals preserve reservations, and scheduler overlap handling is exercised. | Reservation prediction quality is not measured against actual changed files; it remains an operational watchpoint. |
+| [Summarize Retry Loop](../concerns/summarize-retry-loop.md) | `test/unit/orchestrator/summaries.test.ts`; `test/unit/orchestrator/scheduler-loop.test.ts` | Partial: summarize start/skip/completion behavior and generic feature-phase retry dispatch are tested. | Summarize-specific exponential backoff, retry cap, and manual escalation remain deferred/no-direct-coverage. |
+| [Verification and Repair Churn](../concerns/verification-and-repair-churn.md) | `test/unit/orchestrator/verify-repairs.test.ts`; `test/integration/feature-lifecycle-e2e.test.ts`; `test/unit/core/warnings.test.ts`; `specs/test_feature_verification_repair_loop.md` | Covered for verify repair task creation, repair cap escalation, e2e verify-repair rerun, and warning/spec coverage of repeated loops. | Reuse/caching of prior verification work remains deferred optimization work. |
+| [Worker Runaway](../concerns/worker-runaway.md) | `test/integration/worker-smoke.test.ts` | Deferred/no-direct-coverage for the runaway mitigation itself; the smoke test proves worker runtime bootstrap and wait/resume plumbing only. | Wall-clock budgets, progress-idle timeout, provider retry cutoff, and cost-based cutoff are not implemented or tested. |
+
 ## Persistence
 
 Persistence integration contracts live under `test/integration/persistence/` and use real tmpdir file-backed SQLite databases — `:memory:` would hide fsync and WAL behaviour that is the whole point of these tests.

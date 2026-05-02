@@ -19,6 +19,14 @@ If reservations are too broad, parallelism drops because unrelated work is penal
 
 This is acceptable for the baseline because reservations are advisory and runtime overlap handling remains authoritative. Still, the predictive quality of planner reservations should be observed before leaning on them more heavily.
 
+## Executable coverage
+
+- `test/unit/orchestrator/verify-repairs.test.ts` covers mapping file-like verification issue locations into `reservedWritePaths` and leaving non-path locations unset.
+- `test/unit/core/proposals.test.ts` covers proposal preservation of `reservedWritePaths` metadata.
+- `test/unit/orchestrator/scheduler-loop.test.ts` covers runtime overlap handling that remains authoritative when predicted reservations are incomplete.
+
+Prediction accuracy against actual changed files remains deferred/no-direct-coverage. Track the central status in [Testing / Concerns-to-tests traceability](../operations/testing.md#concerns-to-tests-traceability).
+
 ## Related
 
 - [Architecture / Planner](../architecture/planner.md)
