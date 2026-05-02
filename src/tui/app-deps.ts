@@ -6,6 +6,7 @@ import type {
   MilestoneId,
   TaskAgentRun,
 } from '@core/types/index';
+import type { ProjectSessionFilter } from '@orchestrator/ports/index';
 import type { ProjectBootstrapResult } from '@root/compose';
 import type { ApprovalDecision, HelpResponse } from '@runtime/contracts';
 import type { WorkerCountsViewModel } from '@tui/view-model/index';
@@ -85,5 +86,11 @@ export interface TuiAppDeps {
     featureId: FeatureId,
     phase: 'plan' | 'replan',
   ): Promise<string>;
+  /** List project-scope agent_runs for the project-planner picker. */
+  listProjectSessions(filter?: ProjectSessionFilter): readonly AgentRun[];
+  /** Start a fresh project-planner session; returns the new run id. */
+  startProjectPlannerSession(): Promise<string>;
+  /** Resume an existing project-planner session by run id. */
+  resumeProjectPlannerSession(id: string): Promise<void>;
   quit(): Promise<void>;
 }

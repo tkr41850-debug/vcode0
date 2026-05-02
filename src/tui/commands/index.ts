@@ -286,6 +286,19 @@ export function buildComposerSlashCommands({
       'attach',
       'Attach operator to running plan/replan run on selected feature.',
     ),
+    {
+      name: 'project',
+      description: 'Open project-planner mode picker.',
+      getArgumentCompletions: (prefix) => {
+        return filterSuggestions(prefix, [
+          {
+            value: 'detach',
+            label: 'detach',
+            description: 'Exit project-planner mode',
+          },
+        ]);
+      },
+    },
     staticSlashCommand(
       'release-to-scheduler',
       'Release attached plan/replan run back to scheduler ownership.',

@@ -196,6 +196,21 @@ export async function composeApplication(): Promise<GvcApplication> {
         featureId,
         phase,
       ),
+    listProjectSessions: (filter) => store.listProjectSessions(filter),
+    startProjectPlannerSession: async () => {
+      const planner = projectPlannerRef.current;
+      if (planner === undefined) {
+        throw new Error('project planner not initialized');
+      }
+      return planner.startProjectPlannerSession();
+    },
+    resumeProjectPlannerSession: async (id) => {
+      const planner = projectPlannerRef.current;
+      if (planner === undefined) {
+        throw new Error('project planner not initialized');
+      }
+      await planner.resumeProjectPlannerSession(id);
+    },
     sendPlannerChatInput: async (featureId, phase, text) => {
       const runId = `run-feature:${featureId}:${phase}`;
       const run = store.getAgentRun(runId);

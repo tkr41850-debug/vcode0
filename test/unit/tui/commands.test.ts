@@ -65,6 +65,9 @@ function createDataSource(taskRun?: TaskAgentRun) {
     ),
     attachFeaturePhaseRun: vi.fn(() => Promise.resolve('attached')),
     releaseFeaturePhaseToScheduler: vi.fn(() => Promise.resolve('released')),
+    listProjectSessions: vi.fn(() => []),
+    startProjectPlannerSession: vi.fn(() => Promise.resolve('run-project:s-1')),
+    resumeProjectPlannerSession: vi.fn(() => Promise.resolve()),
     quit: vi.fn(async () => {}),
   };
 }
@@ -103,6 +106,21 @@ describe('parseSlashCommand', () => {
       featureDescription: 'Plan initial project work',
     });
   });
+
+  it('parses /project as project-planner intent', () => {
+    expect(parseSlashCommand('/project')).toEqual({
+      name: 'project',
+      args: {},
+    });
+  });
+
+  it('parses /project detach with positional', () => {
+    expect(parseSlashCommand('/project detach')).toEqual({
+      name: 'project',
+      args: {},
+      positionals: ['detach'],
+    });
+  });
 });
 
 describe('buildComposerSlashCommands', () => {
@@ -129,6 +147,32 @@ describe('buildComposerSlashCommands', () => {
     );
     expect(suggestions?.items.map((item) => item.value)).toContain(
       'feature-edit',
+    );
+  });
+
+  it('suggests /project from /p prefix', async () => {
+    const provider = new CombinedAutocompleteProvider(
+      buildComposerSlashCommands({
+        snapshot: { milestones: [], features: [], tasks: [] },
+      }),
+    );
+
+    const suggestions = await provider.getSuggestions(['/p'], 0, 2, {
+      signal: new AbortController().signal,
+    });
+
+    expect(suggestions?.items.map((item) => item.value)).toContain('project');
+  });
+
+  it('suggests detach as /project argument completion', async () => {
+    const command = buildComposerSlashCommands({
+      snapshot: { milestones: [], features: [], tasks: [] },
+    }).find((entry) => entry.name === 'project');
+
+    const suggestions = await command?.getArgumentCompletions?.('');
+
+    expect(suggestions).toContainEqual(
+      expect.objectContaining({ value: 'detach' }),
     );
   });
 

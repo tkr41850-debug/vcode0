@@ -4,6 +4,7 @@ import {
   parseInitializeProjectCommand,
   parseSlashCommand,
 } from '@tui/commands/index';
+import type { ProjectPlannerController } from '@tui/project-planner-controller';
 import type { ComposerProposalController } from '@tui/proposal-controller';
 import type { TuiAppDeps } from './app-deps.js';
 import { formatUnknownError, phaseForFeature } from './app-state.js';
@@ -99,6 +100,7 @@ export async function executeSlashCommand(params: {
   notice: string | undefined;
   dataSource: TuiAppDeps;
   proposalController: ComposerProposalController;
+  projectPlannerController?: ProjectPlannerController;
   currentSelection: ComposerSelection;
   setSelectedNodeId: (nodeId: string) => void;
 }): Promise<string> {
@@ -165,6 +167,57 @@ export async function executeSlashCommand(params: {
     case 'quit':
       params.commandContext.requestQuit();
       return 'quitting';
+    case 'project': {
+      if (params.projectPlannerController === undefined) {
+        throw new Error('project-planner controller not wired');
+      }
+      const positional = parsed.positionals?.[0];
+      if (positional === 'detach') {
+        const result = await params.projectPlannerController.execute({
+          name: 'project',
+          args: {},
+          positionals: ['detach'],
+        });
+        return result.message;
+      }
+      if (positional === 'new') {
+        await params.projectPlannerController.selectOption({
+          kind: 'start-new',
+        });
+        const sessionId =
+          params.projectPlannerController.getAttachedSessionId();
+        return sessionId !== undefined
+          ? `Started project-planner session ${sessionId}.`
+          : 'Failed to start project-planner session.';
+      }
+      if (positional === 'resume') {
+        const sessionId = parsed.positionals?.[1];
+        if (sessionId === undefined) {
+          throw new Error('--id (positional) required for /project resume');
+        }
+        await params.projectPlannerController.selectOption({
+          kind: 'resume',
+          sessionId,
+        });
+        return `Resumed project-planner session ${sessionId}.`;
+      }
+      const result = await params.projectPlannerController.execute({
+        name: 'project',
+        args: {},
+      });
+      const picker = params.projectPlannerController.getState().picker;
+      if (picker === undefined) {
+        return result.message;
+      }
+      const summary = picker.options
+        .map((option) =>
+          option.kind === 'start-new'
+            ? '/project new'
+            : `/project resume ${option.sessionId}`,
+        )
+        .join(' · ');
+      return `${result.message} ${summary}`;
+    }
     case 'init': {
       // parseInitializeProjectCommand still validates legacy /init args; the
       // synthetic milestone/feature naming is no longer applied. Phase 6 may

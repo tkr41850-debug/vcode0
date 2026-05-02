@@ -65,6 +65,9 @@ function createStubDeps(overrides: Partial<TuiAppDeps> = {}): TuiAppDeps {
     listPendingFeaturePhaseHelp: () => [],
     attachFeaturePhaseRun: () => Promise.resolve(''),
     releaseFeaturePhaseToScheduler: () => Promise.resolve(''),
+    listProjectSessions: () => [],
+    startProjectPlannerSession: () => Promise.resolve('run-project:s-1'),
+    resumeProjectPlannerSession: () => Promise.resolve(),
     quit: () => Promise.resolve(),
     ...overrides,
   };

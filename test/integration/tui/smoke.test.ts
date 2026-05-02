@@ -65,6 +65,32 @@ test('composer scope label persists when composer is defocused', async ({
   await expect(terminal.getByText('composer · graph')).toBeVisible();
 });
 
+test('/project picker shows start-new only with no existing sessions', async ({
+  terminal,
+}) => {
+  const workspace = await createWorkspace();
+
+  startTui(terminal, workspace);
+  await waitForTuiReady(terminal);
+
+  terminal.submit('/project');
+  await expect(terminal.getByText('/project new')).toBeVisible({
+    timeout: tuiReadyTimeoutMs,
+  });
+});
+
+test('/project detach is a no-op when not attached', async ({ terminal }) => {
+  const workspace = await createWorkspace();
+
+  startTui(terminal, workspace);
+  await waitForTuiReady(terminal);
+
+  terminal.submit('/project detach');
+  await expect(
+    terminal.getByText('project-planner mode not attached'),
+  ).toBeVisible({ timeout: tuiReadyTimeoutMs });
+});
+
 test('opens monitor overlay from composer command', async ({ terminal }) => {
   const workspace = await createWorkspace();
 

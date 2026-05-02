@@ -26,6 +26,8 @@ import {
   type LivePlannerEntry,
   LivePlannerSessions,
 } from '@tui/live-planner-sessions';
+import { LiveProjectPlannerSessions } from '@tui/live-project-planner-sessions';
+import { ProjectPlannerController } from '@tui/project-planner-controller';
 import { ComposerProposalController } from '@tui/proposal-controller';
 import { TuiViewModelBuilder } from '@tui/view-model/index';
 
@@ -92,6 +94,7 @@ export class TuiApp implements UiPort {
   private readonly commands = new CommandRegistry();
   private readonly viewModels = new TuiViewModelBuilder();
   private readonly proposalController: ComposerProposalController;
+  private readonly projectPlannerController: ProjectPlannerController;
   private readonly overlays: OverlayState = {
     monitorHandle: undefined,
     dependencyHandle: undefined,
@@ -106,8 +109,22 @@ export class TuiApp implements UiPort {
   private readonly commandContext: TuiCommandContext;
   private readonly livePlannerSessions = new LivePlannerSessions();
   private activeLivePlannerEntry: LivePlannerEntry | undefined;
+  private readonly liveProjectPlannerSessions =
+    new LiveProjectPlannerSessions();
 
   constructor(private readonly deps: TuiAppDeps) {
+    this.projectPlannerController = new ProjectPlannerController({
+      listProjectSessions: (filter) => this.deps.listProjectSessions(filter),
+      startProjectPlannerSession: () => this.deps.startProjectPlannerSession(),
+      resumeProjectPlannerSession: (id) =>
+        this.deps.resumeProjectPlannerSession(id),
+      attachProjectSession: (id) => {
+        this.liveProjectPlannerSessions.attach(id);
+      },
+      detachProjectSession: () => {
+        this.liveProjectPlannerSessions.detach();
+      },
+    });
     this.proposalController = new ComposerProposalController({
       snapshot: () => this.deps.snapshot(),
       isAutoExecutionEnabled: () => this.deps.isAutoExecutionEnabled(),
@@ -306,10 +323,13 @@ export class TuiApp implements UiPort {
           : {}),
       }),
     );
+    const projectSessionId =
+      this.projectPlannerController.getAttachedSessionId();
     this.composerStatus.setModel(
       this.viewModels.buildComposer({
         text: this.composerText,
         focusMode: this.focusMode,
+        ...(projectSessionId !== undefined ? { projectSessionId } : {}),
         ...(draftState !== undefined
           ? {
               draftFeatureId: draftState.featureId,
@@ -464,6 +484,7 @@ export class TuiApp implements UiPort {
       notice: this.notice,
       dataSource: this.deps,
       proposalController: this.proposalController,
+      projectPlannerController: this.projectPlannerController,
       currentSelection: this.currentSelection(),
       setSelectedNodeId: (nodeId) => {
         this.selectedNodeId = nodeId;
