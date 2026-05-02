@@ -212,6 +212,106 @@ test('creates planner draft and reaches approval-ready state', async ({
   ).toBeVisible();
 });
 
+// Golden-path TUI E2E smoke (Phase 12-02, SC12-3)
+//
+// Covers the full operator-visible golden path in a single test:
+//   startup → /init → graph feedback → steering overlay → draft task →
+//   approval state → clean quit
+//
+// Does NOT reproduce full autonomous execution or live LLM calls.
+// Cite 12-01 Vitest proof for backend prompt-to-main lifecycle.
+test('golden path tui e2e smoke: init, steer, draft, submit, and quit', async ({
+  terminal,
+}) => {
+  const workspace = await createWorkspace();
+
+  // ── 1. Startup ──────────────────────────────────────────────────────────
+  startTui(terminal, workspace);
+  await waitForTuiReady(terminal);
+
+  await expect(terminal.getByText('[command] [composer]')).toBeVisible({
+    timeout: tuiReadyTimeoutMs,
+  });
+  await expect(terminal.getByText('gvc0 startup')).toBeVisible({
+    timeout: tuiReadyTimeoutMs,
+  });
+  await expect(
+    terminal.getByText(
+      'Run /init to create first milestone and planning feature.',
+    ),
+  ).toBeVisible({ timeout: tuiReadyTimeoutMs });
+
+  // ── 2. /init — graph feedback ────────────────────────────────────────────
+  terminal.submit(initializeProjectCommand);
+
+  await expect(terminal.getByText('m-1: Milestone 1')).toBeVisible({
+    timeout: tuiReadyTimeoutMs,
+  });
+  await expect(terminal.getByText('f-1: Project startup')).toBeVisible({
+    timeout: tuiReadyTimeoutMs,
+  });
+  await expect(terminal.getByText('queue: 1')).toBeVisible({
+    timeout: tuiReadyTimeoutMs,
+  });
+  await expect(terminal.getByText('work: planning')).toBeVisible({
+    timeout: tuiReadyTimeoutMs,
+  });
+
+  // ── 3. Steering overlay (Help) ───────────────────────────────────────────
+  terminal.submit('/help');
+  await expect(terminal.getByText('Help [h/q/esc hide]')).toBeVisible();
+  await expect(terminal.getByText('Show or hide keyboard help.')).toBeVisible();
+
+  terminal.keyEscape();
+  await expect(terminal.getByText('Help [h/q/esc hide]')).not.toBeVisible();
+
+  // ── 4. Graph focus ───────────────────────────────────────────────────────
+  // esc from empty composer → graph focus
+  terminal.keyEscape();
+  await expect(terminal.getByText('focus: graph')).toBeVisible();
+
+  // The DAG renders milestone first. Move down twice to skip the milestone
+  // header and land on f-1: Project startup.
+  terminal.keyDown();
+  terminal.keyDown();
+  await expect(
+    terminal.getByText('selected: f-1: Project startup'),
+  ).toBeVisible();
+
+  // ── 5. Draft task via composer ───────────────────────────────────────────
+  // '/' from graph focus → opens composer with '/' seed
+  terminal.keyPress('/');
+  await expect(terminal.getByText('focus: composer')).toBeVisible();
+
+  // Provide --feature explicitly so the draft is attached to f-1 regardless
+  // of any selection timing edge case.
+  terminal.submit(
+    'task-add --feature f-1 --description "Golden path task" --weight small',
+  );
+  await expect(terminal.getByText('gvc0 progress [draft]')).toBeVisible({
+    timeout: tuiReadyTimeoutMs,
+  });
+  await expect(terminal.getByText('t-1: Golden path task')).toBeVisible({
+    timeout: tuiReadyTimeoutMs,
+  });
+  await expect(terminal.getByText('view: draft')).toBeVisible({
+    timeout: tuiReadyTimeoutMs,
+  });
+
+  // ── 6. Submit for approval ───────────────────────────────────────────────
+  terminal.submit('/submit');
+  await expect(
+    terminal.getByText(
+      '[approval] [composer] approval plan f-1 /approve /reject /rerun',
+    ),
+  ).toBeVisible({ timeout: tuiReadyTimeoutMs });
+
+  // ── 7. Clean quit ────────────────────────────────────────────────────────
+  // /quit from composer exits the TUI without leaving a hanging process.
+  terminal.submit('/quit');
+  // terminal.kill() in afterEach ensures teardown even if quit is slow.
+});
+
 const MINIMAL_CONFIG = JSON.stringify(
   {
     models: {
