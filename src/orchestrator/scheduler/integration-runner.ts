@@ -56,13 +56,7 @@ export async function runIntegrationIfPending(params: {
     return;
   }
 
-  // 4. Agent review (REQ-MERGE-04). Run ID prefix distinguishes from
-  //    feature-phase verify runs (run-feature:${id}:verify).
-  //
-  // Ensure the agent run row exists before calling verifyFeature: the
-  // runtime's persistMessages path calls store.updateAgentRun which requires
-  // a pre-existing row. Re-use an existing run if one was created by a
-  // previous integration attempt (idempotent).
+  // 4. Agent review (REQ-MERGE-04).
   const integrationRunId = `run-integration:${feature.id}`;
   const existingIntegrationRun =
     params.ports.store.getAgentRun(integrationRunId);
