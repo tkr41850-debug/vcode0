@@ -9,64 +9,64 @@
 
 ### Core execution — planning (REQ-PLAN-*)
 
-- [ ] **REQ-PLAN-01**: Top-level planner agent turns a prompt into a feature DAG (create / edit / split / merge features within a milestone) via inline chat with the user
-- [ ] **REQ-PLAN-02**: Feature-level planner agent turns a feature into a task DAG (create / edit tasks within a feature) via inline chat
-- [ ] **REQ-PLAN-03**: Re-invoking a planner is additive only — never touches running or completed work
-- [ ] **REQ-PLAN-04**: On planner re-invocation, user picks "continue prior chat" or "fresh session"
-- [ ] **REQ-PLAN-05**: Manual DAG edits (user in TUI) always win over planner; planner treats them as constraints
-- [ ] **REQ-PLAN-06**: Planner prompts are persisted as an audit log alongside the features they created (no persistent "goal" entity)
-- [ ] **REQ-PLAN-07**: When the top-level planner proposes an edit on a feature whose feature-level planner is currently running, the proposal view flags this; accepting the proposal cancels the running feature-level planner (it retries on the new shape)
+- [x] **REQ-PLAN-01**: Top-level planner agent turns a prompt into a feature DAG (create / edit / split / merge features within a milestone) via inline chat with the user
+- [x] **REQ-PLAN-02**: Feature-level planner agent turns a feature into a task DAG (create / edit tasks within a feature) via inline chat
+- [x] **REQ-PLAN-03**: Re-invoking a planner is additive only — never touches running or completed work
+- [x] **REQ-PLAN-04**: On planner re-invocation, user picks "continue prior chat" or "fresh session"
+- [x] **REQ-PLAN-05**: Manual DAG edits (user in TUI) always win over planner; planner treats them as constraints
+- [x] **REQ-PLAN-06**: Planner prompts are persisted as an audit log alongside the features they created (no persistent "goal" entity)
+- [x] **REQ-PLAN-07**: When the top-level planner proposes an edit on a feature whose feature-level planner is currently running, the proposal view flags this; accepting the proposal cancels the running feature-level planner (it retries on the new shape)
 
 ### Core execution — workers (REQ-EXEC-*)
 
-- [ ] **REQ-EXEC-01**: Each task runs as a child process pi-sdk `Agent` in its own worktree (`feat-<name>-<feature-id>-<task-id>`)
-- [ ] **REQ-EXEC-02**: Tasks produce exactly one squash-merge commit on their feature branch when they complete (commit carries a gvc0 trailer tying it to the task id)
-- [ ] **REQ-EXEC-03**: Worker IPC is NDJSON over stdio, schema-validated via `@sinclair/typebox`; malformed messages are quarantined, not fatal
-- [ ] **REQ-EXEC-04**: Task failure is handled heuristically — transient errors auto-retry with backoff (hard cap); semantic failures park in the inbox
-- [ ] **REQ-EXEC-05**: Global worker-count cap governs concurrent parallelism (configurable, sane default)
-- [ ] **REQ-EXEC-06**: Feature dependencies enforce "wait for merge to `main`" semantics — strictest, simplest
+- [x] **REQ-EXEC-01**: Each task runs as a child process pi-sdk `Agent` in its own worktree (`feat-<name>-<feature-id>-<task-id>`)
+- [x] **REQ-EXEC-02**: Tasks produce exactly one squash-merge commit on their feature branch when they complete (commit carries a gvc0 trailer tying it to the task id)
+- [x] **REQ-EXEC-03**: Worker IPC is NDJSON over stdio, schema-validated via `@sinclair/typebox`; malformed messages are quarantined, not fatal
+- [x] **REQ-EXEC-04**: Task failure is handled heuristically — transient errors auto-retry with backoff (hard cap); semantic failures park in the inbox
+- [x] **REQ-EXEC-05**: Global worker-count cap governs concurrent parallelism (configurable, sane default)
+- [x] **REQ-EXEC-06**: Feature dependencies enforce "wait for merge to `main`" semantics — strictest, simplest
 
 ### Merge train (REQ-MERGE-*)
 
-- [ ] **REQ-MERGE-01**: Merge train serializes feature-branch integration into `main`; `main` is never in a bad state
-- [ ] **REQ-MERGE-02**: Queue head rebases onto latest `main`, runs merge-train verification, then merges — or is ejected for repair
-- [ ] **REQ-MERGE-03**: Re-entry count is capped (configurable, default 10); on cap, the feature is parked in the inbox with re-entry diagnostics for user decision
-- [ ] **REQ-MERGE-04**: Verification before merge is an **agent review** (not tests, not type-check); the verify pi-sdk agent reads the diff against the feature goal and either passes or returns issues for `executing_repair`
+- [x] **REQ-MERGE-01**: Merge train serializes feature-branch integration into `main`; `main` is never in a bad state
+- [x] **REQ-MERGE-02**: Queue head rebases onto latest `main`, runs merge-train verification, then merges — or is ejected for repair
+- [x] **REQ-MERGE-03**: Re-entry count is capped (configurable, default 10); on cap, the feature is parked in the inbox with re-entry diagnostics for user decision
+- [x] **REQ-MERGE-04**: Verification before merge is an **agent review** (not tests, not type-check); the verify pi-sdk agent reads the diff against the feature goal and either passes or returns issues for `executing_repair`
 
 ### TUI / interaction (REQ-TUI-*)
 
-- [ ] **REQ-TUI-01**: Primary TUI surfaces: feature DAG graph, inbox, merge-train status, per-task live transcript — all first-class, bound to a derived view-model stream
-- [ ] **REQ-TUI-02**: Inbox is the unified "things waiting on you" surface — agent `await_response` / `request_help` asks, merge conflicts, auth expiry, destructive-action approvals, orphan-worktree cleanup after crash, re-entry-cap parkings, and any system attention item
-- [ ] **REQ-TUI-03**: Manual graph editing — create / edit / split / merge / cancel / remove / reorder / reweight features and tasks from the TUI
-- [ ] **REQ-TUI-04**: Config editing menu inside the TUI (no hand-editing JSON for common settings)
-- [ ] **REQ-TUI-05**: Three cancel levers are surfaced as distinct actions: cancel-task-preserve-worktree, cancel-task-clean-worktree, cancel-feature-abandon-branch
-- [ ] **REQ-TUI-06**: TUI usability targets power users — docs-aligned, event-driven pi-tui idiom, not a newcomer-polished product
+- [x] **REQ-TUI-01**: Primary TUI surfaces: feature DAG graph, inbox, merge-train status, per-task live transcript — all first-class, bound to a derived view-model stream
+- [x] **REQ-TUI-02**: Inbox is the unified "things waiting on you" surface — agent `await_response` / `request_help` asks, merge conflicts, auth expiry, destructive-action approvals, orphan-worktree cleanup after crash, re-entry-cap parkings, and any system attention item
+- [x] **REQ-TUI-03**: Manual graph editing — create / edit / split / merge / cancel / remove / reorder / reweight features and tasks from the TUI
+- [x] **REQ-TUI-04**: Config editing menu inside the TUI (no hand-editing JSON for common settings)
+- [x] **REQ-TUI-05**: Three cancel levers are surfaced as distinct actions: cancel-task-preserve-worktree, cancel-task-clean-worktree, cancel-feature-abandon-branch
+- [x] **REQ-TUI-06**: TUI usability targets power users — docs-aligned, event-driven pi-tui idiom, not a newcomer-polished product
 
 ### Inbox / pause-resume (REQ-INBOX-*)
 
-- [ ] **REQ-INBOX-01**: Agent-initiated `await_response` / `request_help` (and similar pi-sdk tool calls) route the task to the inbox
-- [ ] **REQ-INBOX-02**: Two-tier pause — the paused task keeps its worker process and worktree for a configurable hot window (default ~10 min) with activity-based reset; after the window, the process is released and a checkpoint is persisted (worktree retained)
-- [ ] **REQ-INBOX-03**: Resume after process-release rehydrates by re-spawning a worker that replays the agent transcript (strategy gated by Phase 3 pi-sdk spike outcome)
-- [ ] **REQ-INBOX-04**: Answering one inbox item can unblock multiple tasks when appropriate (multi-task single-answer unblock)
+- [x] **REQ-INBOX-01**: Agent-initiated `await_response` / `request_help` (and similar pi-sdk tool calls) route the task to the inbox
+- [x] **REQ-INBOX-02**: Two-tier pause — the paused task keeps its worker process and worktree for a configurable hot window (default ~10 min) with activity-based reset; after the window, the process is released and a checkpoint is persisted (worktree retained)
+- [x] **REQ-INBOX-03**: Resume after process-release rehydrates by re-spawning a worker that replays the agent transcript (strategy gated by Phase 3 pi-sdk spike outcome)
+- [x] **REQ-INBOX-04**: Answering one inbox item can unblock multiple tasks when appropriate (multi-task single-answer unblock)
 
 ### State / recovery (REQ-STATE-*)
 
-- [ ] **REQ-STATE-01**: State split preserved — work control (planning/execution phases), collaboration control (branch/merge/conflict), run state (retry, help/approval waits) on `agent_runs`; composite FSM guards enforce valid cross-axis combinations
-- [ ] **REQ-STATE-02**: Seamless auto-resume on orchestrator crash — restart rehydrates from SQLite, re-spawns workers for in-flight tasks, replays transcripts where needed, surfaces a recovery-summary inbox item; user sees live state rather than a triage dialog
-- [ ] **REQ-STATE-03**: Milestones are persistent groupings of features; multiple milestones may have in-flight features concurrently; milestone queue steers scheduler priority but does not gate execution
-- [ ] **REQ-STATE-04**: Top-level planner may propose milestone splits / merges; user may also create / edit milestones manually
+- [x] **REQ-STATE-01**: State split preserved — work control (planning/execution phases), collaboration control (branch/merge/conflict), run state (retry, help/approval waits) on `agent_runs`; composite FSM guards enforce valid cross-axis combinations
+- [x] **REQ-STATE-02**: Seamless auto-resume on orchestrator crash — restart rehydrates from SQLite, re-spawns workers for in-flight tasks, replays transcripts where needed, surfaces a recovery-summary inbox item; user sees live state rather than a triage dialog
+- [x] **REQ-STATE-03**: Milestones are persistent groupings of features; multiple milestones may have in-flight features concurrently; milestone queue steers scheduler priority but does not gate execution
+- [x] **REQ-STATE-04**: Top-level planner may propose milestone splits / merges; user may also create / edit milestones manually
 
 ### Config / models / cost (REQ-CONFIG-*)
 
-- [ ] **REQ-CONFIG-01**: Single global config — one model per agent role (top-planner, feature-planner, task-worker, verifier)
-- [ ] **REQ-CONFIG-02**: Cost / budget knobs exist and are configurable (caps per task / feature / global can be set), but enforcement *behavior* is deferred; v1 ships visibility + configurable knobs, not enforcement semantics
-- [ ] **REQ-CONFIG-03**: Pause thresholds, re-entry cap, worker-count cap, and model assignments are all user-editable (TUI config menu + file); hot-reloadable keys apply without restart
+- [x] **REQ-CONFIG-01**: Single global config — one model per agent role (top-planner, feature-planner, task-worker, verifier)
+- [x] **REQ-CONFIG-02**: Cost / budget knobs exist and are configurable (caps per task / feature / global can be set), but enforcement *behavior* is deferred; v1 ships visibility + configurable knobs, not enforcement semantics
+- [x] **REQ-CONFIG-03**: Pause thresholds, re-entry cap, worker-count cap, and model assignments are all user-editable (TUI config menu + file); hot-reloadable keys apply without restart
 
 ### Clarity / docs (REQ-DOC-*)
 
-- [ ] **REQ-DOC-01**: Execution flow is documented end-to-end — who triggers what, when (event queue, dispatch, feature-phase agents, worker lifecycle); one canonical flow diagram
-- [ ] **REQ-DOC-02**: State shape is documented with one canonical diagram covering the three axes (work × collab × run) and their valid cross-axis combinations
-- [ ] **REQ-DOC-03**: Coordination semantics (lock / claim / suspend / resume / rebase rules) are documented with decision tables, not prose
+- [x] **REQ-DOC-01**: Execution flow is documented end-to-end — who triggers what, when (event queue, dispatch, feature-phase agents, worker lifecycle); one canonical flow diagram
+- [x] **REQ-DOC-02**: State shape is documented with one canonical diagram covering the three axes (work × collab × run) and their valid cross-axis combinations
+- [x] **REQ-DOC-03**: Coordination semantics (lock / claim / suspend / resume / rebase rules) are documented with decision tables, not prose
 
 ## v2 Requirements
 
@@ -146,53 +146,55 @@ Explicit exclusions. Anti-features and non-goals documented so they don't re-app
 
 ## Traceability
 
-Phase mapping derived from `.planning/research/SUMMARY.md` ("Implications for Roadmap"). Final canonical mapping will be set by `gsd-roadmapper` when `ROADMAP.md` lands.
+Phase mapping derived from `.planning/research/SUMMARY.md` and closed out by Phase 12 plan 12-03. Status rows cite the primary shipped evidence; detailed history lives in per-phase summaries under `.planning/phases/`.
 
 | Requirement | Primary Phase | Status |
 |-------------|---------------|--------|
-| REQ-PLAN-01 | Phase 7 (Top-level planner + Inbox + Pause/Resume) | Pending |
-| REQ-PLAN-02 | Phase 5 (Feature lifecycle + Feature-level planner) | Pending |
-| REQ-PLAN-03 | Phase 7 | Pending |
-| REQ-PLAN-04 | Phase 7 | Pending |
-| REQ-PLAN-05 | Phase 8 (TUI surfaces) | Pending |
-| REQ-PLAN-06 | Phase 7 (persistence) + Phase 10 (reader UI) | Pending |
-| REQ-PLAN-07 | Phase 7 | Pending |
-| REQ-EXEC-01 | Phase 3 (Worker execution loop + spike) | Pending |
-| REQ-EXEC-02 | Phase 3 (worker completion) + Phase 5 (integration) | Pending |
-| REQ-EXEC-03 | Phase 3 | Pending |
-| REQ-EXEC-04 | Phase 3 | Pending |
-| REQ-EXEC-05 | Phase 3 (pool) + Phase 4 (scheduler) | Pending |
-| REQ-EXEC-06 | Phase 4 (Scheduler tick + Event queue) | Pending |
-| REQ-MERGE-01 | Phase 6 (Merge train) | Pending |
-| REQ-MERGE-02 | Phase 6 | Pending |
-| REQ-MERGE-03 | Phase 6 | Pending |
-| REQ-MERGE-04 | Phase 5 (initial impl) + Phase 6 (integration) | Pending |
-| REQ-TUI-01 | Phase 8 (TUI surfaces) | Pending |
-| REQ-TUI-02 | Phase 7 (model) + Phase 8 (UI) | Pending |
-| REQ-TUI-03 | Phase 8 | Pending |
-| REQ-TUI-04 | Phase 8 | Pending |
-| REQ-TUI-05 | Phase 8 | Pending |
-| REQ-TUI-06 | Phase 8 | Pending |
-| REQ-INBOX-01 | Phase 7 | Pending |
-| REQ-INBOX-02 | Phase 7 (spike-gated by Phase 3) | Pending |
-| REQ-INBOX-03 | Phase 7 (spike-gated by Phase 3) | Pending |
-| REQ-INBOX-04 | Phase 7 | Pending |
-| REQ-STATE-01 | Phase 1 (core FSM) + Phase 2 (persistence) | Pending |
-| REQ-STATE-02 | Phase 9 (Crash recovery UX) | Pending |
-| REQ-STATE-03 | Phase 1 (core graph) + Phase 2 (persistence) | Pending |
-| REQ-STATE-04 | Phase 7 | Pending |
-| REQ-CONFIG-01 | Phase 2 (persistence) + Phase 3 (use) | Pending |
-| REQ-CONFIG-02 | Phase 2 (tracking) | Pending |
-| REQ-CONFIG-03 | Phase 8 (TUI config editor) | Pending |
-| REQ-DOC-01 | Phase 1 (foundational) + Phase 11 (final consolidation) | Pending |
-| REQ-DOC-02 | Phase 1 + Phase 11 | Pending |
-| REQ-DOC-03 | Phase 1 + Phase 11 | Pending |
+| REQ-PLAN-01 | Phase 7 (Top-level planner + Inbox + Pause/Resume) | Complete — Phase 7 planner flow; 12-01 prompt-to-main proof; `docs/foundations/newcomer.md` |
+| REQ-PLAN-02 | Phase 5 (Feature lifecycle + Feature-level planner) | Complete — Phase 5 feature planner; `test/integration/feature-phase-agent-flow.test.ts`; `docs/architecture/planner.md` |
+| REQ-PLAN-03 | Phase 7 | Complete — additive planner/proposal semantics; proposal coverage; Phase 7 summaries |
+| REQ-PLAN-04 | Phase 7 + Phase 10 | Complete — planner session continue/fresh UX and audit reader from Phase 10 |
+| REQ-PLAN-05 | Phase 8 + Phase 10 | Complete — manual TUI graph commands and proposal collision/review surfaces |
+| REQ-PLAN-06 | Phase 7 + Phase 10 | Complete — persisted planner audit log plus Phase 10 reader UI |
+| REQ-PLAN-07 | Phase 7 + Phase 10 | Complete — collision metadata, cancellation-on-approval behavior, and proposal review overlay |
+| REQ-EXEC-01 | Phase 3 (Worker execution loop + spike) | Complete — child worker/worktree model; `test/integration/worker-smoke.test.ts`; 12-01 lifecycle proof |
+| REQ-EXEC-02 | Phase 3 + Phase 5 | Complete — commit trailer gate; `test/unit/agents/commit-trailer.test.ts`; 12-01 commit evidence |
+| REQ-EXEC-03 | Phase 3 | Complete — NDJSON IPC schema/quarantine tests; `docs/architecture/worker-model.md` |
+| REQ-EXEC-04 | Phase 3 + Phase 7 | Complete — retry policy, semantic failure/inbox routing, and help-wait lifecycle coverage |
+| REQ-EXEC-05 | Phase 3 + Phase 4 | Complete — worker pool cap, scheduler frontier, and configurable worker cap |
+| REQ-EXEC-06 | Phase 4 | Complete — feature dependency merged gate in scheduler plans/tests |
+| REQ-MERGE-01 | Phase 6 (Merge train) | Complete — merge-train serialization tests and 12-01 merge-train drain proof |
+| REQ-MERGE-02 | Phase 6 | Complete — integration runner rebase/verify/eject paths and merge-train integration tests |
+| REQ-MERGE-03 | Phase 6 | Complete — re-entry cap, inbox parking, warning/concerns traceability |
+| REQ-MERGE-04 | Phase 5 + Phase 6 | Complete — verify agent contract, integration runner agent review, and 12-01 verify audit |
+| REQ-TUI-01 | Phase 8 (TUI surfaces) | Complete — DAG, inbox, merge-train, transcript, config, and review overlays; 12-02 TUI smoke |
+| REQ-TUI-02 | Phase 7 + Phase 8 | Complete — unified inbox model and inbox overlay/actions |
+| REQ-TUI-03 | Phase 8 | Complete — manual feature/task graph editing commands and TUI command coverage |
+| REQ-TUI-04 | Phase 8 | Complete — config overlay/editor and live config persistence |
+| REQ-TUI-05 | Phase 8 | Complete — distinct task/feature cancel commands and TUI controls |
+| REQ-TUI-06 | Phase 8 | Complete — docs-aligned pi-tui power-user workflow and reference docs |
+| REQ-INBOX-01 | Phase 7 | Complete — `request_help`/`await_response` routing into inbox |
+| REQ-INBOX-02 | Phase 7 | Complete — hot-window and checkpointed wait states |
+| REQ-INBOX-03 | Phase 7 | Complete — replay/respawn resume strategy after checkpointed waits |
+| REQ-INBOX-04 | Phase 7 | Complete — inbox fanout/multi-task single-answer unblock |
+| REQ-STATE-01 | Phase 1 + Phase 2 | Complete — split state model, persistence, FSM guards, and `docs/foundations/state-axes.md` |
+| REQ-STATE-02 | Phase 9 (Crash recovery UX) | Complete — auto-resume, recovery summary inbox item, and rehydration/recovery tests |
+| REQ-STATE-03 | Phase 1 + Phase 2 | Complete — milestone graph/persistence model and scheduler steering semantics |
+| REQ-STATE-04 | Phase 7 + Phase 8 | Complete — milestone planner/manual graph operations and TUI edit flows |
+| REQ-CONFIG-01 | Phase 2 + Phase 3 | Complete — global four-role model config, schema/load tests, runtime model resolution |
+| REQ-CONFIG-02 | Phase 2 + Phase 8 | Complete — v1 configurable/visible budget knobs; enforcement explicitly deferred to REQ-CONFIG-V2-01 |
+| REQ-CONFIG-03 | Phase 8 | Complete — TUI config editor, hot-reloadable settings, worker/re-entry/pause/model controls |
+| REQ-DOC-01 | Phase 1 + Phase 11 | Complete — `docs/foundations/execution-flow.md` and doc drift checks |
+| REQ-DOC-02 | Phase 1 + Phase 11 | Complete — `docs/foundations/state-axes.md` and canonical state diagram |
+| REQ-DOC-03 | Phase 1 + Phase 11 | Complete — `docs/foundations/coordination-rules.md` decision tables |
 
 **Coverage:**
 - v1 requirements: 37 total
+- Complete: 37
+- Explicit follow-up: 0
 - Mapped to phases: 37
 - Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-04-23*
-*Last updated: 2026-04-23 after initialization*
+*Last updated: 2026-05-02 after Phase 12 traceability closeout*
