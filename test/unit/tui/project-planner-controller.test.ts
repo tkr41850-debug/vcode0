@@ -1,11 +1,20 @@
+import type { GraphSnapshot } from '@core/graph/index';
+import type { GraphProposal } from '@core/proposals/index';
 import {
   type AgentRun,
+  type FeatureId,
   PROJECT_SCOPE_ID,
   type ProjectAgentRun,
 } from '@core/types/index';
 import type { ProjectSessionFilter } from '@orchestrator/ports/index';
 import { ProjectPlannerController } from '@tui/project-planner-controller';
 import { describe, expect, it, vi } from 'vitest';
+
+import {
+  createFeatureFixture,
+  createMilestoneFixture,
+  createTaskFixture,
+} from '../../helpers/graph-builders.js';
 
 function makeProjectRun(
   overrides: Partial<ProjectAgentRun> = {},
@@ -196,6 +205,84 @@ describe('ProjectPlannerController', () => {
     expect(controller.getState().attachedSessionId).toBeUndefined();
     expect(env.detachProjectSession).toHaveBeenCalled();
     expect(result.message).toMatch(/[Dd]etached/);
+  });
+
+  describe('reviewProposal', () => {
+    function makeBefore(): GraphSnapshot {
+      return {
+        milestones: [createMilestoneFixture()],
+        features: [
+          createFeatureFixture({ id: 'f-1' }),
+          createFeatureFixture({ id: 'f-3', name: 'F3' }),
+        ],
+        tasks: [createTaskFixture({ id: 't-3', featureId: 'f-3' })],
+      };
+    }
+    function makeAfter(): GraphSnapshot {
+      return {
+        milestones: [createMilestoneFixture()],
+        features: [createFeatureFixture({ id: 'f-1' })],
+        tasks: [],
+      };
+    }
+    const proposal: GraphProposal = {
+      version: 1,
+      mode: 'plan',
+      aliases: {},
+      ops: [{ kind: 'remove_feature', featureId: 'f-3' as FeatureId }],
+    };
+
+    it('returns no cancellation block when helper reports no impact', () => {
+      const env = makeEnv();
+      const findRunningTasksAffected = vi.fn(() => [] as FeatureId[]);
+      const controller = new ProjectPlannerController(env, {
+        findRunningTasksAffected,
+      });
+
+      const view = controller.reviewProposal({
+        before: makeBefore(),
+        after: makeAfter(),
+        proposal,
+        agentRuns: [],
+      });
+
+      expect(view.cancellationApproval).toBeUndefined();
+      expect(view.diffText).toMatch(/- feature f-3/);
+      expect(findRunningTasksAffected).toHaveBeenCalledOnce();
+    });
+
+    it('renders cancellation block with affected run count', () => {
+      const env = makeEnv();
+      const findRunningTasksAffected = vi.fn(() => ['f-3'] as FeatureId[]);
+      const controller = new ProjectPlannerController(env, {
+        findRunningTasksAffected,
+      });
+
+      const runningRun: AgentRun = {
+        id: 'run-task:t-3',
+        scopeType: 'task',
+        scopeId: 't-3',
+        phase: 'plan',
+        runStatus: 'running',
+        owner: 'system',
+        attention: 'none',
+        restartCount: 0,
+        maxRetries: 3,
+      };
+
+      const view = controller.reviewProposal({
+        before: makeBefore(),
+        after: makeAfter(),
+        proposal,
+        agentRuns: [runningRun],
+      });
+
+      expect(view.cancellationApproval).toBeDefined();
+      expect(view.cancellationApproval?.affectedFeatureIds).toEqual(['f-3']);
+      expect(view.cancellationApproval?.affectedRunCount).toBe(1);
+      expect(view.cancellationApproval?.text).toMatch(/cancel/i);
+      expect(view.cancellationApproval?.text).toMatch(/1 running run/);
+    });
   });
 
   it('handles /project detach slash via execute', async () => {

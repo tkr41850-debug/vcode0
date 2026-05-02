@@ -195,6 +195,17 @@ When selected feature has pending proposal, composer enters approval mode and su
 
 `/submit` stores pending proposal for approval. `/discard` drops current draft. Both restore previous auto-execution setting.
 
+### Project proposal review
+
+When attached to a project-planner session and a project-scope proposal is pending review, the composer renders the proposal diff via `src/tui/proposal-review.ts`: added/removed milestones, added/removed features, and feature-dependency edge changes. The diff is computed from `(before, after)` graph snapshots — `before` is the current authoritative graph, `after` is the project-planner draft snapshot from `LiveProjectPlannerSessions`.
+
+Cancellation-approval gate: if the proposal affects features that have running task or feature-phase runs, the controller renders a separate cancellation-approval block listing the affected feature ids and the affected run count. The operator must explicitly approve cancellation before the topology change applies. Detection uses the shared `findRunningTasksAffected` helper (`src/orchestrator/proposals/running-tasks-affected.ts`) — single source of truth with the apply-time CAS check in `applyProjectProposal`.
+
+Rebase rejections (`ProposalRebaseReason`) are rendered with human-readable framing:
+
+- `kind: 'stale-baseline'` — the proposal was prepared against an older `graphVersion`; the session reopens with a refreshed snapshot.
+- `kind: 'running-tasks-affected'` — the proposal touches features with live runs; cancel them or wait before re-approving.
+
 ## Overlays
 
 ### Help Overlay
