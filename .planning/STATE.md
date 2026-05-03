@@ -5,14 +5,14 @@
 See: .planning/PROJECT.md (updated 2026-04-23)
 
 **Core value:** From one prompt, orchestrate parallel autonomous coding that lands on `main` without breaking it — live-steerable from a single TUI.
-**Current focus:** Phase 12 integration and polish is complete; v1 milestone implementation and audit are complete pending any release/publish decision outside this roadmap.
+**Current focus:** v1 milestone is archive-only complete; active requirements remain in place until the next milestone is defined.
 
 ## Current Position
 
 Phase: 12 of 12 (Integration & Polish)
 Plan: complete
-Status: Phase 12 complete; all roadmap phases complete; v1 milestone audit passed.
-Last activity: 2026-05-03 — Closed the v1 audit prompt-to-main evidence gap by upgrading `test/integration/prompt-to-main-e2e.test.ts` to start from `top_planner_requested`, approve the top-level proposal, run discuss/research and feature planning, execute worker/inbox/verify, and drain the merge train to merged.
+Status: v1 milestone archive-only completion prepared; all roadmap phases complete; v1 milestone audit passed.
+Last activity: 2026-05-03 — Archive-only milestone closeout: created v1 roadmap, requirements, and audit archives under `.planning/milestones/`; compacted `.planning/ROADMAP.md`; updated `.planning/PROJECT.md`; kept active `.planning/REQUIREMENTS.md` and skipped git tag per user choice.
 
 Progress: [##########] 100% for Phase 12 | [##########] 100% milestone complete (12/12 phases)
 
@@ -67,5 +67,5 @@ Full decision log lives in PROJECT.md Key Decisions table. Highlights from initi
 ## Session Continuity
 
 Last session: 2026-05-03 — v1 audit prompt-to-main gap closed: backend E2E now starts from `top_planner_requested`, approves the top-level proposal, executes feature lifecycle with inbox help, verifies, and drains the merge train to merged.
-Stopped at: v1 roadmap and milestone audit complete.
+Stopped at: v1 archive-only milestone closeout complete; cleanup/tag/delete-requirements intentionally skipped.
 Resume file: `.planning/ROADMAP.md` Phase 12 section and `.planning/phases/12-integration-polish/12-03-SUMMARY.md`.
