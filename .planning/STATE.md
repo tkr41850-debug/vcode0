@@ -2,7 +2,7 @@
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-04-23)
+See: .planning/PROJECT.md (updated 2026-05-03)
 
 **Core value:** From one prompt, orchestrate parallel autonomous coding that lands on `main` without breaking it — live-steerable from a single TUI.
 **Current focus:** v1 milestone is archive-only complete; active requirements remain in place until the next milestone is defined.
@@ -11,7 +11,7 @@ See: .planning/PROJECT.md (updated 2026-04-23)
 
 Phase: 12 of 12 (Integration & Polish)
 Plan: complete
-Status: v1 milestone archive-only completion prepared; all roadmap phases complete; v1 milestone audit passed.
+Status: v1 milestone archive-only completion and phase-directory cleanup complete; all roadmap phases complete; v1 milestone audit passed.
 Last activity: 2026-05-03 — Completed v1 milestone cleanup: archived the 12 v1 phase directories under `.planning/milestones/v1-phases/` after archive-only milestone closeout; active `.planning/REQUIREMENTS.md` remains in place and git tag creation was skipped per user choice.
 
 Progress: [##########] 100% for Phase 12 | [##########] 100% milestone complete (12/12 phases)
