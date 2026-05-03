@@ -12,7 +12,7 @@ See: .planning/PROJECT.md (updated 2026-04-23)
 Phase: 12 of 12 (Integration & Polish)
 Plan: complete
 Status: v1 milestone archive-only completion prepared; all roadmap phases complete; v1 milestone audit passed.
-Last activity: 2026-05-03 — Archive-only milestone closeout: created v1 roadmap, requirements, and audit archives under `.planning/milestones/`; compacted `.planning/ROADMAP.md`; updated `.planning/PROJECT.md`; kept active `.planning/REQUIREMENTS.md` and skipped git tag per user choice.
+Last activity: 2026-05-03 — Completed v1 milestone cleanup: archived the 12 v1 phase directories under `.planning/milestones/v1-phases/` after archive-only milestone closeout; active `.planning/REQUIREMENTS.md` remains in place and git tag creation was skipped per user choice.
 
 Progress: [##########] 100% for Phase 12 | [##########] 100% milestone complete (12/12 phases)
 
@@ -67,5 +67,5 @@ Full decision log lives in PROJECT.md Key Decisions table. Highlights from initi
 ## Session Continuity
 
 Last session: 2026-05-03 — v1 audit prompt-to-main gap closed: backend E2E now starts from `top_planner_requested`, approves the top-level proposal, executes feature lifecycle with inbox help, verifies, and drains the merge train to merged.
-Stopped at: v1 archive-only milestone closeout complete; cleanup/tag/delete-requirements intentionally skipped.
-Resume file: `.planning/ROADMAP.md` Phase 12 section and `.planning/phases/12-integration-polish/12-03-SUMMARY.md`.
+Stopped at: v1 archive-only milestone closeout and phase-directory cleanup complete; tag creation and active requirements deletion intentionally skipped.
+Resume file: `.planning/ROADMAP.md`, `.planning/MILESTONES.md`, and `.planning/milestones/v1-phases/12-integration-polish/12-03-SUMMARY.md`.

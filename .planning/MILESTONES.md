@@ -13,6 +13,7 @@
 - [Roadmap archive](milestones/v1-ROADMAP.md)
 - [Requirements archive](milestones/v1-REQUIREMENTS.md)
 - [Milestone audit](milestones/v1-MILESTONE-AUDIT.md)
+- [Phase execution artifacts](milestones/v1-phases/)
 
 ### Key accomplishments
 
