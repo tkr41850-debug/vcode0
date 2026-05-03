@@ -5,14 +5,14 @@
 See: .planning/PROJECT.md (updated 2026-04-23)
 
 **Core value:** From one prompt, orchestrate parallel autonomous coding that lands on `main` without breaking it — live-steerable from a single TUI.
-**Current focus:** Phase 12 integration and polish is complete; v1 milestone implementation is complete pending any release/publish decision outside this roadmap.
+**Current focus:** Phase 12 integration and polish is complete; v1 milestone implementation and audit are complete pending any release/publish decision outside this roadmap.
 
 ## Current Position
 
 Phase: 12 of 12 (Integration & Polish)
 Plan: complete
-Status: Phase 12 complete; all roadmap phases complete.
-Last activity: 2026-05-03 — Executed 12-03: added root README source-install runbook, fixed fresh source installs on Alpine/musl by forcing node-pty source rebuild instead of trusting the glibc prebuild, verified a fresh clone with `npm install` and `npm run test:tui:e2e` (9 passed), and greened out all 37 v1 requirements in `.planning/REQUIREMENTS.md`.
+Status: Phase 12 complete; all roadmap phases complete; v1 milestone audit passed.
+Last activity: 2026-05-03 — Closed the v1 audit prompt-to-main evidence gap by upgrading `test/integration/prompt-to-main-e2e.test.ts` to start from `top_planner_requested`, approve the top-level proposal, run discuss/research and feature planning, execute worker/inbox/verify, and drain the merge train to merged.
 
 Progress: [##########] 100% for Phase 12 | [##########] 100% milestone complete (12/12 phases)
 
@@ -21,9 +21,9 @@ Progress: [##########] 100% for Phase 12 | [##########] 100% milestone complete 
 **Velocity:**
 - Total plans completed: 38
 - Phases completed: 12 of 12
-- Latest verification: 2026-05-03 — Phase 12 source-install dry-run green from fresh clone (`npm install`; postinstall rebuilt node-pty from source; `npm run test:tui:e2e`: 9 passed). Latest full repo verification before final state update: `npm run check` green (94 files, 1969 passed, 3 skipped).
+- Latest verification: 2026-05-03 — Post-audit prompt-to-main focused proof green: `npx vitest run test/integration/prompt-to-main-e2e.test.ts --reporter=verbose` passed 1/1; `npm run check` green (94 files, 1969 passed, 3 skipped).
 
-**Recent Trend:** Phase 12 closed the v1 integration chain: 12-01 proved backend prompt-to-main lifecycle plus verify-agent 5/5 audit; 12-02 stabilized the PTY/TUI golden path; 12-03 added source-install docs, fixed clean Alpine/musl source installs, and completed v1 traceability.
+**Recent Trend:** Phase 12 closed the v1 integration chain: 12-01 proves backend prompt-to-main from top-level prompt through merge-train drain plus verify-agent 5/5 audit; 12-02 stabilized the PTY/TUI golden path; 12-03 added source-install docs, fixed clean Alpine/musl source installs, and completed v1 traceability.
 
 *Updated after each plan completion.*
 
@@ -66,6 +66,6 @@ Full decision log lives in PROJECT.md Key Decisions table. Highlights from initi
 
 ## Session Continuity
 
-Last session: 2026-05-03 — Phase 12 plan 03 completed: root README source-install runbook added; fresh clone source-install dry-run passed; all 37 v1 requirements marked complete with traceability evidence.
-Stopped at: v1 roadmap complete.
+Last session: 2026-05-03 — v1 audit prompt-to-main gap closed: backend E2E now starts from `top_planner_requested`, approves the top-level proposal, executes feature lifecycle with inbox help, verifies, and drains the merge train to merged.
+Stopped at: v1 roadmap and milestone audit complete.
 Resume file: `.planning/ROADMAP.md` Phase 12 section and `.planning/phases/12-integration-polish/12-03-SUMMARY.md`.

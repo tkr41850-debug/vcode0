@@ -1,18 +1,20 @@
 /**
  * Plan 12-01 Task 1 — Non-TUI prompt-to-main lifecycle proof.
  *
- * Proves Phase 12 SC1: scripted planner proposal, approval, worker execution,
- * one answered inbox item, verify pass, merge-train drain, and main containing
- * the expected committed work — all deterministic, no TUI, no live LLM calls.
+ * Proves Phase 12 SC1: scripted top-level planner proposal, approval, feature
+ * planning, worker execution, one answered inbox item, verify pass, merge-train
+ * drain, and main containing the expected committed work — all deterministic,
+ * no TUI, no live LLM calls.
  *
  * Grep-friendly names for 12-03 traceability:
  *   - describe: "prompt-to-main lifecycle (non-TUI scripted proof)"
- *   - it:       "merge-train drains and main contains expected work after ..."
+ *   - it:       "merge-train drains and main contains expected work from top-level prompt after ..."
  *
  * REQ coverage: REQ-PLAN-01, REQ-PLAN-02, REQ-EXEC-01, REQ-EXEC-02,
  *               REQ-INBOX-01, REQ-MERGE-01, REQ-MERGE-02, REQ-MERGE-04
  */
 
+import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
@@ -50,6 +52,22 @@ async function yieldEventLoop(times = 4): Promise<void> {
   }
 }
 
+function initFeatureWorktreeRepo(
+  worktreeDir: string,
+  featureBranch: string,
+): void {
+  const env = { cwd: worktreeDir };
+  spawnSync('git', ['init', '-q'], env);
+  spawnSync('git', ['config', 'user.email', 'test@example.com'], env);
+  spawnSync('git', ['config', 'user.name', 'Test Runner'], env);
+  spawnSync('git', ['config', 'commit.gpgsign', 'false'], env);
+  fs.writeFileSync(path.join(worktreeDir, 'seed.txt'), 'seed\n');
+  spawnSync('git', ['add', 'seed.txt'], env);
+  spawnSync('git', ['commit', '-q', '-m', 'seed'], env);
+  spawnSync('git', ['branch', '-M', 'main'], env);
+  spawnSync('git', ['checkout', '-q', '-b', featureBranch], env);
+}
+
 describe('prompt-to-main lifecycle (non-TUI scripted proof)', () => {
   let fixture: FeatureLifecycleFixture;
   let originalCwd: string;
@@ -78,45 +96,101 @@ describe('prompt-to-main lifecycle (non-TUI scripted proof)', () => {
     await fixture.teardown();
   });
 
-  it('merge-train drains and main contains expected work after planner proposal, approval, inbox help, and verify pass', async () => {
+  it('merge-train drains and main contains expected work from top-level prompt after planner proposal, approval, inbox help, and verify pass', async () => {
     const { faux, graph, store, scheduler, harness } = fixture;
-
-    // ---------------------------------------------------------------
-    // REQ-PLAN-01: Seed a feature representing the user prompt.
-    // REQ-PLAN-02: Planning phase runs and produces tasks.
-    // ---------------------------------------------------------------
-    const feature = fixture.seedFeature('f-p2m', {
-      workControl: 'planning',
-      collabControl: 'none',
-      description: 'Implement greeting service (prompt-to-main proof feature)',
-    });
-    const featureWorktree = fixture.featureWorktreePath(feature.featureBranch);
-    process.chdir(featureWorktree);
-
-    // Pre-create task file so worker's `git add` command succeeds.
-    fs.writeFileSync(
-      path.join(featureWorktree, 'greeting.ts'),
-      'export const greet = (name: string) => "Hello, " + name + "!";\n',
-    );
 
     // ---------------------------------------------------------------
     // Script all LLM turns in deterministic order:
     //
-    //  Turns 1-2: Feature planner → addTask + submit
-    //  Turns 3-4: Worker → request_help (blocks) then git add/commit/submit
-    //  Turns 5-6: Feature verifier → submitVerify(pass)
-    //  Turns 7-8: Integration-runner agent review → submitVerify(pass)
+    //  Turns 1-2: Top-level planner → addMilestone + addFeature + submit
+    //  Turns 3-4: Discuss → submitDiscuss
+    //  Turns 5-6: Research → submitResearch
+    //  Turns 7-8: Feature planner → addTask + submit
+    //  Turns 9-10: Worker → request_help (blocks) then git add/commit/submit
+    //  Turns 11-12: Feature verifier → submitVerify(pass)
+    //  Turns 13-14: Integration-runner agent review → submitVerify(pass)
     //
     // request_help + subsequent tool calls are in one faux assistant message.
     // The pi-sdk Agent processes tool calls sequentially; request_help blocks
     // until the help response is delivered, then the remaining tool calls run.
     // ---------------------------------------------------------------
     faux.setResponses([
-      // ---- Turns 1-2: Feature planner ----
+      // ---- Turns 1-2: Top-level planner ----
+      fauxAssistantMessage(
+        [
+          fauxToolCall('addMilestone', {
+            name: 'Milestone 1',
+            description: 'Prompt-to-main proof milestone',
+          }),
+          fauxToolCall('addFeature', {
+            milestoneId: 'm-1',
+            name: 'Greeting service',
+            description: 'Implement greeting service from a user prompt',
+          }),
+          fauxToolCall('submit', {
+            summary: 'Create one feature for the greeting service prompt.',
+            chosenApproach:
+              'Create a feature and let feature planning decompose it.',
+            keyConstraints: [],
+            decompositionRationale: ['One feature is enough for the prompt'],
+            orderingRationale: ['No feature dependencies are required'],
+            verificationExpectations: [
+              'Feature merges after greeting.ts is committed',
+            ],
+            risksTradeoffs: [],
+            assumptions: [],
+          }),
+        ],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage([fauxText('Top-level planning complete.')]),
+
+      // ---- Turns 3-4: Discuss ----
+      fauxAssistantMessage(
+        [
+          fauxToolCall('submitDiscuss', {
+            summary: 'Discussion summary for greeting prompt.',
+            intent: 'Implement a greeting service from the user prompt',
+            successCriteria: ['greeting.ts exports greet'],
+            constraints: ['Keep implementation deterministic'],
+            risks: [],
+            externalIntegrations: ['None'],
+            antiGoals: [],
+            openQuestions: [],
+          }),
+        ],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage([fauxText('Discussion complete.')]),
+
+      // ---- Turns 5-6: Research ----
+      fauxAssistantMessage(
+        [
+          fauxToolCall('submitResearch', {
+            summary: 'Research summary for greeting prompt.',
+            existingBehavior: 'No greeting service exists yet.',
+            essentialFiles: [
+              {
+                path: 'greeting.ts',
+                responsibility: 'Greeting service entrypoint',
+              },
+            ],
+            reusePatterns: ['Use a small exported function'],
+            riskyBoundaries: ['Git commit trailer must be observed'],
+            proofsNeeded: ['Feature reaches merged'],
+            verificationSurfaces: ['prompt-to-main integration test'],
+            planningNotes: ['Create one implementation task'],
+          }),
+        ],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage([fauxText('Research complete.')]),
+
+      // ---- Turns 7-8: Feature planner ----
       fauxAssistantMessage(
         [
           fauxToolCall('addTask', {
-            featureId: feature.id,
+            featureId: 'f-1',
             description: 'implement greeting service',
           }),
           fauxToolCall('submit', {
@@ -134,7 +208,7 @@ describe('prompt-to-main lifecycle (non-TUI scripted proof)', () => {
       ),
       fauxAssistantMessage([fauxText('Planning complete.')]),
 
-      // ---- Turns 3-4: Worker (inbox help + commit) ----
+      // ---- Turns 9-10: Worker (inbox help + commit) ----
       // REQ-INBOX-01: request_help routes to inbox; test answers before
       // the remaining tool calls (git add, git commit, submit) execute.
       fauxAssistantMessage(
@@ -157,7 +231,7 @@ describe('prompt-to-main lifecycle (non-TUI scripted proof)', () => {
       ),
       fauxAssistantMessage([fauxText('Greeting service implemented.')]),
 
-      // ---- Turns 5-6: Feature verifier ----
+      // ---- Turns 11-12: Feature verifier ----
       fauxAssistantMessage(
         [
           fauxToolCall('submitVerify', {
@@ -170,7 +244,7 @@ describe('prompt-to-main lifecycle (non-TUI scripted proof)', () => {
       ),
       fauxAssistantMessage([fauxText('Verification complete.')]),
 
-      // ---- Turns 7-8: Integration-runner agent review ----
+      // ---- Turns 13-14: Integration-runner agent review ----
       // REQ-MERGE-04: verification before merge is an agent review using
       // run-integration: prefix.
       fauxAssistantMessage(
@@ -186,14 +260,96 @@ describe('prompt-to-main lifecycle (non-TUI scripted proof)', () => {
     ]);
 
     // ---------------------------------------------------------------
-    // Phase 1: Feature planner runs — lands in await_approval.
-    // REQ-PLAN-01: top/feature planner proposal created.
+    // Phase 1: Top-level planner runs from a user prompt — lands in await_approval.
+    // REQ-PLAN-01: prompt produces a feature DAG proposal.
     // ---------------------------------------------------------------
+    scheduler.enqueue({
+      type: 'top_planner_requested',
+      prompt: 'Build a greeting service',
+      sessionMode: 'fresh',
+    });
     await scheduler.step(100);
     await harness.drain();
 
+    const topPlanRun = store.getAgentRun('run-top-planner');
+    expect(
+      topPlanRun,
+      'top planner run should exist after prompt',
+    ).toBeDefined();
+    expect(topPlanRun).toMatchObject({
+      runStatus: 'await_approval',
+      owner: 'manual',
+    });
+    expect(
+      topPlanRun?.payloadJson,
+      'top planner proposal payload must be defined',
+    ).toBeDefined();
+
+    scheduler.enqueue({
+      type: 'top_planner_approval_decision',
+      decision: 'approved',
+    });
+    await scheduler.step(200);
+    await harness.drain();
+
+    const feature = graph.features.get('f-1');
+    expect(
+      feature,
+      'top planner approval should create feature f-1',
+    ).toBeDefined();
+    if (feature === undefined) throw new Error('feature f-1 must exist');
+    expect(feature).toEqual(
+      expect.objectContaining({
+        collabControl: 'none',
+        description: 'Implement greeting service from a user prompt',
+      }),
+    );
+    expect(store.getAgentRun('run-top-planner')).toMatchObject({
+      runStatus: 'completed',
+    });
+
+    const featureWorktree = fixture.featureWorktreePath(feature.featureBranch);
+    fs.mkdirSync(featureWorktree, { recursive: true });
+    initFeatureWorktreeRepo(featureWorktree, feature.featureBranch);
+    process.chdir(featureWorktree);
+
+    // Pre-create task file so worker's `git add` command succeeds.
+    fs.writeFileSync(
+      path.join(featureWorktree, 'greeting.ts'),
+      'export const greet = (name: string) => "Hello, " + name + "!";\n',
+    );
+
+    // ---------------------------------------------------------------
+    // Phase 2: Discuss and research run before feature planning.
+    // REQ-PLAN-02: feature lifecycle reaches planning from a top-created feature.
+    // ---------------------------------------------------------------
+    await fixture.stepUntil(
+      () => graph.features.get(feature.id)?.workControl === 'planning',
+      { maxTicks: 20, now: 300 },
+    );
+    expect(
+      store.getAgentRun(`run-feature:${feature.id}:discuss`),
+    ).toMatchObject({
+      runStatus: 'completed',
+    });
+    expect(
+      store.getAgentRun(`run-feature:${feature.id}:research`),
+    ).toMatchObject({
+      runStatus: 'completed',
+    });
+
+    // ---------------------------------------------------------------
+    // Phase 3: Feature planner runs — lands in await_approval.
+    // REQ-PLAN-02: feature-level planner proposal creates a task DAG.
+    // ---------------------------------------------------------------
+    await scheduler.step(500);
+    await harness.drain();
+
     const planRun = store.getAgentRun(`run-feature:${feature.id}:plan`);
-    expect(planRun, 'plan run should exist after first step').toBeDefined();
+    expect(
+      planRun,
+      'plan run should exist after feature planning',
+    ).toBeDefined();
     expect(planRun).toMatchObject({
       runStatus: 'await_approval',
       owner: 'manual',
@@ -204,7 +360,7 @@ describe('prompt-to-main lifecycle (non-TUI scripted proof)', () => {
     ).toBeDefined();
 
     // ---------------------------------------------------------------
-    // Phase 2: Approve plan proposal → tasks created, feature → executing.
+    // Phase 4: Approve feature plan proposal → tasks created, feature → executing.
     // REQ-PLAN-02: approval applies feature task DAG.
     // ---------------------------------------------------------------
     scheduler.enqueue({
@@ -213,7 +369,7 @@ describe('prompt-to-main lifecycle (non-TUI scripted proof)', () => {
       phase: 'plan',
       decision: 'approved',
     });
-    await scheduler.step(200);
+    await scheduler.step(400);
     // Do NOT drain here — the worker is now running and will block on
     // request_help. Draining would hang until the help is answered.
     await yieldEventLoop(8);
@@ -233,7 +389,7 @@ describe('prompt-to-main lifecycle (non-TUI scripted proof)', () => {
     });
 
     // ---------------------------------------------------------------
-    // Phase 3: Worker emits request_help → test answers it.
+    // Phase 5: Worker emits request_help → test answers it.
     // REQ-INBOX-01: agent request_help routes to inbox item.
     //
     // NOTE: the worker blocks on request_help, so we MUST NOT call
@@ -296,7 +452,7 @@ describe('prompt-to-main lifecycle (non-TUI scripted proof)', () => {
     await harness.drain();
 
     // ---------------------------------------------------------------
-    // Phase 4: Worker committed, feature advances to ci_check → verifying.
+    // Phase 6: Worker committed, feature advances to ci_check → verifying.
     // REQ-EXEC-01: task ran in worktree via LocalWorkerPool/InProcessHarness.
     // REQ-EXEC-02: commit_done frames have trailerOk === true and a SHA.
     // ---------------------------------------------------------------
@@ -347,7 +503,7 @@ describe('prompt-to-main lifecycle (non-TUI scripted proof)', () => {
     );
 
     // ---------------------------------------------------------------
-    // Phase 5: Drive scheduler until merge-train completes.
+    // Phase 7: Drive scheduler until merge-train completes.
     // REQ-MERGE-01/02: integration runner rebases, shell-verifies, agent-
     //   reviews, ff-merges → feature_integration_complete.
     // REQ-MERGE-04: agent review fires with run-integration: prefix.

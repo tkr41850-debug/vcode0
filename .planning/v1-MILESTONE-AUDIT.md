@@ -1,41 +1,19 @@
 ---
 milestone: v1
 audited: 2026-05-03
-status: gaps_found
+status: passed
 scores:
-  requirements: 36/37
+  requirements: 37/37
   phases: 12/12
-  integration: 6/7
-  flows: 6/7
-gaps:
-  requirements:
-    - id: "REQ-PLAN-01"
-      status: "partial"
-      phase: "12-integration-polish"
-      claimed_by_plans:
-        - ".planning/phases/12-integration-polish/12-01-SUMMARY.md"
-        - ".planning/REQUIREMENTS.md"
-      completed_by_plans:
-        - ".planning/phases/12-integration-polish/12-01-SUMMARY.md"
-        - ".planning/phases/12-integration-polish/12-03-SUMMARY.md"
-      verification_status: "partial"
-      evidence: "The claimed prompt-to-main E2E starts from fixture.seedFeature('f-p2m') instead of a user prompt/top_planner_requested event; top-level planner coverage is separate and stops after proposal application."
-  integration:
-    - flow: "prompt/top-planner to main"
-      status: "partial"
-      affected_requirements:
-        - "REQ-PLAN-01"
-        - "REQ-PLAN-02"
-        - "REQ-EXEC-01"
-        - "REQ-INBOX-01"
-        - "REQ-MERGE-01"
-        - "REQ-MERGE-02"
-        - "REQ-MERGE-04"
-      evidence: "test/integration/prompt-to-main-e2e.test.ts:81 seeds a feature directly; test/integration/feature-phase-agent-flow.test.ts:770 covers top-level planner proposal application separately."
-  flows:
-    - name: "one prompt to merged main"
-      breaks_at: "handoff between top-level planner proposal approval and feature-level planning/execution in a single E2E run"
-      evidence: "No single test starts with a top-level user prompt, accepts the created feature proposal, runs feature planning, executes a worker, answers inbox help, verifies, and drains the merge train to merged."
+  integration: 7/7
+  flows: 7/7
+resolved_gaps:
+  - id: "GAP-01"
+    requirement: "REQ-PLAN-01"
+    phase: "12-integration-polish"
+    resolved_by:
+      - "test/integration/prompt-to-main-e2e.test.ts"
+    evidence: "The prompt-to-main E2E now starts from top_planner_requested, approves the top-level proposal, runs discuss/research, feature planning, worker execution with inbox help, verify, integration review, and merge-train drain to merged."
 tech_debt:
   - phase: "04-scheduler-tick-event-queue"
     items:
@@ -69,56 +47,64 @@ nyquist:
 
 # v1 Milestone Audit
 
-**Status:** gaps_found
+**Status:** passed
 **Audited:** 2026-05-03
 
-The v1 roadmap is implementation-complete, but the milestone audit found one integration-evidence gap in the core value claim: the strongest claimed prompt-to-main proof does not start from an actual top-level prompt/top-planner event in the same E2E chain.
+The v1 roadmap is implementation-complete and the milestone audit now passes. The original audit found one integration-evidence gap in the core value claim; that gap has been closed by upgrading the non-TUI prompt-to-main proof so a single deterministic E2E chain starts from a top-level prompt and drains to a merged feature.
 
 ## Scores
 
 | Area | Score | Status |
 |------|-------|--------|
-| Requirements | 36/37 | Gap: REQ-PLAN-01 is integration-partial |
+| Requirements | 37/37 | Passed |
 | Phases | 12/12 | Complete |
-| Integration | 6/7 | One prompt-to-main handoff gap |
-| Flows | 6/7 | One prompt-to-main proof gap |
+| Integration | 7/7 | Passed |
+| Flows | 7/7 | Passed |
 
 ## Requirement Coverage
 
-`.planning/REQUIREMENTS.md` marks all 37 v1 requirements complete and all traceability rows cite shipped evidence. The audit accepts those rows as phase-level completion evidence except for the cross-phase proof of `REQ-PLAN-01` in the full prompt-to-main lifecycle.
+`.planning/REQUIREMENTS.md` marks all 37 v1 requirements complete and all traceability rows cite shipped evidence. The audit accepts those rows as phase-level completion evidence, and `REQ-PLAN-01` is now also covered in the full prompt-to-main E2E chain.
 
 | Requirement | Audit Status | Evidence |
 |-------------|--------------|----------|
-| REQ-PLAN-01 | Partial | Top-level planner is wired and covered separately, but the Phase 12 prompt-to-main E2E seeds a feature directly instead of starting from top-planner prompt/proposal approval. |
+| REQ-PLAN-01 | Satisfied | `test/integration/prompt-to-main-e2e.test.ts` starts from `top_planner_requested`, approves the top-level proposal, creates feature `f-1`, runs discuss/research and feature planning, executes a worker with inbox help, verifies, and drains the merge train to `collabControl === 'merged'`. |
 | Remaining 36 v1 requirements | Satisfied | Requirements traceability table, phase summaries, focused integration tests, TUI smoke, and source-install dry-run evidence. |
 
-## Critical Gap
+## Resolved Gap
 
-### GAP-01: Full “one prompt to merged main” E2E is not proven in one chain
+### GAP-01: Full “one prompt to merged main” E2E is proven in one chain
 
 **Affected requirements:** REQ-PLAN-01, REQ-PLAN-02, REQ-EXEC-01, REQ-INBOX-01, REQ-MERGE-01, REQ-MERGE-02, REQ-MERGE-04
 
-**Finding:** The Phase 12 backend E2E test is named and summarized as prompt-to-main proof, but it begins from a seeded feature:
+**Original finding:** The Phase 12 backend E2E test was named and summarized as prompt-to-main proof, but began from a seeded feature. Top-level planner coverage existed separately, but no single E2E proof covered the handoff from top-level prompt/proposal approval into feature-level planning, worker execution, inbox response, verification, and merge train drain.
 
-- `test/integration/prompt-to-main-e2e.test.ts:81` — test title claims planner proposal, approval, inbox help, verify, and merge.
-- `test/integration/prompt-to-main-e2e.test.ts:88` — `fixture.seedFeature('f-p2m', ...)` creates the feature directly.
+**Resolution:** `test/integration/prompt-to-main-e2e.test.ts` now drives the full chain in one run:
 
-Top-level planner coverage exists, but separately:
+1. enqueues `top_planner_requested` with a user prompt;
+2. scripts the top-level planner to create a milestone and feature proposal;
+3. asserts `run-top-planner` reaches `await_approval`;
+4. approves the top-level proposal and asserts feature `f-1` exists;
+5. runs discuss and research before feature planning;
+6. approves the feature-level task plan;
+7. executes a worker, answers one `request_help` inbox item, and verifies commit trailer evidence;
+8. verifies the feature and runs integration review via `run-integration:${feature.id}`;
+9. drains the merge train and asserts `collabControl === 'merged'`.
 
-- `test/integration/feature-phase-agent-flow.test.ts:770` — dispatches a top-level planner proposal into `await_approval` and applies it.
-- That test validates proposal application and task creation, but it does not continue into worker execution, inbox response, verification, and merge train drain.
+Focused verification passed:
 
-**Why this blocks audit pass:** The milestone core value is “from one prompt, orchestrate parallel autonomous coding that lands on main.” The shipped pieces appear wired, but no single E2E proof covers the handoff from top-level prompt/proposal approval into the feature-level planning/execution/merge chain.
+```bash
+npx vitest run test/integration/prompt-to-main-e2e.test.ts --reporter=verbose
+```
 
-**Recommended gap closure:** Add one true E2E test that starts with a top-level user prompt or `top_planner_requested`, accepts the top-level proposal that creates/edits a feature, lets that feature enter feature-level planning, executes at least one task with an inbox answer, verifies, drains the merge train, and asserts the feature reaches `collabControl === 'merged'`.
+Result: 1 test passed, 0 failed.
 
 ## Integration Flow Review
 
 | Flow | Status | Evidence |
 |------|--------|----------|
 | TUI/plain prompt to top planner | Wired | Composer/command routing and top planner proposal application tests. |
-| Top planner to feature planner to merged main | Partial | Covered only as separated tests; no single-chain proof. |
-| Feature planner to worker/worktree/IPC/inbox/verify/merge train | Satisfied | `test/integration/prompt-to-main-e2e.test.ts` covers this after direct feature seeding. |
+| Top planner to feature planner to merged main | Satisfied | `test/integration/prompt-to-main-e2e.test.ts` now proves prompt → top planner approval → feature planning → worker/inbox → verify → merge train → merged in one chain. |
+| Feature planner to worker/worktree/IPC/inbox/verify/merge train | Satisfied | `test/integration/prompt-to-main-e2e.test.ts` covers this after the top-planner-created feature enters the feature lifecycle. |
 | Merge train serialization and verify-before-main | Satisfied | Merge-train integration tests and integration runner behavior. |
 | TUI operator-visible golden path | Satisfied | `npm run test:tui:e2e` passes 9/9; golden path covers startup, `/init`, graph, overlay, draft, submit, quit. |
 | Crash recovery and orphan worktree UX | Satisfied | Phase 9 recovery summaries and tests cover recovery/orphan inbox behavior. |
@@ -132,6 +118,7 @@ The current planning tree contains 42 `*-SUMMARY.md` files and 0 standalone `*-V
 2. Phase `*-SUMMARY.md` frontmatter and verification sections.
 3. Integration checker review of cross-phase wiring and key tests.
 4. Phase `*-VALIDATION.md` files where present.
+5. The post-audit focused prompt-to-main E2E proof update.
 
 This artifact-shape mismatch is not treated as a blocker because the roadmap and state files consistently record all phases complete, but future milestone audits should prefer standalone verification reports for every phase.
 
@@ -147,7 +134,7 @@ Nyquist validation is enabled in `.planning/config.json`. Validation files exist
 | 12-03 | Present | Partial |
 | Earlier phases | Missing | Missing |
 
-This is discovery-only and does not change the primary blocker: the prompt-to-main E2E proof gap.
+This is discovery-only and does not change the primary milestone verdict because the core prompt-to-main proof gap is now closed.
 
 ## Tech Debt and Deferred Items
 
@@ -166,6 +153,4 @@ Additional audit concerns:
 
 ## Conclusion
 
-The milestone is functionally close, and most cross-phase wiring appears connected, but the audit cannot mark v1 as fully passed while the main “one prompt to merged main” proof skips the top-level prompt/top-planner handoff.
-
-**Next action:** plan and execute one gap-closure slice for the true top-planner-to-main E2E proof.
+The milestone passes. v1 has phase-level completion evidence, requirement traceability, source-install/TUI smoke evidence, and a single deterministic non-TUI proof for the core “one prompt to merged main” flow.

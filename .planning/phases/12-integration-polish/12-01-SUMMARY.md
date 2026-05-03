@@ -45,7 +45,7 @@ metrics:
 
 # Phase 12 Plan 01: Integration Proof Summary
 
-Deterministic non-TUI prompt-to-main lifecycle proof and verify-agent flake-rate audit using faux-provider in-process harness; surfaces and fixes three pre-existing gaps in the integration path.
+Deterministic non-TUI prompt-to-main lifecycle proof and verify-agent flake-rate audit using faux-provider in-process harness; post-audit gap closure upgraded the lifecycle proof to start from a top-level prompt and drain to merged in one chain.
 
 ## Tasks Completed
 
@@ -82,13 +82,15 @@ Deterministic non-TUI prompt-to-main lifecycle proof and verify-agent flake-rate
 ## Test Coverage
 
 ### SC1: prompt-to-main lifecycle (REQ-PLAN-01/02, REQ-EXEC-01/02, REQ-INBOX-01, REQ-MERGE-01/02/04)
-- Planner proposal created and lands in `await_approval` ✓
-- Approval event applies task DAG, feature → executing ✓
+- Top-level prompt enqueues `top_planner_requested` and creates `run-top-planner` ✓
+- Top-level planner proposal lands in `await_approval`; approval creates feature `f-1` ✓
+- Top-created feature runs discuss and research before feature planning ✓
+- Feature planner proposal lands in `await_approval`; approval applies task DAG and feature → executing ✓
 - Worker blocks on `request_help`, inbox item created, test delivers answer ✓
 - Worker resumes, commits with `trailerOk=true` and valid SHA ✓
 - Feature advances: ci_check → verifying → awaiting_merge ✓
 - Merge-train drains: `collabControl === 'merged'` ✓
-- Integration agent run `run-integration:f-p2m` exists, completed, `ok: true` ✓
+- Integration agent run `run-integration:f-1` exists, completed, `ok: true` ✓
 
 ### SC2: verify-agent flake audit (REQ-MERGE-04)
 - 5/5 isolated verify attempts all pass with known-good faux response ✓
@@ -100,8 +102,9 @@ None — both tests make substantive assertions against real state transitions.
 
 ## Self-Check: PASSED
 
-- `test/integration/prompt-to-main-e2e.test.ts` exists ✓
+- `test/integration/prompt-to-main-e2e.test.ts` exists and now starts from `top_planner_requested` ✓
 - `test/integration/verify-flake-audit.test.ts` exists ✓
 - `src/orchestrator/scheduler/integration-runner.ts` modified ✓
 - Commits dfa999c and 1437ad8 exist ✓
+- Post-audit focused verification: `npx vitest run test/integration/prompt-to-main-e2e.test.ts --reporter=verbose` passed 1/1 ✓
 - `npm run check`: 94 test files, 1969 tests, all passed ✓
